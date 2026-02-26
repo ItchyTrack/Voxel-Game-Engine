@@ -1,8 +1,12 @@
-use std::sync::Arc;
+use std::{sync::Arc};
 mod texture;
 mod mesh;
+mod voxels;
 mod resources;
+mod entity;
+mod camera;
 
+use glam::{Mat4, Quat, Vec3, Vec4};
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -18,38 +22,16 @@ use wgpu::util::DeviceExt;
 
 struct Vertex {
     position: [f32; 3],
-    color: [f32; 2],
+    color: [f32; 4],
 }
 
 #[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::from_cols(
-    cgmath::Vector4::new(1.0, 0.0, 0.0, 0.0),
-    cgmath::Vector4::new(0.0, 1.0, 0.0, 0.0),
-    cgmath::Vector4::new(0.0, 0.0, 0.5, 0.0),
-    cgmath::Vector4::new(0.0, 0.0, 0.5, 1.0),
+pub const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols(
+    Vec4::new(1.0, 0.0, 0.0, 0.0),
+    Vec4::new(0.0, 1.0, 0.0, 0.0),
+    Vec4::new(0.0, 0.0, 0.5, 0.0),
+    Vec4::new(0.0, 0.0, 0.5, 1.0),
 );
-
-struct Camera {
-    eye: cgmath::Point3<f32>,
-    target: cgmath::Point3<f32>,
-    up: cgmath::Vector3<f32>,
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
-}
-
-impl Camera {
-    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        // 1.
-        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-        // 2.
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        // 3.
-        return OPENGL_TO_WGPU_MATRIX * proj * view;
-    }
-}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -59,80 +41,49 @@ struct CameraUniform {
 
 impl CameraUniform {
     fn new() -> Self {
-        use cgmath::SquareMatrix;
-        Self { view_proj: cgmath::Matrix4::identity().into() }
+        Self { view_proj: Mat4::IDENTITY.to_cols_array_2d() }
     }
 
-    fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_proj = camera.build_view_projection_matrix().into();
+    fn update_view_proj(&mut self, camera: &camera::Camera) {
+        self.view_proj = camera.build_view_projection_matrix().to_cols_array_2d();
     }
 }
 
-struct CameraController {
-    speed: f32,
-    is_forward_pressed: bool,
-    is_backward_pressed: bool,
-    is_left_pressed: bool,
-    is_right_pressed: bool,
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct MatrixUniform {
+    matrix: [[f32; 4]; 4],
 }
 
-impl CameraController {
-    fn new(speed: f32) -> Self {
-        Self { speed, is_forward_pressed: false, is_backward_pressed: false, is_left_pressed: false, is_right_pressed: false }
-    }
-
-    fn handle_key(&mut self, code: KeyCode, is_pressed: bool) -> bool {
-        match code {
-            KeyCode::KeyW | KeyCode::ArrowUp => {
-                self.is_forward_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyA | KeyCode::ArrowLeft => {
-                self.is_left_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyS | KeyCode::ArrowDown => {
-                self.is_backward_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyD | KeyCode::ArrowRight => {
-                self.is_right_pressed = is_pressed;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn update_camera(&self, camera: &mut Camera) {
-        use cgmath::InnerSpace;
-        let forward = camera.target - camera.eye;
-        let forward_norm = forward.normalize();
-        let forward_mag = forward.magnitude();
-
-        // Prevents glitching when the camera gets too close to the center of the scene.
-        if self.is_forward_pressed && forward_mag > self.speed {
-            camera.eye += forward_norm * self.speed;
-        }
-        if self.is_backward_pressed {
-            camera.eye -= forward_norm * self.speed;
-        }
-
-        let right = forward_norm.cross(camera.up);
-
-        // Redo radius calc in case the forward/backward is pressed.
-        let forward = camera.target - camera.eye;
-        let forward_mag = forward.magnitude();
-
-        if self.is_right_pressed {
-            // Rescale the distance between the target and the eye so
-            // that it doesn't change. The eye, therefore, still
-            // lies on the circle made by the target and eye.
-            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
-        }
-        if self.is_left_pressed {
-            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
-        }
-    }
+pub fn get_matrix_buffer(device: &wgpu::Device) -> (wgpu::Buffer, wgpu::BindGroup) {
+	let matrix_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+			entries: &[wgpu::BindGroupLayoutEntry {
+				binding: 0,
+				visibility: wgpu::ShaderStages::VERTEX,
+				ty: wgpu::BindingType::Buffer {
+					ty: wgpu::BufferBindingType::Uniform,
+					has_dynamic_offset: false,
+					min_binding_size: None,
+				},
+				count: None,
+			}],
+			label: Some("matrix_bind_group_layout"),
+		});
+	let matrix_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+		label: Some("Matrix Buffer"),
+		size: std::mem::size_of::<MatrixUniform>() as u64,
+		usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+		mapped_at_creation: false,
+	});
+	let matrix_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+		layout: &matrix_bind_group_layout,
+		entries: &[wgpu::BindGroupEntry {
+			binding: 0,
+			resource: matrix_buffer.as_entire_binding(),
+		}],
+		label: Some("matrix_bind_group"),
+	});
+	(matrix_buffer, matrix_bind_group)
 }
 
 pub struct State {
@@ -143,13 +94,15 @@ pub struct State {
     is_surface_configured: bool,
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
-    camera: Camera,
+    camera: camera::Camera,
+    camera_controller: camera::CameraController,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    camera_controller: CameraController,
     depth_texture: texture::Texture,
-    obj_model: mesh::Mesh,
+    entities: Vec<entity::Entity>,
+    meshes: Vec<(mesh::Mesh, u32)>,
+	regenerate_meshes: bool,
 }
 
 impl State {
@@ -165,6 +118,10 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+		for entity in self.entities.iter_mut() {
+			entity.position += entity.velocity;
+			entity.rotation *= entity.angular_velocity;
+		}
     }
 
 	fn resize(&mut self, width: u32, height: u32) {
@@ -253,14 +210,10 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        let camera = Camera {
-            // position the camera 1 unit up and 2 units back
-            // +z is out of the screen
-            eye: (0.0, 1.0, 2.0).into(),
-            // have it look at the origin
-            target: (0.0, 0.0, 0.0).into(),
-            // which way is "up"
-            up: cgmath::Vector3::unit_y(),
+        let camera = camera::Camera {
+			position: Vec3::ZERO,
+			yaw: 0.0,
+			pitch: 0.0,
             aspect: config.width as f32 / config.height as f32,
             fovy: 45.0,
             znear: 0.1,
@@ -292,15 +245,89 @@ impl State {
             label: Some("camera_bind_group"),
         });
 
-        let camera_controller = CameraController::new(1.);
+        let camera_controller = camera::CameraController::new(0.1, 0.05);
 
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        let obj_model = resources::load_model("cube.obj", &device).await.unwrap();
+		let mut entities: Vec<entity::Entity> = vec![];
+
+		entities.push(entity::Entity{
+			position: Vec3::new(4., 0., 0.),
+			rotation: Quat::IDENTITY,
+			velocity: Vec3::ZERO,
+			angular_velocity: Quat::IDENTITY,
+			id: entities.len() as u32,
+			voxels: {
+				let mut voxels = voxels::Voxels::new();
+				voxels.voxels.insert([0, 0, 0], Voxel{ color: [1.0, 0.0, 0.0, 1.0] });
+				voxels.voxels.insert([0, 1, 0], Voxel{ color: [0.0, 1.0, 0.0, 1.0] });
+				voxels.voxels.insert([0, 0, 2], Voxel{ color: [0.0, 0.0, 1.0, 1.0] });
+				voxels.voxels.insert([1, 0, 2], Voxel{ color: [1.0, 1.0, 1.0, 1.0] });
+				voxels.voxels.insert([1, 0, 0], Voxel{ color: [1.0, 0.0, 1.0, 1.0] });
+				for x in 0..15 {
+					for z in 0..15 {
+						for y in 0..3 {
+							voxels.voxels.insert([x - 10, z/2 - (x*x)/9 + y, z + 10], Voxel{ color: [0.0, (x as f32)/20.0, (z as f32)/20.0, 1.0] });
+						}
+					}
+				}
+				voxels
+			},
+		});
+		entities.push(entity::Entity{
+			position: Vec3::new(5., 5., 5.),
+			rotation: Quat::from_rotation_y(0.785),
+			velocity: Vec3::ZERO,
+			angular_velocity: Quat::IDENTITY,
+			id: entities.len() as u32,
+			voxels: {
+				let mut voxels = voxels::Voxels::new();
+				for x in 0..6 {
+					for y in 0..6 {
+						for z in 0..6 {
+							voxels.voxels.insert([x, y, z], Voxel{ color: [(x as f32)/6.0, (y as f32)/6.0, (z as f32)/6.0, 1.0] });
+						}
+					}
+				}
+				voxels
+			},
+		});
+		entities.push(entity::Entity{
+			position: Vec3::new(0., -7., 0.),
+			rotation: Quat::from_rotation_x(0.985),
+			velocity: Vec3::ZERO,
+			angular_velocity: Quat::from_rotation_z(0.02),
+			id: entities.len() as u32,
+			voxels: {
+				let mut voxels = voxels::Voxels::new();
+				for x in 0..1 {
+					for y in -4..5 {
+						for z in -4..5 {
+							voxels.voxels.insert([x, y, z], Voxel{ color: [0.0, 0.4, 0.0, 1.0] });
+						}
+					}
+				}
+				voxels
+			},
+		});
+
+		let matrix_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+				entries: &[wgpu::BindGroupLayoutEntry {
+					binding: 0,
+					visibility: wgpu::ShaderStages::VERTEX,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Uniform,
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
+				}],
+				label: Some("matrix_bind_group_layout"),
+			});
 
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&camera_bind_group_layout],
+            bind_group_layouts: &[&camera_bind_group_layout, &matrix_bind_group_layout],
             push_constant_ranges: &[],
         });
         use crate::mesh::Vertex;
@@ -311,7 +338,7 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[mesh::ModelVertex::desc()],
+                buffers: &[mesh::MeshVertex::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -361,12 +388,14 @@ impl State {
             window,
             render_pipeline,
             camera,
+            camera_controller,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            camera_controller,
             depth_texture,
-            obj_model,
+            entities,
+            meshes: vec![],
+			regenerate_meshes: true,
         })
     }
 
@@ -401,12 +430,23 @@ impl State {
                 timestamp_writes: None,
             });
 
-            use mesh::DrawMesh;
-
-            // render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_pipeline(&self.render_pipeline);
-            // render_pass.draw_model_instanced(&self.obj_model, 0..self.instances.len() as u32, &self.camera_bind_group);
-            render_pass.draw_mesh(&self.obj_model, &self.camera_bind_group);
+			if self.regenerate_meshes {
+				self.regenerate_meshes = false;
+				for entity in self.entities.iter() {
+					self.meshes.push((entity.voxels.get_mesh(&self.device), entity.id));
+				}
+			}
+
+			for mesh in self.meshes.iter() {
+				let entity = &self.entities[mesh.1 as usize];
+
+				let matrix = Mat4::from_translation(entity.position) * Mat4::from_quat(entity.rotation);
+				self.queue.write_buffer(&mesh.0.matrix_buffer, 0, bytemuck::cast_slice(&[MatrixUniform { matrix: matrix.to_cols_array_2d() }]));
+
+				use mesh::DrawMesh;
+				render_pass.draw_mesh(&mesh.0, &self.camera_bind_group);
+			}
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -539,6 +579,8 @@ pub fn run() -> anyhow::Result<()> {
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+use crate::{mesh::GetMesh, voxels::Voxel};
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]

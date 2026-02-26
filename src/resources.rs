@@ -1,6 +1,6 @@
 use std::io::{BufReader, Cursor};
 use wgpu::util::DeviceExt;
-use crate::{mesh};
+use crate::{get_matrix_buffer, mesh};
 
 #[cfg(target_arch = "wasm32")]
 fn format_url(file_name: &str) -> reqwest::Url {
@@ -85,7 +85,7 @@ pub async fn load_model(
                 let vertices = (0..m.mesh.positions.len() / 3)
                 .map(|i| {
                     if m.mesh.normals.is_empty(){
-                        mesh::ModelVertex {
+                        mesh::MeshVertex {
                             position: [
                                 m.mesh.positions[i * 3],
                                 m.mesh.positions[i * 3 + 1],
@@ -100,7 +100,7 @@ pub async fn load_model(
                             normal: [0.0, 0.0, 0.0],
                         }
                     }else{
-                        mesh::ModelVertex {
+                        mesh::MeshVertex {
                             position: [
                                 m.mesh.positions[i * 3],
                                 m.mesh.positions[i * 3 + 1],
@@ -133,10 +133,13 @@ pub async fn load_model(
                 usage: wgpu::BufferUsages::INDEX,
             });
 
+			let matrix_buffer = get_matrix_buffer(device);
             mesh::Mesh {
                 vertex_buffer,
                 index_buffer,
                 num_elements: m.mesh.indices.len() as u32,
+				matrix_buffer: matrix_buffer.0,
+				matrix_bind_group: matrix_buffer.1,
             }
         })
         .collect::<Vec<_>>();

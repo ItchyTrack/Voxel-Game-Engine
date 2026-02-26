@@ -1,20 +1,24 @@
+use glam::Mat4;
+
+use crate::MatrixUniform;
+
 pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ModelVertex {
+pub struct MeshVertex {
     pub position: [f32; 3],
     pub color: [f32; 4],
     pub normal: [f32; 3],
 }
 
-impl Vertex for ModelVertex {
+impl Vertex for MeshVertex {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;
         wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<ModelVertex>() as wgpu::BufferAddress,
+            array_stride: mem::size_of::<MeshVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -41,6 +45,8 @@ pub struct Mesh {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_elements: u32,
+	pub matrix_buffer: wgpu::Buffer,
+	pub matrix_bind_group: wgpu::BindGroup,
 }
 
 pub trait DrawMesh<'a> {
@@ -56,9 +62,14 @@ where
         mesh: &'b Mesh,
         camera_bind_group: &'b wgpu::BindGroup,
     ) {
+		self.set_bind_group(1, &mesh.matrix_bind_group, &[]);
         self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
         self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         self.set_bind_group(0, camera_bind_group, &[]);
         self.draw_indexed(0..mesh.num_elements, 0, 0..1);
     }
+}
+
+pub trait GetMesh {
+    fn get_mesh(&self, device: &wgpu::Device) -> Mesh;
 }
