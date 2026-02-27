@@ -1,7 +1,3 @@
-use glam::Mat4;
-
-use crate::MatrixUniform;
-
 pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
 }
