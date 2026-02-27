@@ -118,47 +118,47 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
-		for id_1 in 0..(self.entities.len()-1) {
-			for id_2 in (id_1+1)..(self.entities.len()) {
-				let [entity_1, entity_2] = self.entities.get_disjoint_mut([id_1, id_2]).unwrap();
-				let vec_1_to_2 = (entity_2.orientation * entity_2.voxels.center_of_mass() + entity_2.position) - (entity_1.orientation * entity_1.voxels.center_of_mass() + entity_1.position);
-				let p = 0.00001 * 1.0/60.0 * entity_1.voxels.mass() * entity_2.voxels.mass() / vec_1_to_2.length_squared();
-				entity_1.momentum += p * vec_1_to_2;
-				entity_2.momentum += p * -vec_1_to_2;
-			}
-		}
-		for id_1 in 0..(self.entities.len()-1) {
-			for id_2 in (id_1+1)..(self.entities.len()) {
-				let [mut entity_1, mut entity_2] = self.entities.get_disjoint_mut([id_1, id_2]).unwrap();
-				if entity_1.voxels.get_voxels().len() > entity_2.voxels.get_voxels().len() {
-					std::mem::swap(&mut entity_1, &mut entity_2);
-				}
-				let from_1_to_2 = Mat4::from_quat(entity_2.orientation.inverse()) * Mat4::from_translation(entity_1.position - entity_2.position) * Mat4::from_quat(entity_1.orientation);
-				for voxel in entity_1.voxels.get_voxels() {
-					let other_gird_voxel_center_pos = (from_1_to_2 * (voxel.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5)).extend(1.0)).truncate();
-					let vec_to_check = [
-						Vec3::new(0.5, 0.5, 0.5),
-						Vec3::new(-0.5, 0.5, 0.5),
-						Vec3::new(0.5, -0.5, 0.5),
-						Vec3::new(0.5, 0.5, -0.5),
-						Vec3::new(-0.5, -0.5, 0.5),
-						Vec3::new(-0.5, 0.5, -0.5),
-						Vec3::new(0.5, -0.5, -0.5),
-						Vec3::new(-0.5, -0.5, -0.5),
-					];
-					vec_to_check.iter().for_each(|vec| {
-						match entity_2.voxels.get_voxel((other_gird_voxel_center_pos + vec).as_ivec3()) {
-							Some(_) => {
-								entity_1.momentum += 0.0001 * entity_1.voxels.mass() * (Mat3::from_quat(entity_2.orientation) * -vec);
-								entity_2.momentum += 0.0001 * entity_2.voxels.mass() * (Mat3::from_quat(entity_2.orientation) * vec);
-							},
-							None => {},
-						};
-					});
+		// for id_1 in 0..(self.entities.len()-1) {
+		// 	for id_2 in (id_1+1)..(self.entities.len()) {
+		// 		let [entity_1, entity_2] = self.entities.get_disjoint_mut([id_1, id_2]).unwrap();
+		// 		let vec_1_to_2 = (entity_2.orientation * entity_2.voxels.center_of_mass() + entity_2.position) - (entity_1.orientation * entity_1.voxels.center_of_mass() + entity_1.position);
+		// 		let p = 0.00001 * 1.0/60.0 * entity_1.voxels.mass() * entity_2.voxels.mass() / vec_1_to_2.length_squared();
+		// 		entity_1.momentum += p * vec_1_to_2;
+		// 		entity_2.momentum += p * -vec_1_to_2;
+		// 	}
+		// }
+		// for id_1 in 0..(self.entities.len()-1) {
+		// 	for id_2 in (id_1+1)..(self.entities.len()) {
+		// 		let [mut entity_1, mut entity_2] = self.entities.get_disjoint_mut([id_1, id_2]).unwrap();
+		// 		if entity_1.voxels.get_voxels().len() > entity_2.voxels.get_voxels().len() {
+		// 			std::mem::swap(&mut entity_1, &mut entity_2);
+		// 		}
+		// 		let from_1_to_2 = Mat4::from_quat(entity_2.orientation.inverse()) * Mat4::from_translation(entity_1.position - entity_2.position) * Mat4::from_quat(entity_1.orientation);
+		// 		for voxel in entity_1.voxels.get_voxels() {
+		// 			let other_gird_voxel_center_pos = (from_1_to_2 * (voxel.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5)).extend(1.0)).truncate();
+		// 			let vec_to_check = [
+		// 				Vec3::new(0.5, 0.5, 0.5),
+		// 				Vec3::new(-0.5, 0.5, 0.5),
+		// 				Vec3::new(0.5, -0.5, 0.5),
+		// 				Vec3::new(0.5, 0.5, -0.5),
+		// 				Vec3::new(-0.5, -0.5, 0.5),
+		// 				Vec3::new(-0.5, 0.5, -0.5),
+		// 				Vec3::new(0.5, -0.5, -0.5),
+		// 				Vec3::new(-0.5, -0.5, -0.5),
+		// 			];
+		// 			vec_to_check.iter().for_each(|vec| {
+		// 				match entity_2.voxels.get_voxel((other_gird_voxel_center_pos + vec).as_ivec3()) {
+		// 					Some(_) => {
+		// 						entity_1.momentum += 0.0001 * entity_1.voxels.mass() * (Mat3::from_quat(entity_2.orientation) * -vec);
+		// 						entity_2.momentum += 0.0001 * entity_2.voxels.mass() * (Mat3::from_quat(entity_2.orientation) * vec);
+		// 					},
+		// 					None => {},
+		// 				};
+		// 			});
 
-				}
-			}
-		}
+		// 		}
+		// 	}
+		// }
 		// update pos
 		for entity in self.entities.iter_mut() {
 			entity.position += entity.momentum / entity.voxels.mass();
