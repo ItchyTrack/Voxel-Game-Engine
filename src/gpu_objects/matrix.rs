@@ -3,11 +3,11 @@ use glam::Mat4;
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MatrixUniform {
-    matrix: [[f32; 4]; 4],
+	matrix: [[f32; 4]; 4],
 }
 
 impl MatrixUniform {
-	pub fn from_mat4(mat: Mat4) -> MatrixUniform {
+	pub fn from_mat4(mat: &Mat4) -> MatrixUniform {
 		MatrixUniform{ matrix: mat.to_cols_array_2d() }
 	}
 	pub fn get_bind_group_layout(device: &wgpu::Device, binding: u32) -> wgpu::BindGroupLayout {

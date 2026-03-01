@@ -3,6 +3,7 @@ mod resources;
 mod entity;
 mod camera;
 mod app;
+mod renderer;
 mod state;
 mod gpu_objects {
 	pub mod texture;
@@ -15,30 +16,30 @@ use winit::{event_loop::{EventLoop}};
 use crate::{app::App};
 
 pub fn run() -> anyhow::Result<()> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        env_logger::init();
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        console_log::init_with_level(log::Level::Info).unwrap_throw();
-    }
+	#[cfg(not(target_arch = "wasm32"))]
+	{
+		env_logger::init();
+	}
+	#[cfg(target_arch = "wasm32")]
+	{
+		console_log::init_with_level(log::Level::Info).unwrap_throw();
+	}
 
-    let event_loop = EventLoop::with_user_event().build()?;
-    let mut app = App::new(
-        #[cfg(target_arch = "wasm32")]
-        &event_loop,
-    );
-    event_loop.run_app(&mut app)?;
+	let event_loop = EventLoop::with_user_event().build()?;
+	let mut app = App::new(
+		#[cfg(target_arch = "wasm32")]
+		&event_loop,
+	);
+	event_loop.run_app(&mut app)?;
 
-    Ok(())
+	Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn run_web() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
+	console_error_panic_hook::set_once();
 
-    run().unwrap_throw();
-    Ok(())
+	run().unwrap_throw();
+	Ok(())
 }
