@@ -10,8 +10,6 @@ pub struct State {
 	pub camera: camera::Camera,
 	pub camera_controller: camera::CameraController,
 	pub entities: Vec<entity::Entity>,
-	pub meshes: Vec<(mesh::Mesh, u32)>,
-	pub regenerate_meshes: bool,
 }
 
 impl State {
@@ -25,56 +23,8 @@ impl State {
 
 	pub fn update(&mut self) {
 		self.camera_controller.update_camera(&mut self.camera);
-		// for id_1 in 0..(self.entities.len()-1) {
-		// 	for id_2 in (id_1+1)..(self.entities.len()) {
-		// 		let [entity_1, entity_2] = self.entities.get_disjoint_mut([id_1, id_2]).unwrap();
-		// 		let vec_1_to_2 = (entity_2.orientation * entity_2.voxels.center_of_mass() + entity_2.position) - (entity_1.orientation * entity_1.voxels.center_of_mass() + entity_1.position);
-		// 		let p = 0.00001 * 1.0/60.0 * entity_1.voxels.mass() * entity_2.voxels.mass() / vec_1_to_2.length_squared();
-		// 		entity_1.momentum += p * vec_1_to_2;
-		// 		entity_2.momentum += p * -vec_1_to_2;
-		// 	}
-		// }
-		// for id_1 in 0..(self.entities.len()-1) {
-		// 	for id_2 in (id_1+1)..(self.entities.len()) {
-		// 		let [mut entity_1, mut entity_2] = self.entities.get_disjoint_mut([id_1, id_2]).unwrap();
-		// 		if entity_1.voxels.get_voxels().len() > entity_2.voxels.get_voxels().len() {
-		// 			std::mem::swap(&mut entity_1, &mut entity_2);
-		// 		}
-		// 		let from_1_to_2 = Mat4::from_quat(entity_2.orientation.inverse()) * Mat4::from_translation(entity_1.position - entity_2.position) * Mat4::from_quat(entity_1.orientation);
-		// 		for voxel in entity_1.voxels.get_voxels() {
-		// 			let other_gird_voxel_center_pos = (from_1_to_2 * (voxel.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5)).extend(1.0)).truncate();
-		// 			let vec_to_check = [
-		// 				Vec3::new(0.5, 0.5, 0.5),
-		// 				Vec3::new(-0.5, 0.5, 0.5),
-		// 				Vec3::new(0.5, -0.5, 0.5),
-		// 				Vec3::new(0.5, 0.5, -0.5),
-		// 				Vec3::new(-0.5, -0.5, 0.5),
-		// 				Vec3::new(-0.5, 0.5, -0.5),
-		// 				Vec3::new(0.5, -0.5, -0.5),
-		// 				Vec3::new(-0.5, -0.5, -0.5),
-		// 			];
-		// 			vec_to_check.iter().for_each(|vec| {
-		// 				match entity_2.voxels.get_voxel((other_gird_voxel_center_pos + vec).as_ivec3()) {
-		// 					Some(_) => {
-		// 						entity_1.momentum += 0.0001 * entity_1.voxels.mass() * (Mat3::from_quat(entity_2.orientation) * -vec);
-		// 						entity_2.momentum += 0.0001 * entity_2.voxels.mass() * (Mat3::from_quat(entity_2.orientation) * vec);
-		// 					},
-		// 					None => {},
-		// 				};
-		// 			});
-
-		// 		}
-		// 	}
-		// }
-		// update pos
 		for entity in self.entities.iter_mut() {
-			entity.position += entity.momentum / entity.voxels.mass();
-			let com = entity.voxels.center_of_mass();
-			entity.position += entity.orientation * com;
-			let rotational_inertia = Mat3::from_quat(entity.orientation) * entity.voxels.rotational_inertia() * Mat3::from_quat(entity.orientation.inverse());
-			let rotationa_velocity = rotational_inertia.inverse() * entity.angular_momentum;
-			entity.orientation = Quat::from_scaled_axis(rotationa_velocity * (1./60.)) * entity.orientation;
-			entity.position -= entity.orientation * com;
+			entity.update();
 		}
 	}
 
@@ -121,6 +71,8 @@ impl State {
 				}
 				voxels
 			},
+			mesh: None,
+			update_mesh: true,
 		});
 		entities.push(entity::Entity{
 			position: Vec3::new(5., 5., 5.),
@@ -140,6 +92,8 @@ impl State {
 				voxels.set_voxel(IVec3::new(6, 6, 6), Voxel{ color: [0.0, 0.0, 0.0, 1.0], mass: 5000.0 });
 				voxels
 			},
+			mesh: None,
+			update_mesh: true,
 		});
 		entities.push(entity::Entity{
 			position: Vec3::new(0., -7., 0.),
@@ -158,6 +112,8 @@ impl State {
 				}
 				voxels
 			},
+			mesh: None,
+			update_mesh: true,
 		});
 		entities.push(entity::Entity{
 			position: Vec3::new(0., 20., 0.),
@@ -178,6 +134,8 @@ impl State {
 				voxels.set_voxel(IVec3::new(0, 4, 0), Voxel{ color: [0.0, 0.0, 0.0, 1.0], mass: 0.01 });
 				voxels
 			},
+			mesh: None,
+			update_mesh: true,
 		});
 
 		Ok(Self {
@@ -185,26 +143,14 @@ impl State {
 			camera,
 			camera_controller,
 			entities,
-			meshes: vec![],
-			regenerate_meshes: true,
 		})
 	}
 
 	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-		if self.regenerate_meshes {
-			self.regenerate_meshes = false;
-			for entity in self.entities.iter() {
-				use mesh::GetMesh;
-				self.meshes.push((entity.voxels.get_mesh(&self.renderer.device), entity.id));
-			}
-		}
-
 		let mut rendering_meshes: Vec<(&mesh::Mesh, Mat4)> = vec![];
 
-		for mesh in self.meshes.iter() {
-			let entity = &self.entities[mesh.1 as usize];
-			let matrix = Mat4::from_translation(entity.position) * Mat4::from_quat(entity.orientation);
-			rendering_meshes.push(( &mesh.0, matrix ));
+		for entity in self.entities.iter_mut() {
+			rendering_meshes.extend(entity.get_rendering_meshes(&self.renderer.device, &self.camera));
 		}
 
 		self.renderer.render(&self.camera.build_view_projection_matrix(), &rendering_meshes)

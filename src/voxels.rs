@@ -85,7 +85,10 @@ impl Voxels {
 }
 
 impl mesh::GetMesh for Voxels {
-	fn get_mesh(&self, device: &wgpu::Device) -> mesh::Mesh {
+	fn get_mesh(&self, device: &wgpu::Device) -> Option<mesh::Mesh> {
+		if self.voxels.is_empty() {
+			return None;
+		}
 		let mut verties: Vec<mesh::MeshVertex> = vec![];
 		let mut indexes: Vec<u32> = vec![];
 		for (pos, voxel) in &self.voxels {
@@ -193,12 +196,12 @@ impl mesh::GetMesh for Voxels {
 
 
 		let matrix_buffer = matrix::MatrixUniform::get_buffer(device, 0);
-		mesh::Mesh {
+		Some(mesh::Mesh {
 			vertex_buffer,
 			index_buffer,
 			num_elements: indexes.len() as u32,
 			matrix_buffer: matrix_buffer.0,
 			matrix_bind_group: matrix_buffer.1,
-		}
+		})
 	}
 }

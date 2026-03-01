@@ -67,5 +67,5 @@ where
 }
 
 pub trait GetMesh {
-	fn get_mesh(&self, device: &wgpu::Device) -> Mesh;
+	fn get_mesh(&self, device: &wgpu::Device) -> Option<Mesh>;
 }

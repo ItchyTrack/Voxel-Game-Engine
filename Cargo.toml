@@ -29,10 +29,10 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.30"
 reqwest = { version = "0.11" }
 web-sys = { version = "0.3", features = [
-    "Document",
-    "Window",
-    "Element",
-    "Location",
+	"Document",
+	"Window",
+	"Element",
+	"Location",
 ]}
 
 [build-dependencies]
