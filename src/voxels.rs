@@ -1,7 +1,9 @@
-use crate::{get_matrix_buffer, mesh::{GetMesh, Mesh, MeshVertex}};
 use glam::{IVec3, Mat3, Vec3, DVec3, DMat3};
 use wgpu::util::DeviceExt;
 use std::{collections::HashMap};
+
+use crate::gpu_objects::mesh;
+use crate::gpu_objects::matrix;
 
 #[derive(Clone, Copy)]
 pub struct Voxel {
@@ -82,49 +84,49 @@ impl Voxels {
 	pub fn get_voxels(&self) -> &HashMap<IVec3, Voxel> { &self.voxels }
 }
 
-impl GetMesh for Voxels {
-	fn get_mesh(&self, device: &wgpu::Device) -> Mesh {
-		let mut verties: Vec<MeshVertex> = vec![];
+impl mesh::GetMesh for Voxels {
+	fn get_mesh(&self, device: &wgpu::Device) -> mesh::Mesh {
+		let mut verties: Vec<mesh::MeshVertex> = vec![];
 		let mut indexes: Vec<u32> = vec![];
 		for (pos, voxel) in &self.voxels {
 			let fpos: Vec3 = pos.as_vec3();
 			let start_verties = verties.len() as u32;
-			verties.push(MeshVertex { // 0
+			verties.push(mesh::MeshVertex { // 0
 				position: fpos.to_array(),
 				color: voxel.color,
 				normal: [0.0, 0.0, 0.0]
 			});
-			verties.push(MeshVertex { // 1
+			verties.push(mesh::MeshVertex { // 1
 				position: (fpos + Vec3::new(1.0, 0.0, 0.0)).to_array(),
 				color: voxel.color,
 				normal: [0.0, 0.0, 0.0]
 			});
-			verties.push(MeshVertex { // 2
+			verties.push(mesh::MeshVertex { // 2
 				position: (fpos + Vec3::new(0.0, 1.0, 0.0)).to_array(),
 				color: voxel.color,
 				normal: [0.0, 0.0, 0.0]
 			});
-			verties.push(MeshVertex { // 3
+			verties.push(mesh::MeshVertex { // 3
 				position: (fpos + Vec3::new(0.0, 0.0, 1.0)).to_array(),
 				color: voxel.color,
 				normal: [0.0, 0.0, 0.0]
 			});
-			verties.push(MeshVertex { // 4
+			verties.push(mesh::MeshVertex { // 4
 				position: (fpos + Vec3::new(1.0, 1.0, 0.0)).to_array(),
 				color: voxel.color,
 				normal: [0.0, 0.0, 0.0]
 			});
-			verties.push(MeshVertex { // 5
+			verties.push(mesh::MeshVertex { // 5
 				position: (fpos + Vec3::new(1.0, 0.0, 1.0)).to_array(),
 				color: voxel.color,
 				normal: [0.0, 0.0, 0.0]
 			});
-			verties.push(MeshVertex { // 6
+			verties.push(mesh::MeshVertex { // 6
 				position: (fpos + Vec3::new(0.0, 1.0, 1.0)).to_array(),
 				color: voxel.color,
 				normal: [0.0, 0.0, 0.0]
 			});
-			verties.push(MeshVertex { // 7
+			verties.push(mesh::MeshVertex { // 7
 				position: (fpos + Vec3::new(1.0, 1.0, 1.0)).to_array(),
 				color: voxel.color,
 				normal: [0.0, 0.0, 0.0]
@@ -190,8 +192,8 @@ impl GetMesh for Voxels {
 		});
 
 
-		let matrix_buffer = get_matrix_buffer(device);
-		Mesh {
+		let matrix_buffer = matrix::MatrixUniform::get_buffer(device, 0);
+		mesh::Mesh {
 			vertex_buffer,
 			index_buffer,
 			num_elements: indexes.len() as u32,

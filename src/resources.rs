@@ -1,6 +1,6 @@
 use std::io::{BufReader, Cursor};
 use wgpu::util::DeviceExt;
-use crate::{get_matrix_buffer, mesh};
+use crate::gpu_objects::{matrix, mesh};
 
 #[cfg(target_arch = "wasm32")]
 fn format_url(file_name: &str) -> reqwest::Url {
@@ -133,7 +133,7 @@ pub async fn load_model(
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-			let matrix_buffer = get_matrix_buffer(device);
+			let matrix_buffer = matrix::MatrixUniform::get_buffer(device, 0);
             mesh::Mesh {
                 vertex_buffer,
                 index_buffer,
