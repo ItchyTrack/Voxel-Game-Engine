@@ -114,7 +114,7 @@ impl Renderer {
 
 		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: Some("Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
 		});
 
 		let camera_buffer = matrix::MatrixUniform::get_buffer(&device, 0);
@@ -174,7 +174,7 @@ impl Renderer {
 
 		let crosshair_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: Some("Crosshair Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("crosshair.wgsl").into()),
+			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/crosshair.wgsl").into()),
 		});
 		let crosshair_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("Crosshair Screen Size"),
@@ -236,7 +236,7 @@ impl Renderer {
 
 		let debug_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: Some("Debug Draw Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("debug_render.wgsl").into()),
+			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/debug_render.wgsl").into()),
 		});
 		let debug_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Debug Pipeline Layout"),
