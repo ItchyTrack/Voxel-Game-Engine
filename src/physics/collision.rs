@@ -17,11 +17,13 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 	for id_a in 0..(entities.len() - 1) {
 		let entity_a = &entities[id_a];
 		let entity_a_aabb = entity_a.get_aabb();
+		if entity_a_aabb.is_none() { continue; }
+
 		for id_b in (id_a + 1)..entities.len() {
 			let entity_b = &entities[id_b];
 
 			let entity_b_aabb = entity_b.get_aabb();
-			if entity_a_aabb.is_none() || entity_b_aabb.is_none() { continue; }
+			if entity_b_aabb.is_none() { continue; }
 			let (a_min, a_max) = entity_a_aabb.unwrap();
 			let (b_min, b_max) = entity_b_aabb.unwrap();
 			if	a_max.x < b_min.x ||
