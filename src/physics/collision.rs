@@ -6,34 +6,39 @@ use crate::{entity, voxels};
 pub struct Collision {
 	pub id1: u32,
 	pub id2: u32,
-	pub pos: Vec3,
-	pub normal: Vec3,
+	pub collision1: Vec3,
+	pub collision2: Vec3,
+	pub normal: Vec3, // from 1 to 2
+	pub overlap: f32,
 }
 
-pub fn get_collisions(entities: &Vec<entity::Entity>) -> Vec<Collision> {
+pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec3, Quat)>) -> Vec<Collision> {
 	let mut collisions: Vec<Collision> = vec![];
 	for id_a in 0..(entities.len() - 1) {
 		let entity_a = &entities[id_a];
 		for id_b in (id_a + 1)..entities.len() {
 			let entity_b = &entities[id_b];
-			let (entity1, entity2) = {
-				if entity_a.get_voxels().get_voxels().len() < entity_b.get_voxels().get_voxels().len()
-					{ (entity_a, entity_b) }
+			let swap = entity_a.get_voxels().get_voxels().len() < entity_b.get_voxels().get_voxels().len();
+			let (entity1, pose1, entity2, pose2) = {
+				if swap
+					{ (entity_a, pose_to_eval_at[id_a], entity_b, pose_to_eval_at[id_b]) }
 				else
-					{ (entity_b, entity_a) }
+					{ (entity_b, pose_to_eval_at[id_b], entity_a, pose_to_eval_at[id_a]) }
 			};
-			let pos_of_1_in_2 = entity2.orientation.inverse() * (entity1.position - entity2.position);
-			let orientation_of_1_in_2 = entity2.orientation.inverse() * entity1.orientation;
+			let pos_of_1_in_2 = pose2.1.inverse() * (pose1.0 - pose2.0);
+			let orientation_of_1_in_2 = pose2.1.inverse() * pose1.1;
 			for voxel in entity1.get_voxels().get_voxels().iter() {
 				collisions.extend(get_collision(
 					&(&orientation_of_1_in_2 * (voxel.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5)) + pos_of_1_in_2),
 					&orientation_of_1_in_2,
 					entity2.get_voxels()
 				).iter().map(|c| Collision {
-					id1: id_a as u32, // order of ids dont matter
-					id2: id_b as u32,
-					pos: entity2.orientation * c.pos + entity2.position,
-					normal: c.normal,
+					id1: if swap { id_b as u32 } else { id_a as u32 },
+					id2: if swap { id_a as u32 } else { id_b as u32 },
+					collision1: pose2.1 * c.collision1 + entity2.position,
+					collision2: pose2.1 * c.collision2 + entity2.position,
+					normal: pose2.1 * c.normal,
+					..*c
 				}));
 			}
 		}
@@ -51,10 +56,9 @@ fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels) -> Vec
 					get_collision_1x1x1_voxel(&((pos - pos.floor()) - vec.as_vec3() - Vec3::new(0.5, 0.5, 0.5)), orientation).inspect(|c| {
 						collisions.push(
 							Collision {
-								id1: c.id1,
-								id2: c.id2,
-								pos: c.pos + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
-								normal: c.normal,
+								collision1: c.collision1 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
+								collision2: c.collision2 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
+								..*c
 							}
 						)
 					});
@@ -70,7 +74,9 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, _orientation: &Quat) -> Option<Collisio
 	Some(Collision {
 		id1: 0,
 		id2: 0,
-		pos: pos / 2.0,
+		collision1: pos.normalize() * 0.5,
+		collision2: pos - pos.normalize() * 0.5,
 		normal: pos.normalize(),
+		overlap: 1.0 - pos.length_squared(),
 	})
 }

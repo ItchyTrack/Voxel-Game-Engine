@@ -10,7 +10,11 @@ pub struct State {
 	pub camera: camera::Camera,
 	pub camera_controller: camera::CameraController,
 	pub entities: Vec<entity::Entity>,
+<<<<<<< Updated upstream
 	pub mouse_captured: bool,
+=======
+	pub solver: physics::solver::Solver,
+>>>>>>> Stashed changes
 }
 
 impl State {
@@ -42,11 +46,10 @@ impl State {
 
 	pub fn update(&mut self, dt: f32) {
 		self.camera_controller.update_camera(&mut self.camera, dt);
-		physics::integrator::integrate(&mut self.entities, dt);
-		let collisions = physics::collision::get_collisions(&self.entities);
-		for collision in collisions {
-			println!("Collision: {0}-{1}, pos: {2}, norm: {3}", collision.id1, collision.id2, collision.pos, collision.normal);
-		}
+		self.solver.solve(&mut self.entities, dt);
+		// for collision in collisions {
+		// 	println!("Collision: {0}-{1}, pos: {2}, norm: {3}", collision.id1, collision.id2, collision.pos, collision.normal);
+		// }
 	}
 
 	pub fn resize(&mut self, width: u32, height: u32) {
@@ -130,7 +133,7 @@ impl State {
 			entities.push(entity::Entity::new());
 			let entity = entities.last_mut().unwrap();
 			entity.add_voxel(IVec3::new(0, 0, 0), Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.0 });
-			entity.position.y = 1.0;
+			entity.position.y = 4.0;
 			entity.position.z = -6.0;
 			entity.position.x = 0.95;
 			entity.momentum.y = -1.0;
@@ -147,7 +150,13 @@ impl State {
 			camera,
 			camera_controller,
 			entities,
+<<<<<<< Updated upstream
 			mouse_captured: false,
+=======
+			solver: physics::solver::Solver {
+				collision_stiffness: 1000.0,
+			}
+>>>>>>> Stashed changes
 		})
 	}
 
