@@ -39,12 +39,8 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let normal = normalize(cross(dpdx(in.world_position), dpdy(in.world_position)));
 
-<<<<<<< Updated upstream
-	let light_dir = normalize(vec3<f32>(0.5, -1.0, 0.3));
-=======
 	let light_dir = normalize(vec3<f32>(0.5, -1.0, -0.3));
 
->>>>>>> Stashed changes
 	let ambient = 0.3;
 	let diffuse = max(dot(normal, light_dir), 0.0);
 	let specular = pow(max(dot(reflect(-light_dir, normal), normalize(-in.world_position)), 0.0), 16.0);

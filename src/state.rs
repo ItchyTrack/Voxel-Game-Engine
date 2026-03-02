@@ -10,11 +10,8 @@ pub struct State {
 	pub camera: camera::Camera,
 	pub camera_controller: camera::CameraController,
 	pub entities: Vec<entity::Entity>,
-<<<<<<< Updated upstream
 	pub mouse_captured: bool,
-=======
 	pub solver: physics::solver::Solver,
->>>>>>> Stashed changes
 }
 
 impl State {
@@ -150,13 +147,10 @@ impl State {
 			camera,
 			camera_controller,
 			entities,
-<<<<<<< Updated upstream
 			mouse_captured: false,
-=======
 			solver: physics::solver::Solver {
 				collision_stiffness: 1000.0,
 			}
->>>>>>> Stashed changes
 		})
 	}
 
