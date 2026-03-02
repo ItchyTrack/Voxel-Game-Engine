@@ -22,7 +22,6 @@ impl Solver {
 				let mut f: Vec3 = -(M * (x_guess[index].0 - y_all[index].0) / (dt * dt));
 				let mut h: Mat3 = M / (dt * dt);
 				for entity_collision in entity_collisions {
-					println!("::{0}", entity_collision.overlap);
 					if entity_collision.id1 == index as u32 {
 						f -= self.get_f(&entity_collision).0;
 						h += self.get_h(&entity_collision);
@@ -39,7 +38,6 @@ impl Solver {
 						h += self.get_h(&swapped_collision);
 					}
 				}
-				println!(":{0}", h.inverse() * f);
 				x_guess[index].0 += h.inverse() * f;
 
 			}
