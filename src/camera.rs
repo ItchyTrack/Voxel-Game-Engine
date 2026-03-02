@@ -22,6 +22,7 @@ impl Camera {
 pub struct CameraController {
 	speed: f32,
 	rotation_speed: f32,
+	mouse_sensitivity: f32,
 	is_forward_pressed: bool,
 	is_backward_pressed: bool,
 	is_left_pressed: bool,
@@ -35,10 +36,11 @@ pub struct CameraController {
 }
 
 impl CameraController {
-	pub fn new(speed: f32, rotation_speed: f32) -> Self {
+	pub fn new(speed: f32, rotation_speed: f32, mouse_sensitivity: f32) -> Self {
 		Self {
 			speed,
 			rotation_speed,
+			mouse_sensitivity,
 			is_forward_pressed: false,
 			is_backward_pressed: false,
 			is_left_pressed: false,
@@ -96,6 +98,15 @@ impl CameraController {
 			}
 			_ => false,
 		}
+	}
+
+	pub fn handle_mouse_motion(&self, camera: &mut Camera, dx: f64, dy: f64) {
+		camera.yaw -= dx as f32 * self.mouse_sensitivity;
+		let unclamped_pitch= camera.pitch - dy as f32 * self.mouse_sensitivity;
+		camera.pitch = unclamped_pitch.clamp(
+			-std::f32::consts::FRAC_PI_2 + 0.01,
+			std::f32::consts::FRAC_PI_2 - 0.01
+		);
 	}
 
 	pub fn update_camera(&self, camera: &mut Camera, dt: f32) {

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use glam::{IVec3, Mat3, Mat4, Quat, Vec3};
-use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
+use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
 use crate::{camera, entity, gpu_objects::mesh, physics::{self, collision}, renderer::Renderer, voxels::{Voxel, Voxels}};
 
@@ -10,15 +10,34 @@ pub struct State {
 	pub camera: camera::Camera,
 	pub camera_controller: camera::CameraController,
 	pub entities: Vec<entity::Entity>,
+	pub mouse_captured: bool,
 }
 
 impl State {
 	pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
 		if code == KeyCode::Escape && is_pressed {
-			event_loop.exit();
+			self.set_mouse_captured(false);
 		} else {
 			self.camera_controller.handle_key(code, is_pressed);
 		}
+	}
+
+	pub fn set_mouse_captured(&mut self, captured: bool) {
+		if self.mouse_captured == captured {
+			return;
+		}
+		self.mouse_captured = captured;
+		let window = &self.renderer.window;
+		if captured {
+			let success = window.set_cursor_grab(CursorGrabMode::Confined).or_else(|_| window.set_cursor_grab(CursorGrabMode::Locked));
+			if success.is_err() {
+				self.mouse_captured = false;
+				eprintln!("Failed to grab cursor");
+			}
+		} else {
+			let _ = window.set_cursor_grab(CursorGrabMode::None);
+		}
+		window.set_cursor_visible(!self.mouse_captured);
 	}
 
 	pub fn update(&mut self, dt: f32) {
@@ -47,7 +66,7 @@ impl State {
 			zfar: 500.0,
 		};
 
-		let camera_controller = camera::CameraController::new(3.0, 1.5);
+		let camera_controller = camera::CameraController::new(3.0, 1.5, 0.0015);
 
 		let mut entities: Vec<entity::Entity> = vec![];
 
@@ -128,6 +147,7 @@ impl State {
 			camera,
 			camera_controller,
 			entities,
+			mouse_captured: false,
 		})
 	}
 

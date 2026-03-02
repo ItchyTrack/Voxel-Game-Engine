@@ -1,6 +1,6 @@
 use std::time::Instant;
 use std::sync::Arc;
-use winit::{application::ApplicationHandler, event::{KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop}, keyboard::PhysicalKey, window::Window};
+use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop}, keyboard::PhysicalKey, window::Window};
 use crate::state::State;
 
 #[cfg(target_arch = "wasm32")]
@@ -106,6 +106,26 @@ impl ApplicationHandler<State> for App {
 			WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state: key_state, .. }, .. } => {
 				state.handle_key(event_loop, code, key_state.is_pressed())
 			}
+			WindowEvent::MouseInput { state: button_state, .. } if button_state.is_pressed() => {
+				state.set_mouse_captured(true);
+			}
+			_ => {}
+		}
+	}
+
+	fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
+		let state = match &mut self.state {
+			Some(canvas) => canvas,
+			None => return,
+		};
+
+		match event {
+			DeviceEvent::MouseMotion { delta: (dx, dy) } => {
+				// state.handle_mouse_motion(dx, dy)
+				if state.mouse_captured {
+					state.camera_controller.handle_mouse_motion(&mut state.camera, dx, dy);
+				}
+			},
 			_ => {}
 		}
 	}
