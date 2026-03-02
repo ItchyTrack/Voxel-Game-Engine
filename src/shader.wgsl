@@ -39,10 +39,12 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let normal = normalize(cross(dpdx(in.world_position), dpdy(in.world_position)));
 
-	let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.3));
+	let light_dir = normalize(vec3<f32>(0.5, -1.0, 0.3));
 	let ambient = 0.3;
 	let diffuse = max(dot(normal, light_dir), 0.0);
-	let lighting = ambient + (1.0 - ambient) * diffuse;
+	let specular = pow(max(dot(reflect(-light_dir, normal), normalize(-in.world_position)), 0.0), 16.0);
+
+	let lighting = ambient + (1.0 - ambient) * diffuse + specular;
 
 	return vec4<f32>(in.color.rgb * lighting, in.color.a);
 }
