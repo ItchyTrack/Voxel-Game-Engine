@@ -12,7 +12,7 @@ impl Solver {
 		let y_all = entities.iter().map(|entity| integrator::get_integrated_single(entity, dt)).collect();
 		let collisions = physics::collision::get_collisions(&entities, &y_all);
 		let mut x_guess = y_all.clone();
-		for n in 0..5 {
+		for _ in 0..5 {
 			for index in 0..entities.len() {
 				let entity = &entities[index];
 				let entity_collisions = collisions.iter().filter(|c| {
