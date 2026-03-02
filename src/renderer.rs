@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::vec;
 
 use glam::{Mat4};
+use wgpu::util::DeviceExt;
 use winit::{window::Window};
 
-use crate::{gpu_objects::{matrix, mesh, texture}};
+use crate::{debug_draw, gpu_objects::{matrix, mesh, texture}};
 
 pub struct Renderer {
 	pub surface: wgpu::Surface<'static>,
@@ -21,6 +22,8 @@ pub struct Renderer {
 	pub crosshair_buffer: wgpu::Buffer,
 	pub crosshair_bind_group: wgpu::BindGroup,
 	pub crosshair_format: wgpu::TextureFormat,
+	pub debug_line_pipeline: wgpu::RenderPipeline,
+	pub debug_tri_pipeline: wgpu::RenderPipeline,
 }
 
 impl Renderer {
@@ -111,7 +114,7 @@ impl Renderer {
 
 		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: Some("Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
 		});
 
 		let camera_buffer = matrix::MatrixUniform::get_buffer(&device, 0);
@@ -171,7 +174,7 @@ impl Renderer {
 
 		let crosshair_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: Some("Crosshair Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("crosshair.wgsl").into()),
+			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/crosshair.wgsl").into()),
 		});
 		let crosshair_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("Crosshair Screen Size"),
@@ -231,6 +234,55 @@ impl Renderer {
 			cache: None,
 		});
 
+		let debug_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+			label: Some("Debug Draw Shader"),
+			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/debug_render.wgsl").into()),
+		});
+		let debug_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+			label: Some("Debug Pipeline Layout"),
+			bind_group_layouts: &[&camera_buffer.2],
+			push_constant_ranges: &[],
+		});
+
+		let make_debug_pipeline = |label: &str, topology: wgpu::PrimitiveTopology| -> wgpu::RenderPipeline {
+			device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+				label: Some(label),
+				layout: Some(&debug_pipeline_layout),
+				vertex: wgpu::VertexState {
+					module: &debug_shader,
+					entry_point: Some("vs_main"),
+					buffers: &[debug_draw::DebugVertex::desc()],
+					compilation_options: wgpu::PipelineCompilationOptions::default(),
+				},
+				fragment: Some(wgpu::FragmentState {
+					module: &debug_shader,
+					entry_point: Some("fs_main"),
+					targets: &[Some(wgpu::ColorTargetState {
+						format: config.format,
+						blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+						write_mask: wgpu::ColorWrites::ALL,
+					})],
+					compilation_options: wgpu::PipelineCompilationOptions::default(),
+				}),
+				primitive: wgpu::PrimitiveState {
+					topology,
+					strip_index_format: None,
+					front_face: wgpu::FrontFace::Ccw,
+					cull_mode: None,
+					polygon_mode: wgpu::PolygonMode::Fill,
+					unclipped_depth: false,
+					conservative: false,
+				},
+				depth_stencil: None, // overlay — no depth test
+				multisample: wgpu::MultisampleState::default(),
+				multiview: None,
+				cache: None,
+			})
+		};
+
+		let debug_line_pipeline = make_debug_pipeline("Debug Line Pipeline", wgpu::PrimitiveTopology::LineList);
+		let debug_tri_pipeline = make_debug_pipeline("Debug Tri Pipeline", wgpu::PrimitiveTopology::TriangleList);
+
 		Ok(Self {
 			surface,
 			device,
@@ -246,6 +298,8 @@ impl Renderer {
 			crosshair_buffer,
 			crosshair_bind_group,
 			crosshair_format,
+			debug_line_pipeline,
+			debug_tri_pipeline,
 		})
 	}
 
@@ -286,6 +340,51 @@ impl Renderer {
 
 				use mesh::DrawMesh;
 				render_pass.draw_mesh(&mesh.0, &self.camera_bind_group);
+			}
+		}
+
+		{
+			let batch = debug_draw::take_batch();
+			let has_lines = !batch.lines.is_empty();
+			let has_tris = !batch.triangles.is_empty();
+
+			if has_lines || has_tris {
+				let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+					label: Some("Debug Draw Pass"),
+					color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+						view: &view,
+						resolve_target: None,
+						depth_slice: None,
+						ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+					})],
+					depth_stencil_attachment: None,
+					occlusion_query_set: None,
+					timestamp_writes: None,
+				});
+
+				if has_lines {
+					let line_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+						label: Some("Debug Line VB"),
+						contents: bytemuck::cast_slice(&batch.lines),
+						usage: wgpu::BufferUsages::VERTEX,
+					});
+					pass.set_pipeline(&self.debug_line_pipeline);
+					pass.set_bind_group(0, &self.camera_bind_group, &[]);
+					pass.set_vertex_buffer(0, line_buf.slice(..));
+					pass.draw(0..batch.lines.len() as u32, 0..1);
+				}
+
+				if has_tris {
+					let tri_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+						label: Some("Debug Tri VB"),
+						contents: bytemuck::cast_slice(&batch.triangles),
+						usage: wgpu::BufferUsages::VERTEX,
+					});
+					pass.set_pipeline(&self.debug_tri_pipeline);
+					pass.set_bind_group(0, &self.camera_bind_group, &[]);
+					pass.set_vertex_buffer(0, tri_buf.slice(..));
+					pass.draw(0..batch.triangles.len() as u32, 0..1);
+				}
 			}
 		}
 
