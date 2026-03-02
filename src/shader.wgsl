@@ -43,9 +43,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 	let ambient = 0.3;
 	let diffuse = max(dot(normal, light_dir), 0.0);
-	let specular = pow(max(dot(reflect(-light_dir, normal), normalize(-in.world_position)), 0.0), 16.0);
 
-	let lighting = ambient + (1.0 - ambient) * diffuse + specular;
+	let lighting = ambient + (1.0 - ambient) * diffuse;
 
 	return vec4<f32>(in.color.rgb * lighting, in.color.a);
 }
