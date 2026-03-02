@@ -13,17 +13,33 @@ pub struct Voxel {
 
 pub struct Voxels {
 	voxels: HashMap<IVec3, Voxel>,
+	bounding_box: Option<(IVec3, IVec3)>,
 }
 
 impl Voxels {
 	pub fn new() -> Self {
-		Self { voxels: HashMap::new() }
+		Self { voxels: HashMap::new(), bounding_box: None }
 	}
 	pub fn add_voxel(&mut self, pos: IVec3, voxel: Voxel) -> Option<Voxel> {
+		match self.bounding_box {
+			Some((min, max)) => {
+				self.bounding_box = Some((min.min(pos), max.max(pos)));
+			},
+			None => {
+				self.bounding_box = Some((pos, pos));
+			}
+		}
 		self.voxels.insert(pos, voxel)
 	}
 
 	pub fn remove_voxel(&mut self, pos: &IVec3) -> Option<Voxel> {
+		self.bounding_box = self.voxels.iter().fold(None, |bb, (p, _)| {
+			let p = *p;
+			match bb {
+				Some((min, max)) => Some((min.min(p), max.max(p))),
+				None => Some((p, p))
+			}
+		});
 		self.voxels.remove(pos)
 	}
 
@@ -31,11 +47,7 @@ impl Voxels {
 	pub fn get_voxels(&self) -> &HashMap<IVec3, Voxel> { &self.voxels }
 
 	pub fn get_bounding_box(&self) -> Option<(IVec3, IVec3)> {
-		let mut keys = self.voxels.keys();
-		let &first = keys.next()?;
-		Some(keys.fold((first, first), |(min, max), &pos| {
-			(min.min(pos), max.max(pos))
-		}))
+		self.bounding_box
 	}
 }
 
