@@ -6,6 +6,7 @@ mod app;
 mod renderer;
 mod physics;
 mod state;
+mod math;
 mod gpu_objects {
 	pub mod texture;
 	pub mod mesh;

@@ -1,13 +1,11 @@
-use std::collections::HashMap;
-
 use glam::{DMat3, DVec3, IVec3, Mat3, Mat4, Quat, Vec3};
 use crate::{camera, gpu_objects::mesh::{self, GetMesh}, voxels};
 
 pub struct Entity {
 	pub position: Vec3,
 	pub orientation: Quat,
-	pub momentum: Vec3,
-	pub angular_momentum: Vec3,
+	pub velocity: Vec3,
+	pub angular_velocity: Vec3,
 	center_of_mass_times_mass: DVec3,
 	mass: f64,
 	inertia_tensor_at_origin: DMat3,
@@ -37,8 +35,8 @@ impl Entity {
 		Self {
 			position: Vec3::ZERO,
 			orientation: Quat::IDENTITY,
-			momentum: Vec3::ZERO,
-			angular_momentum: Vec3::ZERO,
+			velocity: Vec3::ZERO,
+			angular_velocity: Vec3::ZERO,
 			center_of_mass_times_mass: DVec3::ZERO,
 			mass: 0.0,
 			inertia_tensor_at_origin: DMat3::ZERO,

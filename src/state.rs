@@ -136,17 +136,15 @@ impl State {
 			entity.position.y = 100.0;
 			entity.position.z = -6.5;
 			entity.position.x = -0.5;
-			entity.momentum.y = -100.0;
+			entity.velocity.y = -10.0;
 		}
 		for x in -2..3 {
 			for y in -2..1 {
 				for z in -2..3 {
-					{
-						entities.push(entity::Entity::new());
-						let entity = entities.last_mut().unwrap();
-						entity.add_voxel(IVec3::new(x, y, z), Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-						entity.position.z = -6.0;
-					}
+					entities.push(entity::Entity::new());
+					let entity = entities.last_mut().unwrap();
+					entity.add_voxel(IVec3::new(x, y, z), Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+					entity.position.z = -6.0;
 				}
 			}
 		}
