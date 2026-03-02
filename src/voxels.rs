@@ -24,11 +24,19 @@ impl Voxels {
 	}
 
 	pub fn remove_voxel(&mut self, pos: &IVec3) -> Option<Voxel> {
-		self.voxels.remove(&pos)
+		self.voxels.remove(pos)
 	}
 
 	pub fn get_voxel(&self, pos: IVec3) -> Option<&Voxel> { self.voxels.get(&pos) }
 	pub fn get_voxels(&self) -> &HashMap<IVec3, Voxel> { &self.voxels }
+
+	pub fn get_bounding_box(&self) -> Option<(IVec3, IVec3)> {
+		let mut keys = self.voxels.keys();
+		let &first = keys.next()?;
+		Some(keys.fold((first, first), |(min, max), &pos| {
+			(min.min(pos), max.max(pos))
+		}))
+	}
 }
 
 impl mesh::GetMesh for Voxels {
