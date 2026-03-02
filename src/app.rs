@@ -88,8 +88,9 @@ impl ApplicationHandler<State> for App {
 			WindowEvent::CloseRequested => event_loop.exit(),
 			WindowEvent::Resized(size) => state.resize(size.width, size.height),
 			WindowEvent::RedrawRequested => {
-				state.update((Instant::now() - self.last_update).as_secs_f32());
+				let dt = (Instant::now() - self.last_update).as_secs_f32();
 				self.last_update = Instant::now();
+				state.update(dt);
 				match state.render() {
 					Ok(_) => {}
 					// Reconfigure the surface if it's lost or outdated
