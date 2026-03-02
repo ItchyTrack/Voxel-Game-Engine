@@ -4,6 +4,7 @@ mod entity;
 mod camera;
 mod app;
 mod renderer;
+mod physics;
 mod state;
 mod gpu_objects {
 	pub mod texture;

@@ -13,71 +13,18 @@ pub struct Voxel {
 
 pub struct Voxels {
 	voxels: HashMap<IVec3, Voxel>,
-	center_of_mass_times_mass: DVec3,
-	mass: f64,
-	inertia_tensor_at_origin: DMat3,
-}
-
-// According to https://en.wikipedia.org/wiki/Moment_of_inertia#:~:text=in%20the%20body.-,Inertia%20tensor
-fn get_inertia_tensor_at_point(pos: Vec3, mass: f32) -> Mat3 {
-	let x_sqr = pos.x * pos.x;
-	let y_sqr = pos.y * pos.y;
-	let z_sqr = pos.z * pos.z;
-	Mat3::from_cols_array(&[
-		y_sqr + z_sqr, -mass * pos.x * pos.y, -mass * pos.x * pos.z,
-		-mass * pos.x * pos.y, z_sqr + x_sqr, -mass * pos.y * pos.z,
-		-mass * pos.x * pos.z, -mass * pos.y * pos.z, x_sqr + y_sqr,
-	])
 }
 
 impl Voxels {
 	pub fn new() -> Self {
-		Self {
-			voxels: HashMap::new(),
-			center_of_mass_times_mass: DVec3::ZERO,
-			mass: 0.0,
-			inertia_tensor_at_origin: DMat3::ZERO,
-		}
+		Self { voxels: HashMap::new() }
+	}
+	pub fn add_voxel(&mut self, pos: IVec3, voxel: Voxel) -> Option<Voxel> {
+		self.voxels.insert(pos, voxel)
 	}
 
-	pub fn center_of_mass(&self) -> Vec3 {
-		if self.mass == 0.0 {
-			Vec3::ZERO
-		} else {
-			(self.center_of_mass_times_mass / self.mass).as_vec3()
-		}
-	}
-	pub fn mass(&self) -> f32 { self.mass as f32 }
-	pub fn rotational_inertia(&self) -> Mat3 {
-		// apply Inertia tensor of translation
-		let center_of_mass = self.center_of_mass();
-		self.inertia_tensor_at_origin.as_mat3() - ((Mat3::IDENTITY * center_of_mass.length_squared()) - Mat3::from_cols_array(&[
-			center_of_mass.x * center_of_mass.x, center_of_mass.x * center_of_mass.y, center_of_mass.x * center_of_mass.z,
-			center_of_mass.y * center_of_mass.x, center_of_mass.y * center_of_mass.y, center_of_mass.y * center_of_mass.z,
-			center_of_mass.z * center_of_mass.x, center_of_mass.z * center_of_mass.y, center_of_mass.z * center_of_mass.z
-		])) * (self.mass as f32)
-	}
-
-	pub fn set_voxel(&mut self, pos: IVec3, voxel: Voxel) {
-		let mass = voxel.mass as f64;
-		self.mass += mass;
-		self.center_of_mass_times_mass += mass * pos.as_dvec3();
-		self.inertia_tensor_at_origin += get_inertia_tensor_at_point(pos.as_vec3(), voxel.mass).as_dmat3();
-		if let Some(old_voxel) = self.voxels.insert(pos, voxel) {
-			let old_mass = old_voxel.mass as f64;
-			self.mass -= old_mass;
-			self.center_of_mass_times_mass -= old_mass * pos.as_dvec3();
-			self.inertia_tensor_at_origin -= get_inertia_tensor_at_point(pos.as_vec3(), old_voxel.mass).as_dmat3();
-		}
-	}
-
-	pub fn delete_voxel(&mut self, pos: IVec3) {
-		if let Some(voxel) = self.voxels.remove(&pos) {
-			let mass = voxel.mass as f64;
-			self.mass -= mass;
-			self.center_of_mass_times_mass -= mass * pos.as_dvec3();
-			self.inertia_tensor_at_origin -= get_inertia_tensor_at_point(pos.as_vec3(), voxel.mass).as_dmat3();
-		}
+	pub fn remove_voxel(&mut self, pos: &IVec3) -> Option<Voxel> {
+		self.voxels.remove(&pos)
 	}
 
 	pub fn get_voxel(&self, pos: IVec3) -> Option<&Voxel> { self.voxels.get(&pos) }

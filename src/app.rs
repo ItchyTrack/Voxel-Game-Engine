@@ -1,3 +1,4 @@
+use std::time::Instant;
 use std::sync::Arc;
 use winit::{application::ApplicationHandler, event::{KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop}, keyboard::PhysicalKey, window::Window};
 use crate::state::State;
@@ -9,6 +10,7 @@ pub struct App {
 	#[cfg(target_arch = "wasm32")]
 	proxy: Option<winit::event_loop::EventLoopProxy<State>>,
 	state: Option<State>,
+	last_update: Instant,
 }
 
 impl App {
@@ -19,6 +21,7 @@ impl App {
 			state: None,
 			#[cfg(target_arch = "wasm32")]
 			proxy,
+			last_update: Instant::now(),
 		}
 	}
 }
@@ -85,7 +88,8 @@ impl ApplicationHandler<State> for App {
 			WindowEvent::CloseRequested => event_loop.exit(),
 			WindowEvent::Resized(size) => state.resize(size.width, size.height),
 			WindowEvent::RedrawRequested => {
-				state.update();
+				state.update((Instant::now() - self.last_update).as_secs_f32());
+				self.last_update = Instant::now();
 				match state.render() {
 					Ok(_) => {}
 					// Reconfigure the surface if it's lost or outdated
