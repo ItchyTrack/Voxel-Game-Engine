@@ -66,12 +66,12 @@ impl Entity {
 		self.update_mesh = true;
 		let mass = voxel.mass as f64;
 		self.mass += mass;
-		self.center_of_mass_times_mass += mass * pos.as_dvec3();
+		self.center_of_mass_times_mass += mass * (pos.as_dvec3() + 0.5);
 		self.inertia_tensor_at_origin += get_inertia_tensor_for_cube(&pos, voxel.mass).as_dmat3();
 		if let Some(old_voxel) = self.voxels.add_voxel(pos, voxel) {
 			let old_mass = old_voxel.mass as f64;
 			self.mass -= old_mass;
-			self.center_of_mass_times_mass -= old_mass * pos.as_dvec3();
+			self.center_of_mass_times_mass -= old_mass * (pos.as_dvec3() + 0.5);
 			self.inertia_tensor_at_origin -= get_inertia_tensor_for_cube(&pos, old_voxel.mass).as_dmat3();
 		}
 	}
@@ -81,7 +81,7 @@ impl Entity {
 			self.update_mesh = true;
 			let mass = voxel.mass as f64;
 			self.mass -= mass;
-			self.center_of_mass_times_mass -= mass * pos.as_dvec3();
+			self.center_of_mass_times_mass -= mass * (pos.as_dvec3() + 0.5);
 			self.inertia_tensor_at_origin -= get_inertia_tensor_for_cube(&pos, voxel.mass).as_dmat3();
 		}
 	}

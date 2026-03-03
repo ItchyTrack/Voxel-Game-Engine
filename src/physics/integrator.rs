@@ -25,6 +25,4 @@ pub fn get_integrated_single(entity: &entity::Entity, dt: f32) -> (Vec3, Quat) {
 	orientation = (Quat::from_scaled_axis(entity.angular_velocity * dt) * entity.orientation).normalize();
 	pos -= orientation * com;
 	( pos, orientation )
-	// let rotational_inertia = Mat3::from_quat(entity.orientation) * entity.rotational_inertia() * Mat3::from_quat(entity.orientation.inverse());
-	// let rotationa_velocity = rotational_inertia.inverse() * entity.angular_momentum;
 }

@@ -7,6 +7,26 @@ pub struct Solver {
 	pub collision_stiffness: f32,
 }
 
+fn mat3_skew(v: Vec3) -> Mat3 {
+	Mat3::from_cols(
+		Vec3::new( 0.0,  v.z, -v.y),
+		Vec3::new(-v.z,  0.0,  v.x),
+		Vec3::new( v.y, -v.x,  0.0),
+	)
+}
+
+fn mat3_skew_neg(v: Vec3) -> Mat3 {
+    Mat3::from_cols(
+        Vec3::new( 0.0, -v.z,  v.y),
+        Vec3::new( v.z,  0.0, -v.x),
+        Vec3::new(-v.y,  v.x,  0.0),
+    )
+}
+
+fn mat3_outer(a: Vec3, b: Vec3) -> Mat3 {
+	Mat3::from_cols(a * b.x, a * b.y, a * b.z)
+}
+
 impl Solver {
 	pub fn solve(&mut self, entities: &mut Vec<entity::Entity>, dt: f32) {
 		let y_all = entities.iter().map(|entity| integrator::get_integrated_single(entity, dt)).collect();
@@ -15,7 +35,7 @@ impl Solver {
 			debug_draw::line(c.collision1, c.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
 		}
 		let mut x_guess = y_all.clone();
-		for _ in 0..10 {
+		for _ in 0..1 {
 			for index in 0..entities.len() {
 				let entity = &entities[index];
 				let entity_collisions = collisions.iter().filter(|c| {
@@ -50,14 +70,21 @@ impl Solver {
 			}
 		}
 		for index in 0..entities.len() {
-			entities[index].velocity = (x_guess[index].0 - entities[index].position)/dt;
+			let com = entities[index].center_of_mass();
+			entities[index].velocity = (x_guess[index].0 + x_guess[index].1 * com - entities[index].position - entities[index].orientation * com)/dt;
 			entities[index].angular_velocity = ((x_guess[index].1 * entities[index].orientation.inverse())).to_scaled_axis()/dt;
 			entities[index].position = x_guess[index].0;
 			entities[index].orientation = x_guess[index].1;
 		}
 	}
 
-	// E = 0.5 * self.collision_stiffness * (collision.collision1 - collision.collision2).length_squared();
+
+	/*
+	 * E = 0.5 * self.collision_stiffness * (
+	 * 	this_state.0 + this_state.1 * collision.local_collision1 -
+	 * 	other_state.0 + other_state.1 * collision.local_collision2
+	 *	).length_squared();
+	 */
 	fn get_f(&self, this_state: &(Vec3, Quat), other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Vec6 {
 		let p1 = this_state.0 + this_state.1 * collision.local_collision1;
 		let p2 = other_state.0 + other_state.1 * collision.local_collision2;
@@ -67,6 +94,27 @@ impl Solver {
 	fn get_h(&self, _this_state: &(Vec3, Quat), _other_state: &(Vec3, Quat), _collision: &physics::collision::Collision) -> Mat6 {
 		Mat6::from_mat3(self.collision_stiffness * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, Mat3::ZERO)
 	}
+
+	// fn get_f(&self, this_state: &(Vec3, Quat), other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Vec6 {
+	// 	let r1_rotated = this_state.1 * collision.local_collision1;
+	// 	let r2_rotated = other_state.1 * collision.local_collision2;
+	// 	let p1 = this_state.0 + r1_rotated;
+	// 	let p2 = other_state.0 + r2_rotated;
+	// 	let diff = p1 - p2;
+
+	// 	self.collision_stiffness * Vec6::from_vec3(diff, diff.cross(r1_rotated))
+	// }
+
+	// fn get_h(&self, this_state: &(Vec3, Quat), _other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Mat6 {
+	// 	let r = this_state.1 * collision.local_collision1;
+
+	// 	let h_tt = Mat3::IDENTITY;
+	// 	let h_tr = mat3_skew_neg(r);          // top-right
+	// 	let h_rt = mat3_skew(r);              // bottom-left = h_tr.T
+	// 	let h_rr = r.length_squared() * Mat3::IDENTITY - mat3_outer(r, r);
+
+	// 	self.collision_stiffness * Mat6::from_mat3(h_tt, h_tr, h_rt, h_rr)
+	// }
 
 	fn sub_state(state_a: &(Vec3, Quat), state_b: &(Vec3, Quat)) -> Vec6 {
 		Vec6::from_vec3(state_a.0 - state_b.0, (state_a.1 * state_b.1.inverse() * 2.0).xyz())
