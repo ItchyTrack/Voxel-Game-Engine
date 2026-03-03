@@ -87,36 +87,36 @@ impl Solver {
 	 *    other_state.0 + other_state.1 * collision.local_collision2
 	 * ).length_squared();
 	 */
-	fn get_f(&self, this_state: &(Vec3, Quat), other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Vec6 {
-		let p1 = this_state.0 + this_state.1 * collision.local_collision1;
-		let p2 = other_state.0 + other_state.1 * collision.local_collision2;
-		self.collision_stiffness * Vec6::from_vec3(Vec3::new(p1.x - p2.x, p1.y - p2.y, p1.z - p2.z), Vec3::ZERO)
-	}
-
-	fn get_h(&self, _this_state: &(Vec3, Quat), _other_state: &(Vec3, Quat), _collision: &physics::collision::Collision) -> Mat6 {
-		self.collision_stiffness * Mat6::from_mat3(Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, Mat3::ZERO)
-	}
-
 	// fn get_f(&self, this_state: &(Vec3, Quat), other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Vec6 {
-	// 	let r1_rotated = this_state.1 * collision.local_collision1;
-	// 	let r2_rotated = other_state.1 * collision.local_collision2;
-	// 	let p1 = this_state.0 + r1_rotated;
-	// 	let p2 = other_state.0 + r2_rotated;
-	// 	let diff = p1 - p2;
-
-	// 	self.collision_stiffness * Vec6::from_vec3(diff, diff.cross(r1_rotated))
+	// 	let p1 = this_state.0 + this_state.1 * collision.local_collision1;
+	// 	let p2 = other_state.0 + other_state.1 * collision.local_collision2;
+	// 	self.collision_stiffness * Vec6::from_vec3(Vec3::new(p1.x - p2.x, p1.y - p2.y, p1.z - p2.z), Vec3::ZERO)
 	// }
 
-	// fn get_h(&self, this_state: &(Vec3, Quat), _other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Mat6 {
-	// 	let r = this_state.1 * collision.local_collision1;
-
-	// 	let h_tt = Mat3::IDENTITY;
-	// 	let h_tr = mat3_skew_neg(r);          // top-right
-	// 	let h_rt = mat3_skew(r);              // bottom-left = h_tr.T
-	// 	let h_rr = r.length_squared() * Mat3::IDENTITY - mat3_outer(r, r);
-
-	// 	self.collision_stiffness * Mat6::from_mat3(h_tt, h_tr, h_rt, h_rr)
+	// fn get_h(&self, _this_state: &(Vec3, Quat), _other_state: &(Vec3, Quat), _collision: &physics::collision::Collision) -> Mat6 {
+	// 	self.collision_stiffness * Mat6::from_mat3(Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, Mat3::ZERO)
 	// }
+
+	fn get_f(&self, this_state: &(Vec3, Quat), other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Vec6 {
+		let r1_rotated = this_state.1 * collision.local_collision1;
+		let r2_rotated = other_state.1 * collision.local_collision2;
+		let p1 = this_state.0 + r1_rotated;
+		let p2 = other_state.0 + r2_rotated;
+		let diff = p1 - p2;
+
+		self.collision_stiffness * Vec6::from_vec3(diff, diff.cross(r1_rotated))
+	}
+
+	fn get_h(&self, this_state: &(Vec3, Quat), _other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Mat6 {
+		let r = this_state.1 * collision.local_collision1;
+
+		let h_tt = Mat3::IDENTITY;
+		let h_tr = mat3_skew_neg(r);          // top-right
+		let h_rt = mat3_skew(r);              // bottom-left = h_tr.T
+		let h_rr = r.length_squared() * Mat3::IDENTITY - mat3_outer(r, r);
+
+		self.collision_stiffness * Mat6::from_mat3(h_tt, h_tr, h_rt, h_rr)
+	}
 
 	fn sub_state(state_a: &(Vec3, Quat), state_b: &(Vec3, Quat)) -> Vec6 {
 		Vec6::from_vec3(state_a.0 - state_b.0, (state_a.1 * state_b.1.inverse() * 2.0).xyz())
