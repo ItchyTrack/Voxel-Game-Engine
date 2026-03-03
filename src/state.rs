@@ -44,9 +44,6 @@ impl State {
 	pub fn update(&mut self, dt: f32) {
 		self.camera_controller.update_camera(&mut self.camera, dt);
 		self.solver.solve(&mut self.entities, dt);
-		// for collision in collisions {
-		// 	println!("Collision: {0}-{1}, pos: {2}, norm: {3}", collision.id1, collision.id2, collision.pos, collision.normal);
-		// }
 	}
 
 	pub fn resize(&mut self, width: u32, height: u32) {
@@ -133,19 +130,19 @@ impl State {
 			entity.add_voxel(IVec3::new(1, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.5 });
 			entity.add_voxel(IVec3::new(0, 0, 1), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.5 });
 			entity.add_voxel(IVec3::new(1, 0, 1), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.5 });
-			entity.position.y = 100.0;
-			entity.position.z = -6.5;
-			entity.position.x = -0.5;
+			entity.position.y += 100.0;
+			entity.position.z += -6.5;
+			entity.position.x += -0.5;
 			entity.velocity.y = -10.0;
 			entity.orientation = Quat::from_rotation_z(0.1);
 		}
 		for x in -2..2 {
 			for y in -2..1 {
-				for z in -1..2 {
+				for z in -2..2 {
 					entities.push(entity::Entity::new());
 					let entity = entities.last_mut().unwrap();
 					entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-					entity.position.z = -6.0;
+					entity.position.z += -6.0;
 				}
 			}
 		}
@@ -178,17 +175,32 @@ impl State {
 		// {
 		// 	entities.push(entity::Entity::new());
 		// 	let entity = entities.last_mut().unwrap();
-		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [1.0, 0.0, 0.0, 1.0], mass: 1.0 });
-		// 	entity.position.z = -6.0;
+		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.2, 0.0, 0.0, 1.0], mass: 1.0 });
+		// 	entity.position.z += -6.0;
+		// 	entity.position.x += -1.0;
 		// }
 		// {
 		// 	entities.push(entity::Entity::new());
 		// 	let entity = entities.last_mut().unwrap();
-		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.0 });
-		// 	entity.position.z = -6.0;
-		// 	entity.position.y = 0.9;
-		// 	// entity.position.x = 0.9;
-		// 	entity.orientation = Quat::from_rotation_z(0.7853981634);
+		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.2, 0.0, 0.0, 1.0], mass: 1.0 });
+		// 	entity.position.z += -6.0;
+		// 	entity.position.x += -2.0;
+		// }
+		// {
+		// 	entities.push(entity::Entity::new());
+		// 	let entity = entities.last_mut().unwrap();
+		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.2, 0.0, 0.0, 1.0], mass: 1.0 });
+		// 	entity.position.z += -6.0;
+		// }
+		// {
+		// 	entities.push(entity::Entity::new());
+		// 	let entity = entities.last_mut().unwrap();
+		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.5 });
+		// 	entity.position.z += -6.0;
+		// 	entity.position.y += 0.7;
+		// 	entity.position.x += -0.5;
+		// 	// entity.velocity.y = -0.5;
+		// 	entity.orientation = Quat::from_rotation_z(0.1);
 		// }
 
 		Ok(Self {

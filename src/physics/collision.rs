@@ -19,7 +19,7 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 		let local_bounding_box_a = entity_a.get_voxels().get_bounding_box();
 		if local_bounding_box_a.is_none() { continue; }
 		let (aabb_a_min, aabb_a_max) = calc_aabb(
-			&pose_to_eval_at[id_a].0,
+			&(pose_to_eval_at[id_a].0 + pose_to_eval_at[id_a].1 * entities[id_a].get_voxels_local_pos()),
 			&pose_to_eval_at[id_a].1,
 			&(local_bounding_box_a.unwrap().0.as_vec3(), local_bounding_box_a.unwrap().1.as_vec3())
 		);
@@ -30,7 +30,7 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 			let local_bounding_box_b = entity_b.get_voxels().get_bounding_box();
 			if local_bounding_box_b.is_none() { continue; }
 			let (aabb_b_min, aabb_b_max) = calc_aabb(
-				&pose_to_eval_at[id_b].0,
+				&(pose_to_eval_at[id_b].0 + pose_to_eval_at[id_b].1 * entities[id_b].get_voxels_local_pos()),
 				&pose_to_eval_at[id_b].1,
 				&(local_bounding_box_b.unwrap().0.as_vec3(), local_bounding_box_b.unwrap().1.as_vec3())
 			);
@@ -46,7 +46,7 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 				if no_swap { (entity_a, pose_to_eval_at[id_a], entity_b, pose_to_eval_at[id_b]) }
 				else { (entity_b, pose_to_eval_at[id_b], entity_a, pose_to_eval_at[id_a]) }
 			};
-			let pos_of_1_in_2 = pose2.1.inverse() * (pose1.0 - pose2.0);
+			let pos_of_1_in_2 = pose2.1.inverse() * (pose1.1 * entity1.get_voxels_local_pos() + pose1.0 - pose2.0) - entity2.get_voxels_local_pos();
 			let orientation_of_1_in_2 = pose2.1.inverse() * pose1.1;
 			let separating_axis = compute_1x1x1_cube_separating_axis(orientation_of_1_in_2);
 			for voxel in entity1.get_voxels().get_voxels().iter() {
@@ -58,10 +58,10 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 				).iter().map(|c| Collision {
 					id1: if no_swap { id_a as u32 } else { id_b as u32 },
 					id2: if no_swap { id_b as u32 } else { id_a as u32 },
-					collision1: pose2.1 * c.collision1 + entity2.position,
-					collision2: pose2.1 * c.collision2 + entity2.position,
-					local_collision1: orientation_of_1_in_2.inverse() * (c.collision1 - pos_of_1_in_2),
-					local_collision2: c.collision2,
+					collision1: pose2.1 * (c.collision1 + entity2.get_voxels_local_pos()) + pose2.0,
+					collision2: pose2.1 * (c.collision2 + entity2.get_voxels_local_pos()) + pose2.0,
+					local_collision1: orientation_of_1_in_2.inverse() * (c.collision1 - pos_of_1_in_2) + entity1.get_voxels_local_pos(),
+					local_collision2: c.collision2 + entity2.get_voxels_local_pos(),
 					..*c
 				}));
 			}
@@ -129,7 +129,6 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, _orientation: &Quat, separating_axis: &
 	}
 	Some(best)
 }
-
 
 // assumes other cube has no rotation and both are centered at (0,0,0)
 fn compute_1x1x1_cube_separating_axis(orientation: Quat) -> Vec<((f32, f32), (f32, f32), Vec3)> {
