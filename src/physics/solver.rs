@@ -1,6 +1,6 @@
-use glam::{ Quat, Vec3, Mat3 };
+use glam::{ Mat3, Quat, Vec3, Vec4 };
 
-use crate::{entity, physics, math::{Vec6, Mat6}};
+use crate::{debug_draw, entity, math::{Mat6, Vec6}, physics};
 use super::integrator;
 
 pub struct Solver {
@@ -11,8 +11,11 @@ impl Solver {
 	pub fn solve(&mut self, entities: &mut Vec<entity::Entity>, dt: f32) {
 		let y_all = entities.iter().map(|entity| integrator::get_integrated_single(entity, dt)).collect();
 		let collisions = physics::collision::get_collisions(&entities, &y_all);
+		for c in collisions.iter() {
+			debug_draw::line(c.collision1, c.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
+		}
 		let mut x_guess = y_all.clone();
-		for _ in 0..5 {
+		for _ in 0..10 {
 			for index in 0..entities.len() {
 				let entity = &entities[index];
 				let entity_collisions = collisions.iter().filter(|c| {
@@ -23,19 +26,19 @@ impl Solver {
 				let mut h: Mat6 = M / (dt * dt);
 				for entity_collision in entity_collisions {
 					if entity_collision.id1 == index as u32 {
-						f -= self.get_f(&entity_collision);
-						h += self.get_h(&entity_collision);
+						f -= self.get_f(&x_guess[index], &x_guess[entity_collision.id2 as usize], &entity_collision);
+						h += self.get_h(&x_guess[index], &x_guess[entity_collision.id2 as usize], &entity_collision);
 					} else {
 						let swapped_collision = physics::collision::Collision {
 							id1: entity_collision.id2,
 							id2: entity_collision.id1,
 							collision1: entity_collision.collision2,
 							collision2: entity_collision.collision1,
-							normal: -entity_collision.normal,
-							..*entity_collision
+							local_collision1: entity_collision.local_collision2,
+							local_collision2: entity_collision.local_collision1,
 						};
-						f -= self.get_f(&swapped_collision);
-						h += self.get_h(&swapped_collision);
+						f -= self.get_f(&x_guess[index], &x_guess[swapped_collision.id2 as usize], &swapped_collision);
+						h += self.get_h(&x_guess[index], &x_guess[swapped_collision.id2 as usize], &swapped_collision);
 					}
 				}
 				let x_change = h.inverse() * f;
@@ -48,25 +51,20 @@ impl Solver {
 		}
 		for index in 0..entities.len() {
 			entities[index].velocity = (x_guess[index].0 - entities[index].position)/dt;
-			entities[index].angular_velocity = ((x_guess[index].1 - entities[index].orientation.inverse())).to_scaled_axis()/dt;
+			entities[index].angular_velocity = ((x_guess[index].1 * entities[index].orientation.inverse())).to_scaled_axis()/dt;
 			entities[index].position = x_guess[index].0;
 			entities[index].orientation = x_guess[index].1;
 		}
 	}
 
 	// E = 0.5 * self.collision_stiffness * (collision.collision1 - collision.collision2).length_squared();
-	fn get_f(&self, collision: &physics::collision::Collision, ) -> Vec6 {
-		Vec6::from_vec3(
-			self.collision_stiffness * Vec3::new(
-				collision.collision1.x - collision.collision2.x,
-				collision.collision1.y - collision.collision2.y,
-				collision.collision1.z - collision.collision2.z,
-			),
-			Vec3::ZERO
-		)
+	fn get_f(&self, this_state: &(Vec3, Quat), other_state: &(Vec3, Quat), collision: &physics::collision::Collision) -> Vec6 {
+		let p1 = this_state.0 + this_state.1 * collision.local_collision1;
+		let p2 = other_state.0 + other_state.1 * collision.local_collision2;
+		Vec6::from_vec3(self.collision_stiffness * Vec3::new(p1.x - p2.x, p1.y - p2.y, p1.z - p2.z), Vec3::ZERO)
 	}
 
-	fn get_h(&self, collision: &physics::collision::Collision) -> Mat6 {
+	fn get_h(&self, _this_state: &(Vec3, Quat), _other_state: &(Vec3, Quat), _collision: &physics::collision::Collision) -> Mat6 {
 		Mat6::from_mat3(self.collision_stiffness * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, Mat3::ZERO)
 	}
 

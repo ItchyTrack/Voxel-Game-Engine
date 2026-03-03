@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use glam::{IVec3, Mat3, Mat4, Quat, Vec3};
+use glam::{IVec3, Mat4, Quat, Vec3};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{camera, entity, gpu_objects::mesh, physics::{self, collision}, renderer::Renderer, voxels::{Voxel, Voxels}};
+use crate::{camera, entity, gpu_objects::mesh, physics::{self}, renderer::Renderer, voxels};
 
 pub struct State {
 	pub renderer: Renderer,
@@ -15,7 +15,7 @@ pub struct State {
 }
 
 impl State {
-	pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+	pub fn handle_key(&mut self, _event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
 		if code == KeyCode::Escape && is_pressed {
 			self.set_mouse_captured(false);
 		} else {
@@ -129,21 +129,22 @@ impl State {
 		{
 			entities.push(entity::Entity::new());
 			let entity = entities.last_mut().unwrap();
-			entity.add_voxel(IVec3::new(0, 0, 0), Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 2.5 });
-			entity.add_voxel(IVec3::new(1, 0, 0), Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 2.5 });
-			entity.add_voxel(IVec3::new(0, 0, 1), Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 2.5 });
-			entity.add_voxel(IVec3::new(1, 0, 1), Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 2.5 });
+			entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.5 });
+			entity.add_voxel(IVec3::new(1, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.5 });
+			entity.add_voxel(IVec3::new(0, 0, 1), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.5 });
+			entity.add_voxel(IVec3::new(1, 0, 1), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.5 });
 			entity.position.y = 100.0;
 			entity.position.z = -6.5;
 			entity.position.x = -0.5;
 			entity.velocity.y = -10.0;
+			entity.orientation = Quat::from_rotation_z(0.1);
 		}
-		for x in -2..3 {
+		for x in -2..2 {
 			for y in -2..1 {
-				for z in -2..3 {
+				for z in -1..2 {
 					entities.push(entity::Entity::new());
 					let entity = entities.last_mut().unwrap();
-					entity.add_voxel(IVec3::new(x, y, z), Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+					entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
 					entity.position.z = -6.0;
 				}
 			}
@@ -154,25 +155,41 @@ impl State {
 			entity.position.z = -6.0;
 			for y in -3..4 {
 				for z in -3..4 {
-					entity.add_voxel(IVec3::new(-3, y, z), Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
+					entity.add_voxel(IVec3::new(-3, y, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
 				}
 			}
 			for y in -3..4 {
 				for z in -3..4 {
-					entity.add_voxel(IVec3::new(3, y, z), Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
+					entity.add_voxel(IVec3::new(3, y, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
 				}
 			}
 			for x in -3..4 {
 				for z in -3..4 {
-					entity.add_voxel(IVec3::new(x, -3, z), Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
+					entity.add_voxel(IVec3::new(x, -3, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
 				}
 			}
 			for y in -3..4 {
 				for x in -3..4 {
-					entity.add_voxel(IVec3::new(x, y, -3), Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
+					entity.add_voxel(IVec3::new(x, y, -3), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
 				}
 			}
 		}
+
+		// {
+		// 	entities.push(entity::Entity::new());
+		// 	let entity = entities.last_mut().unwrap();
+		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [1.0, 0.0, 0.0, 1.0], mass: 1.0 });
+		// 	entity.position.z = -6.0;
+		// }
+		// {
+		// 	entities.push(entity::Entity::new());
+		// 	let entity = entities.last_mut().unwrap();
+		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 1.0 });
+		// 	entity.position.z = -6.0;
+		// 	entity.position.y = 0.9;
+		// 	// entity.position.x = 0.9;
+		// 	entity.orientation = Quat::from_rotation_z(0.7853981634);
+		// }
 
 		Ok(Self {
 			renderer,
@@ -181,7 +198,7 @@ impl State {
 			entities,
 			mouse_captured: false,
 			solver: physics::solver::Solver {
-				collision_stiffness: 1000.0,
+				collision_stiffness: 200.0,
 			}
 		})
 	}

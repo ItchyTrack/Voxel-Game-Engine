@@ -89,7 +89,7 @@ impl Entity {
 	pub fn get_voxel(&self, pos: IVec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
 	pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
 
-	pub fn get_rendering_meshes(&mut self, device: &wgpu::Device, camera: &camera::Camera) -> Vec<(&mesh::Mesh, Mat4)> {
+	pub fn get_rendering_meshes(&mut self, device: &wgpu::Device, _camera: &camera::Camera) -> Vec<(&mesh::Mesh, Mat4)> {
 		if self.update_mesh {
 			self.mesh = self.voxels.get_mesh(device);
 			self.update_mesh = false;
@@ -100,27 +100,4 @@ impl Entity {
 		}
 		vec![]
 	}
-
-	pub fn get_aabb(&self) -> Option<(Vec3, Vec3)> {
-		// eventually, this will aggregate the bounding boxes of multiple voxel grids
-		let (min, max) = self.voxels.get_bounding_box()?;
-		let min = min.as_vec3();
-		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
-		// rotate the 8 corners of the bounding box and find the new bounding box that contains them
-		let corners = [
-			min,
-			Vec3::new(max.x, min.y, min.z),
-			Vec3::new(min.x, max.y, min.z),
-			Vec3::new(min.x, min.y, max.z),
-			Vec3::new(max.x, max.y, min.z),
-			Vec3::new(max.x, min.y, max.z),
-			Vec3::new(min.x, max.y, max.z),
-			max,
-		];
-		let rotated_corners = corners.map(|c| self.orientation * c);
-		let min = rotated_corners.iter().fold(Vec3::new(f32::MAX, f32::MAX, f32::MAX), |acc, c| acc.min(*c));
-		let max = rotated_corners.iter().fold(Vec3::new(f32::MIN, f32::MIN, f32::MIN), |acc, c| acc.max(*c));
-		Some((min + self.position, max + self.position))
-	}
-
 }

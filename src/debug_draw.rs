@@ -1,4 +1,4 @@
-use glam::{Vec3, Vec4, Mat4};
+use glam::{Vec3, Vec4};
 use std::cell::RefCell;
 
 #[repr(C)]
