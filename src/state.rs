@@ -123,51 +123,51 @@ impl State {
 		// 	entity.add_voxel(IVec3::new(0, 4, 0), Voxel{ color: [0.0, 0.0, 0.0, 1.0], mass: 0.01 });
 		// 	entity.angular_momentum = Vec3::new(200., 2000., 0.);
 		// }
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 10.0});
-			entity.position.y += 50.0;
-			entity.position.z += -6.5;
-			entity.position.x += -0.5;
-			entity.velocity.y = -10.0;
-		}
-		for x in -2..1 {
-			for y in -1..2 {
-				for z in -2..1 {
-					entities.push(entity::Entity::new());
-					let entity = entities.last_mut().unwrap();
-					entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-					entity.position.z += -6.0;
-				}
-			}
-		}
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			// for y in -3..4 {
-			// 	for z in -3..4 {
-			// 		entity.add_voxel(IVec3::new(-3, y, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
-			// 	}
-			// }
-			// for y in -3..4 {
-			// 	for z in -3..4 {
-			// 		entity.add_voxel(IVec3::new(3, y, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
-			// 	}
-			// }
-			for x in -3..4 {
-				for z in -3..4 {
-					entity.add_voxel(IVec3::new(x, -3, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
-				}
-			}
-			// for y in -3..4 {
-			// 	for x in -3..4 {
-			// 		entity.add_voxel(IVec3::new(x, y, -3), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
-			// 	}
-			// }
-			entity.position.z += -6.0;
-			entity.is_static = true;
-		}
+		// {
+		// 	entities.push(entity::Entity::new());
+		// 	let entity = entities.last_mut().unwrap();
+		// 	entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 1.0, 1.0], mass: 10.0});
+		// 	entity.position.y += 50.0;
+		// 	entity.position.z += -6.5;
+		// 	entity.position.x += -0.5;
+		// 	entity.velocity.y = -10.0;
+		// }
+		// for x in -2..1 {
+		// 	for y in -1..2 {
+		// 		for z in -2..1 {
+		// 			entities.push(entity::Entity::new());
+		// 			let entity = entities.last_mut().unwrap();
+		// 			entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+		// 			entity.position.z += -6.0;
+		// 		}
+		// 	}
+		// }
+		// {
+		// 	entities.push(entity::Entity::new());
+		// 	let entity = entities.last_mut().unwrap();
+		// 	// for y in -3..4 {
+		// 	// 	for z in -3..4 {
+		// 	// 		entity.add_voxel(IVec3::new(-3, y, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
+		// 	// 	}
+		// 	// }
+		// 	// for y in -3..4 {
+		// 	// 	for z in -3..4 {
+		// 	// 		entity.add_voxel(IVec3::new(3, y, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
+		// 	// 	}
+		// 	// }
+		// 	for x in -3..4 {
+		// 		for z in -3..4 {
+		// 			entity.add_voxel(IVec3::new(x, -3, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
+		// 		}
+		// 	}
+		// 	// for y in -3..4 {
+		// 	// 	for x in -3..4 {
+		// 	// 		entity.add_voxel(IVec3::new(x, y, -3), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1000.0 });
+		// 	// 	}
+		// 	// }
+		// 	entity.position.z += -6.0;
+		// 	entity.is_static = true;
+		// }
 		// {
 		// 	entities.push(entity::Entity::new());
 		// 	let entity = entities.last_mut().unwrap();
@@ -187,6 +187,36 @@ impl State {
 		// 	entity.velocity.y = -0.5;
 		// }
 
+		{
+			entities.push(entity::Entity::new());
+			let entity = entities.last_mut().unwrap();
+			for x in -10..10 {
+				for z in -10..0 {
+					entity.add_voxel(IVec3::new(x, -z, z), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+				}
+			}
+			for x in -10..10 {
+				for z in 0..200 {
+					entity.add_voxel(IVec3::new(x, -z / 5, z), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+				}
+			}
+			entity.is_static = true;
+			entity.position.y -= 2.0;
+		}
+		{
+			entities.push(entity::Entity::new());
+			let entity = entities.last_mut().unwrap();
+			for x in -6..7 {
+				for y in -6..7 {
+					for z in -6..7 {
+						if IVec3::new(x, y, z).length_squared() <= 37 {
+							entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+						}
+					}
+				}
+			}
+			entity.position.y += 10.0;
+		}
 		Ok(Self {
 			renderer,
 			camera,

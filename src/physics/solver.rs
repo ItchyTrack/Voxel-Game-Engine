@@ -40,7 +40,7 @@ impl Solver {
 	pub fn solve(&mut self, entities: &mut Vec<entity::Entity>, dt: f32) {
 		let y_all = entities.iter().map(|entity| integrator::get_integrated_single(entity, dt)).collect();
 		let collisions = physics::collision::get_collisions(&entities, &y_all);
-		println!("collisions: {0}", collisions.len());
+		// println!("collisions: {0}", collisions.len());
 		for collision in collisions.iter() {
 			debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
 		}
@@ -54,7 +54,7 @@ impl Solver {
 		}).collect();
 		self.collisions_kl_map.clear();
 		let mut x_guess = y_all.clone();
-		let iterations = 30;
+		let iterations = 100;
 		let total_iterations = iterations + 1; // because post_stabilize
 		for iteration in 0..total_iterations {
 			let alpha = (iteration < iterations) as i32 as f32;
