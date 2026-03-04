@@ -1,4 +1,4 @@
-use std::vec;
+use std::{collections::HashMap};
 
 use glam::{ Mat3, Quat, Vec3, Vec4 };
 
@@ -6,7 +6,7 @@ use crate::{debug_draw, entity, math::{Mat6, Vec6}, physics};
 use super::integrator;
 
 pub struct Solver {
-	pub collision_stiffness: f32,
+	collisions_kl_map: HashMap<(u32, u32), ((f32, f32, f32), (f32, f32, f32))>,
 }
 
 fn mat3_skew(v: Vec3) -> Mat3 {
@@ -33,15 +33,31 @@ fn mat6_outer(a: Vec6, b: Vec6) -> Mat6 {
 }
 
 impl Solver {
+	pub fn new() -> Self {
+		Self { collisions_kl_map: HashMap::new(), }
+	}
+
 	pub fn solve(&mut self, entities: &mut Vec<entity::Entity>, dt: f32) {
 		let y_all = entities.iter().map(|entity| integrator::get_integrated_single(entity, dt)).collect();
 		let collisions = physics::collision::get_collisions(&entities, &y_all);
+		println!("collisions: {0}", collisions.len());
 		for collision in collisions.iter() {
 			debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
 		}
-		let mut collisions_kld: Vec<((f32, f32, f32), (f32, f32, f32))> = vec![((20.0, 0.0, 0.0), (20.0, 0.0, 0.0)); collisions.len()];
+		let gamma = 0.99;
+		let mut collisions_kld: Vec<((f32, f32, f32), (f32, f32, f32))> = collisions.iter().map(|collision| {
+			let result = self.collisions_kl_map.get(&if collision.id1 < collision.id2 { (collision.id1, collision.id2) } else { (collision.id2, collision.id1) });
+			result.map_or(
+				((1.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+				|((k1, l1, d1), (k2, l2, d2))| (((k1 * gamma).max(1.0), *l1, *d1), ((k2 * gamma).max(1.0), *l2, *d2))
+			)
+		}).collect();
+		self.collisions_kl_map.clear();
 		let mut x_guess = y_all.clone();
-		for _ in 0..30 {
+		let iterations = 30;
+		let total_iterations = iterations + 1; // because post_stabilize
+		for iteration in 0..total_iterations {
+			let alpha = (iteration < iterations) as i32 as f32;
 			for index in 0..entities.len() {
 				let entity = &entities[index];
 				if entity.is_static { continue; }
@@ -56,14 +72,18 @@ impl Solver {
 						let k = entity_collision.1.0.0;
 						let l = entity_collision.1.0.1;
 						let d = entity_collision.1.1.2;
-						let result = self.get_collision_f_h_and_new_kld(&x_guess[index], &x_guess[entity_collision.0.id2 as usize], &entity_collision.0, k, l, d);
+						let result = self.get_collision_f_h_and_new_kld(&x_guess[index], &x_guess[entity_collision.0.id2 as usize], &entity_collision.0, k, l, d, alpha);
 						if result.is_none() { continue; }
 						let (c_f, c_h, new_k, new_l, new_d) = result.unwrap();
 						f -= c_f;
 						h += c_h;
-						entity_collision.1.0.0 = new_k;
-						entity_collision.1.0.1 = new_l;
-						entity_collision.1.1.2 = new_d;
+						if iteration < iterations {
+							entity_collision.1.0.0 = new_k;
+							entity_collision.1.0.1 = new_l;
+						}
+						if iteration + 1 >= total_iterations {
+							entity_collision.1.1.2 = new_d;
+						}
 					} else {
 						let swapped_collision = physics::collision::Collision {
 							id1: entity_collision.0.id2,
@@ -76,14 +96,18 @@ impl Solver {
 						let k = entity_collision.1.1.0;
 						let l = entity_collision.1.1.1;
 						let d = entity_collision.1.1.2;
-						let result = self.get_collision_f_h_and_new_kld(&x_guess[index], &x_guess[swapped_collision.id2 as usize], &swapped_collision, k, l, d);
+						let result = self.get_collision_f_h_and_new_kld(&x_guess[index], &x_guess[swapped_collision.id2 as usize], &swapped_collision, k, l, d, alpha);
 						if result.is_none() { continue; }
 						let (c_f, c_h, new_k, new_l, new_d) = result.unwrap();
 						f -= c_f;
 						h += c_h;
-						entity_collision.1.1.0 = new_k;
-						entity_collision.1.1.1 = new_l;
-						entity_collision.1.1.2 = new_d;
+						if iteration < iterations {
+							entity_collision.1.1.0 = new_k;
+							entity_collision.1.1.1 = new_l;
+						}
+						if iteration + 1 >= total_iterations {
+							entity_collision.1.1.2 = new_d;
+						}
 					}
 				}
 				let x_change = h.inverse() * f;
@@ -94,6 +118,9 @@ impl Solver {
 				).normalize();
 			}
 		}
+		collisions_kld.iter().zip(collisions).for_each(|(data, collision)| {
+			self.collisions_kl_map.insert(if collision.id1 < collision.id2 { (collision.id1, collision.id2) } else { (collision.id2, collision.id1) }, *data);
+		});
 		for index in 0..entities.len() {
 			entities[index].velocity = (x_guess[index].0 - entities[index].position)/dt;
 			entities[index].angular_velocity = ((x_guess[index].1 * entities[index].orientation.inverse())).to_scaled_axis()/dt;
@@ -142,7 +169,8 @@ impl Solver {
 		collision: &physics::collision::Collision,
 		k: f32,
 		l: f32,
-		d_old: f32
+		d_old: f32,
+		alpha: f32
 	) -> Option<(Vec6, Mat6, f32, f32, f32)> {
 		let (d, d_prime, d_prime_prime) = self.get_collision_d(this_state, other_state, collision)?;
 		// VBD
@@ -154,9 +182,8 @@ impl Solver {
 		// e = 1/2*k*d^2+l*d
 		// f = e' = (k*d+l)*d'
 		// h = e'' = k*(d*d'' + d'*d')
-		let a = 0.50; // alpha
-		let d_corrected = d - a * d_old;
-		let b = 20.0; // beta
+		let d_corrected = d - alpha * d_old;
+		let b = 50.0; // beta
 		Some(((k * d_corrected + l) * d_prime, k * (d_corrected * d_prime_prime + mat6_outer(d_prime, d_prime)), k + b * d_corrected, k * d_corrected + l, d))
 	}
 

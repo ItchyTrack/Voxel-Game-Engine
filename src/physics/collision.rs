@@ -78,7 +78,7 @@ fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separa
 			for z in -1..2 {
 				let vec = IVec3::new(x, y, z);
 				if voxels.get_voxel(pos.floor().as_ivec3() + vec).is_some() {
-					get_collision_1x1x1_voxel(&(pos - pos.floor() - vec.as_vec3() - Vec3::new(0.5, 0.5, 0.5)), orientation, separating_axes, p + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5), *q).into_iter().for_each(|c| {
+					get_collision_1x1x1_voxel(&(pos - pos.floor() - vec.as_vec3() - Vec3::new(0.5, 0.5, 0.5)), orientation, separating_axes, p + q * (pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5)), *q).into_iter().for_each(|c| {
 						collisions.push((
 							c.0 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
 							c.1 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5)
@@ -209,42 +209,53 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 
 			let axis1 = orientation * axes[((best.2 - 6) % 3) as usize]; // 1 axis
 			let not_axes_1 = not_axes[((best.2 - 6) % 3) as usize];
-			let mut best_edge_1 = Vec3::ZERO;
+			let mut best_edges_1 = vec![];
 			let mut best_dis_1 = 10.0;
 			(0..4).for_each(|i| {
 				let v = pos + orientation * (not_axes_1.0 * (0.5 - (i%2) as f32) + not_axes_1.1 * (0.5 - (i/2) as f32));
 				let dis = v.length_squared();//dot(best.1 * axis_neg);
-				if best_dis_1 > dis {
+				if (best_dis_1 - dis).abs() < 0.001 {
+					best_edges_1.push(v);
+				} else if best_dis_1 > dis {
 					best_dis_1 = dis;
-					best_edge_1 = v;
+					best_edges_1.clear();
+					best_edges_1.push(v);
 				}
 			});
 
 			let axis2 = axes[((best.2 - 6) / 3) as usize]; // 2 axis
 			let not_axes_2 = not_axes[((best.2 - 6) / 3) as usize];
-			let mut best_edge_2 = Vec3::ZERO;
+			let mut best_edges_2 = vec![];
 			let mut best_dis_2 = 10.0;
 			(0..4).for_each(|i| {
 				let v = not_axes_2.0 * (0.5 - (i%2) as f32) + not_axes_2.1 * (0.5 - (i/2) as f32);
 				let dis = (v - pos).length_squared();//dot(-best.1 * axis_neg);
-				if best_dis_2 > dis {
+				if (best_dis_2 - dis).abs() < 0.001 {
+					best_edges_2.push(v);
+				} else if best_dis_2 > dis {
 					best_dis_2 = dis;
-					best_edge_2 = v;
+					best_edges_2.clear();
+					best_edges_2.push(v);
 				}
 			});
 
-			debug_draw::point(p + q * best_edge_1, Vec4::W, 0.1);
-			debug_draw::point(p + q * best_edge_2, Vec4::W, 0.1);
+			for best_edge_1 in best_edges_1.iter() {
+				for best_edge_2 in best_edges_2.iter() {
 
-			let result = points_with_direction(best_edge_1, axis1, best_edge_2, axis2, best.1 * axis_neg);
-			if result.is_none() {
-				continue;
+				let result = points_with_direction(*best_edge_1, axis1, *best_edge_2, axis2, best.1 * axis_neg);
+				if result.is_none() {
+					continue;
+				}
+				let (v1, v2) = result.unwrap();
+
+				// debug_draw::point(p + q * best_edge_1, Vec4::W, 0.1);
+				// debug_draw::point(p + q * best_edge_2, Vec4::W, 0.1);
+
+				debug_draw::point(p + q * v1, Vec4::W, 0.2);
+				debug_draw::point(p + q * v2, Vec4::W, 0.2);
+				collisions.push((v1, v2));
+				}
 			}
-			let (v1, v2) = result.unwrap();
-
-			debug_draw::point(p + q * v1, Vec4::W, 0.2);
-			debug_draw::point(p + q * v2, Vec4::W, 0.2);
-			collisions.push((v1, v2));
 		}
 	}
 	return collisions;
@@ -265,11 +276,19 @@ pub fn points_with_direction(
         return None;
     }
 
-    let mut s = r.dot((-d2).cross(u)) / denom;
-    let mut t = d1.dot(r.cross(u)) / denom;
+    let s = r.dot((-d2).cross(u)) / denom;
+    let t = d1.dot(r.cross(u)) / denom;
 
-	if s != s.clamp(-0.5, 0.5) { return None; }
-	if t != t.clamp(-0.5, 0.5) { return None; }
+	if s != s.clamp(-0.51, 0.51) {
+		// if d1.angle_between(d2) < PI / 36.0 { return None; }
+		// println!("S! s {0}, t {1}, p1 {2}, d1 {3}, p2 {4}, d2 {5}, u {6}", s, t, p1, d1, p2, d2, u);
+		return None;
+	}
+	if t != t.clamp(-0.51, 0.51) {
+		// if d1.angle_between(d2) < PI / 36.0 { return None; }
+		// println!("T: s {0}, t {1}, p1 {2}, d1 {3}, p2 {4}, d2 {5}, u {6}", s, t, p1, d1, p2, d2, u);
+		return None;
+	}
 
     let x1 = p1 + d1 * s;
     let x2 = p2 + d2 * t;
