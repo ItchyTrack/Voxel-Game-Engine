@@ -1,5 +1,5 @@
-use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
-
+use std::{ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign}};
+use core::fmt;
 use glam::{Mat3, Quat, Vec3};
 
 #[derive(Copy, Clone, PartialEq)]
@@ -315,6 +315,29 @@ impl Neg for &Vec6 {
 	}
 }
 
+impl fmt::Display for Vec6 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(p) = f.precision() {
+            write!(f, "[{:.*}, {:.*}, {:.*}, {:.*}, {:.*}, {:.*}]", p, self.get(0), p, self.get(1), p, self.get(2), p, self.get(3), p, self.get(4), p, self.get(5))
+        } else {
+            write!(f, "[{}, {}, {}, {}, {}, {}]", self.get(0), self.get(1), self.get(2), self.get(3), self.get(4), self.get(5))
+        }
+    }
+}
+
+impl fmt::Debug for Vec6 {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_tuple(stringify!(Vec6))
+            .field(&self.get(0))
+            .field(&self.get(1))
+            .field(&self.get(2))
+            .field(&self.get(3))
+            .field(&self.get(4))
+            .field(&self.get(5))
+            .finish()
+    }
+}
+
 #[derive(Copy, Clone, PartialEq)]
 pub struct Mat6 {
 	matrix: [Vec6; 6],
@@ -608,4 +631,31 @@ impl Neg for &Mat6 {
 	fn neg(self) -> Mat6 {
 		(*self).neg()
 	}
+}
+
+impl fmt::Debug for Mat6 {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct(stringify!(Mat6))
+            .field("0_axis", &self.col(0))
+            .field("1_axis", &self.col(1))
+            .field("2_axis", &self.col(2))
+            .field("3_axis", &self.col(3))
+            .field("4_axis", &self.col(4))
+            .field("5_axis", &self.col(5))
+            .finish()
+    }
+}
+
+impl fmt::Display for Mat6 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(p) = f.precision() {
+            write!(
+                f,
+                "[{:.*}, {:.*}, {:.*}, {:.*}, {:.*}, {:.*}]",
+                p, self.col(0), p, self.col(1), p, self.col(2), p, self.col(3), p, self.col(4), p, self.col(5)
+            )
+        } else {
+            write!(f, "[{}, {}, {}, {}, {}, {}]", self.col(0), self.col(1), self.col(2), self.col(3), self.col(4), self.col(5))
+        }
+    }
 }

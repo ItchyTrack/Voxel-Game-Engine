@@ -1,6 +1,6 @@
-use glam::{IVec3, Quat, Vec3};
+use glam::{IVec3, Quat, Vec3, Vec4};
 
-use crate::{entity, voxels};
+use crate::{debug_draw, entity, voxels};
 
 #[derive(Copy, Clone)]
 pub struct Collision {
@@ -48,21 +48,22 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 			};
 			let pos_of_1_in_2 = pose2.1.inverse() * (pose1.1 * entity1.get_voxels_local_pos() + pose1.0 - pose2.0) - entity2.get_voxels_local_pos();
 			let orientation_of_1_in_2 = pose2.1.inverse() * pose1.1;
-			let separating_axis = compute_1x1x1_cube_separating_axis(orientation_of_1_in_2);
+			let separating_axis = compute_1x1x1_cube_separating_axes(orientation_of_1_in_2);
 			for voxel in entity1.get_voxels().get_voxels().iter() {
 				collisions.extend(get_collision(
 					&(&orientation_of_1_in_2 * (voxel.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5)) + pos_of_1_in_2),
 					&orientation_of_1_in_2,
 					entity2.get_voxels(),
-					&separating_axis
+					&separating_axis,
+					&(pose2.0 + pose2.1 * entity2.get_voxels_local_pos()),
+					&pose2.1
 				).iter().map(|c| Collision {
 					id1: if no_swap { id_a as u32 } else { id_b as u32 },
 					id2: if no_swap { id_b as u32 } else { id_a as u32 },
-					collision1: pose2.1 * (c.collision1 + entity2.get_voxels_local_pos()) + pose2.0,
-					collision2: pose2.1 * (c.collision2 + entity2.get_voxels_local_pos()) + pose2.0,
-					local_collision1: orientation_of_1_in_2.inverse() * (c.collision1 - pos_of_1_in_2) + entity1.get_voxels_local_pos(),
-					local_collision2: c.collision2 + entity2.get_voxels_local_pos(),
-					..*c
+					collision1: pose2.1 * (c.0 + entity2.get_voxels_local_pos()) + pose2.0,
+					collision2: pose2.1 * (c.1 + entity2.get_voxels_local_pos()) + pose2.0,
+					local_collision1: orientation_of_1_in_2.inverse() * (c.0 - pos_of_1_in_2) + entity1.get_voxels_local_pos(),
+					local_collision2: c.1 + entity2.get_voxels_local_pos(),
 				}));
 			}
 		}
@@ -70,21 +71,18 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 	collisions
 }
 
-fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separating_axis: &Vec<((f32, f32), (f32, f32), Vec3)>) -> Vec<Collision> {
-	let mut collisions: Vec<Collision> = vec![];
+fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, p: &Vec3, q:&Quat) -> Vec<(Vec3, Vec3)> {
+	let mut collisions = vec![];
 	for x in -1..2 {
 		for y in -1..2 {
 			for z in -1..2 {
 				let vec = IVec3::new(x, y, z);
 				if voxels.get_voxel(pos.floor().as_ivec3() + vec).is_some() {
-					get_collision_1x1x1_voxel(&((pos - pos.floor()) - vec.as_vec3() - Vec3::new(0.5, 0.5, 0.5)), orientation, separating_axis).inspect(|c| {
-						collisions.push(
-							Collision {
-								collision1: c.collision1 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
-								collision2: c.collision2 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
-								..*c
-							}
-						)
+					get_collision_1x1x1_voxel(&(pos - pos.floor() - vec.as_vec3() - Vec3::new(0.5, 0.5, 0.5)), orientation, separating_axes, p + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5), *q).into_iter().for_each(|c| {
+						collisions.push((
+							c.0 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
+							c.1 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5)
+						))
 					});
 				}
 			}
@@ -93,46 +91,229 @@ fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separa
 	return collisions;
 }
 
-fn get_collision_1x1x1_voxel(pos: &Vec3, _orientation: &Quat, separating_axis: &Vec<((f32, f32), (f32, f32), Vec3)>) -> Option<Collision> {
-	if pos.length_squared() >= 3.0 { return None; }
-	let mut best = Collision{
-		id1: 0,
-		id2: 0,
-		collision1: Vec3::ZERO,
-		collision2: Vec3::ZERO,
-		local_collision1: Vec3::ZERO,
-		local_collision2: Vec3::ZERO,
-	};
+fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, p: Vec3, q:Quat) -> Vec<(Vec3, Vec3)> {
+	if pos.length_squared() >= 3.0 { return vec![]; }
+	// let mut best = Collision{
+	// 	id1: 0,
+	// 	id2: 0,
+	// 	collision1: Vec3::ZERO,
+	// 	collision2: Vec3::ZERO,
+	// 	local_collision1: Vec3::ZERO,
+	// 	local_collision2: Vec3::ZERO,
+	// };
+	let mut bests = vec![];//: ((f32, f32), bool, Vec3, u8, f32) = ((0.0, 0.0), false, Vec3::ZERO, 0, 0.0);
 	let mut best_dis = 10.0;
-	for ((unshifted_min_1, unshifted_max_1), (min_2, max_2), axes) in separating_axis {
-		let shift = pos.dot(*axes);
+	for ((unshifted_min_1, unshifted_max_1), (min_2, max_2), axis, index) in separating_axes {
+		let shift = pos.dot(*axis);
 		let min_1 = unshifted_min_1 + shift;
 		let max_1 = unshifted_max_1 + shift;
 		if max_1 <= *min_2 || min_1 >= *max_2 {
-			return None;
+			return vec![];
 		}
 		if min_1 > *min_2 {
 			let overlap = max_2 - min_1;
-			if overlap < best_dis {
+			if (overlap - best_dis).abs() < 0.001 {
+				// bests.clear();
+				bests.push(((min_1, *max_2), *axis, *index));
+			} else if overlap < best_dis {
 				best_dis = overlap;
-				best.collision1 = axes * min_1 + (pos - axes * shift) * 0.5;
-				best.collision2 = axes * max_2 + (pos - axes * shift) * 0.5;
+				bests.clear();
+				bests.push(((min_1, *max_2), *axis, *index));
 			}
 		} else {
 			let overlap = max_1 - *min_2;
-			if overlap < best_dis {
+			if (overlap - best_dis).abs() < 0.001 {
+				// bests.clear();
+				bests.push(((max_1, *min_2), *axis, *index));
+			} else if overlap < best_dis {
 				best_dis = overlap;
-				best.collision1 = axes * max_1 + (pos - axes * shift) * 0.5;
-				best.collision2 = axes * min_2 + (pos - axes * shift) * 0.5;
+				bests.clear();
+				bests.push(((max_1, *min_2), *axis, *index));
 			}
 		}
 	}
-	Some(best)
+
+	debug_draw::point(p, Vec4::W + Vec4::Z, 0.3);
+
+	let mut collisions = vec![];
+
+	for best in bests {
+		let axis_neg = if best.0.1 < 0.0 { -1.0 } else { 1.0 };
+		if best.2 < 3 {
+			assert!((best.1 - Vec3::X).length() < 0.0001 || (best.1 - Vec3::Y).length() < 0.0001 || (best.1 - Vec3::Z).length() < 0.0001);
+			let mut best_verties = vec![];
+			let mut best_dis = 10.0;
+			(0..8).for_each(|i| {
+				let v = pos + orientation * (Vec3::new((i%2) as f32, (i/2%2) as f32, (i/4) as f32) - 0.5);
+				let dis = v.dot(best.1) * axis_neg;
+				let surface_pos = v - v.project_onto(best.1);
+				if
+					surface_pos.x > 0.5 || surface_pos.x < -0.5 ||
+					surface_pos.y > 0.5 || surface_pos.y < -0.5 ||
+					surface_pos.z > 0.5 || surface_pos.z < -0.5
+				{
+					if (best_dis - dis).abs() >= 0.001 && best_dis > dis {
+						best_verties.clear();
+						best_dis = dis;
+					}
+					return;
+				}
+				if (best_dis - dis).abs() < 0.001 {
+					best_verties.push(v);
+				} else if best_dis > dis {
+					best_verties.clear();
+					best_dis = dis;
+					best_verties.push(v);
+				}
+			});
+			best_verties.iter().for_each(|v| debug_draw::point(p + q * v, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.1));
+			collisions.extend(best_verties.into_iter().map(|v| {(
+				v,
+				best.1 * best.0.1 + v - v.project_onto(best.1)
+			)}));
+		} else if best.2 < 6 {
+			assert!((best.1 - orientation * Vec3::X).length() < 0.0001 || (best.1 - orientation * Vec3::Y).length() < 0.0001 || (best.1 - orientation * Vec3::Z).length() < 0.0001);
+			let mut best_verties = vec![];
+			let mut best_dis = 10.0;
+			(0..8).for_each(|i| {
+				let v = Vec3::new((i%2) as f32, (i/2%2) as f32, (i/4) as f32) - 0.5;
+				let dis = (v - pos).dot(best.1) * -axis_neg;
+				let surface_pos = orientation.inverse() * ((v - pos) - (v - pos).project_onto(best.1));
+				if
+					surface_pos.x > 0.5 || surface_pos.x < -0.5 ||
+					surface_pos.y > 0.5 || surface_pos.y < -0.5 ||
+					surface_pos.z > 0.5 || surface_pos.z < -0.5
+				{
+					if (best_dis - dis).abs() >= 0.001 && best_dis > dis {
+						best_verties.clear();
+						best_dis = dis;
+					}
+					return;
+				}
+				if (best_dis - dis).abs() < 0.001 {
+					best_verties.push(v);
+				} else if best_dis > dis {
+					best_verties.clear();
+					best_dis = dis;
+					best_verties.push(v);
+				}
+			});
+			best_verties.iter().for_each(|v| debug_draw::point(p + q * v, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.1));
+			collisions.extend(best_verties.into_iter().map(|v| {(
+				best.1 * best.0.0 + v - v.project_onto(best.1),
+				v
+			)}));
+		} else {
+			let axes = [Vec3::X, Vec3::Y, Vec3::Z];
+			let not_axes = [(Vec3::Y, Vec3::Z), (Vec3::X, Vec3::Z), (Vec3::X, Vec3::Y)];
+
+			let axis1 = orientation * axes[((best.2 - 6) % 3) as usize]; // 1 axis
+			let not_axes_1 = not_axes[((best.2 - 6) % 3) as usize];
+			let mut best_edge_1 = Vec3::ZERO;
+			let mut best_dis_1 = 10.0;
+			(0..4).for_each(|i| {
+				let v = pos + orientation * (not_axes_1.0 * (0.5 - (i%2) as f32) + not_axes_1.1 * (0.5 - (i/2) as f32));
+				let dis = v.length_squared();//dot(best.1 * axis_neg);
+				if best_dis_1 > dis {
+					best_dis_1 = dis;
+					best_edge_1 = v;
+				}
+			});
+
+			let axis2 = axes[((best.2 - 6) / 3) as usize]; // 2 axis
+			let not_axes_2 = not_axes[((best.2 - 6) / 3) as usize];
+			let mut best_edge_2 = Vec3::ZERO;
+			let mut best_dis_2 = 10.0;
+			(0..4).for_each(|i| {
+				let v = not_axes_2.0 * (0.5 - (i%2) as f32) + not_axes_2.1 * (0.5 - (i/2) as f32);
+				let dis = (v - pos).length_squared();//dot(-best.1 * axis_neg);
+				if best_dis_2 > dis {
+					best_dis_2 = dis;
+					best_edge_2 = v;
+				}
+			});
+
+			debug_draw::point(p + q * best_edge_1, Vec4::W, 0.1);
+			debug_draw::point(p + q * best_edge_2, Vec4::W, 0.1);
+
+			let result = points_with_direction(best_edge_1, axis1, best_edge_2, axis2, best.1 * axis_neg);
+			if result.is_none() {
+				continue;
+			}
+			let (v1, v2) = result.unwrap();
+
+			debug_draw::point(p + q * v1, Vec4::W, 0.2);
+			debug_draw::point(p + q * v2, Vec4::W, 0.2);
+			collisions.push((v1, v2));
+		}
+	}
+	return collisions;
+}
+
+pub fn points_with_direction(
+    p1: Vec3,
+    d1: Vec3,
+    p2: Vec3,
+    d2: Vec3,
+    u: Vec3,
+) -> Option<(Vec3, Vec3)> {
+    let r = p2 - p1;
+
+    let denom = d1.dot((-d2).cross(u));
+
+    if denom.abs() < 1e-6 {
+        return None;
+    }
+
+    let mut s = r.dot((-d2).cross(u)) / denom;
+    let mut t = d1.dot(r.cross(u)) / denom;
+
+	if s != s.clamp(-0.5, 0.5) { return None; }
+	if t != t.clamp(-0.5, 0.5) { return None; }
+
+    let x1 = p1 + d1 * s;
+    let x2 = p2 + d2 * t;
+
+    // let diff = x1 - x2;
+    // if diff.length_squared() > 1e-6 {
+    //     let cross = diff.normalize().cross(u.normalize());
+    //     assert!(cross.length_squared() < 1e-4,
+    //         "x1 - x2 is not parallel to u: x1={:?}, x2={:?}, diff={:?}, u={:?}, cross={:?}",
+    //         x1, x2, diff, u, cross
+    //     );
+    // }
+
+    // // x1 should lie on L1: there should exist s such that x1 = p1 + d1*s
+    // // i.e. (x1 - p1) should be parallel to d1
+    // if d1.length_squared() > 1e-6 {
+    //     let to_x1 = x1 - p1;
+    //     if to_x1.length_squared() > 1e-6 {
+    //         let cross = to_x1.normalize().cross(d1.normalize());
+    //         assert!(cross.length_squared() < 1e-4,
+    //             "x1 does not lie on line1: x1={:?}, p1={:?}, d1={:?}, cross={:?}",
+    //             x1, p1, d1, cross
+    //         );
+    //     }
+    // }
+
+    // // x2 should lie on L2
+    // if d2.length_squared() > 1e-6 {
+    //     let to_x2 = x2 - p2;
+    //     if to_x2.length_squared() > 1e-6 {
+    //         let cross = to_x2.normalize().cross(d2.normalize());
+    //         assert!(cross.length_squared() < 1e-4,
+    //             "x2 does not lie on line2: x2={:?}, p2={:?}, d2={:?}, cross={:?}",
+    //             x2, p2, d2, cross
+    //         );
+    //     }
+    // }
+
+    Some((x1, x2))
 }
 
 // assumes other cube has no rotation and both are centered at (0,0,0)
-fn compute_1x1x1_cube_separating_axis(orientation: Quat) -> Vec<((f32, f32), (f32, f32), Vec3)> {
-	let axis_6 = [
+fn compute_1x1x1_cube_separating_axes(orientation: Quat) -> Vec<((f32, f32), (f32, f32), Vec3, u8)> {
+	let axes_6 = [
 		Vec3::X,
 		Vec3::Y,
 		Vec3::Z,
@@ -140,7 +321,7 @@ fn compute_1x1x1_cube_separating_axis(orientation: Quat) -> Vec<((f32, f32), (f3
 		orientation * Vec3::Y,
 		orientation * Vec3::Z,
 	];
-	let axis_9 = (0..9).map(|i| axis_6[i/3].cross(axis_6[3+i%3]));
+	let axes_9 = (0..9).map(|i| axes_6[i/3].cross(axes_6[3+i%3]));
 
 	let corners = [
 		Vec3::new(0.0, 0.0, 0.0) - Vec3::splat(0.5),
@@ -153,24 +334,25 @@ fn compute_1x1x1_cube_separating_axis(orientation: Quat) -> Vec<((f32, f32), (f3
 		Vec3::new(1.0, 1.0, 1.0) - Vec3::splat(0.5),
 	];
 
-	axis_6.into_iter().chain(axis_9).filter_map(|axes| {
-		if axes.length_squared() < 1e-6 { return None; }
+	(axes_6.into_iter().chain(axes_9)).zip(0..15).filter_map(|(axis, index)| {
+		if axis.length_squared() < 1e-6 { return None; }
+		let norm_axis = axis.normalize();
 		let mut min_a: f32 = 0.0; // cube 1
 		let mut max_a: f32 = 0.0;
-		for l in corners.map(|c| (orientation * c).dot(axes.normalize())) {
+		for l in corners.map(|c| (orientation * c).dot(norm_axis)) {
 			min_a = min_a.min(l);
 			max_a = max_a.max(l);
 		}
 		let mut min_b: f32 = 0.0; // cube 2
 		let mut max_b: f32 = 0.0;
-		for l in corners.map(|c| c.dot(axes.normalize())) {
+		for l in corners.map(|c| c.dot(norm_axis)) {
 			min_b = min_b.min(l);
 			max_b = max_b.max(l);
 		}
 		assert!(min_b + max_b < 0.0001); // should be true
 		assert!(min_a + max_a < 0.0001);
 
-		Some(((min_a, max_a), (min_b, max_b), axes.normalize()))
+		Some(((min_a, max_a), (min_b, max_b), norm_axis, index))
 	}).collect()
 }
 

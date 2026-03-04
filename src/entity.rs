@@ -12,6 +12,7 @@ pub struct Entity {
 	voxel_center_of_mass_times_mass: DVec3,
 	mesh: Option<mesh::Mesh>,
 	update_mesh: bool,
+	pub is_static: bool,
 }
 
 // According to https://en.wikipedia.org/wiki/Moment_of_inertia#:~:text=in%20the%20body.-,Inertia%20tensor
@@ -43,6 +44,7 @@ impl Entity {
 			voxel_center_of_mass_times_mass: DVec3::ZERO,
 			mesh: None,
 			update_mesh: true,
+			is_static: false,
 		}
 	}
 	pub fn get_voxels_local_pos(&self) -> Vec3 { -self.voxel_center_of_mass() }
@@ -70,7 +72,7 @@ impl Entity {
 		}
 		// apply Inertia tensor of translation
 		let center_of_mass_change = self.voxel_center_of_mass() - old_voxel_center_of_mass;
-		self.inertia_tensor_at_origin += self.inertia_tensor_at_origin - ((Mat3::IDENTITY * center_of_mass_change.length_squared()) - Mat3::from_cols_array(&[
+		self.inertia_tensor_at_origin -= ((Mat3::IDENTITY * center_of_mass_change.length_squared()) - Mat3::from_cols_array(&[
 			center_of_mass_change.x * center_of_mass_change.x, center_of_mass_change.x * center_of_mass_change.y, center_of_mass_change.x * center_of_mass_change.z,
 			center_of_mass_change.y * center_of_mass_change.x, center_of_mass_change.y * center_of_mass_change.y, center_of_mass_change.y * center_of_mass_change.z,
 			center_of_mass_change.z * center_of_mass_change.x, center_of_mass_change.z * center_of_mass_change.y, center_of_mass_change.z * center_of_mass_change.z
@@ -88,7 +90,7 @@ impl Entity {
 			self.inertia_tensor_at_origin -= get_inertia_tensor_for_cube(&pos, voxel.mass).as_dmat3();
 			// apply Inertia tensor of translation
 			let center_of_mass_change = self.voxel_center_of_mass() - old_voxel_center_of_mass;
-			self.inertia_tensor_at_origin += self.inertia_tensor_at_origin - ((Mat3::IDENTITY * center_of_mass_change.length_squared()) - Mat3::from_cols_array(&[
+			self.inertia_tensor_at_origin -= ((Mat3::IDENTITY * center_of_mass_change.length_squared()) - Mat3::from_cols_array(&[
 				center_of_mass_change.x * center_of_mass_change.x, center_of_mass_change.x * center_of_mass_change.y, center_of_mass_change.x * center_of_mass_change.z,
 				center_of_mass_change.y * center_of_mass_change.x, center_of_mass_change.y * center_of_mass_change.y, center_of_mass_change.y * center_of_mass_change.z,
 				center_of_mass_change.z * center_of_mass_change.x, center_of_mass_change.z * center_of_mass_change.y, center_of_mass_change.z * center_of_mass_change.z
