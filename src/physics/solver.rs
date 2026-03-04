@@ -54,7 +54,7 @@ impl Solver {
 		}).collect();
 		self.collisions_kl_map.clear();
 		let mut x_guess = y_all.clone();
-		let iterations = 100;
+		let iterations = 20;
 		let total_iterations = iterations + 1; // because post_stabilize
 		for iteration in 0..total_iterations {
 			let alpha = (iteration < iterations) as i32 as f32;
