@@ -91,7 +91,7 @@ impl Vec6 {
 		self.dot(self)
 	}
 
-	pub fn get(&self, index: usize) -> f32 {
+	pub const fn get(&self, index: usize) -> f32 {
 		self.data[index]
 	}
 
@@ -378,6 +378,17 @@ impl Mat6 {
 	pub fn from_mat3_quat(m: Mat3, q: Quat) -> Self {
 		Self::from_mat3(m, Mat3::ZERO, Mat3::ZERO, Mat3::from_quat(q))
 	}
+
+	pub const fn from_diagonal(diagonal: Vec6) -> Self {
+        Self::from_array([
+            Vec6::new(diagonal.get(0), 0.0, 0.0, 0.0, 0.0, 0.0),
+            Vec6::new(0.0, diagonal.get(1), 0.0, 0.0, 0.0, 0.0),
+            Vec6::new(0.0, 0.0, diagonal.get(2), 0.0, 0.0, 0.0),
+            Vec6::new(0.0, 0.0, 0.0, diagonal.get(3), 0.0, 0.0),
+            Vec6::new(0.0, 0.0, 0.0, 0.0, diagonal.get(4), 0.0),
+            Vec6::new(0.0, 0.0, 0.0, 0.0, 0.0, diagonal.get(5))
+        ])
+    }
 
 	#[inline(always)]
 	#[must_use]

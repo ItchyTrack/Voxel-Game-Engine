@@ -210,47 +210,59 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			let axis1 = orientation * axes[((best.2 - 6) % 3) as usize]; // 1 axis
 			let not_axes_1 = not_axes[((best.2 - 6) % 3) as usize];
 			let mut best_edges_1 = vec![];
-			let mut best_dis_1 = 10.0;
+			// let mut best_dis_1 = 10.0;
 			(0..4).for_each(|i| {
 				let v = pos + orientation * (not_axes_1.0 * (0.5 - (i%2) as f32) + not_axes_1.1 * (0.5 - (i/2) as f32));
-				let dis = v.length_squared();//dot(best.1 * axis_neg);
-				if (best_dis_1 - dis).abs() < 0.001 {
+				// let dis = v.length_squared();//dot(best.1 * axis_neg);
+				// let dis = (v + axis1 * 0.5).length_squared().min((v - axis1 * 0.5).length_squared()).max(0.75);
+				// if (best_dis_1 - dis).abs() < 0.001 {
+				// 	best_edges_1.push(v);
+				// } else if best_dis_1 > dis {
+				// 	best_dis_1 = dis;
+				// 	best_edges_1.clear();
+				// 	best_edges_1.push(v);
+				// }
 					best_edges_1.push(v);
-				} else if best_dis_1 > dis {
-					best_dis_1 = dis;
-					best_edges_1.clear();
-					best_edges_1.push(v);
-				}
 			});
 
 			let axis2 = axes[((best.2 - 6) / 3) as usize]; // 2 axis
 			let not_axes_2 = not_axes[((best.2 - 6) / 3) as usize];
 			let mut best_edges_2 = vec![];
-			let mut best_dis_2 = 10.0;
+			// let mut best_dis_2 = 10.0;
 			(0..4).for_each(|i| {
 				let v = not_axes_2.0 * (0.5 - (i%2) as f32) + not_axes_2.1 * (0.5 - (i/2) as f32);
-				let dis = (v - pos).length_squared();//dot(-best.1 * axis_neg);
-				if (best_dis_2 - dis).abs() < 0.001 {
+				// // let dis = (v - pos).length_squared();//dot(-best.1 * axis_neg);
+				// let dis = (v - pos + axis2 * 0.5).length_squared().min((v - pos - axis1 * 0.5).length_squared()).max(0.75);
+				// if (best_dis_2 - dis).abs() < 0.001 {
+				// 	best_edges_2.push(v);
+				// } else if best_dis_2 > dis {
+				// 	best_dis_2 = dis;
+				// 	best_edges_2.clear();
+				// 	best_edges_2.push(v);
+				// }
 					best_edges_2.push(v);
-				} else if best_dis_2 > dis {
-					best_dis_2 = dis;
-					best_edges_2.clear();
-					best_edges_2.push(v);
-				}
 			});
 
+			// for best_edge_1 in best_edges_1.iter() {
+
+			// }
+			// for best_edge_2 in best_edges_2.iter() {
+
+			// }
 			for best_edge_1 in best_edges_1.iter() {
 				for best_edge_2 in best_edges_2.iter() {
 
 				let result = points_with_direction(*best_edge_1, axis1, *best_edge_2, axis2, best.1 * axis_neg);
-				if result.is_none() {
-					continue;
-				}
+				if result.is_none() { continue; }
 				let (v1, v2) = result.unwrap();
 
-				// debug_draw::point(p + q * best_edge_1, Vec4::W, 0.1);
-				// debug_draw::point(p + q * best_edge_2, Vec4::W, 0.1);
-
+				if (v1 - v2).length() > 0.3 { continue; } // if the edges are far apart best not to collide them
+				let diff = v1 - v2;
+				if (v2 - v1).normalize().dot(best.1) * axis_neg < 0.9 {
+					continue;
+				}
+				debug_draw::point(p + q * best_edge_1, Vec4::ONE, 0.05);
+				debug_draw::point(p + q * best_edge_2, Vec4::ONE, 0.1);
 				debug_draw::point(p + q * v1, Vec4::W, 0.2);
 				debug_draw::point(p + q * v2, Vec4::W, 0.2);
 				collisions.push((v1, v2));

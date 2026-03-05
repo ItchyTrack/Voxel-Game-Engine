@@ -44,12 +44,12 @@ impl Solver {
 		for collision in collisions.iter() {
 			debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
 		}
-		let gamma = 0.99;
+		let gamma = 0.95;
 		let mut collisions_kld: Vec<((f32, f32, f32), (f32, f32, f32))> = collisions.iter().map(|collision| {
 			let result = self.collisions_kl_map.get(&if collision.id1 < collision.id2 { (collision.id1, collision.id2) } else { (collision.id2, collision.id1) });
 			result.map_or(
-				((1.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
-				|((k1, l1, d1), (k2, l2, d2))| (((k1 * gamma).max(1.0), *l1, *d1), ((k2 * gamma).max(1.0), *l2, *d2))
+				((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+				|((k1, l1, d1), (k2, l2, d2))| (((k1 * gamma).max(1.0).min(1000000000.0), *l1, *d1), ((k2 * gamma).max(1.0).min(1000000000.0), *l2, *d2))
 			)
 		}).collect();
 		self.collisions_kl_map.clear();
@@ -117,16 +117,18 @@ impl Solver {
 					Quat::from_xyzw(x_change.get(3) * 0.5, x_change.get(4) * 0.5, x_change.get(5) * 0.5, 0.0) * x_guess[index].1
 				).normalize();
 			}
+			if iteration == iterations - 1 {
+				for index in 0..entities.len() {
+					entities[index].velocity = (x_guess[index].0 - entities[index].position)/dt;
+					entities[index].angular_velocity = ((x_guess[index].1 * entities[index].orientation.inverse())).to_scaled_axis()/dt;
+					entities[index].position = x_guess[index].0;
+					entities[index].orientation = x_guess[index].1;
+				}
+			}
 		}
 		collisions_kld.iter().zip(collisions).for_each(|(data, collision)| {
 			self.collisions_kl_map.insert(if collision.id1 < collision.id2 { (collision.id1, collision.id2) } else { (collision.id2, collision.id1) }, *data);
 		});
-		for index in 0..entities.len() {
-			entities[index].velocity = (x_guess[index].0 - entities[index].position)/dt;
-			entities[index].angular_velocity = ((x_guess[index].1 * entities[index].orientation.inverse())).to_scaled_axis()/dt;
-			entities[index].position = x_guess[index].0;
-			entities[index].orientation = x_guess[index].1;
-		}
 	}
 
 	/*
@@ -167,24 +169,21 @@ impl Solver {
 		this_state: &(Vec3, Quat),
 		other_state: &(Vec3, Quat),
 		collision: &physics::collision::Collision,
-		k: f32,
-		l: f32,
-		d_old: f32,
+		k: f32, // penalty
+		l: f32, // lambda
+		d_old: f32, // C at start
 		alpha: f32
 	) -> Option<(Vec6, Mat6, f32, f32, f32)> {
-		let (d, d_prime, d_prime_prime) = self.get_collision_d(this_state, other_state, collision)?;
-		// VBD
-		// e = 1/2*k*d^2
-		// f = e' = k*d*d'
-		// h = e'' = k*(d*d'' + d'*d')
-		// Some((self.collision_stiffness * d * d_prime, self.collision_stiffness * (d * d_prime_prime + mat6_outer(d_prime, d_prime))))
+		let (d /* C */, d_prime /* C' */, d_prime_prime /* C'' */) = self.get_collision_d(this_state, other_state, collision)?;
 		// AVBD
 		// e = 1/2*k*d^2+l*d
 		// f = e' = (k*d+l)*d'
 		// h = e'' = k*(d*d'' + d'*d')
-		let d_corrected = d - alpha * d_old;
-		let b = 50.0; // beta
-		Some(((k * d_corrected + l) * d_prime, k * (d_corrected * d_prime_prime + mat6_outer(d_prime, d_prime)), k + b * d_corrected, k * d_corrected + l, d))
+		let d_corrected = d - alpha * d_old; // C
+		let b = 100.0; // beta
+		let f = (k * d_corrected + l).max(0.0);
+		let g = d_prime_prime * f.abs(); // Mat6::from_diagonal(Vec6::new(d_prime_prime.col(0).length(), d_prime_prime.col(1).length(), d_prime_prime.col(2).length(), d_prime_prime.col(3).length(), d_prime_prime.col(4).length(), d_prime_prime.col(5).length()) * f.abs());
+		Some((f * d_prime, g + mat6_outer(d_prime, d_prime * k), (k + b * d_corrected.abs()).min(1000000000.0), f, d))
 	}
 
 	fn sub_state(state_a: &(Vec3, Quat), state_b: &(Vec3, Quat)) -> Vec6 {
