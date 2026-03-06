@@ -1,4 +1,4 @@
-use glam::{IVec3, Quat, Vec3, Vec4};
+use glam::{IVec3, Quat, U8Vec3, Vec3, Vec4};
 
 use crate::{debug_draw, entity, voxels};
 
@@ -6,7 +6,7 @@ use crate::{debug_draw, entity, voxels};
 pub enum CubeFeature {
 	Vertex { xyz: u8 },
 	Edge{ vertex_vertex: u8 },
-	Face{ xyz: u8 },
+	Face{ xyzs: u8 },
 }
 
 #[derive(Copy, Clone)]
@@ -19,6 +19,10 @@ pub struct Collision {
 	pub collision2: Vec3,
 	pub local_collision1: Vec3,
 	pub local_collision2: Vec3,
+}
+
+fn get_bit(num: u8, bit: u8) -> u8 {
+	((num & (1 << bit)) != 0) as u8
 }
 
 pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec3, Quat)>) -> Vec<Collision> {
@@ -77,6 +81,41 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					local_collision2: c.2 + entity2.get_voxels_local_pos(),
 				}));
 			}
+		}
+	}
+	for collision in collisions.iter() {
+		let e1 = &entities[collision.id1 as usize];
+		let e2 = &entities[collision.id2 as usize];
+
+		match collision.feature1 {
+			CubeFeature::Vertex { xyz } => {
+				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
+				debug_draw::aabb(e1.position + e1.orientation * v - Vec3::splat(0.01), e1.position + e1.orientation * v + Vec3::splat(0.01), Vec4::ONE);
+			},
+			CubeFeature::Edge { vertex_vertex } => {
+				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
+				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
+				debug_draw::line(e1.position + e1.orientation * v1, e1.position + e1.orientation * v2, Vec4::ONE);
+			},
+			CubeFeature::Face { xyzs } => {
+				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
+				debug_draw::aabb(e1.position + e1.orientation * v - Vec3::splat(0.01), e1.position + e1.orientation * v + Vec3::splat(0.01), Vec4::W);
+			},
+		}
+		match collision.feature2 {
+			CubeFeature::Vertex { xyz } => {
+				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
+				debug_draw::aabb(e2.position + e2.orientation * v - Vec3::splat(0.01), e2.position + e2.orientation * v + Vec3::splat(0.01), Vec4::ONE);
+			},
+			CubeFeature::Edge { vertex_vertex } => {
+				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
+				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
+				debug_draw::line(e2.position + e2.orientation * v1, e2.position + e2.orientation * v2, Vec4::ONE);
+			},
+			CubeFeature::Face { xyzs } => {
+				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
+				debug_draw::aabb(e2.position + e2.orientation * v - Vec3::splat(0.01), e2.position + e2.orientation * v + Vec3::splat(0.01), Vec4::W);
+			},
 		}
 	}
 	collisions
@@ -153,11 +192,11 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 	for best in bests {
 		let axis_neg = if best.0.1 < 0.0 { -1.0 } else { 1.0 };
 		if best.2 < 3 {
-			assert!((best.1 - Vec3::X).length() < 0.0001 || (best.1 - Vec3::Y).length() < 0.0001 || (best.1 - Vec3::Z).length() < 0.0001);
+			// assert!((best.1 - Vec3::X).length() < 0.0001 || (best.1 - Vec3::Y).length() < 0.0001 || (best.1 - Vec3::Z).length() < 0.0001);
 			let mut best_verties = vec![];
 			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
-				let v = pos + orientation * (Vec3::new((i%2) as f32, (i/2%2) as f32, (i/4) as f32) - 0.5);
+				let v = pos + orientation * (U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5);
 				let dis = v.dot(best.1) * axis_neg;
 				let surface_pos = v - v.project_onto(best.1);
 				if
@@ -181,18 +220,19 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			});
 			best_verties.iter().for_each(|v| debug_draw::point(p + q * v.0, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
 			best_verties.iter().for_each(|v| debug_draw::point(p + q * (best.1 * best.0.0 + v.0 - v.0.project_onto(best.1)), Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
+			let face_vec = best.1.round().as_i8vec3() * axis_neg as i8;
 			collisions.extend(best_verties.into_iter().map(|v| {(
 				v.0,
 				v.1,
 				best.1 * best.0.1 + v.0 - v.0.project_onto(best.1),
-				CubeFeature::Face { xyz: if best.1.x.abs() > 0.01 { best.1.x.round() as u8 } else if best.1.y.abs() > 0.01 { 2 * best.1.y.round() as u8 } else if best.1.z.abs() > 0.01 { 4 * best.1.z.round() as u8 } else { panic!("What! (this is collision.rs)") } }
+				CubeFeature::Face { xyzs: face_vec.abs().as_u8vec3().dot(U8Vec3::new(1, 2, 4)) + 8 * (face_vec.element_sum().signum() == -1) as u8 },
 			)}));
 		} else if best.2 < 6 {
-			assert!((best.1 - orientation * Vec3::X).length() < 0.0001 || (best.1 - orientation * Vec3::Y).length() < 0.0001 || (best.1 - orientation * Vec3::Z).length() < 0.0001);
+			// assert!((best.1 - orientation * Vec3::X).length() < 0.0001 || (best.1 - orientation * Vec3::Y).length() < 0.0001 || (best.1 - orientation * Vec3::Z).length() < 0.0001);
 			let mut best_verties = vec![];
 			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
-				let v = Vec3::new((i%2) as f32, (i/2%2) as f32, (i/4) as f32) - 0.5;
+				let v = U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5;
 				let dis = (v - pos).dot(best.1) * -axis_neg;
 				let surface_pos = orientation.inverse() * ((v - pos) - (v - pos).project_onto(best.1));
 				if
@@ -216,20 +256,24 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			});
 			best_verties.iter().for_each(|v| debug_draw::point(p + q * v.0, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
 			best_verties.iter().for_each(|v| debug_draw::point(p + q * (best.1 * best.0.0 + v.0 - v.0.project_onto(best.1)), Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
-			let best_rotated = orientation.inverse() * best.1;
+			let face_vec = (orientation.inverse() * best.1).round().as_i8vec3() * -axis_neg as i8;
 			collisions.extend(best_verties.into_iter().map(|v| {(
 				best.1 * best.0.0 + v.0 - v.0.project_onto(best.1),
-				v.1,
+				CubeFeature::Face { xyzs: face_vec.abs().as_u8vec3().dot(U8Vec3::new(1, 2, 4)) + 8 * (face_vec.element_sum().signum() == -1) as u8 },
 				v.0,
-				CubeFeature::Face { xyz: if best_rotated.x.abs() > 0.01 { best_rotated.x.round() as u8 } else if best_rotated.y.abs() > 0.01 { 2 * best_rotated.y.round() as u8 } else if best_rotated.z.abs() > 0.01 { 4 * best_rotated.z.round() as u8 } else { panic!("What! (this is collision.rs)") } },
+				v.1,
 			)}));
 		} else {
 			let axes = [Vec3::X, Vec3::Y, Vec3::Z];
 			let not_axes = [(Vec3::Y, Vec3::Z), (Vec3::X, Vec3::Z), (Vec3::X, Vec3::Y)];
-			let not_axes_xyz_u8 = [2 + 4, 1 + 4, 1 + 2];
+			let not_axes_xyz_u8 = [(2, 4), (1, 4), (1, 2)];
 
-			let axis1 = orientation * axes[((best.2 - 6) % 3) as usize]; // 1 axis
-			let not_axes_1 = not_axes[((best.2 - 6) % 3) as usize];
+			let index_1 = (best.2 - 6) % 3;
+			let index_2 = (best.2 - 6) / 3;
+
+			let axis1 = orientation * axes[index_1 as usize]; // 1 axis
+			let not_axes_1 = not_axes[index_1 as usize];
+			let not_axes_xyz_u8_1 = not_axes_xyz_u8[index_1 as usize];
 
 			// let mut best_edges_1 = vec![];
 			// let mut best_dis_1 = 10.0;
@@ -248,8 +292,9 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			// 		best_edges_1.push(v);
 			// });
 
-			let axis2 = axes[((best.2 - 6) / 3) as usize]; // 2 axis
-			let not_axes_2 = not_axes[((best.2 - 6) / 3) as usize];
+			let axis2 = axes[index_2 as usize]; // 2 axis
+			let not_axes_2 = not_axes[index_2 as usize];
+			let not_axes_xyz_u8_2 = not_axes_xyz_u8[index_2 as usize];
 			// let mut best_edges_2 = vec![];
 			// let mut best_dis_2 = 10.0;
 			// (0..4).for_each(|i| {
@@ -275,26 +320,27 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			// for best_edge_1 in best_edges_1.iter() {
 			// 	for best_edge_2 in best_edges_2.iter() {
 			(0..4).for_each(|i| {
-				let edge_1 = pos + orientation * (if i%2 == 0 { not_axes_1.0 } else { -not_axes_1.0 } + if i/2 == 0 { not_axes_1.1 } else { -not_axes_1.1 });
+				let edge_1 = pos + orientation * (if i & 1 == 0 { -not_axes_1.0 } else { not_axes_1.0 } + if i & 2 == 0 { -not_axes_1.1 } else { not_axes_1.1 }) * 0.5;
 				(0..4).for_each(|j| {
-					let edge_2 = if j%2 == 0 { not_axes_2.0 } else { -not_axes_2.0 } + if j/2 == 0 { not_axes_2.1 } else { -not_axes_2.1 };
+					let edge_2 = (if j & 1 == 0 { -not_axes_2.0 } else { not_axes_2.0 } + if j & 2 == 0 { -not_axes_2.1 } else { not_axes_2.1 }) * 0.5;
+
+					debug_draw::point(p + q * edge_1, Vec4::ONE, 0.05);
+					debug_draw::point(p + q * edge_2, Vec4::ONE, 0.1);
 
 					let result = points_with_direction(edge_1, axis1, edge_2, axis2, best.1 * axis_neg);
 					if result.is_none() { return; }
 					let (v1, v2) = result.unwrap();
 
-					if (v1 - v2).length() > 0.3 { return; } // if the edges are far apart best not to collide them
+					// if (v1 - v2).length() > 0.3 { return; } // if the edges are far apart best not to collide them
 					// let diff = v1 - v2;
 					if (v2 - v1).normalize().dot(best.1) * axis_neg < 0.9 { return; }
-					debug_draw::point(p + q * edge_1, Vec4::ONE, 0.05);
-					debug_draw::point(p + q * edge_2, Vec4::ONE, 0.1);
 					debug_draw::point(p + q * v1, Vec4::W, 0.2);
 					debug_draw::point(p + q * v2, Vec4::W, 0.2);
 					collisions.push((
 						v1,
-						CubeFeature::Edge { vertex_vertex: 2_u8.pow(((best.2 - 6) % 3) as u32) + not_axes_xyz_u8[((best.2 - 6) % 3) as usize] },
+						CubeFeature::Edge { vertex_vertex: (1 << index_1 as u8) + (get_bit(i, 0) * not_axes_xyz_u8_1.0 + get_bit(i, 1) * not_axes_xyz_u8_1.1) * 9 },
 						v2,
-						CubeFeature::Edge { vertex_vertex: 2_u8.pow(((best.2 - 6) / 3) as u32) + not_axes_xyz_u8[((best.2 - 6) / 3) as usize] }
+						CubeFeature::Edge { vertex_vertex: (1 << index_2 as u8) + (get_bit(j, 0) * not_axes_xyz_u8_2.0 + get_bit(j, 1) * not_axes_xyz_u8_2.1) * 9 }
 					));
 				});
 			});

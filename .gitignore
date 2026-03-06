@@ -21,3 +21,5 @@ target
 #.idea/
 /.vscode
 Cargo.lock
+/paper_engine
+imgui.ini

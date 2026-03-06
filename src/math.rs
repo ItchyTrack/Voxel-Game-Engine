@@ -2,6 +2,9 @@ use std::{ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign}};
 use core::fmt;
 use glam::{Mat3, Quat, Vec3};
 
+pub fn add_vec_to_quat(q: &Quat, dx: &Vec3) -> Quat { (q + (Quat::from_xyzw(dx.x, dx.y, dx.z, 0.0) * q) * 0.5).normalize() }
+pub fn sub_quat(q1: &Quat, q2: &Quat) -> Vec3 { (q1 * q2.inverse()).xyz() * 2.0 } //    return (a * inverse(b)).vec() * 2.0f;
+
 #[derive(Copy, Clone, PartialEq)]
 pub struct Vec6 {
 	data: [f32; 6],
@@ -91,18 +94,26 @@ impl Vec6 {
 		self.dot(self)
 	}
 
+	#[inline]
+	#[must_use]
 	pub const fn get(&self, index: usize) -> f32 {
 		self.data[index]
 	}
 
+	#[inline]
+	#[must_use]
 	pub fn get_mut(&mut self, index: usize) -> &mut f32 {
 		&mut self.data[index]
 	}
 
+	#[inline]
+	#[must_use]
 	pub fn upper_vec3(&self) -> Vec3 {
 		Vec3::new(self.get(0), self.get(1), self.get(2))
 	}
 
+	#[inline]
+	#[must_use]
 	pub fn lower_vec3(&self) -> Vec3 {
 		Vec3::new(self.get(3), self.get(4), self.get(5))
 	}
@@ -390,60 +401,75 @@ impl Mat6 {
         ])
     }
 
-	#[inline(always)]
+	pub fn to_mat3(&self) -> [Mat3; 4] {
+		[
+			Mat3::from_cols(self.col(0).upper_vec3(), self.col(1).upper_vec3(), self.col(2).upper_vec3()),
+			Mat3::from_cols(self.col(3).upper_vec3(), self.col(4).upper_vec3(), self.col(5).upper_vec3()),
+			Mat3::from_cols(self.col(0).lower_vec3(), self.col(1).lower_vec3(), self.col(2).lower_vec3()),
+			Mat3::from_cols(self.col(3).lower_vec3(), self.col(4).lower_vec3(), self.col(5).lower_vec3())
+		]
+	}
+
+	// #[inline(always)]
+	// #[must_use]
+	// pub fn inverse_checked<const CHECKED: bool>(&self) -> (Self, bool) {
+	// 	let mut a = *self; // copy of self
+	// 	let mut inv = Mat6::IDENTITY;
+	// 	for i in 0..6 {
+	// 		// Find pivot
+	// 		let mut pivot_val = a.matrix[i].get(i);
+	// 		let mut pivot_row = i;
+	// 		for j in i + 1..6 {
+	// 			if a.matrix[j].get(i).abs() > pivot_val.abs() {
+	// 				pivot_val = a.matrix[j].get(i);
+	// 				pivot_row = j;
+	// 			}
+	// 		}
+	// 		if CHECKED && pivot_val.abs() < 1e-6 {
+	// 			return (Mat6::ZERO, false);
+	// 		} else if !CHECKED {
+	// 			assert!(pivot_val.abs() > 1e-6);
+	// 		}
+	// 		// Swap rows if needed
+	// 		if pivot_row != i {
+	// 			a.matrix.swap(i, pivot_row);
+	// 			inv.matrix.swap(i, pivot_row);
+	// 		}
+	// 		// Normalize pivot row
+	// 		let inv_pivot = 1.0 / a.matrix[i].get(i);
+	// 		for k in 0..6 {
+	// 			*a.matrix[i].get_mut(k) *= inv_pivot;
+	// 			*inv.matrix[i].get_mut(k) *= inv_pivot;
+	// 		}
+	// 		// Eliminate other rows
+	// 		for j in 0..6 {
+	// 			if j == i { continue; }
+	// 			let factor = a.matrix[j].get(i);
+	// 			for k in 0..6 {
+	// 				*a.matrix[j].get_mut(k) -= factor * a.matrix[i].get(k);
+	// 				*inv.matrix[j].get_mut(k) -= factor * inv.matrix[i].get(k);
+	// 			}
+	// 		}
+	// 	}
+	// 	(inv, true)
+	// }
+
+	// #[inline]
+	// #[must_use]
+	// pub fn inverse(&self) -> Self {
+	// 	self.inverse_checked::<false>().0
+	// }
+
+	#[inline]
 	#[must_use]
-	pub fn inverse_checked<const CHECKED: bool>(&self) -> (Self, bool) {
-		let mut a = *self; // copy of self
-		let mut inv = Mat6::IDENTITY;
-		for i in 0..6 {
-			// Find pivot
-			let mut pivot_val = a.matrix[i].get(i);
-			let mut pivot_row = i;
-			for j in i + 1..6 {
-				if a.matrix[j].get(i).abs() > pivot_val.abs() {
-					pivot_val = a.matrix[j].get(i);
-					pivot_row = j;
-				}
-			}
-			if CHECKED && pivot_val.abs() < 1e-6 {
-				return (Mat6::ZERO, false);
-			} else if !CHECKED {
-				assert!(pivot_val.abs() > 1e-6);
-			}
-			// Swap rows if needed
-			if pivot_row != i {
-				a.matrix.swap(i, pivot_row);
-				inv.matrix.swap(i, pivot_row);
-			}
-			// Normalize pivot row
-			let inv_pivot = 1.0 / a.matrix[i].get(i);
-			for k in 0..6 {
-				*a.matrix[i].get_mut(k) *= inv_pivot;
-				*inv.matrix[i].get_mut(k) *= inv_pivot;
-			}
-			// Eliminate other rows
-			for j in 0..6 {
-				if j == i { continue; }
-				let factor = a.matrix[j].get(i);
-				for k in 0..6 {
-					*a.matrix[j].get_mut(k) -= factor * a.matrix[i].get(k);
-					*inv.matrix[j].get_mut(k) -= factor * inv.matrix[i].get(k);
-				}
-			}
-		}
-		(inv, true)
+	pub fn col(&self, index: usize) -> &Vec6 {
+		&self.matrix[index]
 	}
 
 	#[inline]
 	#[must_use]
-	pub fn inverse(&self) -> Self {
-		self.inverse_checked::<false>().0
-	}
-
-	#[inline]
-	#[must_use]
-	pub fn col(&self, index: usize) -> Vec6 {
-		self.matrix[index]
+	pub fn col_mut(&mut self, index: usize) -> &mut Vec6 {
+		&mut self.matrix[index]
 	}
 
 	#[inline]
@@ -489,7 +515,7 @@ impl AddAssign<Self> for Mat6 {
 	#[inline]
 	fn add_assign(&mut self, rhs: Self) {
 		for i in 0..6 {
-			self.col(i).add_assign(rhs.col(i));
+			self.col_mut(i).add_assign(rhs.col(i));
 		}
 	}
 }
