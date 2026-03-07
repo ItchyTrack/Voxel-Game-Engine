@@ -71,15 +71,16 @@ impl State {
 		{
 			entities.push(entity::Entity::new());
 			let entity = entities.last_mut().unwrap();
-			for x in -10..11 {
-				for y in -11..11 {
-					for z in -11..11 {
-						if (x as i32).abs() == 10 || (y as i32).abs() == 10 || (z as i32).abs() == 10 {
+			for x in -2..3 {
+				for y in -14..-6 {
+					for z in -2..3 {
+						if (x as i32).abs() == 2 || (y as i32).abs() == 14 || (z as i32).abs() == 2 {
 							entity.add_voxel(IVec3::new(x, y+7, z), voxels::Voxel{ color: [0.0, 0.4, 0.0, 1.0], mass: 1.0 });
 						}
 					}
 				}
 			}
+			entity.position.z -= 8.0;
 			entity.position.y += 2.0;
 			entity.is_static = true;
 		}
@@ -92,18 +93,17 @@ impl State {
 		// 	entity.is_static = true;
 		// }
 		{
-			for x in 0..1 {
-				for y in 0..10 {
-					for z in 0..1 {
+			for _x in 0..1 {
+				for y in 0..20 {
+					for _z in 0..1 {
 						entities.push(entity::Entity::new());
 						let entity = entities.last_mut().unwrap();
-						entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.5, 0.5, 1.0], mass: 1.0 });
-						entity.position.x += y as f32 * 0.5;
+						entity.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, (y % 4) as f32 / 4.0, 0.5, 1.0], mass: 1.0 });
+						// entity.position.x += y as f32 * 0.01;
 						entity.position.y += y as f32 * 1.0;
-						entity.position.y += 3.0;
-						entity.position.z += -8.0;
-						entity.orientation = Quat::from_rotation_y(PI / 3.0 + y as f32);
-						entity.angular_velocity.x = 1.0;
+						entity.position.y += 0.0;
+						entity.position.z -= 8.0;
+						entity.orientation = Quat::from_rotation_y(y as f32);
 					}
 				}
 			}
