@@ -6,7 +6,7 @@ use crate::{entity, math::{Mat6, Vec6, sub_quat}, physics};
 use super::integrator;
 
 pub struct Solver {
-	collisions_kl_map: HashMap<(u32, physics::collision::CubeFeature, u32, physics::collision::CubeFeature), ((Vec3, Vec3), (Vec3, Vec3))>,
+	collisions_kl_map: HashMap<(u32, physics::collision::CubeFeature, u32, physics::collision::CubeFeature), ((f32, f32), (f32, f32))>,
 }
 
 fn mat6_outer(a: Vec6, b: Vec6) -> Mat6 {
@@ -27,15 +27,15 @@ impl Solver {
 		let collisions = physics::collision::get_collisions(&entities, &initial_all);
 		let y_all: Vec<(Vec3, Quat)> = entities.iter().map(|entity| integrator::get_integrated_single(entity, dt)).collect();
 		let gamma = 0.99;
-		let mut collisions_kl: Vec<((Vec3, Vec3), (Vec3, Vec3))> = collisions.iter().map(|collision| {
+		let mut collisions_kl: Vec<((f32, f32), (f32, f32))> = collisions.iter().map(|collision| {
 			let result = self.collisions_kl_map.get(&if collision.id1 < collision.id2 {
 				(collision.id1, collision.feature1, collision.id2, collision.feature2)
 			} else {
 				(collision.id2, collision.feature2, collision.id1, collision.feature1)
 			});
 			result.map_or(
-				((Vec3::ONE, Vec3::ZERO), (Vec3::ONE, Vec3::ZERO)),
-				|((k1, l1), (k2, l2))| (((k1 * gamma).max(Vec3::ONE), *l1), ((k2 * gamma).max(Vec3::ONE), *l2))
+				((1.0, 0.0), (1.0, 0.0)),
+				|((k1, l1), (k2, l2))| (((k1 * gamma).max(1.0), *l1), ((k2 * gamma).max(1.0), *l2))
 			)
 		}).collect();
 		self.collisions_kl_map.clear();
@@ -165,72 +165,32 @@ impl Solver {
 		other_state: &(Vec3, Quat),
 		other_initial_state: &(Vec3, Quat),
 		collision: &physics::collision::Collision,
-		k: Vec3, // penalty
-		lambda: Vec3,
+		k: f32, // penalty
+		lambda: f32,
 		alpha: f32
-	) -> Option<(Vec6, Mat6, Vec3, Vec3)> {
+	) -> Option<(Vec6, Mat6, f32, f32)> {
 		let normal = (collision.collision2 - collision.collision1).normalize();
 		if normal.is_nan() { return None }
-		let orthonormal_basis = normal.any_orthonormal_pair();
-		let basis = Mat3::from_cols(
-			normal,
-			orthonormal_basis.0,
-			orthonormal_basis.1
-		).transpose();
-
-		let world_local_collision1 = this_initial_state.1 * collision.local_collision1;
-		let world_local_collision2 = other_initial_state.1 * collision.local_collision2;
-
-		let d_prime_linear = basis;
-		let d_prime_angular = Mat3::from_cols(
-			world_local_collision1.cross(d_prime_linear.row(0)),
-			world_local_collision1.cross(d_prime_linear.row(1)),
-			world_local_collision1.cross(d_prime_linear.row(2))
-		).transpose();
-		let d_prime_other_linear = -basis;
-		let d_prime_other_angular = Mat3::from_cols(
-			world_local_collision2.cross(d_prime_other_linear.row(0)),
-			world_local_collision2.cross(d_prime_other_linear.row(1)),
-			world_local_collision2.cross(d_prime_other_linear.row(2))
-		).transpose();
-
-		let diff = Self::sub_state(this_state, this_initial_state);
-		let diff_other = Self::sub_state(other_state, other_initial_state);
-
-		// let d_prime = Vec6::from_vec3(normal, (this_initial_state.1 * collision.local_collision1).cross(normal));
-		// let d_prime_other = -Vec6::from_vec3(normal, (other_initial_state.1 * collision.local_collision2).cross(normal));
-
-		// penalty
-		let c0 = basis * (collision.collision1 - collision.collision2) + Vec3::new(0.0005, 0.0, 0.0);
-		let c = c0 * (1.0 - alpha) + (
-			d_prime_linear * diff.upper_vec3() + d_prime_angular * diff.lower_vec3() +
-			d_prime_other_linear * diff_other.upper_vec3() + d_prime_other_angular * diff_other.lower_vec3()
-		);
-		// + d_prime.dot(&Self::sub_state(this_state, this_initial_state)) + d_prime_other.dot(&Self::sub_state(other_state, other_initial_state));
+		let c0 = normal.dot(collision.collision1 - collision.collision2) + 0.0005;
+		let d_prime = Vec6::from_vec3(normal, (this_initial_state.1 * collision.local_collision1).cross(normal));
+		let d_prime_other = -Vec6::from_vec3(normal, (other_initial_state.1 * collision.local_collision2).cross(normal));
+		let c = c0 * (1.0 - alpha) + d_prime.dot(&Self::sub_state(this_state, this_initial_state)) + d_prime_other.dot(&Self::sub_state(other_state, other_initial_state));
 		let b = 100000.0; // beta
-		let mut f: Vec3 = k * c + lambda;
-		f.x = f.x.min(0.0);
+		let f = (k * c + lambda).min(0.0);
 
-		f.y = 0.0;
-		f.z = 0.0;
+		let K = Mat3::from_diagonal(Vec3::new(k, 0.0, 0.0));
+		let jLin = Mat3::from_cols(d_prime.upper_vec3(), Vec3::ZERO, Vec3::ZERO).transpose();
+		let jAng = Mat3::from_cols(d_prime.lower_vec3(), Vec3::ZERO, Vec3::ZERO).transpose();
 
-		let k_mat = Mat3::from_diagonal(k);
+		let jLinT = jLin.transpose();
+        let jAngT = jAng.transpose();
+        let jAngTk = jAngT * K;
 
-        let d_prime_angular_transpose_times_k = d_prime_angular.transpose() * k_mat;
+        let lhsLin = jLinT * K * jLin;
+        let lhsAng = jAngTk * jAng;
+        let lhsCross = jAngTk * jLin;
 
-		println!("{}", Vec6::from_vec3(d_prime_linear * f, d_prime_angular * f));
-
-		Some((
-			Vec6::from_vec3(d_prime_linear * f, d_prime_angular * f),
-			Mat6::from_mat3(
-				d_prime_linear.transpose() * k_mat * d_prime_linear,
-				(d_prime_angular_transpose_times_k * d_prime_angular).transpose(),
-				d_prime_angular_transpose_times_k * d_prime_angular,
-				d_prime_angular_transpose_times_k * d_prime_linear
-			),
-			k + b * c.abs(),
-			k * c + lambda
-		))
+		Some((d_prime * f, Mat6::from_mat3(lhsLin, lhsCross.transpose(), lhsCross, lhsAng), k + b * c.abs(), k * c + lambda))
 		// Some((d_prime * f, mat6_outer(d_prime, d_prime * k), k + b * c.abs(), k * c + lambda))
 	}
 }
