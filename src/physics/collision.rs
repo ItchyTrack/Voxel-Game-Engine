@@ -83,49 +83,49 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 			}
 		}
 	}
-	for collision in collisions.iter() {
-		let e1 = &entities[collision.id1 as usize];
-		let e2 = &entities[collision.id2 as usize];
+	// for collision in collisions.iter() {
+	// 	let e1 = &entities[collision.id1 as usize];
+	// 	let e2 = &entities[collision.id2 as usize];
 
-		debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
-		debug_draw::point(collision.collision1, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
-		debug_draw::point(collision.collision2, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
+	// 	debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
+	// 	debug_draw::point(collision.collision1, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
+	// 	debug_draw::point(collision.collision2, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
 
-		if !e1.is_static {
-			match collision.feature1 {
-				CubeFeature::Vertex { xyz } => {
-					let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
-					debug_draw::aabb(e1.position + e1.orientation * v + Vec3::splat(0.01), e1.position + e1.orientation * v + Vec3::splat(0.01), Vec4::ONE);
-				},
-				CubeFeature::Edge { vertex_vertex } => {
-					let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
-					let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
-					debug_draw::line(e1.position + e1.orientation * v1, e1.position + e1.orientation * v2, Vec4::ONE);
-				},
-				CubeFeature::Face { xyzs } => {
-					let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
-					debug_draw::aabb(e1.position + e1.orientation * v - Vec3::splat(0.01), e1.position + e1.orientation * v + Vec3::splat(0.01), Vec4::W);
-				},
-			}
-		}
-		if !e2.is_static {
-			match collision.feature2 {
-				CubeFeature::Vertex { xyz } => {
-					let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
-					debug_draw::aabb(e2.position + e2.orientation * v - Vec3::splat(0.01), e2.position + e2.orientation * v + Vec3::splat(0.01), Vec4::ONE);
-				},
-				CubeFeature::Edge { vertex_vertex } => {
-					let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
-					let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
-					debug_draw::line(e2.position + e2.orientation * v1, e2.position + e2.orientation * v2, Vec4::ONE);
-				},
-				CubeFeature::Face { xyzs } => {
-					let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
-					debug_draw::aabb(e2.position + e2.orientation * v - Vec3::splat(0.01), e2.position + e2.orientation * v + Vec3::splat(0.01), Vec4::W);
-				},
-			}
-		}
-	}
+	// 	if !e1.is_static {
+	// 		match collision.feature1 {
+	// 			CubeFeature::Vertex { xyz } => {
+	// 				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
+	// 				debug_draw::aabb(e1.position + e1.orientation * v + Vec3::splat(0.01), e1.position + e1.orientation * v + Vec3::splat(0.01), Vec4::ONE);
+	// 			},
+	// 			CubeFeature::Edge { vertex_vertex } => {
+	// 				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
+	// 				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
+	// 				debug_draw::line(e1.position + e1.orientation * v1, e1.position + e1.orientation * v2, Vec4::ONE);
+	// 			},
+	// 			CubeFeature::Face { xyzs } => {
+	// 				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
+	// 				debug_draw::aabb(e1.position + e1.orientation * v - Vec3::splat(0.01), e1.position + e1.orientation * v + Vec3::splat(0.01), Vec4::W);
+	// 			},
+	// 		}
+	// 	}
+	// 	if !e2.is_static {
+	// 		match collision.feature2 {
+	// 			CubeFeature::Vertex { xyz } => {
+	// 				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
+	// 				debug_draw::aabb(e2.position + e2.orientation * v - Vec3::splat(0.01), e2.position + e2.orientation * v + Vec3::splat(0.01), Vec4::ONE);
+	// 			},
+	// 			CubeFeature::Edge { vertex_vertex } => {
+	// 				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
+	// 				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
+	// 				debug_draw::line(e2.position + e2.orientation * v1, e2.position + e2.orientation * v2, Vec4::ONE);
+	// 			},
+	// 			CubeFeature::Face { xyzs } => {
+	// 				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
+	// 				debug_draw::aabb(e2.position + e2.orientation * v - Vec3::splat(0.01), e2.position + e2.orientation * v + Vec3::splat(0.01), Vec4::W);
+	// 			},
+	// 		}
+	// 	}
+	// }
 	collisions
 }
 
@@ -318,12 +318,12 @@ pub fn points_with_direction(
     let s = r.dot((-d2).cross(u)) / denom;
     let t = d1.dot(r.cross(u)) / denom;
 
-	if s != s.clamp(-0.51, 0.51) {
+	if s != s.clamp(-0.5, 0.5) {
 		// if d1.angle_between(d2) < PI / 36.0 { return None; }
 		// println!("S! s {0}, t {1}, p1 {2}, d1 {3}, p2 {4}, d2 {5}, u {6}", s, t, p1, d1, p2, d2, u);
 		return None;
 	}
-	if t != t.clamp(-0.51, 0.51) {
+	if t != t.clamp(-0.5, 0.5) {
 		// if d1.angle_between(d2) < PI / 36.0 { return None; }
 		// println!("T: s {0}, t {1}, p1 {2}, d1 {3}, p2 {4}, d2 {5}, u {6}", s, t, p1, d1, p2, d2, u);
 		return None;
