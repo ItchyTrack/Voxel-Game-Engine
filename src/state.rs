@@ -63,7 +63,7 @@ impl State {
 			zfar: 500.0,
 		};
 
-		let camera_controller = camera::CameraController::new(3.0, 1.5, 0.0015);
+		let camera_controller = camera::CameraController::new(40.0, 1.5, 0.0015);
 
 		let mut entities: Vec<entity::Entity> = vec![];
 
