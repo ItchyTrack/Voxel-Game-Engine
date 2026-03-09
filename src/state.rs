@@ -1,6 +1,6 @@
-use std::{f32::consts::PI, sync::Arc};
+use std::{sync::Arc};
 
-use glam::{IVec3, Mat4, Quat, Vec3};
+use glam::{IVec3, Mat4, Vec3};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
 use crate::{camera, entity, gpu_objects::mesh, physics::{self}, renderer::Renderer, voxels};

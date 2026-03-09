@@ -1,26 +1,26 @@
 use glam::{IVec3, Vec3};
 use wgpu::util::DeviceExt;
 use std::cell::Cell;
-use std::{collections::HashMap};
 
 use crate::gpu_objects::mesh;
 use crate::gpu_objects::matrix;
+use crate::grid_tree::GridTree;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Voxel {
 	pub color: [f32; 4],
 	pub mass: f32,
 }
 
 pub struct Voxels {
-	voxels: HashMap<IVec3, Voxel>,
+	voxels: GridTree<3, Voxel>,
 	bounding_box: Cell<Option<(IVec3, IVec3)>>,
 	bounding_box_dirty: Cell<bool>,
 }
 
 impl Voxels {
 	pub fn new() -> Self {
-		Self { voxels: HashMap::new(), bounding_box: Cell::new(None), bounding_box_dirty: Cell::new(false) }
+		Self { voxels: GridTree::new(), bounding_box: Cell::new(None), bounding_box_dirty: Cell::new(false) }
 	}
 	pub fn add_voxel(&mut self, pos: IVec3, voxel: Voxel) -> Option<Voxel> {
 		match self.bounding_box.get() {
@@ -40,13 +40,12 @@ impl Voxels {
 	}
 
 	pub fn get_voxel(&self, pos: IVec3) -> Option<&Voxel> { self.voxels.get(&pos) }
-	pub fn get_voxels(&self) -> &HashMap<IVec3, Voxel> { &self.voxels }
+	pub fn get_voxels(&self) -> &GridTree<3, Voxel> { &self.voxels }
 
 	pub fn get_bounding_box(&self) -> Option<(IVec3, IVec3)> {
 		if self.bounding_box_dirty.get() {
 			self.bounding_box_dirty.set(false);
 			self.bounding_box.set(self.voxels.iter().fold(None, |bb, (p, _)| {
-				let p = *p;
 				match bb {
 					Some((min, max)) => Some((min.min(p), max.max(p))),
 					None => Some((p, p))
