@@ -13,6 +13,8 @@ pub enum CubeFeature {
 pub struct Collision {
 	pub id1: u32,
 	pub id2: u32,
+	pub voxel_pos1: IVec3,
+	pub voxel_pos2: IVec3,
 	pub feature1: CubeFeature,
 	pub feature2: CubeFeature,
 	pub collision1: Vec3,
@@ -70,66 +72,241 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					&separating_axis,
 					&(pose2.0 + pose2.1 * entity2.get_voxels_local_pos()),
 					&pose2.1
-				).iter().map(|c| Collision {
-					id1: if no_swap { id_a as u32 } else { id_b as u32 },
-					id2: if no_swap { id_b as u32 } else { id_a as u32 },
-					feature1: c.1,
-					feature2: c.3,
-					collision1: pose2.1 * (c.0 + entity2.get_voxels_local_pos()) + pose2.0,
-					collision2: pose2.1 * (c.2 + entity2.get_voxels_local_pos()) + pose2.0,
-					local_collision1: orientation_of_1_in_2.inverse() * (c.0 - pos_of_1_in_2) + entity1.get_voxels_local_pos(),
-					local_collision2: c.2 + entity2.get_voxels_local_pos(),
+				).iter().filter_map(|c| {
+					let mut first_edge_covered = false;
+					match c.1 {
+						CubeFeature::Vertex { xyz } => {
+							for i in 1..8 {
+								if entity1.get_voxel(voxel.0 + IVec3::new(
+										get_bit(i, 0) as i32 * (get_bit(xyz, 0) as i32 * 2 - 1),
+										get_bit(i, 1) as i32 * (get_bit(xyz, 1) as i32 * 2 - 1),
+										get_bit(i, 2) as i32 * (get_bit(xyz, 2) as i32 * 2 - 1)
+									)).is_some() { return None; }
+							}
+						},
+						CubeFeature::Edge { vertex_vertex } => {
+							if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
+								if
+									entity1.get_voxel(voxel.0 + IVec3::new(
+										0,
+										get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										0
+									)).is_some() ||
+									entity1.get_voxel(voxel.0 + IVec3::new(
+										0,
+										0,
+										get_bit(vertex_vertex, 2) as i32 * 2 - 1
+									)).is_some() ||
+									entity2.get_voxel(voxel.0 + IVec3::new(
+										0,
+										get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										get_bit(vertex_vertex, 2) as i32 * 2 - 1
+									)).is_some()
+								{ first_edge_covered = true; }
+							} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
+								if
+									entity1.get_voxel(voxel.0 + IVec3::new(
+										get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										0,
+										0
+									)).is_some() ||
+									entity1.get_voxel(voxel.0 + IVec3::new(
+										0,
+										0,
+										get_bit(vertex_vertex, 2) as i32 * 2 - 1
+									)).is_some() ||
+									entity1.get_voxel(voxel.0 + IVec3::new(
+										get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										0,
+										get_bit(vertex_vertex, 2) as i32 * 2 - 1
+									)).is_some()
+								{ first_edge_covered = true; }
+							} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
+								if
+									entity1.get_voxel(voxel.0 + IVec3::new(
+										get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										0,
+										0
+									)).is_some() ||
+									entity1.get_voxel(voxel.0 + IVec3::new(
+										0,
+										get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										0
+									)).is_some() ||
+									entity1.get_voxel(voxel.0 + IVec3::new(
+										get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										0
+									)).is_some()
+								{ first_edge_covered = true; }
+							}
+						},
+						CubeFeature::Face { xyzs } => {
+							if entity1.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32)).is_some() {
+								return None;
+							}
+						},
+					};
+					match c.3 {
+						CubeFeature::Vertex { xyz } => {
+							for i in 1..8 {
+								if entity2.get_voxel(c.4 + IVec3::new(
+										get_bit(i, 0) as i32 * (get_bit(xyz, 0) as i32 * 2 - 1),
+										get_bit(i, 1) as i32 * (get_bit(xyz, 1) as i32 * 2 - 1),
+										get_bit(i, 2) as i32 * (get_bit(xyz, 2) as i32 * 2 - 1)
+									)).is_some() { return None; }
+							}
+						},
+						CubeFeature::Edge { vertex_vertex } => {
+							if first_edge_covered { // only if both edges are covered
+								if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
+									if
+										entity2.get_voxel(c.4 + IVec3::new(
+											0,
+											get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+											0
+										)).is_some() ||
+										entity2.get_voxel(c.4 + IVec3::new(
+											0,
+											0,
+											get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										)).is_some() ||
+										entity2.get_voxel(c.4 + IVec3::new(
+											0,
+											get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+											get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										)).is_some()
+									{ return None; }
+								} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
+									if
+										entity2.get_voxel(c.4 + IVec3::new(
+											get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+											0,
+											0
+										)).is_some() ||
+										entity2.get_voxel(c.4 + IVec3::new(
+											0,
+											0,
+											get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										)).is_some() ||
+										entity2.get_voxel(c.4 + IVec3::new(
+											get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+											0,
+											get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										)).is_some()
+									{ return None; }
+								} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
+									if
+										entity2.get_voxel(c.4 + IVec3::new(
+											get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+											0,
+											0
+										)).is_some() ||
+										entity2.get_voxel(c.4 + IVec3::new(
+											0,
+											get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+											0
+										)).is_some() ||
+										entity2.get_voxel(c.4 + IVec3::new(
+											get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+											get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+											0
+										)).is_some()
+									{ return None; }
+								}
+							}
+						},
+						CubeFeature::Face { xyzs } => {
+							if entity2.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32)).is_some() {
+								return None;
+							}
+						},
+					};
+
+
+					Some(Collision {
+						id1: if no_swap { id_a as u32 } else { id_b as u32 },
+						id2: if no_swap { id_b as u32 } else { id_a as u32 },
+						voxel_pos1: voxel.0,
+						voxel_pos2:	c.4,
+						feature1: c.1,
+						feature2: c.3,
+						collision1: pose2.1 * (c.0 + entity2.get_voxels_local_pos()) + pose2.0,
+						collision2: pose2.1 * (c.2 + entity2.get_voxels_local_pos()) + pose2.0,
+						local_collision1: orientation_of_1_in_2.inverse() * (c.0 - pos_of_1_in_2) + entity1.get_voxels_local_pos(),
+						local_collision2: c.2 + entity2.get_voxels_local_pos(),
+					})
 				}));
 			}
 		}
 	}
-	// for collision in collisions.iter() {
-	// 	let e1 = &entities[collision.id1 as usize];
-	// 	let e2 = &entities[collision.id2 as usize];
+	for collision in collisions.iter() {
+		let e1 = &entities[collision.id1 as usize];
+		let e2 = &entities[collision.id2 as usize];
 
-	// 	debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
-	// 	debug_draw::point(collision.collision1, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
-	// 	debug_draw::point(collision.collision2, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
+		debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
+		debug_draw::point(collision.collision1, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
+		debug_draw::point(collision.collision2, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
 
-	// 	if !e1.is_static {
-	// 		match collision.feature1 {
-	// 			CubeFeature::Vertex { xyz } => {
-	// 				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
-	// 				debug_draw::aabb(e1.position + e1.orientation * v + Vec3::splat(0.01), e1.position + e1.orientation * v + Vec3::splat(0.01), Vec4::ONE);
-	// 			},
-	// 			CubeFeature::Edge { vertex_vertex } => {
-	// 				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
-	// 				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
-	// 				debug_draw::line(e1.position + e1.orientation * v1, e1.position + e1.orientation * v2, Vec4::ONE);
-	// 			},
-	// 			CubeFeature::Face { xyzs } => {
-	// 				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
-	// 				debug_draw::aabb(e1.position + e1.orientation * v - Vec3::splat(0.01), e1.position + e1.orientation * v + Vec3::splat(0.01), Vec4::W);
-	// 			},
-	// 		}
-	// 	}
-	// 	if !e2.is_static {
-	// 		match collision.feature2 {
-	// 			CubeFeature::Vertex { xyz } => {
-	// 				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
-	// 				debug_draw::aabb(e2.position + e2.orientation * v - Vec3::splat(0.01), e2.position + e2.orientation * v + Vec3::splat(0.01), Vec4::ONE);
-	// 			},
-	// 			CubeFeature::Edge { vertex_vertex } => {
-	// 				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
-	// 				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
-	// 				debug_draw::line(e2.position + e2.orientation * v1, e2.position + e2.orientation * v2, Vec4::ONE);
-	// 			},
-	// 			CubeFeature::Face { xyzs } => {
-	// 				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
-	// 				debug_draw::aabb(e2.position + e2.orientation * v - Vec3::splat(0.01), e2.position + e2.orientation * v + Vec3::splat(0.01), Vec4::W);
-	// 			},
-	// 		}
-	// 	}
-	// }
+		match collision.feature1 {
+			CubeFeature::Vertex { xyz } => {
+				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
+				debug_draw::aabb(
+					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					Vec4::ONE
+				);
+			},
+			CubeFeature::Edge { vertex_vertex } => {
+				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
+				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
+				debug_draw::line(
+					e1.position + e1.orientation * (v1 + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)),
+					e1.position + e1.orientation * (v2 + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)),
+					Vec4::ONE
+				);
+			},
+			CubeFeature::Face { xyzs } => {
+				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
+				debug_draw::aabb(
+					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					Vec4::W
+				);
+			},
+		}
+		match collision.feature2 {
+			CubeFeature::Vertex { xyz } => {
+				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
+				debug_draw::aabb(
+					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					Vec4::ONE
+				);
+			},
+			CubeFeature::Edge { vertex_vertex } => {
+				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
+				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
+				debug_draw::line(
+					e2.position + e2.orientation * (v1 + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)),
+					e2.position + e2.orientation * (v2 + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)),
+					Vec4::ONE
+				);
+			},
+			CubeFeature::Face { xyzs } => {
+				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
+				debug_draw::aabb(
+					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					Vec4::W
+				);
+			},
+		}
+	}
 	collisions
 }
 
-fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, p: &Vec3, q:&Quat) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> {
+fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, p: &Vec3, q:&Quat) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature, IVec3)> {
 	let mut collisions = vec![];
 	for x in -1..2 {
 		for y in -1..2 {
@@ -141,7 +318,8 @@ fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separa
 							c.0 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
 							c.1,
 							c.2 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
-							c.3
+							c.3,
+							pos.floor().as_ivec3() + vec
 						))
 					});
 				}
@@ -159,13 +337,10 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 		let shift = pos.dot(*axis);
 		let min_1 = unshifted_min_1 + shift;
 		let max_1 = unshifted_max_1 + shift;
-		if max_1 <= *min_2 || min_1 >= *max_2 {
-			return vec![];
-		}
+		if max_1 <= *min_2 || min_1 >= *max_2 { return vec![]; }
 		if min_1 > *min_2 {
 			let overlap = max_2 - min_1;
 			if (overlap - best_dis).abs() < 0.001 {
-				// bests.clear();
 				bests.push(((min_1, *max_2), *axis, *index));
 			} else if overlap < best_dis {
 				best_dis = overlap;
@@ -175,7 +350,6 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 		} else {
 			let overlap = max_1 - *min_2;
 			if (overlap - best_dis).abs() < 0.001 {
-				// bests.clear();
 				bests.push(((max_1, *min_2), *axis, *index));
 			} else if overlap < best_dis {
 				best_dis = overlap;
@@ -311,60 +485,15 @@ pub fn points_with_direction(
 
     let denom = d1.dot((-d2).cross(u));
 
-    if denom.abs() < 1e-6 {
-        return None;
-    }
+    if denom.abs() < 1e-6 { return None; }
 
     let s = r.dot((-d2).cross(u)) / denom;
     let t = d1.dot(r.cross(u)) / denom;
 
-	if s != s.clamp(-0.5, 0.5) {
-		// if d1.angle_between(d2) < PI / 36.0 { return None; }
-		// println!("S! s {0}, t {1}, p1 {2}, d1 {3}, p2 {4}, d2 {5}, u {6}", s, t, p1, d1, p2, d2, u);
-		return None;
-	}
-	if t != t.clamp(-0.5, 0.5) {
-		// if d1.angle_between(d2) < PI / 36.0 { return None; }
-		// println!("T: s {0}, t {1}, p1 {2}, d1 {3}, p2 {4}, d2 {5}, u {6}", s, t, p1, d1, p2, d2, u);
-		return None;
-	}
+	if s != s.clamp(-0.5, 0.5) || t != t.clamp(-0.5, 0.5) { return None; }
 
     let x1 = p1 + d1 * s;
     let x2 = p2 + d2 * t;
-
-    // let diff = x1 - x2;
-    // if diff.length_squared() > 1e-6 {
-    //     let cross = diff.normalize().cross(u.normalize());
-    //     assert!(cross.length_squared() < 1e-4,
-    //         "x1 - x2 is not parallel to u: x1={:?}, x2={:?}, diff={:?}, u={:?}, cross={:?}",
-    //         x1, x2, diff, u, cross
-    //     );
-    // }
-
-    // // x1 should lie on L1: there should exist s such that x1 = p1 + d1*s
-    // // i.e. (x1 - p1) should be parallel to d1
-    // if d1.length_squared() > 1e-6 {
-    //     let to_x1 = x1 - p1;
-    //     if to_x1.length_squared() > 1e-6 {
-    //         let cross = to_x1.normalize().cross(d1.normalize());
-    //         assert!(cross.length_squared() < 1e-4,
-    //             "x1 does not lie on line1: x1={:?}, p1={:?}, d1={:?}, cross={:?}",
-    //             x1, p1, d1, cross
-    //         );
-    //     }
-    // }
-
-    // // x2 should lie on L2
-    // if d2.length_squared() > 1e-6 {
-    //     let to_x2 = x2 - p2;
-    //     if to_x2.length_squared() > 1e-6 {
-    //         let cross = to_x2.normalize().cross(d2.normalize());
-    //         assert!(cross.length_squared() < 1e-4,
-    //             "x2 does not lie on line2: x2={:?}, p2={:?}, d2={:?}, cross={:?}",
-    //             x2, p2, d2, cross
-    //         );
-    //     }
-    // }
 
     Some((x1, x2))
 }

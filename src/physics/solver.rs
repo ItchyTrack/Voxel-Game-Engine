@@ -40,10 +40,10 @@ impl Solver {
 		}).collect();
 		self.collisions_kl_map.clear();
 		let mut x_guess = initial_all.clone();
-		let iterations = 10;
+		let iterations = 20;
 		let total_iterations = iterations + 1; // because post stabilize
 		for iteration in 0..total_iterations {
-			let alpha = (iteration < iterations) as i32 as f32;
+			let alpha = (iteration < iterations) as i32 as f32 * 0.995;
 			for index in 0..entities.len() {
 				let entity = &entities[index];
 				if entity.is_static { continue; }
@@ -68,6 +68,8 @@ impl Solver {
 						let swapped_collision = physics::collision::Collision {
 							id1: entity_collision.0.id2,
 							id2: entity_collision.0.id1,
+							voxel_pos1: entity_collision.0.voxel_pos2,
+							voxel_pos2: entity_collision.0.voxel_pos1,
 							feature1: entity_collision.0.feature2,
 							feature2: entity_collision.0.feature1,
 							collision1: entity_collision.0.collision2,
@@ -116,6 +118,8 @@ impl Solver {
 							let swapped_collision = physics::collision::Collision {
 								id1: entity_collision.0.id2,
 								id2: entity_collision.0.id1,
+								voxel_pos1: entity_collision.0.voxel_pos2,
+								voxel_pos2: entity_collision.0.voxel_pos1,
 								feature1: entity_collision.0.feature2,
 								feature2: entity_collision.0.feature1,
 								collision1: entity_collision.0.collision2,
@@ -208,7 +212,7 @@ impl Solver {
 		let mut f: Vec3 = k_mat * c + lambda;
 		f.x = f.x.min(0.0);
 
-		let friction = 0.5;
+		let friction = 0.1;
 		let bounds = f.x.abs() * friction;
 		let friction_scale = Vec2::new(f.y, f.z).length();
 		if friction_scale > bounds && friction_scale > 0.0 {

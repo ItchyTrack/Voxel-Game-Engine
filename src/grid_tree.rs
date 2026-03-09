@@ -148,11 +148,9 @@ impl<const SIZE: u32, T: Clone + Debug> GridTree<SIZE, T> {
 			None => None,
 		}
 	}
-
 	pub fn contains_key(&self, pos: &IVec3) -> bool {
 		self.get(pos).is_some()
 	}
-
 	pub fn insert(&mut self, pos: IVec3, t: T) -> Option<T> {
 		let root = self.get_node(self.root);
 		let mut root_pos = root.pos;
