@@ -237,48 +237,48 @@ impl<const SIZE: u32, T: Clone + Debug> GridTree<SIZE, T> {
 				rot * (node.pos + IVec3::X * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Y * node_size as i32).as_vec3() + pos,
-				Vec4::ONE,
-				false
+				Vec4::new(1.0, 1.0, 1.0, 0.0075),
+				true
 			);
 			debug_draw::quad(
 				rot * node.pos.as_vec3() + pos,
 				rot * (node.pos + IVec3::X * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::X * node_size as i32 + IVec3::Z * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Z * node_size as i32).as_vec3() + pos,
-				Vec4::ONE,
-				false
+				Vec4::new(1.0, 1.0, 1.0, 0.0075),
+				true
 			);
 			debug_draw::quad(
 				rot * node.pos.as_vec3() + pos,
 				rot * (node.pos + IVec3::Y * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Y * node_size as i32 + IVec3::Z * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Z * node_size as i32).as_vec3() + pos,
-				Vec4::ONE,
-				false
+				Vec4::new(1.0, 1.0, 1.0, 0.0075),
+				true
 			);
 			debug_draw::quad(
 				rot * (node.pos + IVec3::ONE * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Z * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Z * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Z * node_size as i32 + IVec3::X * node_size as i32).as_vec3() + pos,
-				Vec4::ONE,
-				false
+				Vec4::new(1.0, 1.0, 1.0, 0.0075),
+				true
 			);
 			debug_draw::quad(
 				rot * (node.pos + IVec3::ONE * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Z * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Y * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
-				Vec4::ONE,
-				false
+				Vec4::new(1.0, 1.0, 1.0, 0.0075),
+				true
 			);
 			debug_draw::quad(
 				rot * (node.pos + IVec3::ONE * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::Z * node_size as i32 + IVec3::X * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::X * node_size as i32).as_vec3() + pos,
 				rot * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
-				Vec4::ONE,
-				false
+				Vec4::new(1.0, 1.0, 1.0, 0.0075),
+				true
 			);
 			if node.child_count == 0 {
 				continue;

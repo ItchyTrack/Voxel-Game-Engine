@@ -31,22 +31,22 @@
 // 	Ok(txt)
 // }
 
-// pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
-// 	#[cfg(target_arch = "wasm32")]
-// 	let data = {
-// 		let url = format_url(file_name);
-// 		reqwest::get(url).await?.bytes().await?.to_vec()
-// 	};
-// 	#[cfg(not(target_arch = "wasm32"))]
-// 	let data = {
-// 		let path = std::path::Path::new(env!("OUT_DIR"))
-// 			.join("res")
-// 			.join(file_name);
-// 		std::fs::read(path)?
-// 	};
+pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
+	#[cfg(target_arch = "wasm32")]
+	let data = {
+		let url = format_url(file_name);
+		reqwest::get(url).await?.bytes().await?.to_vec()
+	};
+	#[cfg(not(target_arch = "wasm32"))]
+	let data = {
+		let path = std::path::Path::new(env!("OUT_DIR"))
+			.join("res")
+			.join(file_name);
+		std::fs::read(path)?
+	};
 
-// 	Ok(data)
-// }
+	Ok(data)
+}
 
 // // pub async fn load_texture(
 // //     file_name: &str,

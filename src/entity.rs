@@ -6,13 +6,13 @@ pub struct Entity {
 	pub orientation: Quat,
 	pub velocity: Vec3,
 	pub angular_velocity: Vec3,
+	pub is_static: bool,
 	mass: f64,
 	inertia_tensor_at_origin: DMat3,
 	voxels: voxels::Voxels,
 	voxel_center_of_mass_times_mass: DVec3,
 	mesh: Option<mesh::Mesh>,
 	update_mesh: bool,
-	pub is_static: bool,
 }
 
 // According to https://en.wikipedia.org/wiki/Moment_of_inertia#:~:text=in%20the%20body.-,Inertia%20tensor

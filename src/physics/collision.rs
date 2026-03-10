@@ -48,6 +48,7 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 		for id_b in bvh.get_collisions(&bounds[id_a].1) {
 			if (id_a as u32) <= id_b { continue; }
 			let entity_b = &entities[id_b as usize];
+			if entity_a.is_static && entity_b.is_static { continue; } // skip static on static collisions
 
 			let no_swap = entity_a.get_voxels().get_voxels().len() < entity_b.get_voxels().get_voxels().len();
 			let (entity1, pose1, entity2, pose2) = {
@@ -215,7 +216,6 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 		}
 					// 	},
 					// };
-
 
 					Some(Collision {
 						id1: if no_swap { id_a as u32 } else { id_b as u32 },

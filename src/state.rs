@@ -3,7 +3,7 @@ use std::{sync::Arc};
 use glam::{IVec3, Mat4, Quat, Vec3};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{camera, entity, gpu_objects::mesh, physics::{self}, renderer::Renderer, voxels};
+use crate::{camera, entity, gpu_objects::mesh, physics::{self}, renderer::Renderer, resources::load_binary, voxels};
 
 pub struct State {
 	pub renderer: Renderer,
@@ -66,6 +66,32 @@ impl State {
 		let camera_controller = camera::CameraController::new(40.0, 1.5, 0.0015);
 
 		let mut entities: Vec<entity::Entity> = vec![];
+
+		// match load_binary("#treehouse.vox").await {
+		// 	Ok(bytes) => {
+		// 		match dot_vox::load_bytes(&bytes) {
+		// 			Ok(dot_vox_data) => {
+		// 				for model in dot_vox_data.models {
+		// 					entities.push(entity::Entity::new());
+		// 					let entity = entities.last_mut().unwrap();
+		// 					entity.is_static = true;
+		// 					for voxel in model.voxels {
+		// 						entity.add_voxel(IVec3::new(voxel.x as i32, voxel.z as i32, voxel.y as i32), voxels::Voxel{ color: [
+		// 							dot_vox_data.palette[voxel.i as usize].r as f32 / 255.0,
+		// 							dot_vox_data.palette[voxel.i as usize].g as f32 / 255.0,
+		// 							dot_vox_data.palette[voxel.i as usize].b as f32 / 255.0,
+		// 							dot_vox_data.palette[voxel.i as usize].a as f32 / 255.0
+		// 						], mass: 1.0 });
+		// 					}
+		// 				}
+		// 			},
+		// 			Err(err) => println!("dot_vox error: {err}"),
+		// 		};
+		// 	},
+		// 	Err(err) => println!("load_string error: {err}"),
+		// }
+
+
 
 		// ------------------------------ Static Box ------------------------------
 		// {
@@ -138,35 +164,35 @@ impl State {
 		// 	}
 		// }
 		// ------------------------------ Ramp ------------------------------
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			for x in -15..16 {
-				for y in 0..20 {
-					entity.add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (y % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-				}
-			}
-			for x in -15..16 {
-				for z in -10..200 {
-					entity.add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x + 15) as f32 / 30.0, 0.0, ((z + 10) % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-				}
-			}
-			for y in 0..15 {
-				for z in -10..200 {
-					entity.add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-					entity.add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-				}
-			}
-			entity.is_static = true;
-			entity.position.y -= 2.0;
-		}
+		// {
+		// 	entities.push(entity::Entity::new());
+		// 	let entity = entities.last_mut().unwrap();
+		// 	for x in -15..16 {
+		// 		for y in 0..20 {
+		// 			entity.add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (y % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+		// 		}
+		// 	}
+		// 	for x in -15..16 {
+		// 		for z in -10..200 {
+		// 			entity.add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x + 15) as f32 / 30.0, 0.0, ((z + 10) % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+		// 		}
+		// 	}
+		// 	for y in 0..15 {
+		// 		for z in -10..200 {
+		// 			entity.add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+		// 			entity.add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+		// 		}
+		// 	}
+		// 	entity.is_static = true;
+		// 	entity.position.y -= 2.0;
+		// }
 		// ------------------------------ Ball ------------------------------
 		for x in -1..2 {
-			for y in -1..8 {
+			for y in -1..6 {
 				for z in -1..2 {
 					entities.push(entity::Entity::new());
 					let entity = entities.last_mut().unwrap();
-					let r = 4;
+					let r = 3;
 					for x in -r..r + 1 {
 						for y in -r..r + 1 {
 							for z in -r..r + 1 {
@@ -176,9 +202,9 @@ impl State {
 							}
 						}
 					}
-					entity.position.y += (y as f32) * (r as f32) * 2.0 + 7.0;
-					entity.position.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
-					entity.position.x += (x as f32) * (r as f32) * 2.0;
+					entity.position.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 140.0;
+					entity.position.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32 + 60.0;
+					entity.position.x += (x as f32) * (r as f32) * 2.0 + 60.0;
 				}
 			}
 		}
