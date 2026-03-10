@@ -229,6 +229,7 @@ impl State {
 		let mut rendering_meshes: Vec<(&mesh::Mesh, Mat4)> = vec![];
 
 		for entity in self.entities.iter_mut() {
+			// entity.get_voxels().render_debug(entity.position + entity.orientation * entity.get_voxels_local_pos(), &entity.orientation);
 			rendering_meshes.extend(entity.get_rendering_meshes(&self.renderer.device, &self.camera));
 		}
 

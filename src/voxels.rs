@@ -1,4 +1,4 @@
-use glam::{IVec3, Vec3};
+use glam::{IVec3, Vec3, Quat};
 use wgpu::util::DeviceExt;
 use std::cell::Cell;
 
@@ -13,7 +13,7 @@ pub struct Voxel {
 }
 
 pub struct Voxels {
-	voxels: GridTree<3, Voxel>,
+	voxels: GridTree<2, Voxel>,
 	bounding_box: Cell<Option<(IVec3, IVec3)>>,
 	bounding_box_dirty: Cell<bool>,
 }
@@ -40,7 +40,7 @@ impl Voxels {
 	}
 
 	pub fn get_voxel(&self, pos: IVec3) -> Option<&Voxel> { self.voxels.get(&pos) }
-	pub fn get_voxels(&self) -> &GridTree<3, Voxel> { &self.voxels }
+	pub fn get_voxels(&self) -> &GridTree<2, Voxel> { &self.voxels }
 
 	pub fn get_bounding_box(&self) -> Option<(IVec3, IVec3)> {
 		if self.bounding_box_dirty.get() {
@@ -53,6 +53,10 @@ impl Voxels {
 			}));
 		}
 		self.bounding_box.get()
+	}
+
+	pub fn render_debug(&self, pos: Vec3, rot: &Quat) {
+		self.voxels.render_debug(pos, rot);
 	}
 }
 
