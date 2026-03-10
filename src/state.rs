@@ -161,102 +161,28 @@ impl State {
 			entity.position.y -= 2.0;
 		}
 		// ------------------------------ Ball ------------------------------
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			let r = 6;
-			for x in -r..r + 1 {
-				for y in -r..r + 1 {
-					for z in -r..r + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-							entity.add_voxel(IVec3::new(x, y + 2, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+		for x in -1..2 {
+			for y in -1..8 {
+				for z in -1..2 {
+					entities.push(entity::Entity::new());
+					let entity = entities.last_mut().unwrap();
+					let r = 4;
+					for x in -r..r + 1 {
+						for y in -r..r + 1 {
+							for z in -r..r + 1 {
+								if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
+									entity.add_voxel(IVec3::new(x, y + 2, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+								}
+							}
 						}
 					}
+					entity.position.y += (y as f32) * (r as f32) * 2.0 + 7.0;
+					entity.position.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
+					entity.position.x += (x as f32) * (r as f32) * 2.0;
 				}
 			}
-			entity.position.y += 10.0;
-			entity.position.z += 0.5;
-			entity.position.x += 0.5;
 		}
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			let r = 6;
-			for x in -r..r + 1 {
-				for y in -r..r + 1 {
-					for z in -r..r + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-							entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-						}
-					}
-				}
-			}
-			entity.position.y += 45.0;
-		}
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			let r = 6;
-			for x in -r..r + 1 {
-				for y in -r..r + 1 {
-					for z in -r..r + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-							entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-						}
-					}
-				}
-			}
-			entity.position.y += 60.0;
-		}
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			let r = 6;
-			for x in -r..r + 1 {
-				for y in -r..r + 1 {
-					for z in -r..r + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-							entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-						}
-					}
-				}
-			}
-			entity.position.z += 10.0;
-		}
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			let r = 6;
-			for x in -r..r + 1 {
-				for y in -r..r + 1 {
-					for z in -r..r + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-							entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-						}
-					}
-				}
-			}
-			entity.position.z += 10.0;
-			entity.position.x += 10.0;
-			entity.position.y += 10.0;
-		}
-		{
-			entities.push(entity::Entity::new());
-			let entity = entities.last_mut().unwrap();
-			let r = 6;
-			for x in -r..r + 1 {
-				for y in -r..r + 1 {
-					for z in -r..r + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-							entity.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-						}
-					}
-				}
-			}
-			entity.position.z += 5.0;
-			entity.position.x += -10.0;
-			entity.position.y += 10.0;
-		}
+
 
 		// ------------------------------ Grid Tesing ------------------------------
 		// for x in 0..5 {
