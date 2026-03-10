@@ -1,4 +1,7 @@
-use glam::Vec3;
+use itertools::partition;
+use glam::{Vec3, Vec4};
+
+use crate::debug_draw;
 
 enum BVHInternal {
 	SubNodes {
@@ -24,15 +27,17 @@ impl BVHNode {
 
 		let mut min = slice[0].1.0;
 		let mut max = slice[0].1.1;
+		let mut avg = Vec3::ZERO;
 
 		for v in slice.iter() {
 			min = min.min(v.1.0);
 			max = max.max(v.1.1);
+			avg += v.1.0 + v.1.1;
 		}
 
 		let count = slice.len() as u32;
 
-		if count <= 8 {
+		if count <= 8 || min == max {
 			return Self {
 				min_corner: min,
 				max_corner: max,
@@ -40,24 +45,27 @@ impl BVHNode {
 			};
 		}
 
-		let axis = (max - min).max_position();
-		let mid = count / 2;
+		avg /= count as f32;
 
-		slice.select_nth_unstable_by(mid as usize, |a, b| (a.1.0 + a.1.1)[axis].partial_cmp(&(b.1.0 + b.1.1)[axis]).unwrap());
+		let axis = (max - min).max_position();
+		let split_value = avg[axis];
+
+		let split_index = partition(slice.iter_mut(), |a| (a.1.0 + a.1.1)[axis] < split_value) as u32;
+		// slice.select_nth_unstable_by(mid as usize, |a, b| (a.1.0 + a.1.1)[axis].partial_cmp(&(b.1.0 + b.1.1)[axis]).unwrap());
 		nodes.push(BVHNode {
 			min_corner: Vec3::ZERO,
 			max_corner: Vec3::ZERO,
 			sub_nodes: BVHInternal::Leaf { start: 0, count: 0 },
 		});
 		let sub1 = nodes.len() - 1;
-		nodes[sub1] = Self::build_range(items, nodes, start, start + mid);
+		nodes[sub1] = Self::build_range(items, nodes, start, start + split_index);
 		nodes.push(BVHNode {
 			min_corner: Vec3::ZERO,
 			max_corner: Vec3::ZERO,
 			sub_nodes: BVHInternal::Leaf { start: 0, count: 0 },
 		});
 		let sub2 = nodes.len() - 1;
-		nodes[sub2] = Self::build_range(items, nodes, start + mid, end);
+		nodes[sub2] = Self::build_range(items, nodes, start + split_index, end);
 		Self {
 			min_corner: min,
 			max_corner: max,
@@ -115,5 +123,24 @@ impl BVH {
 		}
 
 		out
+	}
+	pub fn render_debug(&self) {
+		let mut stack = vec![0];
+
+		while let Some(idx) = stack.pop() {
+			let node = &self.nodes[idx as usize];
+			match node.sub_nodes {
+				BVHInternal::SubNodes { sub1, sub2 } => {
+					debug_draw::aabb(node.min_corner, node.max_corner, Vec4::ONE);
+					stack.push(sub1);
+					stack.push(sub2);
+				}
+				BVHInternal::Leaf { start, count } => {
+					for item in self.items[start as usize..(start + count) as usize].iter() {
+						debug_draw::aabb(item.1.0, item.1.1, Vec4::ONE);
+					}
+				}
+			}
+		}
 	}
 }
