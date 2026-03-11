@@ -155,53 +155,53 @@ impl State {
 		// 	}
 		// }
 		// ------------------------------ Ramp ------------------------------
-		// {
-		// 	physics_bodies.push(physics::physics_body::PhysicsBody::new());
-		// 	let physics_body = physics_bodies.last_mut().unwrap();
-		// 	for x in -15..16 {
-		// 		for y in 0..20 {
-		// 			physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (y % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-		// 		}
-		// 	}
-		// 	for x in -15..16 {
-		// 		for z in -10..200 {
-		// 			physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x + 15) as f32 / 30.0, 0.0, ((z + 10) % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-		// 		}
-		// 	}
-		// 	for y in 0..15 {
-		// 		for z in -10..200 {
-		// 			physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-		// 			physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-		// 		}
-		// 	}
-		// 	physics_body.is_static = true;
-		// 	physics_body.position.y += 2.0;
-		// }
+		{
+			physics_bodies.push(physics::physics_body::PhysicsBody::new());
+			let physics_body = physics_bodies.last_mut().unwrap();
+			for x in -15..16 {
+				for y in 0..20 {
+					physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (y % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+				}
+			}
+			for x in -15..16 {
+				for z in -10..200 {
+					physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x + 15) as f32 / 30.0, 0.0, ((z + 10) % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+				}
+			}
+			for y in 0..15 {
+				for z in -10..200 {
+					physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+					physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+				}
+			}
+			physics_body.is_static = true;
+			physics_body.position.y += 2.0;
+		}
 		// ------------------------------ Ball ------------------------------
-		// for x in -1..1 {
-		// 	for y in -1..2 {
-		// 		for z in -1..1 {
-		// 			physics_bodies.push(physics::physics_body::PhysicsBody::new());
-		// 			let physics_body = physics_bodies.last_mut().unwrap();
-		// 			let r = 4;
-		// 			for x in -r..r + 1 {
-		// 				for y in -r..r + 1 {
-		// 					for z in -r..r + 1 {
-		// 						if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-		// 							physics_body.sub_grids.first_mut().unwrap().add_voxel(
-		// 								IVec3::new(x, y + 2, z),
-		// 								voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
-		// 							);
-		// 						}
-		// 					}
-		// 				}
-		// 			}
-		// 			physics_body.position.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
-		// 			physics_body.position.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
-		// 			physics_body.position.x += (x as f32) * (r as f32) * 2.0;
-		// 		}
-		// 	}
-		// }
+		for x in -1..2 {
+			for y in -1..5 {
+				for z in -1..2 {
+					physics_bodies.push(physics::physics_body::PhysicsBody::new());
+					let physics_body = physics_bodies.last_mut().unwrap();
+					let r = 4;
+					for x in -r..r + 1 {
+						for y in -r..r + 1 {
+							for z in -r..r + 1 {
+								if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
+									physics_body.sub_grids.first_mut().unwrap().add_voxel(
+										IVec3::new(x, y + 2, z),
+										voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
+									);
+								}
+							}
+						}
+					}
+					physics_body.position.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
+					physics_body.position.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
+					physics_body.position.x += (x as f32) * (r as f32) * 2.0;
+				}
+			}
+		}
 
 
 		// ------------------------------ Grid Tesing ------------------------------
@@ -235,24 +235,24 @@ impl State {
 		// }
 
 
-		{
-			physics_bodies.push(physics::physics_body::PhysicsBody::new());
-			let physics_body = physics_bodies.last_mut().unwrap();
-			physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-			// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(1, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-			// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 1), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-			// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(-1, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-			// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, -1), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-			physics_body.position.y += 0.0;
-			physics_body.is_static = true;
-		}
-		{
-			physics_bodies.push(physics::physics_body::PhysicsBody::new());
-			let physics_body = physics_bodies.last_mut().unwrap();
-			physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 1.0, 0.5, 1.0], mass: 1.0 });
-			physics_body.position.y += 1.0;
-			physics_body.position.x += 0.9;
-		}
+		// {
+		// 	physics_bodies.push(physics::physics_body::PhysicsBody::new());
+		// 	let physics_body = physics_bodies.last_mut().unwrap();
+		// 	physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
+		// 	// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(1, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
+		// 	// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 1), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
+		// 	// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(-1, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
+		// 	// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, -1), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
+		// 	physics_body.position.y += 0.0;
+		// 	physics_body.is_static = true;
+		// }
+		// {
+		// 	physics_bodies.push(physics::physics_body::PhysicsBody::new());
+		// 	let physics_body = physics_bodies.last_mut().unwrap();
+		// 	physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 1.0, 0.5, 1.0], mass: 1.0 });
+		// 	physics_body.position.y += 1.0;
+		// 	physics_body.position.x += 0.5;
+		// }
 
 
 		Ok(Self {

@@ -28,8 +28,6 @@ impl Solver {
 				let body1 = &physics_bodies[c.id1 as usize];
 				let body2 = &physics_bodies[c.id2 as usize];
 				physics::collision::Collision {
-					collision1: c.collision1 + body1.get_center_of_mass(),
-					collision2: c.collision2 + body2.get_center_of_mass(),
 					local_collision1: c.local_collision1 - body1.get_local_center_of_mass(),
 					local_collision2: c.local_collision2 - body2.get_local_center_of_mass(),
 					..*c
@@ -39,7 +37,7 @@ impl Solver {
 		let initial_all:Vec<(Vec3, Quat)> = physics_bodies.iter().map(|physics_body| (physics_body.position + physics_body.get_center_of_mass(), physics_body.orientation)).collect();
 		let y_all: Vec<(Vec3, Quat)> = physics_bodies.iter().map(|physics_body| {
 			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return (physics_body.position + physics_body.get_center_of_mass(), physics_body.orientation); }
-			let gravity = -9.0;
+			let gravity = -90.0;
 			let pos = physics_body.position + physics_body.velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_center_of_mass();
 			let orientation = (Quat::from_scaled_axis(physics_body.angular_velocity * dt) * physics_body.orientation).normalize();
 			(pos, orientation)
@@ -166,6 +164,9 @@ impl Solver {
 		alpha: f32
 	) -> Option<(Vec6, Mat6, Vec3, Vec3)> {
 		let normal = (collision.collision2 - collision.collision1).normalize();
+
+		// debug_draw::line(this_initial_state.0, this_initial_state.0 + normal * 2.0, Vec4::W + Vec4::Y);
+
 		if normal.is_nan() { return None }
 		let orthonormal_basis = normal.any_orthonormal_pair();
 		let basis = Mat3::from_cols(
