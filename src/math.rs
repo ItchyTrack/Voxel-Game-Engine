@@ -2,9 +2,6 @@ use std::{ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign}};
 use core::fmt;
 use glam::{Mat3, Quat, Vec3};
 
-pub fn add_vec_to_quat(q: &Quat, dx: &Vec3) -> Quat { (q + (Quat::from_xyzw(dx.x, dx.y, dx.z, 0.0) * 0.5) * q).normalize() }
-pub fn sub_quat(q1: &Quat, q2: &Quat) -> Vec3 { (q1 * q2.inverse()).xyz() * 2.0 }
-
 #[derive(Copy, Clone, PartialEq)]
 pub struct Vec6 {
 	data: [f32; 6],
