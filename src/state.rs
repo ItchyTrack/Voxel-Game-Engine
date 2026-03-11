@@ -1,9 +1,9 @@
 use std::{f32, sync::Arc};
 
-use glam::{IVec3, Mat4, Vec3, Vec4};
+use glam::{IVec3, Mat4, Quat, Vec3, Vec4};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{camera, debug_draw, gpu_objects::mesh, physics, renderer::Renderer, voxels};
+use crate::{camera, debug_draw, gpu_objects::mesh, physics::{self, physics_body::PhysicsBodySubGrid}, pose::Pose, renderer::Renderer, voxels};
 
 pub struct State {
 	pub renderer: Renderer,
@@ -54,7 +54,7 @@ impl State {
 		let renderer = Renderer::new(window).await?;
 
 		let camera = camera::Camera {
-			position: Vec3::new(10.0, 0.0, 0.0),
+			position: Vec3::new(20.0, 0.0, 0.0),
 			yaw: f32::consts::PI / 2.0,
 			pitch: 0.0,
 			aspect: renderer.config.width as f32 / renderer.config.height as f32,
@@ -179,13 +179,13 @@ impl State {
 		}
 		// ------------------------------ Ball ------------------------------
 		for x in -1..2 {
-			for y in -1..5 {
+			for y in -1..4 {
 				for z in -1..2 {
 					physics_bodies.push(physics::physics_body::PhysicsBody::new());
 					let physics_body = physics_bodies.last_mut().unwrap();
 					let r = 4;
 					for x in -r..r + 1 {
-						for y in -r..r + 1 {
+						for y in -0..r + 1 {
 							for z in -r..r + 1 {
 								if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
 									physics_body.sub_grids.first_mut().unwrap().add_voxel(
@@ -199,6 +199,21 @@ impl State {
 					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
 					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
 					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
+
+					physics_body.sub_grids.push(PhysicsBodySubGrid::new(Pose::new(Vec3::new(-0.707 + 0.5, 0.0, 0.707 - 0.5), Quat::from_rotation_y(f32::consts::PI/4.0))));
+					let r = 4;
+					for x in -r..r + 1 {
+						for y in -r..0 {
+							for z in -r..r + 1 {
+								if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
+									physics_body.sub_grids.last_mut().unwrap().add_voxel(
+										IVec3::new(x, y + 2, z),
+										voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
+									);
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -209,25 +224,25 @@ impl State {
 		// 	for y in 0..5 {
 		// 		for z in 0..5 {
 		// 			{
-		// 				physics_bodies.push(physics_body::PhysicsBody::new());
+		// 				physics_bodies.push(physics::physics_body::PhysicsBody::new());
 		// 				let physics_body = physics_bodies.last_mut().unwrap();
-		// 				physics_body.add_voxel(IVec3::ZERO, voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-		// 				physics_body.add_voxel(IVec3::new(0, 0, 1), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-		// 				physics_body.add_voxel(IVec3::new(1, 0, 0), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-		// 				physics_body.add_voxel(IVec3::new(1, 0, 1), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-		// 				physics_body.position.x += (x * 5) as f32;
-		// 				physics_body.position.y += (y * 5) as f32;
-		// 				physics_body.position.z -= (z * 5) as f32;
+		// 				physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::ZERO, voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+		// 				physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 1), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+		// 				physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(1, 0, 0), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+		// 				physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(1, 0, 1), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+		// 				physics_body.pose.translation.x += (x * 5) as f32;
+		// 				physics_body.pose.translation.y += (y * 5) as f32;
+		// 				physics_body.pose.translation.z -= (z * 5) as f32;
 		// 				physics_body.is_static = true;
 		// 			}
 		// 			{
-		// 				physics_bodies.push(physics_body::PhysicsBody::new());
+		// 				physics_bodies.push(physics::physics_body::PhysicsBody::new());
 		// 				let physics_body = physics_bodies.last_mut().unwrap();
-		// 				physics_body.add_voxel(IVec3::ZERO, voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
-		// 				physics_body.position.x += (x * 5) as f32 - 0.4;;
-		// 				physics_body.position.y += (y * 5) as f32 + 0.8 + (y as f32) * 0.05;
-		// 				physics_body.position.z -= (z * 5) as f32 + 0.4;
-		// 				physics_body.orientation = Quat::from_rotation_z(z as f32 / 5.0) * Quat::from_rotation_x(x as f32 / 5.0);
+		// 				physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::ZERO, voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
+		// 				physics_body.pose.translation.x += (x * 5) as f32 - 0.4;;
+		// 				physics_body.pose.translation.y += (y * 5) as f32 + 0.8 + (y as f32) * 0.05;
+		// 				physics_body.pose.translation.z -= (z * 5) as f32 + 0.4;
+		// 				physics_body.pose.rotation = Quat::from_rotation_z(z as f32 / 5.0) * Quat::from_rotation_x(x as f32 / 5.0);
 		// 				physics_body.is_static = true;
 		// 			}
 		// 		}
