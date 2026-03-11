@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 mod voxels;
 mod resources;
-mod entity;
 mod camera;
 mod app;
 mod renderer;

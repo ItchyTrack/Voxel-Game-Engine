@@ -51,6 +51,7 @@ impl BVHNode {
 		let split_value = avg[axis];
 
 		let split_index = partition(slice.iter_mut(), |a| (a.1.0 + a.1.1)[axis] < split_value) as u32;
+		assert!(split_index != 0 || split_index != end - start);
 		// slice.select_nth_unstable_by(mid as usize, |a, b| (a.1.0 + a.1.1)[axis].partial_cmp(&(b.1.0 + b.1.1)[axis]).unwrap());
 		nodes.push(BVHNode {
 			min_corner: Vec3::ZERO,

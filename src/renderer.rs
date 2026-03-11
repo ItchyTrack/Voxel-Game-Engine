@@ -303,7 +303,7 @@ impl Renderer {
 		})
 	}
 
-	pub fn render(&mut self, camera_matrix: &Mat4, meshes: &Vec<(&mesh::Mesh, Mat4)>) -> Result<(), wgpu::SurfaceError> {
+	pub fn render(&mut self, camera_matrix: &Mat4, meshes: &Vec<(Arc<mesh::Mesh>, Mat4)>) -> Result<(), wgpu::SurfaceError> {
 		self.window.request_redraw();
 
 		if !self.is_surface_configured { return Ok(()); }

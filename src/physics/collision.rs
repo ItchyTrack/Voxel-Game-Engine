@@ -2,7 +2,8 @@ use std::vec;
 
 use glam::{IVec3, Quat, U8Vec3, Vec3, Vec4};
 
-use crate::{debug_draw, entity, voxels, physics::bvh};
+use crate::{debug_draw, voxels};
+use super::{physics_body, bvh};
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub enum CubeFeature {
@@ -25,53 +26,64 @@ pub struct Collision {
 	pub local_collision2: Vec3,
 }
 
+impl Collision {
+	pub fn get_swaped(&self) -> Collision {
+		Collision {
+			id1: self.id2,
+			id2: self.id1,
+			voxel_pos1: self.voxel_pos2,
+			voxel_pos2: self.voxel_pos1,
+			feature1: self.feature2,
+			feature2: self.feature1,
+			collision1: self.collision2,
+			collision2: self.collision1,
+			local_collision1: self.local_collision2,
+			local_collision2: self.local_collision1,
+		}
+	}
+}
+
 fn get_bit(num: u8, bit: u8) -> u8 {
 	((num & (1 << bit)) != 0) as u8
 }
 
-pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec3, Quat)>) -> Vec<Collision> {
+pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Collision> {
 	let mut bounds = vec![];
-	for index in 0..entities.len() {
-		let local_bounding_box_a = entities[index].get_voxels().get_bounding_box();
-		if local_bounding_box_a.is_none() { continue; }
-		let (aabb_a_min, aabb_a_max) = calc_aabb(
-			&(pose_to_eval_at[index].0 + pose_to_eval_at[index].1 * entities[index].get_voxels_local_pos()),
-			&pose_to_eval_at[index].1,
-			&(local_bounding_box_a.unwrap().0.as_vec3(), local_bounding_box_a.unwrap().1.as_vec3())
-		);
-		bounds.push((index as u32, (aabb_a_min, aabb_a_max)));
+	for index in 0..physics_bodies.len() {
+		bounds.push((index as u32, physics_bodies[index].get_aabb()));
 	}
 	let bvh = bvh::BVH::new(bounds.clone());
+	// bvh.render_debug();
 	let mut collisions: Vec<Collision> = vec![];
-	for id_a in 0..entities.len() {
-		let entity_a = &entities[id_a];
+	for id_a in 0..physics_bodies.len() {
+		let physics_body_a = &physics_bodies[id_a];
 		for id_b in bvh.get_collisions(&bounds[id_a].1) {
 			if (id_a as u32) <= id_b { continue; }
-			let entity_b = &entities[id_b as usize];
-			if entity_a.is_static && entity_b.is_static { continue; } // skip static on static collisions
+			let physics_body_b = &physics_bodies[id_b as usize];
+			if physics_body_a.is_static && physics_body_b.is_static { continue; } // skip static on static collisions
 
-			let no_swap = entity_a.get_voxels().get_voxels().len() < entity_b.get_voxels().get_voxels().len();
-			let (entity1, pose1, entity2, pose2) = {
-				if no_swap { (entity_a, pose_to_eval_at[id_a], entity_b, pose_to_eval_at[id_b as usize]) }
-				else { (entity_b, pose_to_eval_at[id_b as usize], entity_a, pose_to_eval_at[id_a]) }
+			let no_swap = physics_body_a.sub_grids.first().unwrap().get_voxels().get_voxels().len() < physics_body_b.sub_grids.first().unwrap().get_voxels().get_voxels().len();
+			let (physics_body1, physics_body2) = {
+				if no_swap { (physics_body_a, physics_body_b) }
+				else { (physics_body_b, physics_body_a) }
 			};
-			let pos_of_1_in_2 = pose2.1.inverse() * (pose1.1 * entity1.get_voxels_local_pos() + pose1.0 - pose2.0) - entity2.get_voxels_local_pos();
-			let orientation_of_1_in_2 = pose2.1.inverse() * pose1.1;
+			let pos_of_1_in_2 = physics_body2.orientation.inverse() * (physics_body1.position - physics_body2.position);
+			let orientation_of_1_in_2 = physics_body2.orientation.inverse() * physics_body1.orientation;
 			let separating_axis = compute_1x1x1_cube_separating_axes(orientation_of_1_in_2);
-			for voxel in entity1.get_voxels().get_voxels().iter() {
+			for voxel in physics_body1.sub_grids.first().unwrap().get_voxels().get_voxels().iter() {
 				collisions.extend(get_collision(
 					&(&orientation_of_1_in_2 * (voxel.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5)) + pos_of_1_in_2),
 					&orientation_of_1_in_2,
-					entity2.get_voxels(),
+					physics_body2.sub_grids.first().unwrap().get_voxels(),
 					&separating_axis,
-					&(pose2.0 + pose2.1 * entity2.get_voxels_local_pos()),
-					&pose2.1
+					&physics_body2.position,
+					&physics_body2.orientation
 				).iter().filter_map(|c| {
 					// let mut first_edge_covered = false;
 					// match c.1 {
 					// 	CubeFeature::Vertex { xyz } => {
 					// 		for i in 1..8 {
-					// 			if entity1.get_voxel(voxel.0 + IVec3::new(
+					// 			if physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					get_bit(i, 0) as i32 * (get_bit(xyz, 0) as i32 * 2 - 1),
 					// 					get_bit(i, 1) as i32 * (get_bit(xyz, 1) as i32 * 2 - 1),
 					// 					get_bit(i, 2) as i32 * (get_bit(xyz, 2) as i32 * 2 - 1)
@@ -81,17 +93,17 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 	CubeFeature::Edge { vertex_vertex } => {
 					// 		if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
 					// 			if
-					// 				entity1.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					0,
 					// 					get_bit(vertex_vertex, 1) as i32 * 2 - 1,
 					// 					0
 					// 				)).is_some() ||
-					// 				entity1.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					0,
 					// 					0,
 					// 					get_bit(vertex_vertex, 2) as i32 * 2 - 1
 					// 				)).is_some() ||
-					// 				entity2.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body2.get_voxel(voxel.0 + IVec3::new(
 					// 					0,
 					// 					get_bit(vertex_vertex, 1) as i32 * 2 - 1,
 					// 					get_bit(vertex_vertex, 2) as i32 * 2 - 1
@@ -99,17 +111,17 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 			{ first_edge_covered = true; }
 					// 		} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
 					// 			if
-					// 				entity1.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					get_bit(vertex_vertex, 0) as i32 * 2 - 1,
 					// 					0,
 					// 					0
 					// 				)).is_some() ||
-					// 				entity1.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					0,
 					// 					0,
 					// 					get_bit(vertex_vertex, 2) as i32 * 2 - 1
 					// 				)).is_some() ||
-					// 				entity1.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					get_bit(vertex_vertex, 0) as i32 * 2 - 1,
 					// 					0,
 					// 					get_bit(vertex_vertex, 2) as i32 * 2 - 1
@@ -117,17 +129,17 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 			{ first_edge_covered = true; }
 					// 		} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
 					// 			if
-					// 				entity1.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					get_bit(vertex_vertex, 0) as i32 * 2 - 1,
 					// 					0,
 					// 					0
 					// 				)).is_some() ||
-					// 				entity1.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					0,
 					// 					get_bit(vertex_vertex, 1) as i32 * 2 - 1,
 					// 					0
 					// 				)).is_some() ||
-					// 				entity1.get_voxel(voxel.0 + IVec3::new(
+					// 				physics_body1.get_voxel(voxel.0 + IVec3::new(
 					// 					get_bit(vertex_vertex, 0) as i32 * 2 - 1,
 					// 					get_bit(vertex_vertex, 1) as i32 * 2 - 1,
 					// 					0
@@ -136,7 +148,7 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 		}
 					// 	},
 					// 	CubeFeature::Face { xyzs } => {
-					// 		if entity1.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32)).is_some() {
+					// 		if physics_body1.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32)).is_some() {
 					// 			return None;
 					// 		}
 					// 	},
@@ -144,7 +156,7 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// match c.3 {
 					// 	CubeFeature::Vertex { xyz } => {
 					// 		for i in 1..8 {
-					// 			if entity2.get_voxel(c.4 + IVec3::new(
+					// 			if physics_body2.get_voxel(c.4 + IVec3::new(
 					// 					get_bit(i, 0) as i32 * (get_bit(xyz, 0) as i32 * 2 - 1),
 					// 					get_bit(i, 1) as i32 * (get_bit(xyz, 1) as i32 * 2 - 1),
 					// 					get_bit(i, 2) as i32 * (get_bit(xyz, 2) as i32 * 2 - 1)
@@ -155,17 +167,17 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 		if first_edge_covered { // only if both edges are covered
 					// 			if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
 					// 				if
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						0,
 					// 						get_bit(vertex_vertex, 1) as i32 * 2 - 1,
 					// 						0
 					// 					)).is_some() ||
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						0,
 					// 						0,
 					// 						get_bit(vertex_vertex, 2) as i32 * 2 - 1
 					// 					)).is_some() ||
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						0,
 					// 						get_bit(vertex_vertex, 1) as i32 * 2 - 1,
 					// 						get_bit(vertex_vertex, 2) as i32 * 2 - 1
@@ -173,17 +185,17 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 				{ return None; }
 					// 			} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
 					// 				if
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						get_bit(vertex_vertex, 0) as i32 * 2 - 1,
 					// 						0,
 					// 						0
 					// 					)).is_some() ||
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						0,
 					// 						0,
 					// 						get_bit(vertex_vertex, 2) as i32 * 2 - 1
 					// 					)).is_some() ||
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						get_bit(vertex_vertex, 0) as i32 * 2 - 1,
 					// 						0,
 					// 						get_bit(vertex_vertex, 2) as i32 * 2 - 1
@@ -191,17 +203,17 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 				{ return None; }
 					// 			} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
 					// 				if
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						get_bit(vertex_vertex, 0) as i32 * 2 - 1,
 					// 						0,
 					// 						0
 					// 					)).is_some() ||
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						0,
 					// 						get_bit(vertex_vertex, 1) as i32 * 2 - 1,
 					// 						0
 					// 					)).is_some() ||
-					// 					entity2.get_voxel(c.4 + IVec3::new(
+					// 					physics_body2.get_voxel(c.4 + IVec3::new(
 					// 						get_bit(vertex_vertex, 0) as i32 * 2 - 1,
 					// 						get_bit(vertex_vertex, 1) as i32 * 2 - 1,
 					// 						0
@@ -211,7 +223,7 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 					// 		}
 					// 	},
 					// 	CubeFeature::Face { xyzs } => {
-					// 		if entity2.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32)).is_some() {
+					// 		if physics_body2.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32)).is_some() {
 					// 			return None;
 					// 		}
 					// 	},
@@ -224,18 +236,18 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 						voxel_pos2:	c.4,
 						feature1: c.1,
 						feature2: c.3,
-						collision1: pose2.1 * (c.0 + entity2.get_voxels_local_pos()) + pose2.0,
-						collision2: pose2.1 * (c.2 + entity2.get_voxels_local_pos()) + pose2.0,
-						local_collision1: orientation_of_1_in_2.inverse() * (c.0 - pos_of_1_in_2) + entity1.get_voxels_local_pos(),
-						local_collision2: c.2 + entity2.get_voxels_local_pos(),
+						collision1: physics_body2.orientation * c.0 + physics_body2.position,
+						collision2: physics_body2.orientation * c.2 + physics_body2.position,
+						local_collision1: orientation_of_1_in_2.inverse() * (c.0 - pos_of_1_in_2),
+						local_collision2: c.2,
 					})
 				}));
 			}
 		}
 	}
 	for collision in collisions.iter() {
-		let e1 = &entities[collision.id1 as usize];
-		let e2 = &entities[collision.id2 as usize];
+		let e1 = &physics_bodies[collision.id1 as usize];
+		let e2 = &physics_bodies[collision.id2 as usize];
 
 		debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
 		debug_draw::point(collision.collision1, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
@@ -245,8 +257,8 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 			CubeFeature::Vertex { xyz } => {
 				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
 				debug_draw::aabb(
-					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
-					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 					Vec4::ONE
 				);
 			},
@@ -254,16 +266,16 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
 				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
 				debug_draw::line(
-					e1.position + e1.orientation * (v1 + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)),
-					e1.position + e1.orientation * (v2 + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)),
+					e1.position + e1.orientation * (v1 + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)),
+					e1.position + e1.orientation * (v2 + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)),
 					Vec4::ONE
 				);
 			},
 			CubeFeature::Face { xyzs } => {
 				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
 				debug_draw::aabb(
-					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + e1.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 					Vec4::W
 				);
 			},
@@ -272,8 +284,8 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 			CubeFeature::Vertex { xyz } => {
 				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
 				debug_draw::aabb(
-					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 					Vec4::ONE
 				);
 			},
@@ -281,16 +293,16 @@ pub fn get_collisions(entities: &Vec<entity::Entity>, pose_to_eval_at: &Vec<(Vec
 				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
 				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
 				debug_draw::line(
-					e2.position + e2.orientation * (v1 + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)),
-					e2.position + e2.orientation * (v2 + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)),
+					e2.position + e2.orientation * (v1 + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)),
+					e2.position + e2.orientation * (v2 + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)),
 					Vec4::ONE
 				);
 			},
 			CubeFeature::Face { xyzs } => {
 				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
 				debug_draw::aabb(
-					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + e2.get_voxels_local_pos() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 					Vec4::W
 				);
 			},
@@ -322,7 +334,7 @@ fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separa
 	return collisions;
 }
 
-fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, _p: Vec3, _q:Quat) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> {
+fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, p: Vec3, q:Quat) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> {
 	if pos.length_squared() >= 3.0 { return vec![]; }
 	let mut bests = vec![];
 	let mut best_dis = 10.0;
