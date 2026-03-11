@@ -1,15 +1,17 @@
-use std::{cell::Cell, sync::Arc};
+use std::{cell::Cell, collections::HashMap, sync::Arc};
 
 use glam::{DMat3, DVec3, IVec3, Mat3, Mat4, Quat, Vec3};
 use crate::{camera, gpu_objects::mesh::{self, GetMesh}, pose::Pose, voxels};
 
 pub struct PhysicsBodySubGrid {
+	pub pose: Pose,
 	voxels: voxels::Voxels,
 	mesh: Cell<Option<Arc<mesh::Mesh>>>,
 	mass: f64,
 	voxel_center_of_mass_times_mass: DVec3,
 	inertia_tensor_at_zero: DMat3,
-	pub pose: Pose,
+	id: u32,
+
 }
 
 // According to https://en.wikipedia.org/wiki/Moment_of_inertia#:~:text=in%20the%20body.-,Inertia%20tensor
@@ -40,15 +42,20 @@ fn combine_inertia_tensors(inertia_tensor_a: DMat3, inertia_tensor_b: DMat3) -> 
 }
 
 impl PhysicsBodySubGrid {
-	pub fn new(pose: Pose) -> Self {
+	pub fn new(sub_grid_id: u32, pose: &Pose) -> Self {
 		Self {
+			pose: *pose,
 			voxels: voxels::Voxels::new(),
 			mesh: Cell::new(None),
 			mass: 0.0,
 			voxel_center_of_mass_times_mass: DVec3::ZERO,
 			inertia_tensor_at_zero: DMat3::ZERO,
-			pose: pose
+			id: sub_grid_id,
 		}
+	}
+
+	pub fn id(&self) -> u32 {
+		self.id
 	}
 
 	pub fn get_local_center_of_mass(&self) -> Vec3 {
@@ -123,18 +130,27 @@ pub struct PhysicsBody {
 	pub velocity: Vec3,
 	pub angular_velocity: Vec3,
 	pub is_static: bool,
-	pub sub_grids: Vec<PhysicsBodySubGrid>,
+	sub_grids: Vec<PhysicsBodySubGrid>,
+	sub_grids_id_to_index: HashMap<u32, u32>,
+	next_sub_grid_id: u32,
+	id: u32,
 }
 
 impl PhysicsBody {
-	pub fn new() -> Self {
+	pub fn new(id: u32) -> Self {
 		Self {
 			pose: Pose::ZERO,
 			velocity: Vec3::ZERO,
 			angular_velocity: Vec3::ZERO,
 			is_static: false,
-			sub_grids: vec![PhysicsBodySubGrid::new(Pose::ZERO)],
+			sub_grids: vec![],
+			sub_grids_id_to_index: HashMap::new(),
+			next_sub_grid_id: 0,
+			id: id,
 		}
+	}
+	pub fn id(&self) -> u32 {
+		self.id
 	}
 	pub fn mass(&self) -> f32 { self.sub_grids.first().unwrap().mass as f32 }
 	pub fn get_local_center_of_mass(&self) -> Vec3 {
@@ -172,7 +188,40 @@ impl PhysicsBody {
 		meshes
 	}
 
-	pub fn get_aabb(&self) -> (Vec3, Vec3) {
+	pub fn add_sub_grid(&mut self, sub_grid_pose: Pose) -> u32 {
+		self.sub_grids_id_to_index.insert(self.next_sub_grid_id, self.sub_grids.len() as u32);
+		self.sub_grids.push(PhysicsBodySubGrid::new(self.next_sub_grid_id, &sub_grid_pose));
+		self.next_sub_grid_id += 1;
+		self.next_sub_grid_id - 1
+	}
+
+	pub fn remove_sub_grid(&mut self, physics_body_id: u32) {
+		let index = match self.sub_grids_id_to_index.remove(&physics_body_id) {
+			Some(i) => i,
+			None => return,
+		};
+		self.sub_grids.swap_remove(index as usize);
+		if index != self.sub_grids.len() as u32 {
+			let other_id = self.sub_grids[index as usize].id();
+			self.sub_grids_id_to_index.insert(other_id, index);
+		}
+	}
+
+	pub fn sub_grid(&self, physics_body_id: u32) -> Option<&PhysicsBodySubGrid> {
+		let index = *self.sub_grids_id_to_index.get(&physics_body_id)?;
+		self.sub_grids.get(index as usize)
+	}
+
+	pub fn sub_grid_mut(&mut self, physics_body_id: u32) -> Option<&mut PhysicsBodySubGrid> {
+		let index = *self.sub_grids_id_to_index.get(&physics_body_id)?;
+		self.sub_grids.get_mut(index as usize)
+	}
+
+	pub fn sub_grids(&self) -> &[PhysicsBodySubGrid] {
+		&self.sub_grids
+	}
+
+	pub fn aabb(&self) -> (Vec3, Vec3) {
 		let mut aabb_min = Vec3::splat(f32::MAX);
 		let mut aabb_max = Vec3::splat(f32::MIN);
 		for sub_grid in &self.sub_grids {

@@ -3,15 +3,14 @@ use std::{f32, sync::Arc};
 use glam::{IVec3, Mat4, Quat, Vec3, Vec4};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{camera, debug_draw, gpu_objects::mesh, physics::{self, physics_body::PhysicsBodySubGrid}, pose::Pose, renderer::Renderer, voxels};
+use crate::{camera, debug_draw, gpu_objects::mesh, physics::{physics_engine::PhysicsEngine}, pose::Pose, renderer::Renderer, voxels};
 
 pub struct State {
 	pub renderer: Renderer,
 	pub camera: camera::Camera,
 	pub camera_controller: camera::CameraController,
-	pub physics_bodies: Vec<physics::physics_body::PhysicsBody>,
 	pub mouse_captured: bool,
-	pub solver: physics::solver::Solver,
+	pub physics_engine: PhysicsEngine,
 }
 
 impl State {
@@ -43,7 +42,7 @@ impl State {
 
 	pub fn update(&mut self, dt: f32) {
 		self.camera_controller.update_camera(&mut self.camera, dt);
-		self.solver.solve(&mut self.physics_bodies, 1.0/100.0);
+		self.physics_engine.update(1.0/100.0);
 	}
 
 	pub fn resize(&mut self, width: u32, height: u32) {
@@ -65,7 +64,7 @@ impl State {
 
 		let camera_controller = camera::CameraController::new(20.0, 1.5, 0.0015);
 
-		let mut physics_bodies: Vec<physics::physics_body::PhysicsBody> = vec![];
+		let mut physics_engine = PhysicsEngine::new();
 
 		// match load_binary("#treehouse.vox").await {
 		// 	Ok(bytes) => {
@@ -156,22 +155,24 @@ impl State {
 		// }
 		// ------------------------------ Ramp ------------------------------
 		{
-			physics_bodies.push(physics::physics_body::PhysicsBody::new());
-			let physics_body = physics_bodies.last_mut().unwrap();
+			let physics_body_id = physics_engine.add_physics_body();
+			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+			let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+			let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
 			for x in -15..16 {
 				for y in 0..20 {
-					physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (y % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+					sub_grid.add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (y % 10) as f32 / 9.0, 1.0], mass: 1.0 });
 				}
 			}
 			for x in -15..16 {
 				for z in -10..200 {
-					physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x + 15) as f32 / 30.0, 0.0, ((z + 10) % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+					sub_grid.add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x + 15) as f32 / 30.0, 0.0, ((z + 10) % 10) as f32 / 9.0, 1.0], mass: 1.0 });
 				}
 			}
 			for y in 0..15 {
 				for z in -10..200 {
-					physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-					physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+					sub_grid.add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+					sub_grid.add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
 				}
 			}
 			physics_body.is_static = true;
@@ -181,35 +182,43 @@ impl State {
 		for x in -1..2 {
 			for y in -1..4 {
 				for z in -1..2 {
-					physics_bodies.push(physics::physics_body::PhysicsBody::new());
-					let physics_body = physics_bodies.last_mut().unwrap();
 					let r = 4;
-					for x in -r..r + 1 {
-						for y in -0..r + 1 {
-							for z in -r..r + 1 {
-								if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-									physics_body.sub_grids.first_mut().unwrap().add_voxel(
-										IVec3::new(x, y + 2, z),
-										voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
-									);
+
+					let physics_body_id = physics_engine.add_physics_body();
+					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
+					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
+					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
+					{
+						let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+						let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+
+						for x in -r..r + 1 {
+							for y in -0..r + 1 {
+								for z in -r..r + 1 {
+									if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
+										sub_grid.add_voxel(
+											IVec3::new(x, y + 2, z),
+											voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
+										);
+									}
 								}
 							}
 						}
 					}
-					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
-					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
-					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
-
-					physics_body.sub_grids.push(PhysicsBodySubGrid::new(Pose::new(Vec3::new(-0.707 + 0.5, 0.0, 0.707 - 0.5), Quat::from_rotation_y(f32::consts::PI/4.0))));
-					let r = 4;
-					for x in -r..r + 1 {
-						for y in -r..0 {
-							for z in -r..r + 1 {
-								if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-									physics_body.sub_grids.last_mut().unwrap().add_voxel(
-										IVec3::new(x, y + 2, z),
-										voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
-									);
+					{
+						let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::new(-0.707 + 0.5, 0.0, 0.707 - 0.5), Quat::from_rotation_y(f32::consts::PI/4.0)));
+						let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+						let r = 4;
+						for x in -r..r + 1 {
+							for y in -r..0 {
+								for z in -r..r + 1 {
+									if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
+										sub_grid.add_voxel(
+											IVec3::new(x, y + 2, z),
+											voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
+										);
+									}
 								}
 							}
 						}
@@ -274,16 +283,15 @@ impl State {
 			renderer,
 			camera,
 			camera_controller,
-			physics_bodies,
 			mouse_captured: false,
-			solver: physics::solver::Solver::new(),
+			physics_engine,
 		})
 	}
 
 	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
 		let mut rendering_meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
 
-		for physics_body in self.physics_bodies.iter_mut() {
+		for physics_body in self.physics_engine.physics_bodies() {
 			// physics_body.get_voxels().render_debug(physics_body.position + physics_body.orientation * physics_body.get_voxels_local_pos(), &physics_body.orientation);
 			rendering_meshes.extend(physics_body.get_rendering_meshes(&self.renderer.device, &self.camera));
 		}
