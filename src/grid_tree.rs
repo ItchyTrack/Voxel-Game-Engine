@@ -1,9 +1,10 @@
 use std::mem::{replace};
 use std::fmt::Debug;
 
-use glam::{IVec3, Quat, UVec3, Vec3, Vec4};
+use glam::{IVec3, UVec3, Vec4};
 
 use crate::debug_draw;
+use crate::pose::Pose;
 
 #[derive(Clone, Debug)]
 pub enum ChildCell<const SIZE: u32, T: Clone + Debug>
@@ -227,56 +228,56 @@ impl<const SIZE: u32, T: Clone + Debug> GridTree<SIZE, T> {
 	pub fn iter<'a>(&'a self) -> GridTreeIterator<'a, SIZE, T> {
 		GridTreeIterator::<'a>::new(self)
 	}
-	pub fn render_debug(&self, pos: Vec3, rot: &Quat) {
+	pub fn render_debug(&self, pose: &Pose) {
 		let mut stack = vec![self.root];
 		while let Some(idx) = stack.pop() {
 			let node = self.nodes[idx as usize].as_ref().unwrap();
 			let node_size = SIZE.pow(node.depth+1) as i32;
 			debug_draw::quad(
-				rot * node.pos.as_vec3() + pos,
-				rot * (node.pos + IVec3::X * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Y * node_size as i32).as_vec3() + pos,
+				pose * node.pos.as_vec3(),
+				pose * (node.pos + IVec3::X * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Y * node_size as i32).as_vec3(),
 				Vec4::new(1.0, 1.0, 1.0, 0.0075),
 				true
 			);
 			debug_draw::quad(
-				rot * node.pos.as_vec3() + pos,
-				rot * (node.pos + IVec3::X * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::X * node_size as i32 + IVec3::Z * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Z * node_size as i32).as_vec3() + pos,
+				pose * node.pos.as_vec3(),
+				pose * (node.pos + IVec3::X * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::X * node_size as i32 + IVec3::Z * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Z * node_size as i32).as_vec3(),
 				Vec4::new(1.0, 1.0, 1.0, 0.0075),
 				true
 			);
 			debug_draw::quad(
-				rot * node.pos.as_vec3() + pos,
-				rot * (node.pos + IVec3::Y * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Y * node_size as i32 + IVec3::Z * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Z * node_size as i32).as_vec3() + pos,
+				pose * node.pos.as_vec3(),
+				pose * (node.pos + IVec3::Y * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Y * node_size as i32 + IVec3::Z * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Z * node_size as i32).as_vec3(),
 				Vec4::new(1.0, 1.0, 1.0, 0.0075),
 				true
 			);
 			debug_draw::quad(
-				rot * (node.pos + IVec3::ONE * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Z * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Z * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Z * node_size as i32 + IVec3::X * node_size as i32).as_vec3() + pos,
+				pose * (node.pos + IVec3::ONE * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Z * node_size as i32 + IVec3::Y * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Z * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Z * node_size as i32 + IVec3::X * node_size as i32).as_vec3(),
 				Vec4::new(1.0, 1.0, 1.0, 0.0075),
 				true
 			);
 			debug_draw::quad(
-				rot * (node.pos + IVec3::ONE * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Z * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Y * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
+				pose * (node.pos + IVec3::ONE * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Z * node_size as i32 + IVec3::Y * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Y * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3(),
 				Vec4::new(1.0, 1.0, 1.0, 0.0075),
 				true
 			);
 			debug_draw::quad(
-				rot * (node.pos + IVec3::ONE * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::Z * node_size as i32 + IVec3::X * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::X * node_size as i32).as_vec3() + pos,
-				rot * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3() + pos,
+				pose * (node.pos + IVec3::ONE * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::Z * node_size as i32 + IVec3::X * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::X * node_size as i32).as_vec3(),
+				pose * (node.pos + IVec3::X * node_size as i32 + IVec3::Y * node_size as i32).as_vec3(),
 				Vec4::new(1.0, 1.0, 1.0, 0.0075),
 				true
 			);

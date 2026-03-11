@@ -1,10 +1,11 @@
-use glam::{IVec3, Vec3, Quat};
+use glam::{IVec3, Vec3};
 use wgpu::util::DeviceExt;
 use std::cell::Cell;
 
 use crate::gpu_objects::mesh;
 use crate::gpu_objects::matrix;
 use crate::grid_tree::GridTree;
+use crate::pose::Pose;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Voxel {
@@ -55,8 +56,8 @@ impl Voxels {
 		self.bounding_box.get()
 	}
 
-	pub fn render_debug(&self, pos: Vec3, rot: &Quat) {
-		self.voxels.render_debug(pos, rot);
+	pub fn render_debug(&self, pose: &Pose) {
+		self.voxels.render_debug(pose);
 	}
 }
 

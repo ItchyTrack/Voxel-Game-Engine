@@ -292,7 +292,9 @@ impl State {
 		let mut rendering_meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
 
 		for physics_body in self.physics_engine.physics_bodies() {
-			// physics_body.get_voxels().render_debug(physics_body.position + physics_body.orientation * physics_body.get_voxels_local_pos(), &physics_body.orientation);
+			// for sub_grid in physics_body.sub_grids() {
+			// 	sub_grid.get_voxels().render_debug(&(physics_body.pose * sub_grid.pose));
+			// }
 			rendering_meshes.extend(physics_body.get_rendering_meshes(&self.renderer.device, &self.camera));
 		}
 
