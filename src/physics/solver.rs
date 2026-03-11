@@ -34,12 +34,12 @@ impl Solver {
 				}
 			}
 		).collect();
-		let initial_all:Vec<(Vec3, Quat)> = physics_bodies.iter().map(|physics_body| (physics_body.position + physics_body.get_center_of_mass(), physics_body.orientation)).collect();
+		let initial_all:Vec<(Vec3, Quat)> = physics_bodies.iter().map(|physics_body| (physics_body.pose.translation + physics_body.get_center_of_mass(), physics_body.pose.rotation)).collect();
 		let y_all: Vec<(Vec3, Quat)> = physics_bodies.iter().map(|physics_body| {
-			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return (physics_body.position + physics_body.get_center_of_mass(), physics_body.orientation); }
+			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return (physics_body.pose.translation + physics_body.get_center_of_mass(), physics_body.pose.rotation); }
 			let gravity = -90.0;
-			let pos = physics_body.position + physics_body.velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_center_of_mass();
-			let orientation = (Quat::from_scaled_axis(physics_body.angular_velocity * dt) * physics_body.orientation).normalize();
+			let pos = physics_body.pose.translation + physics_body.velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_center_of_mass();
+			let orientation = (Quat::from_scaled_axis(physics_body.angular_velocity * dt) * physics_body.pose.rotation).normalize();
 			(pos, orientation)
 		}).collect();
 		let gamma = 0.99;
@@ -139,8 +139,8 @@ impl Solver {
 		}
 		// after post stabilize
 		for index in 0..physics_bodies.len() {
-			physics_bodies[index].orientation = x_guess[index].1;
-			physics_bodies[index].position = x_guess[index].0 - physics_bodies[index].get_center_of_mass();
+			physics_bodies[index].pose.rotation = x_guess[index].1;
+			physics_bodies[index].pose.translation = x_guess[index].0 - physics_bodies[index].get_center_of_mass();
 		}
 		// save K and L
 		collisions_kl.iter().zip(collisions).for_each(|(data, collision)| {

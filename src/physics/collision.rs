@@ -2,7 +2,7 @@ use std::vec;
 
 use glam::{IVec3, Quat, U8Vec3, Vec3, Vec4};
 
-use crate::{debug_draw, voxels};
+use crate::{debug_draw, pose::Pose, voxels};
 use super::{physics_body, bvh};
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
@@ -67,17 +67,14 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 				if no_swap { (physics_body_a, physics_body_b) }
 				else { (physics_body_b, physics_body_a) }
 			};
-			let pos_of_1_in_2 = physics_body2.orientation.inverse() * (physics_body1.position - physics_body2.position);
-			let orientation_of_1_in_2 = physics_body2.orientation.inverse() * physics_body1.orientation;
-			let separating_axis = compute_1x1x1_cube_separating_axes(orientation_of_1_in_2);
+			let pose_of_1_in_2 = physics_body2.pose.inverse() * physics_body1.pose;
+			let separating_axis = compute_1x1x1_cube_separating_axes(pose_of_1_in_2.rotation);
 			for voxel in physics_body1.sub_grids.first().unwrap().get_voxels().get_voxels().iter() {
 				collisions.extend(get_collision(
-					&(&orientation_of_1_in_2 * (voxel.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5)) + pos_of_1_in_2),
-					&orientation_of_1_in_2,
+					&(&pose_of_1_in_2 * Pose::new(voxel.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5), Quat::IDENTITY)),
 					physics_body2.sub_grids.first().unwrap().get_voxels(),
 					&separating_axis,
-					&physics_body2.position,
-					&physics_body2.orientation
+					&physics_body2.pose,
 				).iter().filter_map(|c| {
 					// let mut first_edge_covered = false;
 					// match c.1 {
@@ -236,9 +233,9 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 						voxel_pos2:	c.4,
 						feature1: c.1,
 						feature2: c.3,
-						collision1: physics_body2.orientation * c.0 + physics_body2.position,
-						collision2: physics_body2.orientation * c.2 + physics_body2.position,
-						local_collision1: orientation_of_1_in_2.inverse() * (c.0 - pos_of_1_in_2),
+						collision1: physics_body2.pose * c.0,
+						collision2: physics_body2.pose * c.2,
+						local_collision1: pose_of_1_in_2.inverse() * c.0,
 						local_collision2: c.2,
 					})
 				}));
@@ -257,8 +254,8 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 			CubeFeature::Vertex { xyz } => {
 				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
 				debug_draw::aabb(
-					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
-					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e1.pose * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e1.pose * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 					Vec4::ONE
 				);
 			},
@@ -266,16 +263,16 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
 				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
 				debug_draw::line(
-					e1.position + e1.orientation * (v1 + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)),
-					e1.position + e1.orientation * (v2 + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)),
+					e1.pose * (v1 + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)),
+					e1.pose * (v2 + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)),
 					Vec4::ONE
 				);
 			},
 			CubeFeature::Face { xyzs } => {
 				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
 				debug_draw::aabb(
-					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-					e1.position + e1.orientation * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e1.pose * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e1.pose * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 					Vec4::W
 				);
 			},
@@ -284,8 +281,8 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 			CubeFeature::Vertex { xyz } => {
 				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3() - 0.5;
 				debug_draw::aabb(
-					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e2.pose * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e2.pose * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 					Vec4::ONE
 				);
 			},
@@ -293,16 +290,16 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3() - 0.5;
 				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3() - 0.5;
 				debug_draw::line(
-					e2.position + e2.orientation * (v1 + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)),
-					e2.position + e2.orientation * (v2 + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)),
+					e2.pose * (v1 + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)),
+					e2.pose * (v2 + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)),
 					Vec4::ONE
 				);
 			},
 			CubeFeature::Face { xyzs } => {
 				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
 				debug_draw::aabb(
-					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-					e2.position + e2.orientation * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+					e2.pose * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+					e2.pose * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 					Vec4::W
 				);
 			},
@@ -311,20 +308,25 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 	collisions
 }
 
-fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, p: &Vec3, q:&Quat) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature, IVec3)> {
+fn get_collision(pose: &Pose, voxels: &voxels::Voxels, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, to_global: &Pose) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature, IVec3)> {
 	let mut collisions = vec![];
 	for x in -1..2 {
 		for y in -1..2 {
 			for z in -1..2 {
 				let vec = IVec3::new(x, y, z);
-				if voxels.get_voxel(pos.floor().as_ivec3() + vec).is_some() {
-					get_collision_1x1x1_voxel(&(pos - pos.floor() - vec.as_vec3() - Vec3::new(0.5, 0.5, 0.5)), orientation, separating_axes, p + q * (pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5)), *q).into_iter().for_each(|c| {
+				if voxels.get_voxel(pose.translation.floor().as_ivec3() + vec).is_some() {
+					let shift = Pose::new(pose.translation.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5), Quat::IDENTITY);
+					get_collision_1x1x1_voxel(
+						&(shift.inverse() * pose),
+						separating_axes,
+						&(shift * to_global)
+					).into_iter().for_each(|c| {
 						collisions.push((
-							c.0 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
+							shift * c.0,
 							c.1,
-							c.2 + pos.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5),
+							shift * c.2,
 							c.3,
-							pos.floor().as_ivec3() + vec
+							pose.translation.floor().as_ivec3() + vec
 						))
 					});
 				}
@@ -334,12 +336,12 @@ fn get_collision(pos: &Vec3, orientation: &Quat, voxels: &voxels::Voxels, separa
 	return collisions;
 }
 
-fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, p: Vec3, q:Quat) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> {
-	if pos.length_squared() >= 3.0 { return vec![]; }
+fn get_collision_1x1x1_voxel(pose: &Pose, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, to_global: &Pose) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> {
+	if pose.translation.length_squared() >= 3.0 { return vec![]; }
 	let mut bests = vec![];
 	let mut best_dis = 10.0;
 	for ((unshifted_min_1, unshifted_max_1), (min_2, max_2), axis, index) in separating_axes {
-		let shift = pos.dot(*axis);
+		let shift = pose.translation.dot(*axis);
 		let min_1 = unshifted_min_1 + shift;
 		let max_1 = unshifted_max_1 + shift;
 		if max_1 <= *min_2 || min_1 >= *max_2 { return vec![]; }
@@ -373,7 +375,7 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			let mut best_verties = vec![];
 			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
-				let v = pos + orientation * (U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5);
+				let v = pose * (U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5);
 				let dis = v.dot(best.1) * axis_neg;
 				let surface_pos = v - v.project_onto(best.1);
 				if
@@ -405,13 +407,13 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 				CubeFeature::Face { xyzs: face_vec.abs().as_u8vec3().dot(U8Vec3::new(1, 2, 4)) + 8 * (face_vec.element_sum().signum() == -1) as u8 },
 			)}));
 		} else if best.2 < 6 {
-			assert!((best.1 - orientation * Vec3::X).length() < 0.0001 || (best.1 - orientation * Vec3::Y).length() < 0.0001 || (best.1 - orientation * Vec3::Z).length() < 0.0001);
+			assert!((best.1 - pose.rotation * Vec3::X).length() < 0.0001 || (best.1 - pose.rotation * Vec3::Y).length() < 0.0001 || (best.1 - pose.rotation * Vec3::Z).length() < 0.0001);
 			let mut best_verties = vec![];
 			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
 				let v = U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5;
-				let dis = (v - pos).dot(best.1) * -axis_neg;
-				let surface_pos = orientation.inverse() * ((v - pos) - (v - pos).project_onto(best.1));
+				let dis = (v - pose.translation).dot(best.1) * -axis_neg;
+				let surface_pos = pose.rotation.inverse() * ((v - pose.translation) - (v - pose.translation).project_onto(best.1));
 				if
 					surface_pos.x > 0.5 || surface_pos.x < -0.5 ||
 					surface_pos.y > 0.5 || surface_pos.y < -0.5 ||
@@ -433,7 +435,7 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			});
 			// best_verties.iter().for_each(|v| debug_draw::point(p + q * v.0, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
 			// best_verties.iter().for_each(|v| debug_draw::point(p + q * (best.1 * best.0.0 + v.0 - v.0.project_onto(best.1)), Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
-			let face_vec = (orientation.inverse() * best.1).round().as_i8vec3() * -axis_neg as i8;
+			let face_vec = (pose.rotation.inverse() * best.1).round().as_i8vec3() * -axis_neg as i8;
 			collisions.extend(best_verties.into_iter().map(|v| {(
 				best.1 * best.0.0 + v.0 - v.0.project_onto(best.1),
 				CubeFeature::Face { xyzs: face_vec.abs().as_u8vec3().dot(U8Vec3::new(1, 2, 4)) + 8 * (face_vec.element_sum().signum() == -1) as u8 },
@@ -448,7 +450,7 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			let index_1 = (best.2 - 6) % 3;
 			let index_2 = (best.2 - 6) / 3;
 
-			let axis1 = orientation * axes[index_1 as usize]; // 1 axis
+			let axis1 = pose.rotation * axes[index_1 as usize]; // 1 axis
 			let not_axes_1 = not_axes[index_1 as usize];
 			let not_axes_xyz_u8_1 = not_axes_xyz_u8[index_1 as usize];
 
@@ -457,7 +459,7 @@ fn get_collision_1x1x1_voxel(pos: &Vec3, orientation: &Quat, separating_axes: &V
 			let not_axes_xyz_u8_2 = not_axes_xyz_u8[index_2 as usize];
 
 			(0..4).for_each(|i| {
-				let edge_1 = pos + orientation * (if i & 1 == 0 { -not_axes_1.0 } else { not_axes_1.0 } + if i & 2 == 0 { -not_axes_1.1 } else { not_axes_1.1 }) * 0.5;
+				let edge_1 = pose * (if i & 1 == 0 { -not_axes_1.0 } else { not_axes_1.0 } + if i & 2 == 0 { -not_axes_1.1 } else { not_axes_1.1 }) * 0.5;
 				(0..4).for_each(|j| {
 					let edge_2 = (if j & 1 == 0 { -not_axes_2.0 } else { not_axes_2.0 } + if j & 2 == 0 { -not_axes_2.1 } else { not_axes_2.1 }) * 0.5;
 					let result = points_with_direction(edge_1, axis1, edge_2, axis2, best.1 * axis_neg);

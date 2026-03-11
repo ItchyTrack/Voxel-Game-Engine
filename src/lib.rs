@@ -6,6 +6,7 @@ mod app;
 mod renderer;
 mod physics;
 mod state;
+mod pose;
 mod math;
 mod grid_tree;
 pub mod debug_draw;

@@ -1,7 +1,7 @@
 use std::{cell::Cell, sync::Arc};
 
 use glam::{DMat3, DVec3, IVec3, Mat3, Mat4, Quat, Vec3};
-use crate::{camera, gpu_objects::mesh::{self, GetMesh}, voxels};
+use crate::{camera, gpu_objects::mesh::{self, GetMesh}, pose::Pose, voxels};
 
 pub struct PhysicsBodySubGrid {
 	voxels: voxels::Voxels,
@@ -9,8 +9,7 @@ pub struct PhysicsBodySubGrid {
 	mass: f64,
 	voxel_center_of_mass_times_mass: DVec3,
 	inertia_tensor_at_zero: DMat3,
-	pub position: Vec3,
-	pub orientation: Quat,
+	pub pose: Pose,
 }
 
 // According to https://en.wikipedia.org/wiki/Moment_of_inertia#:~:text=in%20the%20body.-,Inertia%20tensor
@@ -41,15 +40,14 @@ fn combine_inertia_tensors(inertia_tensor_a: DMat3, inertia_tensor_b: DMat3) -> 
 }
 
 impl PhysicsBodySubGrid {
-	pub fn new(position: Vec3, orientation: Quat) -> Self {
+	pub fn new(pose: Pose) -> Self {
 		Self {
 			voxels: voxels::Voxels::new(),
 			mesh: Cell::new(None),
 			mass: 0.0,
 			voxel_center_of_mass_times_mass: DVec3::ZERO,
 			inertia_tensor_at_zero: DMat3::ZERO,
-			position: position,
-			orientation: orientation,
+			pose: pose
 		}
 	}
 
@@ -108,10 +106,12 @@ impl PhysicsBodySubGrid {
 	pub fn get_voxel(&self, pos: IVec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
 	pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
 
-	pub fn body_to_local(&self, pos: &Vec3) -> Vec3 { self.orientation.inverse() * (pos - self.position) }
-	pub fn local_to_body(&self, pos: &Vec3) -> Vec3 { self.orientation * pos + self.position }
-	pub fn body_to_local_rot(&self, rot: &Quat) -> Quat { self.orientation.inverse() * rot }
-	pub fn local_to_body_rot(&self, rot: &Quat) -> Quat { self.orientation * rot }
+	pub fn body_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }
+	pub fn local_to_body(&self, other: &Pose) -> Pose { self.pose * other }
+	pub fn body_to_local_vec(&self, pos: &Vec3) -> Vec3 { self.pose.inverse() * pos }
+	pub fn local_to_body_vec(&self, pos: &Vec3) -> Vec3 { self.pose * pos }
+	pub fn body_to_local_rot(&self, rot: &Quat) -> Quat { self.pose.inverse() * rot }
+	pub fn local_to_body_rot(&self, rot: &Quat) -> Quat { self.pose * rot }
 
 	pub fn get_inertia_tensor_at_center_of_mass(&self) -> Mat3 {
 		move_inertia_tensor_to_center_of_mass(self.inertia_tensor_at_zero, self.voxel_center_of_mass_times_mass / self.mass, self.mass).as_mat3()
@@ -119,8 +119,7 @@ impl PhysicsBodySubGrid {
 }
 
 pub struct PhysicsBody {
-	pub position: Vec3,
-	pub orientation: Quat,
+	pub pose: Pose,
 	pub velocity: Vec3,
 	pub angular_velocity: Vec3,
 	pub is_static: bool,
@@ -130,12 +129,11 @@ pub struct PhysicsBody {
 impl PhysicsBody {
 	pub fn new() -> Self {
 		Self {
-			position: Vec3::ZERO,
-			orientation: Quat::IDENTITY,
+			pose: Pose::ZERO,
 			velocity: Vec3::ZERO,
 			angular_velocity: Vec3::ZERO,
 			is_static: false,
-			sub_grids: vec![PhysicsBodySubGrid::new(Vec3::ZERO, Quat::IDENTITY)],
+			sub_grids: vec![PhysicsBodySubGrid::new(Pose::ZERO)],
 		}
 	}
 	pub fn mass(&self) -> f32 { self.sub_grids.first().unwrap().mass as f32 }
@@ -155,7 +153,7 @@ impl PhysicsBody {
 			center_of_mass += sub_grid.get_center_of_mass_time_mass();
 			mass_sum += sub_grid.mass();
 		}
-		self.orientation * (center_of_mass / mass_sum)
+		self.pose.rotation * (center_of_mass / mass_sum)
 	}
 	pub fn rotational_inertia(&self) -> Mat3 {
 		let mat = self.sub_grids.first().unwrap().get_inertia_tensor_at_center_of_mass();
@@ -165,7 +163,8 @@ impl PhysicsBody {
 	pub fn get_rendering_meshes(&self, device: &wgpu::Device, camera: &camera::Camera) -> Vec<(Arc<mesh::Mesh>, Mat4)> {
 		let mut meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
 		for sub_grid in self.sub_grids.iter() {
-			let matrix = Mat4::from_rotation_translation(self.orientation, self.position);
+			let pose = self.pose * sub_grid.pose;
+			let matrix = Mat4::from_rotation_translation(pose.rotation, pose.translation);
 			for mesh in sub_grid.get_rendering_meshes(device, camera) {
 				meshes.push((mesh, matrix));
 			}
@@ -190,20 +189,24 @@ impl PhysicsBody {
 				Vec3::new(min.x, max.y, max.z),
 				max,
 			];
-			let rotated_corners = corners.map(|c| self.orientation * sub_grid.orientation * c);
+			let rotated_corners = corners.map(|c| self.pose * sub_grid.pose * c);
 			aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
 			aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
 		}
-		(aabb_min + self.position, aabb_max + self.position)
+		(aabb_min, aabb_max)
 	}
 
-	pub fn world_to_local(&self, pos: &Vec3) -> Vec3 { self.orientation.inverse() * (pos - self.position) }
-	pub fn local_to_world(&self, pos: &Vec3) -> Vec3 { self.orientation * pos + self.position }
-	pub fn world_to_local_rot(&self, rot: &Quat) -> Quat { self.orientation.inverse() * rot }
-	pub fn local_to_world_rot(&self, rot: &Quat) -> Quat { self.orientation * rot }
+	pub fn world_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }
+	pub fn local_to_world(&self, other: &Pose) -> Pose { self.pose * other }
+	pub fn world_to_local_vec(&self, vec: &Vec3) -> Vec3 { self.pose.inverse() * vec }
+	pub fn local_to_world_vec(&self, vec: &Vec3) -> Vec3 { self.pose * vec }
+	pub fn world_to_local_rot(&self, rot: &Quat) -> Quat { self.pose.inverse() * rot }
+	pub fn local_to_world_rot(&self, rot: &Quat) -> Quat { self.pose * rot }
 
-	pub fn world_to_sub_grid(&self, sub_grid_index: u32, pos: &Vec3) -> Vec3 { self.sub_grids[sub_grid_index as usize].body_to_local(&self.world_to_local(pos)) }
-	pub fn sub_grid_to_world(&self, sub_grid_index: u32, pos: &Vec3) -> Vec3 { self.local_to_world(&self.sub_grids[sub_grid_index as usize].local_to_body(pos)) }
+	pub fn world_to_sub_grid(&self, sub_grid_index: u32, other: &Pose) -> Pose { self.sub_grids[sub_grid_index as usize].body_to_local(&self.world_to_local(other)) }
+	pub fn sub_grid_to_world(&self, sub_grid_index: u32, other: &Pose) -> Pose { self.local_to_world(&self.sub_grids[sub_grid_index as usize].local_to_body(other)) }
+	pub fn world_to_sub_grid_vec(&self, sub_grid_index: u32, pos: &Vec3) -> Vec3 { self.sub_grids[sub_grid_index as usize].body_to_local_vec(&self.world_to_local_vec(pos)) }
+	pub fn sub_grid_to_world_vec(&self, sub_grid_index: u32, pos: &Vec3) -> Vec3 { self.local_to_world_vec(&self.sub_grids[sub_grid_index as usize].local_to_body_vec(pos)) }
 	pub fn world_to_sub_grid_rot(&self, sub_grid_index: u32, rot: &Quat) -> Quat { self.sub_grids[sub_grid_index as usize].body_to_local_rot(&self.world_to_local_rot(rot)) }
 	pub fn sub_grid_to_world_rot(&self, sub_grid_index: u32, rot: &Quat) -> Quat { self.local_to_world_rot(&self.sub_grids[sub_grid_index as usize].local_to_body_rot(rot)) }
 }

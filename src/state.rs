@@ -175,7 +175,7 @@ impl State {
 				}
 			}
 			physics_body.is_static = true;
-			physics_body.position.y += 2.0;
+			physics_body.pose.translation.y += 2.0;
 		}
 		// ------------------------------ Ball ------------------------------
 		for x in -1..2 {
@@ -196,9 +196,9 @@ impl State {
 							}
 						}
 					}
-					physics_body.position.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
-					physics_body.position.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
-					physics_body.position.x += (x as f32) * (r as f32) * 2.0;
+					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
+					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
+					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
 				}
 			}
 		}
