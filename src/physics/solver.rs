@@ -1,15 +1,15 @@
 use std::{collections::HashMap};
 
-use glam::{IVec3, Mat3, Quat, Vec2, Vec3};
+use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use crate::{math::{Mat6, Vec6}, physics, pose::Pose};
+use crate::{math::{Mat6, Vec6}, physics::{self, physics_constraint::{CollisionConstraint, PhysicsConstraint}}, pose::Pose};
 
 use super::{physics_body};
 
 type CollisionKlMapKey = (u32, u32, IVec3, physics::collision::CubeFeature, u32, u32, IVec3, physics::collision::CubeFeature);
 pub struct Solver {
-	collisions_kl_map: HashMap<CollisionKlMapKey, ((Vec3, Vec3), (Vec3, Vec3))>,
+	collisions_kl_map: HashMap<CollisionKlMapKey, (Vec3, Vec3)>,
 }
 
 fn mat6_outer(a: Vec6, b: Vec6) -> Mat6 {
@@ -24,24 +24,39 @@ impl Solver {
 	pub fn add_vec_to_quat(q: &Quat, dx: &Vec3) -> Quat { (q + (Quat::from_xyzw(dx.x, dx.y, dx.z, 0.0) * 0.5) * q).normalize() }
 	pub fn sub_quat(q1: &Quat, q2: &Quat) -> Vec3 { (q1 * q2.inverse()).xyz() * 2.0 }
 
-	fn sub_state(state_a: &Pose, state_b: &Pose) -> Vec6 {
+	pub fn sub_state(state_a: &Pose, state_b: &Pose) -> Vec6 {
 		Vec6::from_vec3(state_a.translation - state_b.translation, Self::sub_quat(&state_a.rotation, &state_b.rotation))
 	}
 
 	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32) {
 		let _zone = span!("Solve Collisions");
-		let collisions: Vec<_> = physics::collision::get_collisions(&physics_bodies).iter().map(
+		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
+		let mut collision_constraints: Vec<CollisionConstraint> = physics::collision::get_collisions(&physics_bodies).iter().map(
 			|c| {
 				let body1 = &physics_bodies[c.body_index1 as usize];
 				let body2 = &physics_bodies[c.body_index2 as usize];
-				physics::collision::Collision {
+				let collision = physics::collision::Collision {
 					local_collision1: c.local_collision1 - body1.get_local_center_of_mass(),
 					local_collision2: c.local_collision2 - body2.get_local_center_of_mass(),
 					..*c
-				}
+				};
+				let (old_penalty, old_lambda) = self.collisions_kl_map.get(&if collision.body_index1 < collision.body_index2 {
+					(
+						collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1,
+						collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2
+					)
+				} else {
+					(
+						collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2,
+						collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1
+					)
+				}).unwrap_or(&(Vec3::ZERO, Vec3::ZERO));
+				let mut collision_constraint = CollisionConstraint::new(collision, old_penalty, old_lambda);
+				collision_constraint.init(&initial_all[c.body_index1 as usize], &initial_all[c.body_index2 as usize]);
+				collision_constraint
 			}
 		).collect();
-		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
+		self.collisions_kl_map.clear();
 		let y_all: Vec<Pose> = physics_bodies.iter().map(|physics_body| {
 			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return Pose::new(physics_body.get_center_of_mass(), Quat::IDENTITY) * physics_body.pose; }
 			let gravity = -90.0;
@@ -49,27 +64,8 @@ impl Solver {
 			let orientation = (Quat::from_scaled_axis(physics_body.angular_velocity * dt) * physics_body.pose.rotation).normalize();
 			Pose::new(pos, orientation)
 		}).collect();
-		let gamma = 0.99;
-		let mut collisions_kl: Vec<((Vec3, Vec3), (Vec3, Vec3))> = collisions.iter().map(|collision| {
-			let result = self.collisions_kl_map.get(&if collision.body_index1 < collision.body_index2 {
-				(
-					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1,
-					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2
-				)
-			} else {
-				(
-					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2,
-					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1
-				)
-			});
-			result.map_or(
-				((Vec3::ONE, Vec3::ZERO), (Vec3::ONE, Vec3::ZERO)),
-				|((k1, l1), (k2, l2))| (((k1 * gamma).max(Vec3::ONE), *l1), ((k2 * gamma).max(Vec3::ONE), *l2))
-			)
-		}).collect();
-		self.collisions_kl_map.clear();
 		let mut x_guess = initial_all.clone();
-		let iterations = 20;
+		let iterations = 30;
 		let total_iterations = iterations + 1; // because post stabilize
 		for iteration in 0..total_iterations {
 			let _zone = span!("Solve Iteration");
@@ -82,28 +78,20 @@ impl Solver {
 				let mut h: Mat6 = m / (dt * dt);
 				let mut f: Vec6 = h * Self::sub_state(&x_guess[index], &y_all[index]);
 
-				let physics_body_collisions = collisions.iter().zip(collisions_kl.iter_mut()).filter(|collision| {
-					collision.0.body_index1 == index as u32 || collision.0.body_index2 == index as u32
+				let physics_body_collisions = collision_constraints.iter().filter(|collision| {
+					collision.collision.body_index1 == index as u32 || collision.collision.body_index2 == index as u32
 				});
 				for physics_body_collision in physics_body_collisions {
-					if physics_body_collision.0.body_index1 == index as u32 {
-						let k = physics_body_collision.1.0.0;
-						let l = physics_body_collision.1.0.1;
-						let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[physics_body_collision.0.body_index2 as usize], &initial_all[physics_body_collision.0.body_index2 as usize], &physics_body_collision.0, k, l, alpha);
-						if result.is_none() { continue; }
-						let (c_f, c_h, _, _) = result.unwrap();
-						f += c_f;
-						h += c_h;
-					} else {
-						let swapped_collision = physics_body_collision.0.get_swaped();
-						let k = physics_body_collision.1.1.0;
-						let l = physics_body_collision.1.1.1;
-						let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[swapped_collision.body_index2 as usize], &initial_all[swapped_collision.body_index2 as usize], &swapped_collision, k, l, alpha);
-						if result.is_none() { continue; }
-						let (c_f, c_h, _, _) = result.unwrap();
-						f += c_f;
-						h += c_h;
-					}
+					let result = physics_body_collision.get_updated(
+						&x_guess[physics_body_collision.collision.body_index1 as usize], &initial_all[physics_body_collision.collision.body_index1 as usize],
+						&x_guess[physics_body_collision.collision.body_index2 as usize], &initial_all[physics_body_collision.collision.body_index2 as usize],
+						alpha,
+						physics_body_collision.collision.body_index1 == index as u32
+					);
+					if result.is_none() { continue; }
+					let (c_f, c_h) = result.unwrap();
+					f += c_f;
+					h += c_h;
 				}
 				let mats = h.to_mat3();
 				let solved = solve(mats[0], mats[3], mats[1], -f.upper_vec3(), -f.lower_vec3());
@@ -115,33 +103,12 @@ impl Solver {
 				).normalize();
 			}
 			if iteration < iterations {
-				for index in 0..physics_bodies.len() {
-					let physics_body = &physics_bodies[index];
-					if physics_body.is_static { continue; }
-
-					let physics_body_collisions = collisions.iter().zip(collisions_kl.iter_mut()).filter(|collision| {
-						collision.0.body_index1 == index as u32 || collision.0.body_index2 == index as u32
-					});
-					for physics_body_collision in physics_body_collisions {
-						if physics_body_collision.0.body_index1 == index as u32 {
-							let k = physics_body_collision.1.0.0;
-							let l = physics_body_collision.1.0.1;
-							let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[physics_body_collision.0.body_index2 as usize], &initial_all[physics_body_collision.0.body_index2 as usize], &physics_body_collision.0, k, l, alpha);
-							if result.is_none() { continue; }
-							let (_, _, new_k, new_l) = result.unwrap();
-							physics_body_collision.1.0.0 = new_k;
-							physics_body_collision.1.0.1 = new_l;
-						} else {
-							let swapped_collision = physics_body_collision.0.get_swaped();
-							let k = physics_body_collision.1.1.0;
-							let l = physics_body_collision.1.1.1;
-							let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[swapped_collision.body_index2 as usize], &initial_all[swapped_collision.body_index2 as usize], &swapped_collision, k, l, alpha);
-							if result.is_none() { continue; }
-							let (_, _, new_k, new_l) = result.unwrap();
-							physics_body_collision.1.1.0 = new_k;
-							physics_body_collision.1.1.1 = new_l;
-						}
-					}
+				for collision_constraint in collision_constraints.iter_mut() {
+					collision_constraint.update_dual(
+						&x_guess[collision_constraint.collision.body_index1 as usize], &initial_all[collision_constraint.collision.body_index1 as usize],
+						&x_guess[collision_constraint.collision.body_index2 as usize], &initial_all[collision_constraint.collision.body_index2 as usize],
+						alpha
+					);
 				}
 			}
 			if iteration == iterations - 1 { // before post stabilize
@@ -157,7 +124,8 @@ impl Solver {
 			physics_bodies[index].pose.translation = x_guess[index].translation - physics_bodies[index].get_center_of_mass();
 		}
 		// save K and L
-		collisions_kl.iter().zip(collisions).for_each(|(data, collision)| {
+		for collision_constraint in collision_constraints {
+			let collision = collision_constraint.collision;
 			self.collisions_kl_map.insert(if collision.body_index1 < collision.body_index2 {
 				(
 					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1,
@@ -168,100 +136,10 @@ impl Solver {
 					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2,
 					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1
 				)
-			}, *data);
-		});
-	}
-
-	fn get_collision_f_h_and_new_kl(
-		&self,
-		this_state: &Pose,
-		this_initial_state: &Pose,
-		other_state: &Pose,
-		other_initial_state: &Pose,
-		collision: &physics::collision::Collision,
-		k: Vec3, // penalty
-		lambda: Vec3,
-		alpha: f32
-	) -> Option<(Vec6, Mat6, Vec3, Vec3)> {
-		let normal = (collision.collision2 - collision.collision1).normalize();
-
-		// debug_draw::line(this_initial_state.0, this_initial_state.0 + normal * 2.0, Vec4::W + Vec4::Y);
-
-		if normal.is_nan() { return None }
-		let orthonormal_basis = normal.any_orthonormal_pair();
-		let basis = Mat3::from_cols(
-			normal,
-			orthonormal_basis.0,
-			orthonormal_basis.1
-		).transpose();
-
-		let world_local_collision1 = this_state.rotation * collision.local_collision1;
-		let world_local_collision2 = other_state.rotation * collision.local_collision2;
-
-		let d_prime_linear = basis;
-		let d_prime_angular = Mat3::from_cols(
-			world_local_collision1.cross(d_prime_linear.row(0)),
-			world_local_collision1.cross(d_prime_linear.row(1)),
-			world_local_collision1.cross(d_prime_linear.row(2))
-		).transpose();
-		let d_prime_other_linear = -basis;
-		let d_prime_other_angular = Mat3::from_cols(
-			world_local_collision2.cross(d_prime_other_linear.row(0)),
-			world_local_collision2.cross(d_prime_other_linear.row(1)),
-			world_local_collision2.cross(d_prime_other_linear.row(2))
-		).transpose();
-
-		let diff = Self::sub_state(this_state, this_initial_state);
-		let diff_other = Self::sub_state(other_state, other_initial_state);
-
-		let c0 = basis * (collision.collision1 - collision.collision2) + Vec3::new(0.0005, 0.0, 0.0);
-		let c = c0 * (1.0 - alpha) + (
-			d_prime_linear * diff.upper_vec3() + d_prime_angular * diff.lower_vec3() +
-			d_prime_other_linear * diff_other.upper_vec3() + d_prime_other_angular * diff_other.lower_vec3()
-		);
-
-		let k_mat = Mat3::from_diagonal(k);
-
-		let mut f: Vec3 = k_mat * c + lambda;
-		f.x = f.x.min(0.0);
-
-		let friction = 0.1;
-		let bounds = f.x.abs() * friction;
-		let friction_scale = Vec2::new(f.y, f.z).length();
-		if friction_scale > bounds && friction_scale > 0.0 {
-            f.y *= bounds / friction_scale;
-            f.z *= bounds / friction_scale;
-        }
-
-		let d_prime_linear_transpose_times_k = d_prime_linear.transpose() * k_mat;
-		let d_prime_angular_transpose_times_k = d_prime_angular.transpose() * k_mat;
-
-		// penalty
-		let mut next_f = f;
-		let beta = 10000.0; // beta
-		if f.x < 0.0 {
-			next_f.x = (k.x + beta * c.x.abs()).min(10000000000.0);
+			}, (collision_constraint.penalty, collision_constraint.lambda));
 		}
-        if friction_scale <= bounds {
-            next_f.y = (next_f.y + beta * c.y.abs()).min(10000000000.0);
-            next_f.z = (next_f.z + beta * c.z.abs()).min(10000000000.0);
-            // contacts[i].stick = length(float2{C[1], C[2]}) < STICK_THRESH;
-        }
-
-		Some((
-			Vec6::from_vec3(d_prime_linear.transpose() * f, d_prime_angular.transpose() * f),
-			Mat6::from_mat3(
-				d_prime_linear_transpose_times_k * d_prime_linear,
-				d_prime_linear_transpose_times_k * d_prime_angular,
-				d_prime_angular_transpose_times_k * d_prime_linear,
-				d_prime_angular_transpose_times_k * d_prime_angular
-			),
-			next_f,
-			f
-		))
 	}
 }
-
 // From https://github.com/savant117/avbd-demo3d
 fn solve(a_lin: Mat3, a_ang: Mat3, a_cross: Mat3, b_lin: Vec3, b_ang: Vec3) -> (Vec3, Vec3) {
     // Extract elements from lower triangle storage

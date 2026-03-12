@@ -232,7 +232,6 @@ impl State {
 			}
 		}
 
-
 		// ------------------------------ Grid Tesing ------------------------------
 		// for x in 0..5 {
 		// 	for y in 0..5 {
@@ -261,6 +260,26 @@ impl State {
 		// 			}
 		// 		}
 		// 	}
+		// }
+
+
+		// {
+		// 	let physics_body_id = physics_engine.add_physics_body();
+		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 	let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+		// 	let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+		// 	sub_grid.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 1.0, 0.0, 1.0], mass: 1.0 });
+		// 	physics_body.is_static = true;
+		// 	physics_body.pose.translation.x = 4.0;
+		// }
+		// {
+		// 	let physics_body_id = physics_engine.add_physics_body();
+		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 	let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+		// 	let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+		// 	sub_grid.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [1.0, 0.0, 0.0, 1.0], mass: 1.0 });
+		// 	physics_body.pose.translation.y = 2.0;
+		// 	physics_body.pose.translation.x = 4.0;
 		// }
 
 		Ok(Self {
