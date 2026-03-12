@@ -1,8 +1,8 @@
 use std::{collections::HashMap};
 
-use glam::{Mat3, Quat, Vec2, Vec3, Vec4};
+use glam::{Mat3, Quat, Vec2, Vec3};
 
-use crate::{debug_draw, math::{Mat6, Vec6}, physics, pose::Pose};
+use crate::{math::{Mat6, Vec6}, physics, pose::Pose};
 
 use super::{physics_body};
 

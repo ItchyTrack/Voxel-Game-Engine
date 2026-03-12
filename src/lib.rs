@@ -9,7 +9,8 @@ mod state;
 mod pose;
 mod math;
 mod grid_tree;
-pub mod debug_draw;
+mod debug_draw;
+mod entity_component_system;
 mod gpu_objects {
 	pub mod texture;
 	pub mod mesh;

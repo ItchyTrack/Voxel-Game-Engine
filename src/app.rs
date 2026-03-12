@@ -1,7 +1,7 @@
 use std::time::Instant;
 use std::sync::Arc;
 use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop}, keyboard::PhysicalKey, window::Window};
-use crate::state::State;
+use crate::{camera, state::State};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -123,7 +123,9 @@ impl ApplicationHandler<State> for App {
 			DeviceEvent::MouseMotion { delta: (dx, dy) } => {
 				// state.handle_mouse_motion(dx, dy)
 				if state.mouse_captured {
-					state.camera_controller.handle_mouse_motion(&mut state.camera, dx, dy);
+					state.ecs.run_on_single_component_pair_mut::<camera::Camera, camera::CameraController, _>(state.player_id, |_entity_id,player_camera, player_camera_controller|
+						player_camera_controller.handle_mouse_motion(player_camera, dx, dy)
+					);
 				}
 			},
 			_ => {}

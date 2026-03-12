@@ -1,16 +1,16 @@
 use std::{f32, sync::Arc};
 
-use glam::{IVec3, Mat4, Quat, Vec3, Vec4};
+use glam::{IVec3, Mat4, Quat, Vec3};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{camera, debug_draw, gpu_objects::mesh, physics::{physics_engine::PhysicsEngine}, pose::Pose, renderer::Renderer, voxels};
+use crate::{camera, entity_component_system, gpu_objects::mesh, physics::physics_engine::PhysicsEngine, pose::Pose, renderer::Renderer, voxels};
 
 pub struct State {
 	pub renderer: Renderer,
-	pub camera: camera::Camera,
-	pub camera_controller: camera::CameraController,
 	pub mouse_captured: bool,
 	pub physics_engine: PhysicsEngine,
+	pub ecs: entity_component_system::EntityComponentSystem,
+	pub player_id: u32,
 }
 
 impl State {
@@ -18,7 +18,9 @@ impl State {
 		if code == KeyCode::Escape && is_pressed {
 			self.set_mouse_captured(false);
 		} else {
-			self.camera_controller.handle_key(code, is_pressed);
+			self.ecs.run_on_single_component_mut::<camera::CameraController, _>(self.player_id, |_entity_id, player_camera_controller|
+				{ player_camera_controller.handle_key(code, is_pressed); }
+			);
 		}
 	}
 
@@ -41,7 +43,9 @@ impl State {
 	}
 
 	pub fn update(&mut self, dt: f32) {
-		self.camera_controller.update_camera(&mut self.camera, dt);
+		self.ecs.run_on_components_pair_mut::<camera::CameraController, camera::Camera, _>(|_entity_id, camera_controller, camera|
+			camera::CameraController::update_camera(camera_controller, camera, dt)
+		);
 		self.physics_engine.update(1.0/100.0);
 	}
 
@@ -51,8 +55,12 @@ impl State {
 
 	pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
 		let renderer = Renderer::new(window).await?;
+		let mut physics_engine = PhysicsEngine::new();
+		let mut ecs = entity_component_system::EntityComponentSystem::new();
 
-		let camera = camera::Camera {
+		// create player entity
+		let player_id = ecs.add_entity();
+		ecs.add_component_to_entity(player_id, camera::Camera {
 			position: Vec3::new(20.0, 0.0, 0.0),
 			yaw: f32::consts::PI / 2.0,
 			pitch: 0.0,
@@ -60,11 +68,10 @@ impl State {
 			fovy: 45.0,
 			znear: 0.1,
 			zfar: 500.0,
-		};
+		});
+		ecs.add_component_to_entity(player_id, camera::CameraController::new(20.0, 1.5, 0.0015));
 
-		let camera_controller = camera::CameraController::new(20.0, 1.5, 0.0015);
 
-		let mut physics_engine = PhysicsEngine::new();
 
 		// match load_binary("#treehouse.vox").await {
 		// 	Ok(bytes) => {
@@ -258,46 +265,26 @@ impl State {
 		// 	}
 		// }
 
-
-		// {
-		// 	physics_bodies.push(physics::physics_body::PhysicsBody::new());
-		// 	let physics_body = physics_bodies.last_mut().unwrap();
-		// 	physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-		// 	// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(1, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-		// 	// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 1), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-		// 	// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(-1, 0, 0), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-		// 	// physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, -1), voxels::Voxel{ color: [0.0, 0.0, 0.5, 1.0], mass: 1.0 });
-		// 	physics_body.position.y += 0.0;
-		// 	physics_body.is_static = true;
-		// }
-		// {
-		// 	physics_bodies.push(physics::physics_body::PhysicsBody::new());
-		// 	let physics_body = physics_bodies.last_mut().unwrap();
-		// 	physics_body.sub_grids.first_mut().unwrap().add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [0.0, 1.0, 0.5, 1.0], mass: 1.0 });
-		// 	physics_body.position.y += 1.0;
-		// 	physics_body.position.x += 0.5;
-		// }
-
-
 		Ok(Self {
 			renderer,
-			camera,
-			camera_controller,
 			mouse_captured: false,
 			physics_engine,
+			ecs,
+			player_id,
 		})
 	}
 
 	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
 		let mut rendering_meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
 
-		for physics_body in self.physics_engine.physics_bodies() {
-			// for sub_grid in physics_body.sub_grids() {
-			// 	sub_grid.get_voxels().render_debug(&(physics_body.pose * sub_grid.pose));
-			// }
-			rendering_meshes.extend(physics_body.get_rendering_meshes(&self.renderer.device, &self.camera));
+		if let Some(player_camera) = self.ecs.get_component(self.player_id) {
+			for physics_body in self.physics_engine.physics_bodies() {
+				rendering_meshes.extend(physics_body.get_rendering_meshes(&self.renderer.device, &player_camera));
+			}
+			return self.renderer.render(&player_camera.build_view_projection_matrix(), &rendering_meshes);
+		} else {
+			println!("Error: could not find player camera!");
+			return Ok(());
 		}
-
-		self.renderer.render(&self.camera.build_view_projection_matrix(), &rendering_meshes)
 	}
 }
