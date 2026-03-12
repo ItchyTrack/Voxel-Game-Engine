@@ -1,6 +1,7 @@
 use std::{collections::HashMap};
 
 use glam::{IVec3, Mat3, Quat, Vec2, Vec3};
+use tracy_client::span;
 
 use crate::{math::{Mat6, Vec6}, physics, pose::Pose};
 
@@ -28,6 +29,7 @@ impl Solver {
 	}
 
 	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32) {
+		let _zone = span!("Solve Collisions");
 		let collisions: Vec<_> = physics::collision::get_collisions(&physics_bodies).iter().map(
 			|c| {
 				let body1 = &physics_bodies[c.body_index1 as usize];
@@ -70,6 +72,7 @@ impl Solver {
 		let iterations = 20;
 		let total_iterations = iterations + 1; // because post stabilize
 		for iteration in 0..total_iterations {
+			let _zone = span!("Solve Iteration");
 			let alpha = (iteration < iterations) as i32 as f32 * 0.995;
 			for index in 0..physics_bodies.len() {
 				let physics_body = &physics_bodies[index];

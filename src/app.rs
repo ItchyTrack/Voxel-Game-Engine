@@ -1,5 +1,6 @@
 use std::time::Instant;
 use std::sync::Arc;
+use tracy_client::frame_mark;
 use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop}, keyboard::PhysicalKey, window::Window};
 use crate::{camera, state::State};
 
@@ -102,6 +103,7 @@ impl ApplicationHandler<State> for App {
 						log::error!("Unable to render {}", e);
 					}
 				}
+				frame_mark();
 			}
 			WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state: key_state, .. }, .. } => {
 				state.handle_key(event_loop, code, key_state.is_pressed())

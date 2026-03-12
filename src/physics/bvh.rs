@@ -1,6 +1,8 @@
 use itertools::partition;
 use glam::{Vec3, Vec4};
 
+use tracy_client::span;
+
 use crate::debug_draw;
 
 enum BVHInternal {
@@ -85,6 +87,7 @@ pub struct BVH {
 
 impl BVH {
 	pub fn new(mut items: Vec<(u32, (Vec3, Vec3))>) -> Self {
+		let _zone = span!("BVH creation");
 		let items_len = items.len() as u32;
 		let mut nodes: Vec<BVHNode> = vec![];
 		nodes.push(BVHNode {

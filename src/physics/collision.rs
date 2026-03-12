@@ -5,6 +5,8 @@ use glam::{IVec3, Quat, U8Vec3, Vec3, Vec4};
 use crate::{debug_draw, pose::Pose, voxels};
 use super::{physics_body, bvh};
 
+use tracy_client::span;
+
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub enum CubeFeature {
 	Vertex { xyz: u8 },
@@ -52,6 +54,7 @@ fn get_bit(num: u8, bit: u8) -> u8 {
 }
 
 pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Collision> {
+	let _zone = span!("Do Collisions");
 	let mut bounds = vec![];
 	for index in 0..physics_bodies.len() {
 		bounds.push((index as u32, physics_bodies[index].aabb()));

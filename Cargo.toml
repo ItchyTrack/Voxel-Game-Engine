@@ -9,6 +9,10 @@ strip = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+tracy = ["tracy-client/enable"]
+
 [dependencies]
 anyhow = "1.0"
 image = "0.23"
@@ -22,6 +26,7 @@ pollster = "0.3"
 wgpu = "27.0.0"
 tobj = { version = "3.2", default-features = false, features = ["async"]}
 bytemuck = { version = "1.24", features = [ "derive" ] }
+tracy-client = { version = "0.18.4", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
