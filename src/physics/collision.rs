@@ -14,8 +14,8 @@ pub enum CubeFeature {
 
 #[derive(Copy, Clone)]
 pub struct Collision {
-	pub id1: u32,
-	pub id2: u32,
+	pub body_index1: u32,
+	pub body_index2: u32,
 	pub sub_grid_index1: u32,
 	pub sub_grid_index2: u32,
 	pub voxel_pos1: IVec3,
@@ -31,8 +31,8 @@ pub struct Collision {
 impl Collision {
 	pub fn get_swaped(&self) -> Collision {
 		Collision {
-			id1: self.id2,
-			id2: self.id1,
+			body_index1: self.body_index2,
+			body_index2: self.body_index1,
 			sub_grid_index1: self.sub_grid_index2,
 			sub_grid_index2: self.sub_grid_index1,
 			voxel_pos1: self.voxel_pos2,
@@ -59,11 +59,11 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 	let bvh = bvh::BVH::new(bounds.clone());
 	// bvh.render_debug();
 	let mut collisions: Vec<Collision> = vec![];
-	for id_a in 0..physics_bodies.len() {
-		let physics_body_a = &physics_bodies[id_a];
-		for id_b in bvh.get_collisions(&bounds[id_a].1) {
-			if (id_a as u32) <= id_b { continue; }
-			let physics_body_b = &physics_bodies[id_b as usize];
+	for body_index_a in 0..physics_bodies.len() {
+		let physics_body_a = &physics_bodies[body_index_a];
+		for body_index_b in bvh.get_collisions(&bounds[body_index_a].1) {
+			if (body_index_a as u32) <= body_index_b { continue; }
+			let physics_body_b = &physics_bodies[body_index_b as usize];
 			if physics_body_a.is_static && physics_body_b.is_static { continue; } // skip static on static collisions
 			for subgrid_index_a in 0..physics_body_a.sub_grids().len() {
 				let sub_grid_a = &physics_body_a.sub_grids()[subgrid_index_a];
@@ -234,8 +234,8 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 							// };
 
 							Some(Collision {
-								id1: if no_swap { id_a as u32 } else { id_b as u32 },
-								id2: if no_swap { id_b as u32 } else { id_a as u32 },
+								body_index1: if no_swap { body_index_a as u32 } else { body_index_b as u32 },
+								body_index2: if no_swap { body_index_b as u32 } else { body_index_a as u32 },
 								sub_grid_index1: if no_swap { subgrid_index_a as u32 } else { subgrid_index_b as u32 },
 								sub_grid_index2: if no_swap { subgrid_index_b as u32 } else { subgrid_index_a as u32 },
 								voxel_pos1: voxel.0,
@@ -254,8 +254,8 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 		}
 	}
 	for collision in collisions.iter() {
-		let e1 = &physics_bodies[collision.id1 as usize];
-		let e2 = &physics_bodies[collision.id2 as usize];
+		let e1 = &physics_bodies[collision.body_index1 as usize];
+		let e2 = &physics_bodies[collision.body_index2 as usize];
 
 		debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
 		debug_draw::point(collision.collision1, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);

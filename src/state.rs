@@ -71,8 +71,6 @@ impl State {
 		});
 		ecs.add_component_to_entity(player_id, camera::CameraController::new(20.0, 1.5, 0.0015));
 
-
-
 		// match load_binary("#treehouse.vox").await {
 		// 	Ok(bytes) => {
 		// 		match dot_vox::load_bytes(&bytes) {

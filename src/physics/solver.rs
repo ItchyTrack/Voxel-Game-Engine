@@ -1,13 +1,14 @@
 use std::{collections::HashMap};
 
-use glam::{Mat3, Quat, Vec2, Vec3};
+use glam::{IVec3, Mat3, Quat, Vec2, Vec3};
 
 use crate::{math::{Mat6, Vec6}, physics, pose::Pose};
 
 use super::{physics_body};
 
+type CollisionKlMapKey = (u32, u32, IVec3, physics::collision::CubeFeature, u32, u32, IVec3, physics::collision::CubeFeature);
 pub struct Solver {
-	collisions_kl_map: HashMap<(u32, physics::collision::CubeFeature, u32, physics::collision::CubeFeature), ((Vec3, Vec3), (Vec3, Vec3))>,
+	collisions_kl_map: HashMap<CollisionKlMapKey, ((Vec3, Vec3), (Vec3, Vec3))>,
 }
 
 fn mat6_outer(a: Vec6, b: Vec6) -> Mat6 {
@@ -29,8 +30,8 @@ impl Solver {
 	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32) {
 		let collisions: Vec<_> = physics::collision::get_collisions(&physics_bodies).iter().map(
 			|c| {
-				let body1 = &physics_bodies[c.id1 as usize];
-				let body2 = &physics_bodies[c.id2 as usize];
+				let body1 = &physics_bodies[c.body_index1 as usize];
+				let body2 = &physics_bodies[c.body_index2 as usize];
 				physics::collision::Collision {
 					local_collision1: c.local_collision1 - body1.get_local_center_of_mass(),
 					local_collision2: c.local_collision2 - body2.get_local_center_of_mass(),
@@ -48,10 +49,16 @@ impl Solver {
 		}).collect();
 		let gamma = 0.99;
 		let mut collisions_kl: Vec<((Vec3, Vec3), (Vec3, Vec3))> = collisions.iter().map(|collision| {
-			let result = self.collisions_kl_map.get(&if collision.id1 < collision.id2 {
-				(collision.id1, collision.feature1, collision.id2, collision.feature2)
+			let result = self.collisions_kl_map.get(&if collision.body_index1 < collision.body_index2 {
+				(
+					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1,
+					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2
+				)
 			} else {
-				(collision.id2, collision.feature2, collision.id1, collision.feature1)
+				(
+					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2,
+					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1
+				)
 			});
 			result.map_or(
 				((Vec3::ONE, Vec3::ZERO), (Vec3::ONE, Vec3::ZERO)),
@@ -73,13 +80,13 @@ impl Solver {
 				let mut f: Vec6 = h * Self::sub_state(&x_guess[index], &y_all[index]);
 
 				let physics_body_collisions = collisions.iter().zip(collisions_kl.iter_mut()).filter(|collision| {
-					collision.0.id1 == index as u32 || collision.0.id2 == index as u32
+					collision.0.body_index1 == index as u32 || collision.0.body_index2 == index as u32
 				});
 				for physics_body_collision in physics_body_collisions {
-					if physics_body_collision.0.id1 == index as u32 {
+					if physics_body_collision.0.body_index1 == index as u32 {
 						let k = physics_body_collision.1.0.0;
 						let l = physics_body_collision.1.0.1;
-						let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[physics_body_collision.0.id2 as usize], &initial_all[physics_body_collision.0.id2 as usize], &physics_body_collision.0, k, l, alpha);
+						let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[physics_body_collision.0.body_index2 as usize], &initial_all[physics_body_collision.0.body_index2 as usize], &physics_body_collision.0, k, l, alpha);
 						if result.is_none() { continue; }
 						let (c_f, c_h, _, _) = result.unwrap();
 						f += c_f;
@@ -88,7 +95,7 @@ impl Solver {
 						let swapped_collision = physics_body_collision.0.get_swaped();
 						let k = physics_body_collision.1.1.0;
 						let l = physics_body_collision.1.1.1;
-						let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[swapped_collision.id2 as usize], &initial_all[swapped_collision.id2 as usize], &swapped_collision, k, l, alpha);
+						let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[swapped_collision.body_index2 as usize], &initial_all[swapped_collision.body_index2 as usize], &swapped_collision, k, l, alpha);
 						if result.is_none() { continue; }
 						let (c_f, c_h, _, _) = result.unwrap();
 						f += c_f;
@@ -110,13 +117,13 @@ impl Solver {
 					if physics_body.is_static { continue; }
 
 					let physics_body_collisions = collisions.iter().zip(collisions_kl.iter_mut()).filter(|collision| {
-						collision.0.id1 == index as u32 || collision.0.id2 == index as u32
+						collision.0.body_index1 == index as u32 || collision.0.body_index2 == index as u32
 					});
 					for physics_body_collision in physics_body_collisions {
-						if physics_body_collision.0.id1 == index as u32 {
+						if physics_body_collision.0.body_index1 == index as u32 {
 							let k = physics_body_collision.1.0.0;
 							let l = physics_body_collision.1.0.1;
-							let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[physics_body_collision.0.id2 as usize], &initial_all[physics_body_collision.0.id2 as usize], &physics_body_collision.0, k, l, alpha);
+							let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[physics_body_collision.0.body_index2 as usize], &initial_all[physics_body_collision.0.body_index2 as usize], &physics_body_collision.0, k, l, alpha);
 							if result.is_none() { continue; }
 							let (_, _, new_k, new_l) = result.unwrap();
 							physics_body_collision.1.0.0 = new_k;
@@ -125,7 +132,7 @@ impl Solver {
 							let swapped_collision = physics_body_collision.0.get_swaped();
 							let k = physics_body_collision.1.1.0;
 							let l = physics_body_collision.1.1.1;
-							let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[swapped_collision.id2 as usize], &initial_all[swapped_collision.id2 as usize], &swapped_collision, k, l, alpha);
+							let result = self.get_collision_f_h_and_new_kl(&x_guess[index], &initial_all[index], &x_guess[swapped_collision.body_index2 as usize], &initial_all[swapped_collision.body_index2 as usize], &swapped_collision, k, l, alpha);
 							if result.is_none() { continue; }
 							let (_, _, new_k, new_l) = result.unwrap();
 							physics_body_collision.1.1.0 = new_k;
@@ -148,10 +155,16 @@ impl Solver {
 		}
 		// save K and L
 		collisions_kl.iter().zip(collisions).for_each(|(data, collision)| {
-			self.collisions_kl_map.insert(if collision.id1 < collision.id2 {
-				(collision.id1, collision.feature1, collision.id2, collision.feature2)
+			self.collisions_kl_map.insert(if collision.body_index1 < collision.body_index2 {
+				(
+					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1,
+					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2
+				)
 			} else {
-				(collision.id2, collision.feature2, collision.id1, collision.feature1)
+				(
+					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2,
+					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1
+				)
 			}, *data);
 		});
 	}
