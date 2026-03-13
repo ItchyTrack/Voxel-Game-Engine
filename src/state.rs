@@ -51,6 +51,9 @@ impl State {
 
 	pub fn resize(&mut self, width: u32, height: u32) {
 		self.renderer.resize(width, height);
+		self.ecs.run_on_components_mut::<camera::Camera, _>(|_entity_id, camera,| {
+			camera.aspect = self.renderer.config.width as f32 / self.renderer.config.height as f32;
+		})
 	}
 
 	pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {

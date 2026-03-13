@@ -3,11 +3,11 @@ use std::{collections::HashMap};
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use crate::{math::{Mat6, Vec6}, physics::{self, physics_constraint::{CollisionConstraint, PhysicsConstraint}}, pose::Pose};
+use crate::{math::{Mat6, Vec6}, pose::Pose};
 
-use super::{physics_body};
+use super::{physics_body, collision_constraint::CollisionConstraint, physics_constraint::PhysicsConstraint, collision};
 
-type CollisionKlMapKey = (u32, u32, IVec3, physics::collision::CubeFeature, u32, u32, IVec3, physics::collision::CubeFeature);
+type CollisionKlMapKey = (u32, u32, IVec3, collision::CubeFeature, u32, u32, IVec3, collision::CubeFeature);
 pub struct Solver {
 	collisions_kl_map: HashMap<CollisionKlMapKey, (Vec3, Vec3)>,
 }
@@ -31,11 +31,11 @@ impl Solver {
 	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32) {
 		let _zone = span!("Solve Collisions");
 		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
-		let mut collision_constraints: Vec<CollisionConstraint> = physics::collision::get_collisions(&physics_bodies).iter().map(
+		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies).iter().map(
 			|c| {
 				let body1 = &physics_bodies[c.body_index1 as usize];
 				let body2 = &physics_bodies[c.body_index2 as usize];
-				let collision = physics::collision::Collision {
+				let collision = collision::Collision {
 					local_collision1: c.local_collision1 - body1.get_local_center_of_mass(),
 					local_collision2: c.local_collision2 - body2.get_local_center_of_mass(),
 					..*c
