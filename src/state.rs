@@ -3,7 +3,7 @@ use std::{f32, sync::Arc};
 use glam::{IVec3, Mat4, Quat, Vec3};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{camera, entity_component_system, gpu_objects::mesh, physics::physics_engine::PhysicsEngine, pose::Pose, renderer::Renderer, voxels};
+use crate::{camera, entity_component_system, gpu_objects::mesh, physics::{physics_engine::PhysicsEngine, physics_body::PhysicsBody}, pose::Pose, renderer::Renderer, voxels};
 
 pub struct State {
 	pub renderer: Renderer,
@@ -54,6 +54,111 @@ impl State {
 		self.ecs.run_on_components_mut::<camera::Camera, _>(|_entity_id, camera,| {
 			camera.aspect = self.renderer.config.width as f32 / self.renderer.config.height as f32;
 		})
+	}
+
+	fn make_ball(physics_body: &mut PhysicsBody, radius: i32) {
+		{
+			let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+			let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+
+			for x in -radius..radius + 1 {
+				for y in -0..radius + 1 {
+					for z in -radius..radius + 1 {
+						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
+							sub_grid.add_voxel(
+								IVec3::new(x, y + 2, z),
+								voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
+							);
+						}
+					}
+				}
+			}
+		}
+		{
+			let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::new(-0.707 + 0.5, 0.0, 0.707 - 0.5), Quat::from_rotation_y(f32::consts::PI/4.0)));
+			let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+			for x in -radius..radius + 1 {
+				for y in -radius..0 {
+					for z in -radius..radius + 1 {
+						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
+							sub_grid.add_voxel(
+								IVec3::new(x, y + 2, z),
+								voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
+							);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	fn make_smooth_ball(physics_body: &mut PhysicsBody, radius: i32){
+		let face_resolution = (radius * 1).max(1);
+		let sphere_radius = radius as f32 - 0.5;
+		let voxel_center = Vec3::splat(0.5);
+
+		let cube_to_sphere = |p: Vec3| -> Vec3 {
+			Vec3::new(
+				p.x * (1.0 - (p.y * p.y) * 0.5 - (p.z * p.z) * 0.5 + (p.y * p.y) * (p.z * p.z) / 3.0).sqrt(),
+				p.y * (1.0 - (p.z * p.z) * 0.5 - (p.x * p.x) * 0.5 + (p.z * p.z) * (p.x * p.x) / 3.0).sqrt(),
+				p.z * (1.0 - (p.x * p.x) * 0.5 - (p.y * p.y) * 0.5 + (p.x * p.x) * (p.y * p.y) / 3.0).sqrt(),
+			)
+		};
+
+		let face_point = |face: usize, u: f32, v: f32| -> Vec3 {
+			match face {
+				0 => Vec3::new(1.0, v, u),
+				1 => Vec3::new(-1.0, v, -u),
+				2 => Vec3::new(u, 1.0, v),
+				3 => Vec3::new(u, -1.0, -v),
+				4 => Vec3::new(u, v, 1.0),
+				5 => Vec3::new(-u, v, -1.0),
+				_ => unreachable!(),
+			}
+		};
+
+		let mut placed_centers = std::collections::HashSet::new();
+		for face in 0..6 {
+			for y in 0..face_resolution {
+				for x in 0..face_resolution {
+					let u = ((x as f32 + 0.5) / face_resolution as f32) * 2.0 - 1.0;
+					let v = ((y as f32 + 0.5) / face_resolution as f32) * 2.0 - 1.0;
+					let cube_pos = face_point(face, u, v);
+					let normal = cube_to_sphere(cube_pos).normalize_or_zero();
+					if normal == Vec3::ZERO {
+						continue;
+					}
+
+					let center = normal * sphere_radius;
+					let center_key = (
+						(center.x * 1000.0).round() as i32,
+						(center.y * 1000.0).round() as i32,
+						(center.z * 1000.0).round() as i32,
+					);
+					if !placed_centers.insert(center_key) {
+						continue;
+					}
+
+					let inward = -normal;
+					let rotation = Quat::from_rotation_arc(Vec3::Z, inward);
+					let translation = center - rotation * voxel_center;
+					let sub_grid_id = physics_body.add_sub_grid(Pose::new(translation, rotation));
+					let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+					sub_grid.add_voxel(
+						IVec3::ZERO,
+						voxels::Voxel {
+							color: [
+								normal.x * 0.5 + 0.5,
+								normal.y * 0.5 + 0.5,
+								normal.z * 0.5 + 0.5,
+								1.0,
+							],
+							mass: 1.0,
+						},
+					);
+				}
+			}
+		}
 	}
 
 	pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
@@ -187,50 +292,29 @@ impl State {
 			physics_body.pose.translation.y += 2.0;
 		}
 		// ------------------------------ Ball ------------------------------
-		for x in -1..2 {
-			for y in -1..4 {
-				for z in -1..2 {
+		// for x in -1..2 {
+		// 	for y in -1..4 {
+		// 		for z in -1..2 {
+		// 			let r = 4;
+		// 			let physics_body_id = physics_engine.add_physics_body();
+		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
+		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
+		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
+		// 			State::make_ball(physics_body, r);
+		// 		}
+		// 	}
+		// }
+		for x in -1..1 {
+			for y in -1..1 {
+				for z in -1..1 {
 					let r = 4;
-
 					let physics_body_id = physics_engine.add_physics_body();
 					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
 					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
 					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
 					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
-					{
-						let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
-						let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
-
-						for x in -r..r + 1 {
-							for y in -0..r + 1 {
-								for z in -r..r + 1 {
-									if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-										sub_grid.add_voxel(
-											IVec3::new(x, y + 2, z),
-											voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
-										);
-									}
-								}
-							}
-						}
-					}
-					{
-						let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::new(-0.707 + 0.5, 0.0, 0.707 - 0.5), Quat::from_rotation_y(f32::consts::PI/4.0)));
-						let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
-						let r = 4;
-						for x in -r..r + 1 {
-							for y in -r..0 {
-								for z in -r..r + 1 {
-									if IVec3::new(x, y, z).length_squared() as f32 <= (r as f32 - 0.5).powf(2.0)  {
-										sub_grid.add_voxel(
-											IVec3::new(x, y + 2, z),
-											voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
-										);
-									}
-								}
-							}
-						}
-					}
+					State::make_smooth_ball(physics_body, r);
 				}
 			}
 		}
