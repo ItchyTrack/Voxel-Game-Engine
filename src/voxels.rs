@@ -1,29 +1,64 @@
 use glam::{IVec3, Vec3};
 use wgpu::util::DeviceExt;
 use std::cell::Cell;
+use bimap::BiHashMap;
 
 use crate::gpu_objects::mesh;
 use crate::gpu_objects::matrix;
 use crate::grid_tree::GridTree;
 use crate::pose::Pose;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Voxel {
-	pub color: [f32; 4],
-	pub mass: f32,
+	pub color: [u8; 4],
+	pub mass: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct VoxelPalette {
+	palette: BiHashMap<u16, Voxel>,
+	next_id: u16,
+}
+
+impl VoxelPalette {
+	pub fn new() -> Self {
+		Self {
+			palette: BiHashMap::new(),
+			next_id: 0,
+		}
+	}
+	pub fn get_palette_id(&mut self, voxel: &Voxel) -> u16 {
+		if let Err(_) = self.palette.insert_no_overwrite(self.next_id, *voxel) {
+			let id = *self.palette.get_by_right(voxel).unwrap();
+			assert!(self.next_id != id);
+			return id;
+		}
+		let id = self.next_id;
+		self.next_id += 1;
+		id
+	}
+	pub fn get_voxel(&self, id: u16) -> Option<&Voxel> {
+		self.palette.get_by_left(&id)
+	}
 }
 
 pub struct Voxels {
-	voxels: GridTree<2, Voxel>,
+	voxels: GridTree<2, u16>,
+	voxel_palette: VoxelPalette,
 	bounding_box: Cell<Option<(IVec3, IVec3)>>,
 	bounding_box_dirty: Cell<bool>,
 }
 
 impl Voxels {
 	pub fn new() -> Self {
-		Self { voxels: GridTree::new(), bounding_box: Cell::new(None), bounding_box_dirty: Cell::new(false) }
+		Self {
+			voxels: GridTree::new(),
+			voxel_palette: VoxelPalette::new(),
+			bounding_box: Cell::new(None),
+			bounding_box_dirty: Cell::new(false)
+		}
 	}
-	pub fn add_voxel(&mut self, pos: IVec3, voxel: Voxel) -> Option<Voxel> {
+	pub fn add_voxel(&mut self, pos: IVec3, voxel: Voxel) -> Option<&Voxel> {
 		match self.bounding_box.get() {
 			Some((min, max)) => {
 				self.bounding_box.set(Some((min.min(pos), max.max(pos))));
@@ -32,16 +67,19 @@ impl Voxels {
 				self.bounding_box.set(Some((pos, pos)));
 			}
 		}
-		self.voxels.insert(pos, voxel)
+		let out = self.voxels.insert(pos, self.voxel_palette.get_palette_id(&voxel))?;
+		self.voxel_palette.get_voxel(out)
 	}
 
-	pub fn remove_voxel(&mut self, pos: &IVec3) -> Option<Voxel> {
+	pub fn remove_voxel(&mut self, pos: &IVec3) -> Option<&Voxel> {
 		self.bounding_box_dirty.set(true);
-		self.voxels.remove(pos)
+		self.voxel_palette.get_voxel(self.voxels.remove(pos)?)
 	}
 
-	pub fn get_voxel(&self, pos: IVec3) -> Option<&Voxel> { self.voxels.get(&pos) }
-	pub fn get_voxels(&self) -> &GridTree<2, Voxel> { &self.voxels }
+	pub fn get_voxel(&self, pos: IVec3) -> Option<&Voxel> {
+			self.voxel_palette.get_voxel(*self.voxels.get(&pos)?)
+		}
+	pub fn get_voxels(&self) -> &GridTree<2, u16> { &self.voxels }
 
 	pub fn get_bounding_box(&self) -> Option<(IVec3, IVec3)> {
 		if self.bounding_box_dirty.get() {
@@ -68,47 +106,49 @@ impl mesh::GetMesh for Voxels {
 		}
 		let mut verties: Vec<mesh::MeshVertex> = vec![];
 		let mut indexes: Vec<u32> = vec![];
-		for (pos, voxel) in &self.voxels {
+		for (pos, voxel_id) in &self.voxels {
+			let voxel = self.voxel_palette.get_voxel(*voxel_id).unwrap();
 			let fpos: Vec3 = pos.as_vec3();
 			let start_verties = verties.len() as u32;
+			let f32_color = [voxel.color[0] as f32 / 255.0, voxel.color[1] as f32 / 255.0, voxel.color[2] as f32 / 255.0, voxel.color[3] as f32 / 255.0];
 			verties.push(mesh::MeshVertex { // 0
 				position: fpos.to_array(),
-				color: voxel.color,
+				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
 			verties.push(mesh::MeshVertex { // 1
 				position: (fpos + Vec3::new(1.0, 0.0, 0.0)).to_array(),
-				color: voxel.color,
+				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
 			verties.push(mesh::MeshVertex { // 2
 				position: (fpos + Vec3::new(0.0, 1.0, 0.0)).to_array(),
-				color: voxel.color,
+				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
 			verties.push(mesh::MeshVertex { // 3
 				position: (fpos + Vec3::new(0.0, 0.0, 1.0)).to_array(),
-				color: voxel.color,
+				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
 			verties.push(mesh::MeshVertex { // 4
 				position: (fpos + Vec3::new(1.0, 1.0, 0.0)).to_array(),
-				color: voxel.color,
+				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
 			verties.push(mesh::MeshVertex { // 5
 				position: (fpos + Vec3::new(1.0, 0.0, 1.0)).to_array(),
-				color: voxel.color,
+				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
 			verties.push(mesh::MeshVertex { // 6
 				position: (fpos + Vec3::new(0.0, 1.0, 1.0)).to_array(),
-				color: voxel.color,
+				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
 			verties.push(mesh::MeshVertex { // 7
 				position: (fpos + Vec3::new(1.0, 1.0, 1.0)).to_array(),
-				color: voxel.color,
+				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
 			if !self.voxels.contains_key(&(pos + IVec3::X)) {

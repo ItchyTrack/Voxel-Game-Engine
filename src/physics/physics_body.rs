@@ -15,9 +15,9 @@ pub struct PhysicsBodySubGrid {
 }
 
 // According to https://en.wikipedia.org/wiki/Moment_of_inertia#:~:text=in%20the%20body.-,Inertia%20tensor
-fn get_inertia_tensor_for_cube(pos: &IVec3, mass: f32) -> Mat3 {
+fn get_inertia_tensor_for_cube(pos: &IVec3, mass: u32) -> Mat3 {
 	let center_pos = pos.as_vec3() + Vec3::new(0.5, 0.5, 0.5);
-	let i_center = mass / 6.0;
+	let i_center = mass as f32 / 6.0;
 	let r2 = center_pos.length_squared();
 
 	let outer = Mat3::from_cols(
@@ -26,7 +26,7 @@ fn get_inertia_tensor_for_cube(pos: &IVec3, mass: f32) -> Mat3 {
 		center_pos * center_pos.z,
 	);
 
-	let parallel_axis = mass * (r2 * Mat3::IDENTITY - outer);
+	let parallel_axis = mass as f32 * (r2 * Mat3::IDENTITY - outer);
 	Mat3::IDENTITY * i_center + parallel_axis
 }
 

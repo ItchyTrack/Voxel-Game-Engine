@@ -21,6 +21,7 @@ winit = { version = "0.30", features = ["android-native-activity"] }
 env_logger = "0.10"
 itertools = "0.9.0"
 dot_vox = "5.2.0"
+bimap = "0.6.3"
 log = "0.4"
 pollster = "0.3"
 wgpu = "27.0.0"

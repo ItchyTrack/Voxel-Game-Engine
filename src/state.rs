@@ -67,7 +67,7 @@ impl State {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
 							sub_grid.add_voxel(
 								IVec3::new(x, y + 2, z),
-								voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
+								voxels::Voxel{ color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
 					}
@@ -83,7 +83,7 @@ impl State {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
 							sub_grid.add_voxel(
 								IVec3::new(x, y + 2, z),
-								voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 }
+								voxels::Voxel{ color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
 					}
@@ -148,12 +148,12 @@ impl State {
 						IVec3::ZERO,
 						voxels::Voxel {
 							color: [
-								normal.x * 0.5 + 0.5,
-								normal.y * 0.5 + 0.5,
-								normal.z * 0.5 + 0.5,
-								1.0,
+								((normal.x * 0.5 + 0.5) * 255.0) as u8,
+								((normal.y * 0.5 + 0.5) * 255.0) as u8,
+								((normal.z * 0.5 + 0.5) * 255.0) as u8,
+								1,
 							],
-							mass: 1.0,
+							mass: 100,
 						},
 					);
 				}
@@ -274,50 +274,50 @@ impl State {
 			let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
 			for x in -15..16 {
 				for y in 0..20 {
-					sub_grid.add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x % 10) as f32 / 9.0, 0.0, (y % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+					sub_grid.add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x * 32 % 255 * 0) as u8, 0, (y * 32 % 255) as u8, 1], mass: 100 });
 				}
 			}
 			for x in -15..16 {
 				for z in -10..200 {
-					sub_grid.add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x + 15) as f32 / 30.0, 0.0, ((z + 10) % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+					sub_grid.add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x * 32 % 255 * 0) as u8, 0, (z * 32 % 255) as u8, 1], mass: 100 });
 				}
 			}
 			for y in 0..15 {
 				for z in -10..200 {
-					sub_grid.add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
-					sub_grid.add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0.0, 0.0, (z % 10) as f32 / 9.0, 1.0], mass: 1.0 });
+					sub_grid.add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
+					sub_grid.add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
 				}
 			}
 			physics_body.is_static = true;
 			physics_body.pose.translation.y += 2.0;
 		}
 		// ------------------------------ Ball ------------------------------
-		// for x in -1..2 {
-		// 	for y in -1..4 {
-		// 		for z in -1..2 {
-		// 			let r = 4;
-		// 			let physics_body_id = physics_engine.add_physics_body();
-		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
-		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
-		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
-		// 			State::make_ball(physics_body, r);
-		// 		}
-		// 	}
-		// }
-		for x in -1..1 {
-			for y in -1..1 {
-				for z in -1..1 {
+		for x in -1..2 {
+			for y in -1..2 {
+				for z in -1..2 {
 					let r = 4;
 					let physics_body_id = physics_engine.add_physics_body();
 					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
 					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
 					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
 					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
-					State::make_smooth_ball(physics_body, r);
+					State::make_ball(physics_body, r);
 				}
 			}
 		}
+		// for x in -1..1 {
+		// 	for y in -1..1 {
+		// 		for z in -1..1 {
+		// 			let r = 4;
+		// 			let physics_body_id = physics_engine.add_physics_body();
+		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
+		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
+		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
+		// 			State::make_smooth_ball(physics_body, r);
+		// 		}
+		// 	}
+		// }
 
 		// ------------------------------ Grid Tesing ------------------------------
 		// for x in 0..5 {
