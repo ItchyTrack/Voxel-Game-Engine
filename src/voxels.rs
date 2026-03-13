@@ -43,7 +43,7 @@ impl VoxelPalette {
 }
 
 pub struct Voxels {
-	voxels: GridTree<2, u16>,
+	voxels: GridTree<u16>,
 	voxel_palette: VoxelPalette,
 	bounding_box: Cell<Option<(IVec3, IVec3)>>,
 	bounding_box_dirty: Cell<bool>,
@@ -79,7 +79,7 @@ impl Voxels {
 	pub fn get_voxel(&self, pos: IVec3) -> Option<&Voxel> {
 			self.voxel_palette.get_voxel(*self.voxels.get(&pos)?)
 		}
-	pub fn get_voxels(&self) -> &GridTree<2, u16> { &self.voxels }
+	pub fn get_voxels(&self) -> &GridTree<u16> { &self.voxels }
 
 	pub fn get_bounding_box(&self) -> Option<(IVec3, IVec3)> {
 		if self.bounding_box_dirty.get() {

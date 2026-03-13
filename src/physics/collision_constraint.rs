@@ -153,7 +153,7 @@ impl PhysicsConstraint for CollisionConstraint {
 		self.lambda = force;
 
 		// penalty
-		let beta = 10000.0; // beta
+		let beta = 50000.0; // beta
 		if force.x < 0.0 {
 			self.penalty.x = (self.penalty.x + beta * c.x.abs()).min(10000000000.0);
 		}
