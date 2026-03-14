@@ -33,6 +33,8 @@ pub struct CameraController {
 	is_rotate_down_pressed: bool,
 	is_rotate_left_pressed: bool,
 	is_rotate_right_pressed: bool,
+	is_lshift_pressed: bool,
+	is_rshift_pressed: bool,
 }
 
 impl CameraController {
@@ -51,6 +53,8 @@ impl CameraController {
 			is_rotate_down_pressed: false,
 			is_rotate_left_pressed: false,
 			is_rotate_right_pressed: false,
+			is_lshift_pressed: false,
+			is_rshift_pressed: false,
 		}
 	}
 
@@ -96,6 +100,14 @@ impl CameraController {
 				self.is_rotate_right_pressed = is_pressed;
 				true
 			}
+			KeyCode::ShiftLeft => {
+				self.is_lshift_pressed = is_pressed;
+				true
+			}
+			KeyCode::ShiftRight => {
+				self.is_rshift_pressed = is_pressed;
+				true
+			}
 			_ => false,
 		}
 	}
@@ -110,23 +122,24 @@ impl CameraController {
 	}
 
 	pub fn update_camera(&self, camera: &mut Camera, dt: f32) {
+		let speed = self.speed * if self.is_lshift_pressed || self.is_rshift_pressed { 4.0 } else { 1.0 };
 		if self.is_forward_pressed {
-			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * self.speed * dt;
+			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * speed * dt;
 		}
 		if self.is_backward_pressed {
-			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * self.speed * dt;
+			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * speed * dt;
 		}
 		if self.is_left_pressed {
-			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * self.speed * dt;
+			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * speed * dt;
 		}
 		if self.is_right_pressed {
-			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * self.speed * dt;
+			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * speed * dt;
 		}
 		if self.is_up_pressed {
-			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Y) * self.speed * dt;
+			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Y) * speed * dt;
 		}
 		if self.is_down_pressed {
-			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Y) * self.speed * dt;
+			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Y) * speed * dt;
 		}
 
 		if self.is_rotate_up_pressed {
