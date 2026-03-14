@@ -1,13 +1,13 @@
 use std::{collections::HashMap};
 
-use glam::{IVec3, Mat3, Quat, Vec3};
+use glam::{I16Vec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
 use crate::{math::{Mat6, Vec6}, pose::Pose};
 
 use super::{physics_body, collision_constraint::CollisionConstraint, physics_constraint::PhysicsConstraint, collision};
 
-type CollisionKlMapKey = (u32, u32, IVec3, collision::CubeFeature, u32, u32, IVec3, collision::CubeFeature);
+type CollisionKlMapKey = (u32, u32, I16Vec3, collision::CubeFeature, u32, u32, I16Vec3, collision::CubeFeature);
 pub struct Solver {
 	collisions_kl_map: HashMap<CollisionKlMapKey, (Vec3, Vec3)>,
 }

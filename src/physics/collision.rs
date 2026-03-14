@@ -1,6 +1,6 @@
 use std::vec;
 
-use glam::{IVec3, Quat, U8Vec3, Vec3, Vec4};
+use glam::{I16Vec3, Quat, U8Vec3, Vec3, Vec4};
 
 use crate::{debug_draw, pose::Pose, voxels};
 use super::{physics_body, bvh};
@@ -20,8 +20,8 @@ pub struct Collision {
 	pub body_index2: u32,
 	pub sub_grid_index1: u32,
 	pub sub_grid_index2: u32,
-	pub voxel_pos1: IVec3,
-	pub voxel_pos2: IVec3,
+	pub voxel_pos1: I16Vec3,
+	pub voxel_pos2: I16Vec3,
 	pub feature1: CubeFeature,
 	pub feature2: CubeFeature,
 	pub collision1: Vec3,
@@ -261,9 +261,9 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 		let e1 = &physics_bodies[collision.body_index1 as usize];
 		let e2 = &physics_bodies[collision.body_index2 as usize];
 
-		debug_draw::line(collision.collision1, collision.collision2, Vec4::new(1.0, 0.0, 0.0, 1.0));
-		debug_draw::point(collision.collision1, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
-		debug_draw::point(collision.collision2, Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
+		debug_draw::line(collision.collision1, collision.collision2, &Vec4::new(1.0, 0.0, 0.0, 1.0));
+		debug_draw::point(collision.collision1, &Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
+		debug_draw::point(collision.collision2, &Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
 
 		match collision.feature1 {
 			CubeFeature::Vertex { xyz } => {
@@ -280,7 +280,7 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 				debug_draw::line(
 					e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v1 + collision.voxel_pos1.as_vec3()),
 					e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v2 + collision.voxel_pos1.as_vec3()),
-					Vec4::ONE
+					&Vec4::ONE
 				);
 			},
 			CubeFeature::Face { xyzs } => {
@@ -307,7 +307,7 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 				debug_draw::line(
 					e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v1 + collision.voxel_pos2.as_vec3()),
 					e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v2 + collision.voxel_pos2.as_vec3()),
-					Vec4::ONE
+					&Vec4::ONE
 				);
 			},
 			CubeFeature::Face { xyzs } => {
@@ -323,13 +323,13 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 	collisions
 }
 
-fn get_collision(pose: &Pose, voxels: &voxels::Voxels, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, to_global: &Pose) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature, IVec3)> {
+fn get_collision(pose: &Pose, voxels: &voxels::Voxels, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, to_global: &Pose) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature, I16Vec3)> {
 	let mut collisions = vec![];
 	for x in -1..2 {
 		for y in -1..2 {
 			for z in -1..2 {
-				let vec = IVec3::new(x, y, z);
-				if voxels.get_voxel(pose.translation.floor().as_ivec3() + vec).is_some() {
+				let vec = I16Vec3::new(x, y, z);
+				if voxels.get_voxel(pose.translation.floor().as_i16vec3() + vec).is_some() {
 					let shift = Pose::new(pose.translation.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5), Quat::IDENTITY);
 					get_collision_1x1x1_voxel(
 						&(shift.inverse() * pose),
@@ -341,7 +341,7 @@ fn get_collision(pose: &Pose, voxels: &voxels::Voxels, separating_axes: &Vec<((f
 							c.1,
 							shift * c.2,
 							c.3,
-							pose.translation.floor().as_ivec3() + vec
+							pose.translation.floor().as_i16vec3() + vec
 						))
 					});
 				}

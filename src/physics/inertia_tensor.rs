@@ -79,9 +79,9 @@ impl InertiaTensor {
 			eigenvectors.2.normalize() * ((6.0 / mass) * (eigenvalues.0 + eigenvalues.1 - eigenvalues.2)).sqrt()
 		);
 		debug_draw::rectangular_prism_from_vec(
-			pos + (box_size_vec.0 + box_size_vec.1 + box_size_vec.2) / -2.0,
-			box_size_vec,
-			Vec4::new(1.0, 0.2, 0.2, 0.2),
+			&(pos + (box_size_vec.0 + box_size_vec.1 + box_size_vec.2) / -2.0),
+			&box_size_vec,
+			&Vec4::new(1.0, 0.2, 0.2, 0.2),
 			true
 		);
 	}

@@ -1,6 +1,6 @@
 use std::{cell::Cell, collections::HashMap, sync::Arc};
 
-use glam::{I64Vec3, IVec3, Mat4, Quat, Vec3};
+use glam::{I64Vec3, I16Vec3, Mat4, Quat, Vec3};
 use crate::{camera, gpu_objects::mesh::{self, GetMesh}, pose::Pose, voxels};
 
 use super::inertia_tensor::InertiaTensor;
@@ -62,27 +62,27 @@ impl PhysicsBodySubGrid {
 		vec![mesh.unwrap()]
 	}
 
-	pub fn add_voxel(&mut self, pos: IVec3, voxel: voxels::Voxel) {
+	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: voxels::Voxel) {
 		self.mesh.set(None);
 		self.mass += voxel.mass as u64;
-		self.voxel_center_of_mass_times_mass += (voxel.mass as i32 * pos).as_i64vec3();
+		self.voxel_center_of_mass_times_mass += voxel.mass as i64 * pos.as_i64vec3();
 		self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		if let Some(old_voxel) = self.voxels.add_voxel(pos, voxel) {
-			self.voxel_center_of_mass_times_mass -= (old_voxel.mass as i32 * pos).as_i64vec3();
+			self.voxel_center_of_mass_times_mass -= old_voxel.mass as i64 * pos.as_i64vec3();
 			self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		}
 	}
 
-	pub fn remove_voxel(&mut self, pos: &IVec3) {
+	pub fn remove_voxel(&mut self, pos: &I16Vec3) {
 		if let Some(voxel) = self.voxels.remove_voxel(pos) {
 			self.mesh.set(None);
 			self.mass -= voxel.mass as u64;
-			self.voxel_center_of_mass_times_mass -= (voxel.mass as i32 * pos).as_i64vec3();
+			self.voxel_center_of_mass_times_mass -= voxel.mass as i64 * pos.as_i64vec3();
 			self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		}
 	}
 
-	pub fn get_voxel(&self, pos: IVec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
+	pub fn get_voxel(&self, pos: I16Vec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
 	pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
 
 	pub fn body_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }

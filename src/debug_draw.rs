@@ -44,18 +44,18 @@ thread_local! {
 	static BUFFER: RefCell<DebugBatch> = RefCell::new(DebugBatch::new());
 }
 
-pub fn point(pos: Vec3, color: Vec4, size: f32) {
+pub fn point(pos: Vec3, color: &Vec4, size: f32) {
 	let s = size * 0.5;
-	line(pos - Vec3::X * s, pos + Vec3::X * s, color);
-	line(pos - Vec3::Y * s, pos + Vec3::Y * s, color);
-	line(pos - Vec3::Z * s, pos + Vec3::Z * s, color);
+	line(pos - Vec3::X * s, pos + Vec3::X * s, &color);
+	line(pos - Vec3::Y * s, pos + Vec3::Y * s, &color);
+	line(pos - Vec3::Z * s, pos + Vec3::Z * s, &color);
 }
 
-pub fn line(a: Vec3, b: Vec3, color: Vec4) {
+pub fn line(a: Vec3, b: Vec3, color: &Vec4) {
 	BUFFER.with(|buffer| {
 		let mut buffer = buffer.borrow_mut();
-		buffer.lines.push(DebugVertex { position: a.into(), color: color.into() });
-		buffer.lines.push(DebugVertex { position: b.into(), color: color.into() });
+		buffer.lines.push(DebugVertex { position: a.to_array(), color: color.to_array() });
+		buffer.lines.push(DebugVertex { position: b.to_array(), color: color.to_array() });
 	});
 }
 
@@ -80,16 +80,16 @@ pub fn aabb(min: Vec3, max: Vec3, color: Vec4) {
 		(6, 7)
 	];
 	for (i, j) in edges {
-		line(corners[i], corners[j], color);
+		line(corners[i], corners[j], &color);
 	}
 }
 
-pub fn quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: Vec4, filled: bool) {
+pub fn quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: &Vec4, filled: bool) {
 	if filled {
 		BUFFER.with(|buf| {
 			let mut buf = buf.borrow_mut();
 			for &vertex in &[a, b, c, a, c, d] {
-				buf.triangles.push(DebugVertex { position: vertex.into(), color: color.into() });
+				buf.triangles.push(DebugVertex { position: vertex.to_array(), color: color.to_array() });
 			}
 		});
 	} else {
@@ -100,60 +100,61 @@ pub fn quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: Vec4, filled: bool) {
 	}
 }
 
-pub fn rectangular_prism(pose: Pose, size: Vec3, color: Vec4, filled: bool) {
-	quad(
-		pose.translation,
-		pose * Vec3::X * size.x,
-		pose * (Vec3::X * size.x + Vec3::Y * size.y),
-		pose * Vec3::Y * size.y,
-		color,
-		filled
-	);
-	quad(
-		pose.translation,
-		pose * Vec3::X * size.x,
-		pose * (Vec3::X * size.x + Vec3::Z * size.z),
-		pose * Vec3::Z * size.z,
-		color,
-		filled
-	);
-	quad(
-		pose.translation,
-		pose * Vec3::Y * size.y,
-		pose * (Vec3::Y * size.y + Vec3::Z * size.z),
-		pose * Vec3::Z * size.z,
-		color,
-		filled
-	);
-	quad(
-		pose * size,
-		pose * (Vec3::Z * size.z + Vec3::Y * size.y),
-		pose * Vec3::Z * size.z,
-		pose * (Vec3::Z * size.z + Vec3::X * size.x),
-		color,
-		filled
-	);
-	quad(
-		pose * size,
-		pose * (Vec3::Z * size.z + Vec3::Y * size.y),
-		pose * Vec3::Y * size.y,
-		pose * (Vec3::X * size.x + Vec3::Y * size.y),
-		color,
-		filled
-	);
-	quad(
-		pose * size,
-		pose * (Vec3::Z * size.z + Vec3::X * size.x),
-		pose * Vec3::X * size.x,
-		pose * (Vec3::X * size.x + Vec3::Y * size.y),
-		color,
-		filled
-	);
+pub fn rectangular_prism(pose: &Pose, size: Vec3, color: &Vec4, filled: bool) {
+	rectangular_prism_from_vec(&pose.translation, &(pose.rotation * Vec3::X * size.x, pose.rotation * Vec3::Y * size.y, pose.rotation * Vec3::Z * size.z), color, filled);
+	// quad(
+	// 	pose.translation,
+	// 	pose * Vec3::X * size.x,
+	// 	pose * (Vec3::X * size.x + Vec3::Y * size.y),
+	// 	pose * Vec3::Y * size.y,
+	// 	color,
+	// 	filled
+	// );
+	// quad(
+	// 	pose.translation,
+	// 	pose * Vec3::X * size.x,
+	// 	pose * (Vec3::X * size.x + Vec3::Z * size.z),
+	// 	pose * Vec3::Z * size.z,
+	// 	color,
+	// 	filled
+	// );
+	// quad(
+	// 	pose.translation,
+	// 	pose * Vec3::Y * size.y,
+	// 	pose * (Vec3::Y * size.y + Vec3::Z * size.z),
+	// 	pose * Vec3::Z * size.z,
+	// 	color,
+	// 	filled
+	// );
+	// quad(
+	// 	pose * size,
+	// 	pose * (Vec3::Z * size.z + Vec3::Y * size.y),
+	// 	pose * Vec3::Z * size.z,
+	// 	pose * (Vec3::Z * size.z + Vec3::X * size.x),
+	// 	color,
+	// 	filled
+	// );
+	// quad(
+	// 	pose * size,
+	// 	pose * (Vec3::Z * size.z + Vec3::Y * size.y),
+	// 	pose * Vec3::Y * size.y,
+	// 	pose * (Vec3::X * size.x + Vec3::Y * size.y),
+	// 	color,
+	// 	filled
+	// );
+	// quad(
+	// 	pose * size,
+	// 	pose * (Vec3::Z * size.z + Vec3::X * size.x),
+	// 	pose * Vec3::X * size.x,
+	// 	pose * (Vec3::X * size.x + Vec3::Y * size.y),
+	// 	color,
+	// 	filled
+	// );
 }
 
-pub fn rectangular_prism_from_vec(pos: Vec3, size: (Vec3, Vec3, Vec3), color: Vec4, filled: bool) {
+pub fn rectangular_prism_from_vec(pos: &Vec3, size: &(Vec3, Vec3, Vec3), color: &Vec4, filled: bool) {
 	quad(
-		pos,
+		*pos,
 		pos + size.0,
 		pos + size.0 + size.1,
 		pos + size.1,
@@ -161,7 +162,7 @@ pub fn rectangular_prism_from_vec(pos: Vec3, size: (Vec3, Vec3, Vec3), color: Ve
 		filled
 	);
 	quad(
-		pos,
+		*pos,
 		pos + size.0,
 		pos + size.0 + size.2,
 		pos + size.2,
@@ -169,7 +170,7 @@ pub fn rectangular_prism_from_vec(pos: Vec3, size: (Vec3, Vec3, Vec3), color: Ve
 		filled
 	);
 	quad(
-		pos,
+		*pos,
 		pos + size.1,
 		pos + (size.1 + size.2),
 		pos + size.2,

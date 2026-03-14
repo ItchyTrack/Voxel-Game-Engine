@@ -1,4 +1,4 @@
-use glam::{IVec3, Vec3};
+use glam::{I16Vec3, Vec3};
 use wgpu::util::DeviceExt;
 use std::cell::Cell;
 use bimap::BiHashMap;
@@ -45,7 +45,7 @@ impl VoxelPalette {
 pub struct Voxels {
 	voxels: GridTree<u16>,
 	voxel_palette: VoxelPalette,
-	bounding_box: Cell<Option<(IVec3, IVec3)>>,
+	bounding_box: Cell<Option<(I16Vec3, I16Vec3)>>,
 	bounding_box_dirty: Cell<bool>,
 }
 
@@ -58,7 +58,7 @@ impl Voxels {
 			bounding_box_dirty: Cell::new(false)
 		}
 	}
-	pub fn add_voxel(&mut self, pos: IVec3, voxel: Voxel) -> Option<&Voxel> {
+	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<&Voxel> {
 		match self.bounding_box.get() {
 			Some((min, max)) => {
 				self.bounding_box.set(Some((min.min(pos), max.max(pos))));
@@ -71,17 +71,17 @@ impl Voxels {
 		self.voxel_palette.get_voxel(out)
 	}
 
-	pub fn remove_voxel(&mut self, pos: &IVec3) -> Option<&Voxel> {
+	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<&Voxel> {
 		self.bounding_box_dirty.set(true);
 		self.voxel_palette.get_voxel(self.voxels.remove(pos)?)
 	}
 
-	pub fn get_voxel(&self, pos: IVec3) -> Option<&Voxel> {
+	pub fn get_voxel(&self, pos: I16Vec3) -> Option<&Voxel> {
 			self.voxel_palette.get_voxel(*self.voxels.get(&pos)?)
 		}
 	pub fn get_voxels(&self) -> &GridTree<u16> { &self.voxels }
 
-	pub fn get_bounding_box(&self) -> Option<(IVec3, IVec3)> {
+	pub fn get_bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
 		if self.bounding_box_dirty.get() {
 			self.bounding_box_dirty.set(false);
 			self.bounding_box.set(self.voxels.iter().fold(None, |bb, (p, _)| {
@@ -151,7 +151,7 @@ impl mesh::GetMesh for Voxels {
 				color: f32_color,
 				normal: [0.0, 0.0, 0.0]
 			});
-			if !self.voxels.contains_key(&(pos + IVec3::X)) {
+			if !self.voxels.contains_key(&(pos + I16Vec3::X)) {
 				indexes.push(start_verties + 5); // +x
 				indexes.push(start_verties + 4);
 				indexes.push(start_verties + 7);
@@ -159,7 +159,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(start_verties + 1);
 				indexes.push(start_verties + 4);
 			}
-			if !self.voxels.contains_key(&(pos - IVec3::X)) {
+			if !self.voxels.contains_key(&(pos - I16Vec3::X)) {
 				indexes.push(start_verties + 0); // -x
 				indexes.push(start_verties + 3);
 				indexes.push(start_verties + 2);
@@ -167,7 +167,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(start_verties + 3);
 				indexes.push(start_verties + 6);
 			}
-			if !self.voxels.contains_key(&(pos + IVec3::Y)) {
+			if !self.voxels.contains_key(&(pos + I16Vec3::Y)) {
 				indexes.push(start_verties + 7); // +y
 				indexes.push(start_verties + 4);
 				indexes.push(start_verties + 6);
@@ -175,7 +175,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(start_verties + 2);
 				indexes.push(start_verties + 6);
 			}
-			if !self.voxels.contains_key(&(pos - IVec3::Y)) {
+			if !self.voxels.contains_key(&(pos - I16Vec3::Y)) {
 				indexes.push(start_verties + 0); // -y
 				indexes.push(start_verties + 1);
 				indexes.push(start_verties + 3);
@@ -183,7 +183,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(start_verties + 5);
 				indexes.push(start_verties + 3);
 			}
-			if !self.voxels.contains_key(&(pos + IVec3::Z)) {
+			if !self.voxels.contains_key(&(pos + I16Vec3::Z)) {
 				indexes.push(start_verties + 7); // +z
 				indexes.push(start_verties + 6);
 				indexes.push(start_verties + 5);
@@ -191,7 +191,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(start_verties + 3);
 				indexes.push(start_verties + 5);
 			}
-			if !self.voxels.contains_key(&(pos - IVec3::Z)) {
+			if !self.voxels.contains_key(&(pos - I16Vec3::Z)) {
 				indexes.push(start_verties + 0); // -z
 				indexes.push(start_verties + 2);
 				indexes.push(start_verties + 1);

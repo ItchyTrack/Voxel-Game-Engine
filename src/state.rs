@@ -1,6 +1,6 @@
 use std::{f32, sync::Arc};
 
-use glam::{IVec3, Mat4, Quat, Vec3};
+use glam::{I16Vec3, Mat4, Quat, Vec3};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
 use crate::{camera, entity_component_system, gpu_objects::mesh, physics::{physics_engine::PhysicsEngine, physics_body::PhysicsBody}, pose::Pose, renderer::Renderer, voxels};
@@ -56,7 +56,7 @@ impl State {
 		})
 	}
 
-	fn make_ball(physics_body: &mut PhysicsBody, radius: i32) {
+	fn make_ball(physics_body: &mut PhysicsBody, radius: i16) {
 		{
 			let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
 			let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
@@ -64,9 +64,9 @@ impl State {
 			for x in -radius..radius + 1 {
 				for y in -0..radius + 1 {
 					for z in -radius..radius + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
+						if I16Vec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
 							sub_grid.add_voxel(
-								IVec3::new(x, y + 2, z),
+								I16Vec3::new(x, y + 2, z),
 								voxels::Voxel{ color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
@@ -80,9 +80,9 @@ impl State {
 			for x in -radius..radius + 1 {
 				for y in -radius..0 {
 					for z in -radius..radius + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
+						if I16Vec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
 							sub_grid.add_voxel(
-								IVec3::new(x, y + 2, z),
+								I16Vec3::new(x, y + 2, z),
 								voxels::Voxel{ color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
@@ -145,7 +145,7 @@ impl State {
 					let sub_grid_id = physics_body.add_sub_grid(Pose::new(translation, rotation));
 					let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
 					sub_grid.add_voxel(
-						IVec3::ZERO,
+						I16Vec3::ZERO,
 						voxels::Voxel {
 							color: [
 								((normal.x * 0.5 + 0.5) * 255.0) as u8,
@@ -274,18 +274,18 @@ impl State {
 			let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
 			for x in -15..16 {
 				for y in 0..20 {
-					sub_grid.add_voxel(IVec3::new(x, y, -10), voxels::Voxel{ color: [(x * 32 % 255 * 0) as u8, 0, (y * 32 % 255) as u8, 1], mass: 100 });
+					sub_grid.add_voxel(I16Vec3::new(x, y, -10), voxels::Voxel{ color: [(x * 32 % 255 * 0) as u8, 0, (y * 32 % 255) as u8, 1], mass: 100 });
 				}
 			}
 			for x in -15..16 {
 				for z in -10..200 {
-					sub_grid.add_voxel(IVec3::new(x, -(z + 10) / 3, z), voxels::Voxel{ color: [(x * 32 % 255 * 0) as u8, 0, (z * 32 % 255) as u8, 1], mass: 100 });
+					sub_grid.add_voxel(I16Vec3::new(x, -(z + 10) / 3, z), voxels::Voxel{ color: [(x * 32 % 255 * 0) as u8, 0, (z * 32 % 255) as u8, 1], mass: 100 });
 				}
 			}
 			for y in 0..15 {
 				for z in -10..200 {
-					sub_grid.add_voxel(IVec3::new(-16, -(z + 10) / 3 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
-					sub_grid.add_voxel(IVec3::new(16, -(z + 10) / 3 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
+					sub_grid.add_voxel(I16Vec3::new(-16, -(z + 10) / 3 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
+					sub_grid.add_voxel(I16Vec3::new(16, -(z + 10) / 3 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
 				}
 			}
 			physics_body.is_static = true;
@@ -293,7 +293,7 @@ impl State {
 		}
 		// ------------------------------ Ball ------------------------------
 		for x in -1..2 {
-			for y in -1..2 {
+			for y in -1..6 {
 				for z in -1..2 {
 					let r = 4;
 					let physics_body_id = physics_engine.add_physics_body();
@@ -382,6 +382,10 @@ impl State {
 		let mut rendering_meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
 
 		// for physics_body in self.physics_engine.physics_bodies() {
+			// if physics_body.is_static { continue; }
+			// for sub_grid in physics_body.sub_grids() {
+			// 	sub_grid.get_voxels().render_debug(&(physics_body.pose * sub_grid.pose));
+			// }
 		// 	physics_body.render_debug_inertia_box();
 		// }
 		if let Some(player_camera) = self.ecs.get_component(self.player_id) {
