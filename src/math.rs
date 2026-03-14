@@ -1,4 +1,4 @@
-use std::{ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign}};
+use std::ops::*;
 use core::fmt;
 use glam::{Mat3, Quat, Vec3};
 
@@ -119,7 +119,7 @@ impl Vec6 {
 impl Add<Self> for Vec6 {
 	type Output = Self;
 	#[inline]
-	fn add(self, rhs: Self) -> Self {
+	fn add(self, rhs: Self) -> Self::Output {
 		Self {data: std::array::from_fn(|i| self.data[i].add(rhs.data[i])) }
 	}
 }
@@ -127,7 +127,7 @@ impl Add<Self> for Vec6 {
 impl Add<&Self> for Vec6 {
 	type Output = Self;
 	#[inline]
-	fn add(self, rhs: &Self) -> Self {
+	fn add(self, rhs: &Self) -> Self::Output {
 		self.add(*rhs)
 	}
 }
@@ -135,7 +135,7 @@ impl Add<&Self> for Vec6 {
 impl Add<Self> for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn add(self, rhs: Self) -> Vec6 {
+	fn add(self, rhs: Self) -> Self::Output {
 		(*self).add(rhs)
 	}
 }
@@ -143,7 +143,7 @@ impl Add<Self> for &Vec6 {
 impl Add<&Self> for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn add(self, rhs: &Self) -> Vec6 {
+	fn add(self, rhs: &Self) -> Self::Output {
 		(*self).add(*rhs)
 	}
 }
@@ -167,7 +167,7 @@ impl AddAssign<&Self> for Vec6 {
 impl Sub<Self> for Vec6 {
 	type Output = Self;
 	#[inline]
-	fn sub(self, rhs: Self) -> Self {
+	fn sub(self, rhs: Self) -> Self::Output {
 		Self {data: std::array::from_fn(|i| self.data[i].sub(rhs.data[i])) }
 	}
 }
@@ -175,7 +175,7 @@ impl Sub<Self> for Vec6 {
 impl Sub<&Self> for Vec6 {
 	type Output = Self;
 	#[inline]
-	fn sub(self, rhs: &Self) -> Self {
+	fn sub(self, rhs: &Self) -> Self::Output {
 		self.sub(*rhs)
 	}
 }
@@ -183,7 +183,7 @@ impl Sub<&Self> for Vec6 {
 impl Sub<Self> for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn sub(self, rhs: Self) -> Vec6 {
+	fn sub(self, rhs: Self) -> Self::Output {
 		(*self).sub(rhs)
 	}
 }
@@ -191,7 +191,7 @@ impl Sub<Self> for &Vec6 {
 impl Sub<&Self> for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn sub(self, rhs: &Self) -> Vec6 {
+	fn sub(self, rhs: &Self) -> Self::Output {
 		(*self).sub(*rhs)
 	}
 }
@@ -215,7 +215,7 @@ impl SubAssign<&Self> for Vec6 {
 impl Mul<f32> for Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: f32) -> Vec6 {
+	fn mul(self, rhs: f32) -> Self::Output {
 		Vec6::from_array(std::array::from_fn(|i| rhs * self.get(i)))
 	}
 }
@@ -223,7 +223,7 @@ impl Mul<f32> for Vec6 {
 impl Mul<&f32> for Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: &f32) -> Vec6 {
+	fn mul(self, rhs: &f32) -> Self::Output {
 		self.mul(*rhs)
 	}
 }
@@ -231,14 +231,14 @@ impl Mul<&f32> for Vec6 {
 impl Mul<f32> for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: f32) -> Vec6 {
+	fn mul(self, rhs: f32) -> Self::Output {
 		(*self).mul(rhs)
 	}
 }
 impl Mul<&f32> for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: &f32) -> Vec6 {
+	fn mul(self, rhs: &f32) -> Self::Output {
 		(*self).mul(*rhs)
 	}
 }
@@ -246,7 +246,7 @@ impl Mul<&f32> for &Vec6 {
 impl Mul<Vec6> for f32 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: Vec6) -> Vec6 {
+	fn mul(self, rhs: Vec6) -> Self::Output {
 		rhs.mul(self)
 	}
 }
@@ -254,7 +254,7 @@ impl Mul<Vec6> for f32 {
 impl Mul<&Vec6> for f32 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: &Vec6) -> Vec6 {
+	fn mul(self, rhs: &Vec6) -> Self::Output {
 		self.mul(*rhs)
 	}
 }
@@ -262,7 +262,7 @@ impl Mul<&Vec6> for f32 {
 impl Mul<Vec6> for &f32 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: Vec6) -> Vec6 {
+	fn mul(self, rhs: Vec6) -> Self::Output {
 		(*self).mul(rhs)
 	}
 }
@@ -270,7 +270,7 @@ impl Mul<Vec6> for &f32 {
 impl Mul<&Vec6> for &f32 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: &Vec6) -> Vec6 {
+	fn mul(self, rhs: &Vec6) -> Self::Output {
 		(*self).mul(*rhs)
 	}
 }
@@ -278,7 +278,7 @@ impl Mul<&Vec6> for &f32 {
 impl Div<f32> for Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn div(self, rhs: f32) -> Vec6 {
+	fn div(self, rhs: f32) -> Self::Output {
 		Vec6::from_array(std::array::from_fn(|i| self.get(i) / rhs))
 	}
 }
@@ -286,7 +286,7 @@ impl Div<f32> for Vec6 {
 impl Div<&f32> for Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn div(self, rhs: &f32) -> Vec6 {
+	fn div(self, rhs: &f32) -> Self::Output {
 		self.div(*rhs)
 	}
 }
@@ -294,7 +294,7 @@ impl Div<&f32> for Vec6 {
 impl Div<f32> for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn div(self, rhs: f32) -> Vec6 {
+	fn div(self, rhs: f32) -> Self::Output {
 		(*self).div(rhs)
 	}
 }
@@ -302,7 +302,7 @@ impl Div<f32> for &Vec6 {
 impl Div<&f32> for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn div(self, rhs: &f32) -> Vec6 {
+	fn div(self, rhs: &f32) -> Self::Output {
 		(*self).div(*rhs)
 	}
 }
@@ -310,7 +310,7 @@ impl Div<&f32> for &Vec6 {
 impl Neg for Vec6 {
 	type Output = Self;
 	#[inline]
-	fn neg(self) -> Self {
+	fn neg(self) -> Self::Output {
 		Vec6::from_array(std::array::from_fn(|i| -self.get(i)))
 	}
 }
@@ -318,7 +318,7 @@ impl Neg for Vec6 {
 impl Neg for &Vec6 {
 	type Output = Vec6;
 	#[inline]
-	fn neg(self) -> Vec6 {
+	fn neg(self) -> Self::Output {
 		(*self).neg()
 	}
 }
@@ -479,7 +479,7 @@ impl Mat6 {
 impl Add<Self> for Mat6 {
 	type Output = Self;
 	#[inline]
-	fn add(self, rhs: Self) -> Self {
+	fn add(self, rhs: Self) -> Self::Output {
 		Self::from_array(std::array::from_fn(|i| self.col(i) + rhs.col(i)))
 	}
 }
@@ -487,7 +487,7 @@ impl Add<Self> for Mat6 {
 impl Add<&Self> for Mat6 {
 	type Output = Self;
 	#[inline]
-	fn add(self, rhs: &Self) -> Self {
+	fn add(self, rhs: &Self) -> Self::Output {
 		self.add(*rhs)
 	}
 }
@@ -495,7 +495,7 @@ impl Add<&Self> for Mat6 {
 impl Add<Self> for &Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn add(self, rhs: Self) -> Mat6 {
+	fn add(self, rhs: Self) -> Self::Output {
 		(*self).add(rhs)
 	}
 }
@@ -503,7 +503,7 @@ impl Add<Self> for &Mat6 {
 impl Add<&Self> for &Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn add(self, rhs: &Self) -> Mat6 {
+	fn add(self, rhs: &Self) -> Self::Output {
 		(*self).add(*rhs)
 	}
 }
@@ -527,7 +527,7 @@ impl AddAssign<&Self> for Mat6 {
 impl Mul<Vec6> for Mat6 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: Vec6) -> Vec6 {
+	fn mul(self, rhs: Vec6) -> Self::Output {
 		Vec6::from_array(std::array::from_fn(|i| self.row(i).dot(&rhs)))
 	}
 }
@@ -535,7 +535,7 @@ impl Mul<Vec6> for Mat6 {
 impl Mul<&Vec6> for Mat6 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: &Vec6) -> Vec6 {
+	fn mul(self, rhs: &Vec6) -> Self::Output {
 		self.mul(*rhs)
 	}
 }
@@ -543,14 +543,14 @@ impl Mul<&Vec6> for Mat6 {
 impl Mul<Vec6> for &Mat6 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: Vec6) -> Vec6 {
+	fn mul(self, rhs: Vec6) -> Self::Output {
 		(*self).mul(rhs)
 	}
 }
 impl Mul<&Vec6> for &Mat6 {
 	type Output = Vec6;
 	#[inline]
-	fn mul(self, rhs: &Vec6) -> Vec6 {
+	fn mul(self, rhs: &Vec6) -> Self::Output {
 		(*self).mul(*rhs)
 	}
 }
@@ -558,7 +558,7 @@ impl Mul<&Vec6> for &Mat6 {
 impl Mul<f32> for Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn mul(self, rhs: f32) -> Mat6 {
+	fn mul(self, rhs: f32) -> Self::Output {
 		Mat6::from_array(std::array::from_fn(|i| rhs * self.matrix[i]))
 	}
 }
@@ -566,7 +566,7 @@ impl Mul<f32> for Mat6 {
 impl Mul<&f32> for Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn mul(self, rhs: &f32) -> Mat6 {
+	fn mul(self, rhs: &f32) -> Self::Output {
 		self.mul(*rhs)
 	}
 }
@@ -574,7 +574,7 @@ impl Mul<&f32> for Mat6 {
 impl Mul<f32> for &Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn mul(self, rhs: f32) -> Mat6 {
+	fn mul(self, rhs: f32) -> Self::Output {
 		(*self).mul(rhs)
 	}
 }
@@ -582,7 +582,7 @@ impl Mul<f32> for &Mat6 {
 impl Mul<&f32> for &Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn mul(self, rhs: &f32) -> Mat6 {
+	fn mul(self, rhs: &f32) -> Self::Output {
 		(*self).mul(*rhs)
 	}
 }
@@ -590,7 +590,7 @@ impl Mul<&f32> for &Mat6 {
 impl Mul<Mat6> for f32 {
 	type Output = Mat6;
 	#[inline]
-	fn mul(self, rhs: Mat6) -> Mat6 {
+	fn mul(self, rhs: Mat6) -> Self::Output {
 		rhs.mul(self)
 	}
 }
@@ -598,7 +598,7 @@ impl Mul<Mat6> for f32 {
 impl Mul<&Mat6> for f32 {
 	type Output = Mat6;
 	#[inline]
-	fn mul(self, rhs: &Mat6) -> Mat6 {
+	fn mul(self, rhs: &Mat6) -> Self::Output {
 		self.mul(*rhs)
 	}
 }
@@ -606,7 +606,7 @@ impl Mul<&Mat6> for f32 {
 impl Mul<Mat6> for &f32 {
 	type Output = Mat6;
 	#[inline]
-	fn mul(self, rhs: Mat6) -> Mat6 {
+	fn mul(self, rhs: Mat6) -> Self::Output {
 		(*self).mul(rhs)
 	}
 }
@@ -614,7 +614,7 @@ impl Mul<Mat6> for &f32 {
 impl Mul<&Mat6> for &f32 {
 	type Output = Mat6;
 	#[inline]
-	fn mul(self, rhs: &Mat6) -> Mat6 {
+	fn mul(self, rhs: &Mat6) -> Self::Output {
 		(*self).mul(*rhs)
 	}
 }
@@ -622,7 +622,7 @@ impl Mul<&Mat6> for &f32 {
 impl Div<f32> for Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn div(self, rhs: f32) -> Mat6 {
+	fn div(self, rhs: f32) -> Self::Output {
 		Mat6::from_array(std::array::from_fn(|i| self.matrix[i] / rhs))
 	}
 }
@@ -630,7 +630,7 @@ impl Div<f32> for Mat6 {
 impl Div<&f32> for Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn div(self, rhs: &f32) -> Mat6 {
+	fn div(self, rhs: &f32) -> Self::Output {
 		self.div(*rhs)
 	}
 }
@@ -638,7 +638,7 @@ impl Div<&f32> for Mat6 {
 impl Div<f32> for &Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn div(self, rhs: f32) -> Mat6 {
+	fn div(self, rhs: f32) -> Self::Output {
 		(*self).div(rhs)
 	}
 }
@@ -646,7 +646,7 @@ impl Div<f32> for &Mat6 {
 impl Div<&f32> for &Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn div(self, rhs: &f32) -> Mat6 {
+	fn div(self, rhs: &f32) -> Self::Output {
 		(*self).div(*rhs)
 	}
 }
@@ -654,7 +654,7 @@ impl Div<&f32> for &Mat6 {
 impl Neg for Mat6 {
 	type Output = Self;
 	#[inline]
-	fn neg(self) -> Self {
+	fn neg(self) -> Self::Output {
 		Mat6::from_array(std::array::from_fn(|i| -self.col(i)))
 	}
 }
@@ -662,7 +662,7 @@ impl Neg for Mat6 {
 impl Neg for &Mat6 {
 	type Output = Mat6;
 	#[inline]
-	fn neg(self) -> Mat6 {
+	fn neg(self) -> Self::Output {
 		(*self).neg()
 	}
 }

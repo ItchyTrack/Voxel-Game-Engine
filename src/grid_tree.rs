@@ -20,7 +20,7 @@ pub enum ChildCell<T: Copy + Clone + Debug>
 
 #[derive(Debug)]
 struct GridTreeNode<T: Copy + Clone + Debug> {
-    contents: [ChildCell<T>; SIZE_USIZE_CUBED], // wish this was an array :(
+    contents: [ChildCell<T>; SIZE_USIZE_CUBED],
 	child_count: u32,
 	parent: Option<u32>,
 	pos: IVec3,

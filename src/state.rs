@@ -93,7 +93,7 @@ impl State {
 	}
 
 	fn make_smooth_ball(physics_body: &mut PhysicsBody, radius: i32){
-		let face_resolution = (radius * 1).max(1);
+		let face_resolution = (radius * 2).max(1);
 		let sphere_radius = radius as f32 - 0.5;
 		let voxel_center = Vec3::splat(0.5);
 
@@ -279,45 +279,45 @@ impl State {
 			}
 			for x in -15..16 {
 				for z in -10..200 {
-					sub_grid.add_voxel(IVec3::new(x, -(z + 10) / 4, z), voxels::Voxel{ color: [(x * 32 % 255 * 0) as u8, 0, (z * 32 % 255) as u8, 1], mass: 100 });
+					sub_grid.add_voxel(IVec3::new(x, -(z + 10) / 3, z), voxels::Voxel{ color: [(x * 32 % 255 * 0) as u8, 0, (z * 32 % 255) as u8, 1], mass: 100 });
 				}
 			}
 			for y in 0..15 {
 				for z in -10..200 {
-					sub_grid.add_voxel(IVec3::new(-16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
-					sub_grid.add_voxel(IVec3::new(16, -(z + 10) / 4 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
+					sub_grid.add_voxel(IVec3::new(-16, -(z + 10) / 3 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
+					sub_grid.add_voxel(IVec3::new(16, -(z + 10) / 3 + y, z), voxels::Voxel{ color: [0, 0, (z * 32 % 255) as u8, 1], mass: 100 });
 				}
 			}
 			physics_body.is_static = true;
 			physics_body.pose.translation.y += 2.0;
 		}
 		// ------------------------------ Ball ------------------------------
-		for x in -1..2 {
-			for y in -1..2 {
-				for z in -1..2 {
-					let r = 4;
-					let physics_body_id = physics_engine.add_physics_body();
-					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
-					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
-					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
-					State::make_ball(physics_body, r);
-				}
-			}
-		}
-		// for x in -1..1 {
-		// 	for y in -1..1 {
-		// 		for z in -1..1 {
+		// for x in -1..2 {
+		// 	for y in -1..2 {
+		// 		for z in -1..2 {
 		// 			let r = 4;
 		// 			let physics_body_id = physics_engine.add_physics_body();
 		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
 		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
 		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
 		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
-		// 			State::make_smooth_ball(physics_body, r);
+		// 			State::make_ball(physics_body, r);
 		// 		}
 		// 	}
 		// }
+		for x in -1..0 {
+			for y in -1..0 {
+				for z in -1..0 {
+					let r = 4;
+					let physics_body_id = physics_engine.add_physics_body();
+					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
+					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
+					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
+					State::make_smooth_ball(physics_body, r);
+				}
+			}
+		}
 
 		// ------------------------------ Grid Tesing ------------------------------
 		// for x in 0..5 {
@@ -381,8 +381,12 @@ impl State {
 	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
 		let mut rendering_meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
 
+		for physics_body in self.physics_engine.physics_bodies() {
+			// physics_body.render_debug_inertiab_box();
+		}
 		if let Some(player_camera) = self.ecs.get_component(self.player_id) {
 			for physics_body in self.physics_engine.physics_bodies() {
+				// physics_body.render_debug_inertiab_box();
 				rendering_meshes.extend(physics_body.get_rendering_meshes(&self.renderer.device, &player_camera));
 			}
 			return self.renderer.render(&player_camera.build_view_projection_matrix(), &rendering_meshes);

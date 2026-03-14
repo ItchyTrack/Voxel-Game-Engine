@@ -1,44 +1,19 @@
 use std::{cell::Cell, collections::HashMap, sync::Arc};
 
-use glam::{DMat3, DVec3, IVec3, Mat3, Mat4, Quat, Vec3};
-use crate::{camera, gpu_objects::mesh::{self, GetMesh}, pose::Pose, voxels};
+use glam::{I64Vec3, IVec3, Mat4, Quat, Vec3, Vec4};
+use crate::{camera, debug_draw, gpu_objects::mesh::{self, GetMesh}, pose::Pose, voxels};
+
+use super::inertia_tensor::InertiaTensor;
 
 pub struct PhysicsBodySubGrid {
 	pub pose: Pose,
 	voxels: voxels::Voxels,
 	mesh: Cell<Option<Arc<mesh::Mesh>>>,
-	mass: f64,
-	voxel_center_of_mass_times_mass: DVec3,
-	inertia_tensor_at_zero: DMat3,
+	mass: u64,
+	voxel_center_of_mass_times_mass: I64Vec3,
+	inertia_tensor_at_zero: InertiaTensor,
 	id: u32,
 
-}
-
-// According to https://en.wikipedia.org/wiki/Moment_of_inertia#:~:text=in%20the%20body.-,Inertia%20tensor
-fn get_inertia_tensor_for_cube(pos: &IVec3, mass: u32) -> Mat3 {
-	let center_pos = pos.as_vec3() + Vec3::new(0.5, 0.5, 0.5);
-	let i_center = mass as f32 / 6.0;
-	let r2 = center_pos.length_squared();
-
-	let outer = Mat3::from_cols(
-		center_pos * center_pos.x,
-		center_pos * center_pos.y,
-		center_pos * center_pos.z,
-	);
-
-	let parallel_axis = mass as f32 * (r2 * Mat3::IDENTITY - outer);
-	Mat3::IDENTITY * i_center + parallel_axis
-}
-
-fn move_inertia_tensor_to_center_of_mass(inertia_tensor: DMat3, center_of_mass: DVec3, mass: f64) -> DMat3 {
-	inertia_tensor - ((DMat3::IDENTITY * center_of_mass.length_squared()) - DMat3::from_cols_array(&[
-	center_of_mass.x * center_of_mass.x, center_of_mass.x * center_of_mass.y, center_of_mass.x * center_of_mass.z,
-	center_of_mass.y * center_of_mass.x, center_of_mass.y * center_of_mass.y, center_of_mass.y * center_of_mass.z,
-	center_of_mass.z * center_of_mass.x, center_of_mass.z * center_of_mass.y, center_of_mass.z * center_of_mass.z])) * mass
-}
-
-fn combine_inertia_tensors(inertia_tensor_a: DMat3, inertia_tensor_b: DMat3) -> DMat3 {
-	inertia_tensor_a + inertia_tensor_b
 }
 
 impl PhysicsBodySubGrid {
@@ -47,9 +22,9 @@ impl PhysicsBodySubGrid {
 			pose: *pose,
 			voxels: voxels::Voxels::new(),
 			mesh: Cell::new(None),
-			mass: 0.0,
-			voxel_center_of_mass_times_mass: DVec3::ZERO,
-			inertia_tensor_at_zero: DMat3::ZERO,
+			mass: 0,
+			voxel_center_of_mass_times_mass: I64Vec3::ZERO,
+			inertia_tensor_at_zero: InertiaTensor::ZERO,
 			id: sub_grid_id,
 		}
 	}
@@ -58,20 +33,22 @@ impl PhysicsBodySubGrid {
 		self.id
 	}
 
+	pub fn get_body_center_of_mass(&self) -> Vec3 {
+		if self.mass == 0 {
+			Vec3::ZERO
+		} else {
+			self.local_to_body_vec(&(self.voxel_center_of_mass_times_mass.as_vec3() / self.mass as f32 + 0.5))
+		}
+	}
+
 	pub fn get_local_center_of_mass(&self) -> Vec3 {
-		if self.mass == 0.0 {
+		if self.mass == 0 {
 			Vec3::ZERO
 		} else {
-			(self.voxel_center_of_mass_times_mass / self.mass).as_vec3()
+			(self.voxel_center_of_mass_times_mass.as_vec3() / self.mass as f32) + 0.5
 		}
 	}
-	pub fn get_center_of_mass_time_mass(&self) -> Vec3 {
-		if self.mass == 0.0 {
-			Vec3::ZERO
-		} else {
-			self.voxel_center_of_mass_times_mass.as_vec3()
-		}
-	}
+
 	pub fn mass(&self) -> f32 { self.mass as f32 }
 
 	pub fn get_rendering_meshes(&self, device: &wgpu::Device, _camera: &camera::Camera) -> Vec<Arc<mesh::Mesh>> {
@@ -88,25 +65,21 @@ impl PhysicsBodySubGrid {
 
 	pub fn add_voxel(&mut self, pos: IVec3, voxel: voxels::Voxel) {
 		self.mesh.set(None);
-		let mass = voxel.mass as f64;
-		self.inertia_tensor_at_zero = combine_inertia_tensors(self.inertia_tensor_at_zero, get_inertia_tensor_for_cube(&pos, voxel.mass).as_dmat3());
-		self.voxel_center_of_mass_times_mass += mass * (pos.as_dvec3() + 0.5);
-		self.mass += mass;
+		self.mass += voxel.mass as u64;
+		self.voxel_center_of_mass_times_mass += (voxel.mass as i32 * pos).as_i64vec3();
+		self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		if let Some(old_voxel) = self.voxels.add_voxel(pos, voxel) {
-			let old_mass = old_voxel.mass as f64;
-			self.mass -= old_mass;
-			self.voxel_center_of_mass_times_mass -= old_mass * (pos.as_dvec3() + 0.5);
-			self.inertia_tensor_at_zero = combine_inertia_tensors(self.inertia_tensor_at_zero, -get_inertia_tensor_for_cube(&pos, old_voxel.mass).as_dmat3());
+			self.voxel_center_of_mass_times_mass -= (old_voxel.mass as i32 * pos).as_i64vec3();
+			self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		}
 	}
 
 	pub fn remove_voxel(&mut self, pos: &IVec3) {
 		if let Some(voxel) = self.voxels.remove_voxel(pos) {
 			self.mesh.set(None);
-			let mass = voxel.mass as f64;
-			self.mass -= mass;
-			self.voxel_center_of_mass_times_mass -= mass * (pos.as_dvec3() + 0.5);
-			self.inertia_tensor_at_zero = combine_inertia_tensors(self.inertia_tensor_at_zero, -get_inertia_tensor_for_cube(&pos, voxel.mass).as_dmat3());
+			self.mass -= voxel.mass as u64;
+			self.voxel_center_of_mass_times_mass -= (voxel.mass as i32 * pos).as_i64vec3();
+			self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		}
 	}
 
@@ -120,8 +93,21 @@ impl PhysicsBodySubGrid {
 	pub fn body_to_local_rot(&self, rot: &Quat) -> Quat { self.pose.inverse() * rot }
 	pub fn local_to_body_rot(&self, rot: &Quat) -> Quat { self.pose * rot }
 
-	pub fn get_inertia_tensor_at_center_of_mass(&self) -> Mat3 {
-		move_inertia_tensor_to_center_of_mass(self.inertia_tensor_at_zero, self.voxel_center_of_mass_times_mass / self.mass, self.mass).as_mat3()
+	pub fn get_inertia_tensor_at_body(&self) -> InertiaTensor {
+		let com = self.voxel_center_of_mass_times_mass.as_dvec3() / self.mass as f64 + 0.5;
+		self.inertia_tensor_at_zero.move_between_points(
+			&com,
+			&(self.body_to_local_vec(&self.pose.translation).as_dvec3() - com),
+			self.mass as f64
+		).get_rotated(self.pose.rotation.as_dquat())
+	}
+
+	pub fn get_inertia_tensor_at_zero(&self) -> &InertiaTensor {
+		&self.inertia_tensor_at_zero
+	}
+
+	pub fn get_inertia_tensor_at_center_of_mass(&self) -> InertiaTensor {
+		self.inertia_tensor_at_zero.move_to_center_of_mass(&(self.voxel_center_of_mass_times_mass.as_dvec3() / self.mass as f64), self.mass as f64)
 	}
 }
 
@@ -154,26 +140,46 @@ impl PhysicsBody {
 	}
 	pub fn mass(&self) -> f32 { self.sub_grids.first().unwrap().mass as f32 }
 	pub fn get_local_center_of_mass(&self) -> Vec3 {
-		let mut center_of_mass = Vec3::ZERO;
+		let mut center_of_mass_times_mass = Vec3::ZERO;
 		let mut mass_sum = 0.0;
 		for sub_grid in self.sub_grids.iter() {
-			center_of_mass += sub_grid.get_center_of_mass_time_mass();
+			center_of_mass_times_mass += sub_grid.get_body_center_of_mass() * sub_grid.mass();
 			mass_sum += sub_grid.mass();
 		}
-		center_of_mass / mass_sum
+		if mass_sum == 0.0 { return Vec3::ZERO; }
+		center_of_mass_times_mass / mass_sum
 	}
-	pub fn get_center_of_mass(&self) -> Vec3 {
-		let mut center_of_mass = Vec3::ZERO;
+	pub fn get_local_center_of_mass_and_mass(&self) -> (Vec3, f32) {
+		let mut center_of_mass_times_mass = Vec3::ZERO;
 		let mut mass_sum = 0.0;
 		for sub_grid in self.sub_grids.iter() {
-			center_of_mass += sub_grid.get_center_of_mass_time_mass();
+			center_of_mass_times_mass += sub_grid.get_body_center_of_mass() * sub_grid.mass();
 			mass_sum += sub_grid.mass();
 		}
-		self.pose.rotation * (center_of_mass / mass_sum)
+		if mass_sum == 0.0 { return (Vec3::ZERO, 0.0); }
+		(center_of_mass_times_mass / mass_sum, mass_sum)
 	}
-	pub fn rotational_inertia(&self) -> Mat3 {
-		let mat = self.sub_grids.first().unwrap().get_inertia_tensor_at_center_of_mass();
-		mat
+	pub fn get_global_center_of_mass(&self) -> Vec3 {
+		let mut center_of_mass_times_mass = Vec3::ZERO;
+		let mut mass_sum = 0.0;
+		for sub_grid in self.sub_grids.iter() {
+			center_of_mass_times_mass += sub_grid.get_body_center_of_mass() * sub_grid.mass();
+			mass_sum += sub_grid.mass();
+		}
+		if mass_sum == 0.0 { return Vec3::ZERO; }
+		self.pose.rotation * (center_of_mass_times_mass / mass_sum)
+	}
+	pub fn rotational_inertia(&self) -> InertiaTensor {
+		let (com, mass) = self.get_local_center_of_mass_and_mass();
+		let mut inertia_tensor_at_zero: InertiaTensor = InertiaTensor::ZERO;
+		for sub_grid in self.sub_grids.iter() {
+			inertia_tensor_at_zero += sub_grid.get_inertia_tensor_at_body();
+		}
+		inertia_tensor_at_zero.move_between_points(
+			&com.as_dvec3(),
+			&(self.world_to_local_vec(&self.pose.translation) - com).as_dvec3(),
+			mass as f64
+		).get_rotated(self.pose.rotation.as_dquat())
 	}
 
 	pub fn get_rendering_meshes(&self, device: &wgpu::Device, camera: &camera::Camera) -> Vec<(Arc<mesh::Mesh>, Mat4)> {
@@ -244,6 +250,10 @@ impl PhysicsBody {
 		}
 		(aabb_min, aabb_max)
 	}
+
+	// pub fn render_debug_inertiab_box(&self) {
+	// 	render_debug_inertiab_box(self.pose * self.get_local_center_of_mass(), self.rotational_inertia());
+	// }
 
 	pub fn world_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }
 	pub fn local_to_world(&self, other: &Pose) -> Pose { self.pose * other }

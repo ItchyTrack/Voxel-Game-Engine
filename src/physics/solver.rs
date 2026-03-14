@@ -30,7 +30,7 @@ impl Solver {
 
 	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32) {
 		let _zone = span!("Solve Collisions");
-		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
+		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_global_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
 		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies).iter().map(
 			|c| {
 				let body1 = &physics_bodies[c.body_index1 as usize];
@@ -58,9 +58,9 @@ impl Solver {
 		).collect();
 		self.collisions_kl_map.clear();
 		let y_all: Vec<Pose> = physics_bodies.iter().map(|physics_body| {
-			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return Pose::new(physics_body.get_center_of_mass(), Quat::IDENTITY) * physics_body.pose; }
+			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return Pose::new(physics_body.get_global_center_of_mass(), Quat::IDENTITY) * physics_body.pose; }
 			let gravity = -90.0;
-			let pos = physics_body.pose.translation + physics_body.velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_center_of_mass();
+			let pos = physics_body.pose.translation + physics_body.velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_global_center_of_mass();
 			let orientation = (Quat::from_scaled_axis(physics_body.angular_velocity * dt) * physics_body.pose.rotation).normalize();
 			Pose::new(pos, orientation)
 		}).collect();
@@ -74,7 +74,7 @@ impl Solver {
 				let physics_body = &physics_bodies[index];
 				if physics_body.is_static { continue; }
 
-				let m = Mat6::from_mat3(physics_body.mass() * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, physics_body.rotational_inertia());
+				let m = Mat6::from_mat3(physics_body.mass() * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, physics_body.rotational_inertia().mat.as_mat3());
 				let mut h: Mat6 = m / (dt * dt);
 				let mut f: Vec6 = h * Self::sub_state(&x_guess[index], &y_all[index]);
 
@@ -121,7 +121,7 @@ impl Solver {
 		// after post stabilize
 		for index in 0..physics_bodies.len() {
 			physics_bodies[index].pose.rotation = x_guess[index].rotation;
-			physics_bodies[index].pose.translation = x_guess[index].translation - physics_bodies[index].get_center_of_mass();
+			physics_bodies[index].pose.translation = x_guess[index].translation - physics_bodies[index].get_global_center_of_mass();
 		}
 		// save K and L
 		for collision_constraint in collision_constraints {
