@@ -29,14 +29,8 @@ pub struct Renderer {
 impl Renderer {
 	pub fn resize(&mut self, width: u32, height: u32) {
 		if width > 0 && height > 0 {
-			let max = 2048;
-			if width < height {
-				self.config.width = (height.min(max) * width) / height;
-				self.config.height = height.min(max);
-			} else {
-				self.config.width = width.min(max);
-				self.config.height = (width.min(max) * height) / width;
-			}
+			self.config.width = width;
+			self.config.height = height;
 
 			self.is_surface_configured = true;
 			self.surface.configure(&self.device, &self.config);
@@ -46,16 +40,8 @@ impl Renderer {
 
 	pub async fn new(window: Arc<Window>) -> anyhow::Result<Renderer> {
 		let mut size = window.inner_size();
-		let max = 2048;
 		size.width = size.width.max(1);
 		size.height = size.height.max(1);
-		if size.height > size.width {
-			size.width = (size.height.min(max) * size.width) / size.height;
-			size.height = size.height.min(max);
-		} else {
-			size.width = size.width.min(max);
-			size.height = (size.width.min(max) * size.height) / size.width;
-		}
 		// The instance is a handle to our GPU
 		// BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
 		let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
