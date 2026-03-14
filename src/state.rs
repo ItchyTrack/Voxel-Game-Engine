@@ -381,12 +381,11 @@ impl State {
 	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
 		let mut rendering_meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
 
-		for physics_body in self.physics_engine.physics_bodies() {
-			// physics_body.render_debug_inertiab_box();
-		}
+		// for physics_body in self.physics_engine.physics_bodies() {
+		// 	physics_body.render_debug_inertia_box();
+		// }
 		if let Some(player_camera) = self.ecs.get_component(self.player_id) {
 			for physics_body in self.physics_engine.physics_bodies() {
-				// physics_body.render_debug_inertiab_box();
 				rendering_meshes.extend(physics_body.get_rendering_meshes(&self.renderer.device, &player_camera));
 			}
 			return self.renderer.render(&player_camera.build_view_projection_matrix(), &rendering_meshes);

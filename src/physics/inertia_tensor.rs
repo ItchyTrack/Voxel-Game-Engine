@@ -1,6 +1,8 @@
 use std::ops::*;
 
-use glam::{DMat3, DQuat, DVec3};
+use glam::{DMat3, DQuat, DVec3, Vec3, Vec4};
+
+use crate::{debug_draw};
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct InertiaTensor {
@@ -55,7 +57,36 @@ impl InertiaTensor {
 			mat: DMat3::from_quat(rotation) * self.mat * DMat3::from_quat(rotation.inverse())
 		}
 	}
+
+	// The inertia tensor should already be at that pos.
+	pub fn render_debug_box(&self, mass: f32, pos: Vec3) {
+		use nalgebra;
+		let maxtrix = nalgebra::Matrix3::new(
+			self.mat.x_axis.x as f32, self.mat.x_axis.y as f32, self.mat.x_axis.z as f32,
+			self.mat.y_axis.x as f32, self.mat.y_axis.y as f32, self.mat.y_axis.z as f32,
+			self.mat.z_axis.x as f32, self.mat.z_axis.y as f32, self.mat.z_axis.z as f32
+		);
+		let eigen = nalgebra::SymmetricEigen::new(maxtrix);
+		let eigenvalues = (eigen.eigenvalues.x, eigen.eigenvalues.y, eigen.eigenvalues.z);
+		let eigenvectors = (
+			Vec3::new(eigen.eigenvectors[(0,0)], eigen.eigenvectors[(1,0)], eigen.eigenvectors[(2,0)]),
+			Vec3::new(eigen.eigenvectors[(0,1)], eigen.eigenvectors[(1,1)], eigen.eigenvectors[(2,1)]),
+			Vec3::new(eigen.eigenvectors[(0,2)], eigen.eigenvectors[(1,2)], eigen.eigenvectors[(2,2)])
+		);
+		let box_size_vec = (
+			eigenvectors.0.normalize() * ((6.0 / mass) * (eigenvalues.1 + eigenvalues.2 - eigenvalues.0)).sqrt(),
+			eigenvectors.1.normalize() * ((6.0 / mass) * (eigenvalues.0 + eigenvalues.2 - eigenvalues.1)).sqrt(),
+			eigenvectors.2.normalize() * ((6.0 / mass) * (eigenvalues.0 + eigenvalues.1 - eigenvalues.2)).sqrt()
+		);
+		debug_draw::rectangular_prism_from_vec(
+			pos + (box_size_vec.0 + box_size_vec.1 + box_size_vec.2) / -2.0,
+			box_size_vec,
+			Vec4::new(1.0, 0.2, 0.2, 0.2),
+			true
+		);
+	}
 }
+
 
 impl Add<Self> for InertiaTensor {
 	type Output = InertiaTensor;

@@ -1,6 +1,8 @@
 use glam::{Vec3, Vec4};
 use std::cell::RefCell;
 
+use crate::pose::Pose;
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DebugVertex {
@@ -96,6 +98,108 @@ pub fn quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: Vec4, filled: bool) {
 		line(c, d, color);
 		line(d, a, color);
 	}
+}
+
+pub fn rectangular_prism(pose: Pose, size: Vec3, color: Vec4, filled: bool) {
+	quad(
+		pose.translation,
+		pose * Vec3::X * size.x,
+		pose * (Vec3::X * size.x + Vec3::Y * size.y),
+		pose * Vec3::Y * size.y,
+		color,
+		filled
+	);
+	quad(
+		pose.translation,
+		pose * Vec3::X * size.x,
+		pose * (Vec3::X * size.x + Vec3::Z * size.z),
+		pose * Vec3::Z * size.z,
+		color,
+		filled
+	);
+	quad(
+		pose.translation,
+		pose * Vec3::Y * size.y,
+		pose * (Vec3::Y * size.y + Vec3::Z * size.z),
+		pose * Vec3::Z * size.z,
+		color,
+		filled
+	);
+	quad(
+		pose * size,
+		pose * (Vec3::Z * size.z + Vec3::Y * size.y),
+		pose * Vec3::Z * size.z,
+		pose * (Vec3::Z * size.z + Vec3::X * size.x),
+		color,
+		filled
+	);
+	quad(
+		pose * size,
+		pose * (Vec3::Z * size.z + Vec3::Y * size.y),
+		pose * Vec3::Y * size.y,
+		pose * (Vec3::X * size.x + Vec3::Y * size.y),
+		color,
+		filled
+	);
+	quad(
+		pose * size,
+		pose * (Vec3::Z * size.z + Vec3::X * size.x),
+		pose * Vec3::X * size.x,
+		pose * (Vec3::X * size.x + Vec3::Y * size.y),
+		color,
+		filled
+	);
+}
+
+pub fn rectangular_prism_from_vec(pos: Vec3, size: (Vec3, Vec3, Vec3), color: Vec4, filled: bool) {
+	quad(
+		pos,
+		pos + size.0,
+		pos + size.0 + size.1,
+		pos + size.1,
+		color,
+		filled
+	);
+	quad(
+		pos,
+		pos + size.0,
+		pos + size.0 + size.2,
+		pos + size.2,
+		color,
+		filled
+	);
+	quad(
+		pos,
+		pos + size.1,
+		pos + (size.1 + size.2),
+		pos + size.2,
+		color,
+		filled
+	);
+	quad(
+		pos + size.0 + size.1 + size.2,
+		pos + size.2 + size.1,
+		pos + size.2,
+		pos + size.2 + size.0,
+		color,
+		filled
+	);
+	quad(
+		pos + size.0 + size.1 + size.2,
+		pos + size.2 + size.1,
+		pos + size.1,
+		pos + size.0 + size.1,
+		color,
+		filled
+	);
+	quad(
+		pos + size.0 + size.1 + size.2,
+		pos + size.2 + size.0,
+		pos + size.0,
+		pos + size.0 + size.1,
+		color,
+		filled
+	);
 }
 
 pub fn take_batch() -> DebugBatch {
