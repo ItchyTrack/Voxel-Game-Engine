@@ -28,8 +28,6 @@ impl CollisionConstraint {
 
 impl PhysicsConstraint for CollisionConstraint {
 	fn init(&mut self, _initial_state_1: &Pose, _initial_state_2: &Pose) {
-		self.friction = 0.1;
-
 		let normal = (self.collision.collision2 - self.collision.collision1).normalize();
 		if normal.is_nan() { return; }
 

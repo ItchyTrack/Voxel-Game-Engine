@@ -140,6 +140,7 @@ impl Solver {
 		}
 	}
 }
+
 // From https://github.com/savant117/avbd-demo3d
 fn solve(a_lin: Mat3, a_ang: Mat3, a_cross: Mat3, b_lin: Vec3, b_ang: Vec3) -> (Vec3, Vec3) {
     // Extract elements from lower triangle storage
