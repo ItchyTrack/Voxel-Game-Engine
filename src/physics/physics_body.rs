@@ -1,7 +1,7 @@
 use std::{cell::Cell, collections::HashMap, sync::Arc};
 
-use glam::{I64Vec3, IVec3, Mat4, Quat, Vec3, Vec4};
-use crate::{camera, debug_draw, gpu_objects::mesh::{self, GetMesh}, pose::Pose, renderer, voxels};
+use glam::{I64Vec3, IVec3, Mat4, Quat, Vec3};
+use crate::{camera, gpu_objects::mesh::{self, GetMesh}, pose::Pose, voxels};
 
 use super::inertia_tensor::InertiaTensor;
 
@@ -215,8 +215,8 @@ impl PhysicsBody {
 		self.next_sub_grid_id - 1
 	}
 
-	pub fn remove_sub_grid(&mut self, physics_body_id: u32) {
-		let index = match self.sub_grids_id_to_index.remove(&physics_body_id) {
+	pub fn remove_sub_grid(&mut self, sub_grid_id: u32) {
+		let index = match self.sub_grids_id_to_index.remove(&sub_grid_id) {
 			Some(i) => i,
 			None => return,
 		};
@@ -227,13 +227,13 @@ impl PhysicsBody {
 		}
 	}
 
-	pub fn sub_grid(&self, physics_body_id: u32) -> Option<&PhysicsBodySubGrid> {
-		let index = *self.sub_grids_id_to_index.get(&physics_body_id)?;
+	pub fn sub_grid(&self, sub_grid_id: u32) -> Option<&PhysicsBodySubGrid> {
+		let index = *self.sub_grids_id_to_index.get(&sub_grid_id)?;
 		self.sub_grids.get(index as usize)
 	}
 
-	pub fn sub_grid_mut(&mut self, physics_body_id: u32) -> Option<&mut PhysicsBodySubGrid> {
-		let index = *self.sub_grids_id_to_index.get(&physics_body_id)?;
+	pub fn sub_grid_mut(&mut self, sub_grid_id: u32) -> Option<&mut PhysicsBodySubGrid> {
+		let index = *self.sub_grids_id_to_index.get(&sub_grid_id)?;
 		self.sub_grids.get_mut(index as usize)
 	}
 
@@ -263,6 +263,28 @@ impl PhysicsBody {
 			aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
 		}
 		(aabb_min, aabb_max)
+	}
+
+	pub fn sub_grid_aabb(&self, sub_grid_id: u32) -> Option<(Vec3, Vec3)> {
+		let sub_grid = self.sub_grids.get(sub_grid_id as usize)?;
+		let (min, max) = sub_grid.get_voxels().get_bounding_box().unwrap();
+		let min = min.as_vec3();
+		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
+		let corners = [
+			min,
+			Vec3::new(max.x, min.y, min.z),
+			Vec3::new(min.x, max.y, min.z),
+			Vec3::new(min.x, min.y, max.z),
+			Vec3::new(max.x, max.y, min.z),
+			Vec3::new(max.x, min.y, max.z),
+			Vec3::new(min.x, max.y, max.z),
+			max,
+		];
+		let rotated_corners = corners.map(|c| self.pose * sub_grid.pose * c);
+		Some((
+			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
+			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))
+		))
 	}
 
 	pub fn render_debug_inertia_box(&self) {

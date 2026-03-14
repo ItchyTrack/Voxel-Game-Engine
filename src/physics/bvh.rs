@@ -23,7 +23,7 @@ struct BVHNode {
 }
 
 impl BVHNode {
-	fn build_range(items: &mut [(u32, (Vec3, Vec3))], nodes: &mut Vec<BVHNode>, start: u32, end: u32) -> Self {
+	fn build_range<Index>(items: &mut [(Index, (Vec3, Vec3))], nodes: &mut Vec<BVHNode>, start: u32, end: u32) -> Self {
 		assert!(end > start);
 		let slice = &mut items[start as usize..end as usize];
 
@@ -80,13 +80,13 @@ impl BVHNode {
 	}
 }
 
-pub struct BVH {
+pub struct BVH<Index: Copy> {
 	nodes: Vec<BVHNode>,
-	items: Vec<(u32, (Vec3, Vec3))>,
+	items: Vec<(Index, (Vec3, Vec3))>,
 }
 
-impl BVH {
-	pub fn new(mut items: Vec<(u32, (Vec3, Vec3))>) -> Self {
+impl<Index: Copy> BVH<Index> {
+	pub fn new(mut items: Vec<(Index, (Vec3, Vec3))>) -> Self {
 		let _zone = span!("BVH creation");
 		let items_len = items.len() as u32;
 		let mut nodes: Vec<BVHNode> = vec![];
@@ -104,8 +104,8 @@ impl BVH {
 	fn intersects(a: &(Vec3, Vec3), b: &(Vec3, Vec3)) -> bool {
 		a.0.cmple(b.1).all() && a.1.cmpge(b.0).all()
 	}
-	pub fn get_collisions(&self, bounds: &(Vec3, Vec3)) -> Vec<u32> {
-		let mut out: Vec<u32> = vec![];
+	pub fn get_collisions(&self, bounds: &(Vec3, Vec3)) -> Vec<Index> {
+		let mut out: Vec<Index> = vec![];
 		let mut stack = vec![0];
 
 		while let Some(idx) = stack.pop() {
