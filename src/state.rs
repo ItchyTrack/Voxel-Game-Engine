@@ -294,7 +294,7 @@ impl State {
 		// }
 		// ------------------------------ Ball ------------------------------
 		for x in -1..2 {
-			for y in -1..6 {
+			for y in -1..2 {
 				for z in -1..2 {
 					let r = 4;
 					let physics_body_id = physics_engine.add_physics_body();
