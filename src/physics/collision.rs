@@ -1,8 +1,8 @@
 use std::vec;
 
-use glam::{I16Vec3, Quat, U8Vec3, Vec3, Vec4};
+use glam::{I16Vec3, Quat, U8Vec3, Vec3};
 
-use crate::{debug_draw, pose::Pose, voxels};
+use crate::{pose::Pose, voxels};
 use super::{physics_body, bvh};
 
 use tracy_client::span;
