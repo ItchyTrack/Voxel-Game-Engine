@@ -11,8 +11,7 @@ const SIZE_USIZE: usize = SIZE as usize;
 const SIZE_USIZE_CUBED: usize = SIZE_USIZE * SIZE_USIZE * SIZE_USIZE;
 
 #[derive(Clone, Copy, Debug)]
-pub enum ChildCell<T: Copy + Clone + Debug>
-{
+pub enum ChildCell<T: Copy + Clone + Debug> {
     None,
     Node { node: u32 },
     Data { data: T },
