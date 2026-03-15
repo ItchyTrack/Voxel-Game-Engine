@@ -1,4 +1,5 @@
 use std::{f32, sync::Arc};
+use std::time::Instant;
 
 use glam::{I16Vec3, IVec2, Mat4, Quat, Vec3};
 use tracy_client::span;
@@ -12,6 +13,7 @@ pub struct State {
 	pub physics_engine: PhysicsEngine,
 	pub ecs: entity_component_system::EntityComponentSystem,
 	pub player_id: u32,
+	pub leaky_bucket: f32,
 }
 
 impl State {
@@ -47,7 +49,17 @@ impl State {
 		self.ecs.run_on_components_pair_mut::<camera::CameraController, camera::Camera, _>(|_entity_id, camera_controller, camera|
 			camera::CameraController::update_camera(camera_controller, camera, dt)
 		);
-		self.physics_engine.update(1.0/100.0);
+		self.leaky_bucket += dt;
+		let time_step = 1.0 / 120.0;
+		let current_time = Instant::now();
+		while self.leaky_bucket >= time_step {
+			self.physics_engine.update(time_step);
+			self.leaky_bucket -= time_step;
+			let elapsed = current_time.elapsed().as_secs_f32();
+			if elapsed > 1.0 / 60.0 {
+				self.leaky_bucket = 0.0;
+			}
+		}
 	}
 
 	pub fn resize(&mut self, width: u32, height: u32) {
@@ -398,6 +410,7 @@ impl State {
 			physics_engine,
 			ecs,
 			player_id,
+			leaky_bucket: 0.0,
 		})
 	}
 
