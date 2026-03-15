@@ -296,23 +296,23 @@ impl State {
 		for x in -1..2 {
 			for y in -1..6 {
 				for z in -1..2 {
-					let r = 5;
+					let r = 4;
 					let physics_body_id = physics_engine.add_physics_body();
 					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
+					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 40.0;
 					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
 					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
 					State::make_ball(physics_body, r);
 				}
 			}
 		}
-		// for x in -1..1 {
-		// 	for y in -1..1 {
-		// 		for z in -1..1 {
+		// for x in -1..0 {
+		// 	for y in -1..0 {
+		// 		for z in -1..0 {
 		// 			let r = 4;
 		// 			let physics_body_id = physics_engine.add_physics_body();
 		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 20.0;
+		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 +620.0;
 		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
 		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
 		// 			State::make_smooth_ball(physics_body, r);
@@ -373,7 +373,7 @@ impl State {
 		{
 			let physics_body_id = physics_engine.add_physics_body();
 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-			let world_generator = WorldGenerator::new(1);
+			let world_generator = WorldGenerator::new(2);
 			for x in -5..6 {
 				for z in -5..6 {
 					let sub_grid_id = physics_body.add_sub_grid(Pose::new(

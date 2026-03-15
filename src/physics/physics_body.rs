@@ -269,7 +269,7 @@ impl PhysicsBody {
 
 	pub fn sub_grid_aabb(&self, sub_grid_id: u32) -> Option<(Vec3, Vec3)> {
 		let sub_grid = self.sub_grids.get(sub_grid_id as usize)?;
-		let (min, max) = sub_grid.get_voxels().get_bounding_box().unwrap();
+		let (min, max) = sub_grid.get_voxels().get_bounding_box()?;
 		let min = min.as_vec3();
 		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
 		let corners = [
