@@ -15,36 +15,26 @@ pub enum CubeFeature {
 }
 
 #[derive(Copy, Clone)]
+pub struct HalfCollision {
+	pub body_index: u32,
+	pub sub_grid_index: u32,
+	pub voxel_pos: I16Vec3,
+	pub feature: CubeFeature,
+	pub collision: Vec3,
+	pub local_collision: Vec3,
+}
+
+#[derive(Copy, Clone)]
 pub struct Collision {
-	pub body_index1: u32,
-	pub body_index2: u32,
-	pub sub_grid_index1: u32,
-	pub sub_grid_index2: u32,
-	pub voxel_pos1: I16Vec3,
-	pub voxel_pos2: I16Vec3,
-	pub feature1: CubeFeature,
-	pub feature2: CubeFeature,
-	pub collision1: Vec3,
-	pub collision2: Vec3,
-	pub local_collision1: Vec3,
-	pub local_collision2: Vec3,
+	pub part1: HalfCollision,
+	pub part2: HalfCollision,
 }
 
 impl Collision {
 	pub fn get_swaped(&self) -> Collision {
 		Collision {
-			body_index1: self.body_index2,
-			body_index2: self.body_index1,
-			sub_grid_index1: self.sub_grid_index2,
-			sub_grid_index2: self.sub_grid_index1,
-			voxel_pos1: self.voxel_pos2,
-			voxel_pos2: self.voxel_pos1,
-			feature1: self.feature2,
-			feature2: self.feature1,
-			collision1: self.collision2,
-			collision2: self.collision1,
-			local_collision1: self.local_collision2,
-			local_collision2: self.local_collision1,
+			part1: self.part2,
+			part2: self.part1,
 		}
 	}
 }
@@ -245,18 +235,22 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 							// };
 
 							Some(Collision {
-								body_index1: if no_swap { body_index_a as u32 } else { body_index_b as u32 },
-								body_index2: if no_swap { body_index_b as u32 } else { body_index_a as u32 },
-								sub_grid_index1: if no_swap { grid_index_a as u32 } else { grid_index_b as u32 },
-								sub_grid_index2: if no_swap { grid_index_b as u32 } else { grid_index_a as u32 },
-								voxel_pos1: voxel.0,
-								voxel_pos2:	c.4,
-								feature1: c.1,
-								feature2: c.3,
-								collision1: physics_body2.pose * sub_grid_2.pose * c.0,
-								collision2: physics_body2.pose * sub_grid_2.pose * c.2,
-								local_collision1: physics_body1.pose.inverse() * physics_body2.pose * sub_grid_2.pose * c.0,
-								local_collision2: sub_grid_2.pose * c.2,
+								part1: HalfCollision{
+									body_index: if no_swap { body_index_a as u32 } else { body_index_b as u32 },
+									sub_grid_index: if no_swap { grid_index_a as u32 } else { grid_index_b as u32 },
+									voxel_pos: voxel.0,
+									feature: c.1,
+									collision: physics_body2.pose * sub_grid_2.pose * c.0,
+									local_collision: physics_body1.pose.inverse() * physics_body2.pose * sub_grid_2.pose * c.0,
+								},
+								part2: HalfCollision{
+									body_index: if no_swap { body_index_b as u32 } else { body_index_a as u32 },     
+									sub_grid_index: if no_swap { grid_index_b as u32 } else { grid_index_a as u32 },
+									voxel_pos:	c.4,
+									feature: c.3,
+									collision: physics_body2.pose * sub_grid_2.pose * c.2,
+									local_collision: sub_grid_2.pose * c.2,
+								},
 							})
 						}));
 					}

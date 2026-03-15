@@ -28,7 +28,7 @@ impl CollisionConstraint {
 
 impl PhysicsConstraint for CollisionConstraint {
 	fn init(&mut self, _initial_state_1: &Pose, _initial_state_2: &Pose) {
-		let normal = (self.collision.collision2 - self.collision.collision1).normalize();
+		let normal = (self.collision.part2.collision - self.collision.part1.collision).normalize();
 		if normal.is_nan() { return; }
 
 		let basis_pair = normal.any_orthonormal_pair();
@@ -38,7 +38,7 @@ impl PhysicsConstraint for CollisionConstraint {
 			basis_pair.1
 		).transpose();
 
-		self.c0 = self.basis * (self.collision.collision1 - self.collision.collision2) + Vec3::new(0.01, 0.0, 0.0);
+		self.c0 = self.basis * (self.collision.part1.collision - self.collision.part2.collision) + Vec3::new(0.01, 0.0, 0.0);
 		self.penalty = (self.penalty * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0));
 	}
 
@@ -51,8 +51,8 @@ impl PhysicsConstraint for CollisionConstraint {
 		alpha: f32,
 		calc_1: bool
 	) -> Option<(Vec6, Mat6)> {
-		let world_local_collision_1 = state_1.rotation * self.collision.local_collision1;
-		let world_local_collision_2 = state_2.rotation * self.collision.local_collision2;
+		let world_local_collision_1 = state_1.rotation * self.collision.part1.local_collision;
+		let world_local_collision_2 = state_2.rotation * self.collision.part2.local_collision;
 
 		let d_prime_linear_1 = self.basis;
 		let d_prime_angular_1 = Mat3::from_cols(
@@ -112,8 +112,8 @@ impl PhysicsConstraint for CollisionConstraint {
 		initial_state_2: &Pose,
 		alpha: f32
 	) {
-		let world_local_collision_1 = state_1.rotation * self.collision.local_collision1;
-		let world_local_collision_2 = state_2.rotation * self.collision.local_collision2;
+		let world_local_collision_1 = state_1.rotation * self.collision.part1.local_collision;
+		let world_local_collision_2 = state_2.rotation * self.collision.part2.local_collision;
 
 		let d_prime_linear_1 = self.basis;
 		let d_prime_angular_1 = Mat3::from_cols(

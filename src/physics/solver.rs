@@ -33,26 +33,31 @@ impl Solver {
 		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
 		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies).iter().map(
 			|c| {
-				let body1 = &physics_bodies[c.body_index1 as usize];
-				let body2 = &physics_bodies[c.body_index2 as usize];
+				let body1 = &physics_bodies[c.part1.body_index as usize];
+				let body2 = &physics_bodies[c.part2.body_index as usize];
 				let collision = collision::Collision {
-					local_collision1: c.local_collision1 - body1.get_local_center_of_mass(),
-					local_collision2: c.local_collision2 - body2.get_local_center_of_mass(),
-					..*c
+					part1: collision::HalfCollision {
+						local_collision: c.part1.local_collision - body1.get_local_center_of_mass(),
+						..c.part1
+					},
+					part2: collision::HalfCollision {
+						local_collision: c.part2.local_collision - body2.get_local_center_of_mass(),
+						..c.part2
+					},
 				};
-				let (old_penalty, old_lambda) = self.collisions_kl_map.get(&if collision.body_index1 < collision.body_index2 {
+				let (old_penalty, old_lambda) = self.collisions_kl_map.get(&if collision.part1.body_index < collision.part2.body_index {
 					(
-						collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1,
-						collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2
+						collision.part1.body_index, collision.part1.sub_grid_index, collision.part1.voxel_pos, collision.part1.feature,
+						collision.part2.body_index, collision.part2.sub_grid_index, collision.part2.voxel_pos, collision.part2.feature
 					)
 				} else {
 					(
-						collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2,
-						collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1
+						collision.part2.body_index, collision.part2.sub_grid_index, collision.part2.voxel_pos, collision.part2.feature,
+						collision.part1.body_index, collision.part1.sub_grid_index, collision.part1.voxel_pos, collision.part1.feature
 					)
 				}).unwrap_or(&(Vec3::ZERO, Vec3::ZERO));
 				let mut collision_constraint = CollisionConstraint::new(collision, old_penalty, old_lambda);
-				collision_constraint.init(&initial_all[c.body_index1 as usize], &initial_all[c.body_index2 as usize]);
+				collision_constraint.init(&initial_all[c.part1.body_index as usize], &initial_all[c.part2.body_index as usize]);
 				collision_constraint
 			}
 		).collect();
@@ -79,14 +84,14 @@ impl Solver {
 				let mut f: Vec6 = h * Self::sub_state(&x_guess[index], &y_all[index]);
 
 				let physics_body_collisions = collision_constraints.iter().filter(|collision| {
-					collision.collision.body_index1 == index as u32 || collision.collision.body_index2 == index as u32
+					collision.collision.part1.body_index == index as u32 || collision.collision.part2.body_index == index as u32
 				});
 				for physics_body_collision in physics_body_collisions {
 					let result = physics_body_collision.get_updated(
-						&x_guess[physics_body_collision.collision.body_index1 as usize], &initial_all[physics_body_collision.collision.body_index1 as usize],
-						&x_guess[physics_body_collision.collision.body_index2 as usize], &initial_all[physics_body_collision.collision.body_index2 as usize],
+						&x_guess[physics_body_collision.collision.part1.body_index as usize], &initial_all[physics_body_collision.collision.part1.body_index as usize],
+						&x_guess[physics_body_collision.collision.part2.body_index as usize], &initial_all[physics_body_collision.collision.part2.body_index as usize],
 						alpha,
-						physics_body_collision.collision.body_index1 == index as u32
+						physics_body_collision.collision.part1.body_index == index as u32
 					);
 					if result.is_none() { continue; }
 					let (c_f, c_h) = result.unwrap();
@@ -105,8 +110,8 @@ impl Solver {
 			if iteration < iterations {
 				for collision_constraint in collision_constraints.iter_mut() {
 					collision_constraint.update_dual(
-						&x_guess[collision_constraint.collision.body_index1 as usize], &initial_all[collision_constraint.collision.body_index1 as usize],
-						&x_guess[collision_constraint.collision.body_index2 as usize], &initial_all[collision_constraint.collision.body_index2 as usize],
+						&x_guess[collision_constraint.collision.part1.body_index as usize], &initial_all[collision_constraint.collision.part1.body_index as usize],
+						&x_guess[collision_constraint.collision.part2.body_index as usize], &initial_all[collision_constraint.collision.part2.body_index as usize],
 						alpha
 					);
 				}
@@ -126,15 +131,15 @@ impl Solver {
 		// save K and L
 		for collision_constraint in collision_constraints {
 			let collision = collision_constraint.collision;
-			self.collisions_kl_map.insert(if collision.body_index1 < collision.body_index2 {
+			self.collisions_kl_map.insert(if collision.part1.body_index < collision.part2.body_index {
 				(
-					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1,
-					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2
+					collision.part1.body_index, collision.part1.sub_grid_index, collision.part1.voxel_pos, collision.part1.feature,
+					collision.part2.body_index, collision.part2.sub_grid_index, collision.part2.voxel_pos, collision.part2.feature
 				)
 			} else {
 				(
-					collision.body_index2, collision.sub_grid_index2, collision.voxel_pos2, collision.feature2,
-					collision.body_index1, collision.sub_grid_index1, collision.voxel_pos1, collision.feature1
+					collision.part2.body_index, collision.part2.sub_grid_index, collision.part2.voxel_pos, collision.part2.feature,
+					collision.part1.body_index, collision.part1.sub_grid_index, collision.part1.voxel_pos, collision.part1.feature
 				)
 			}, (collision_constraint.penalty, collision_constraint.lambda));
 		}
