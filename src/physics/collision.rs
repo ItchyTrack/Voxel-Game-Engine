@@ -53,7 +53,10 @@ fn get_bit(num: u8, bit: u8) -> u8 {
 	((num & (1 << bit)) != 0) as u8
 }
 
+static mut CHECK_COUNTER: u32 = 0;
+
 pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Collision> {
+	unsafe { CHECK_COUNTER = 0; }
 	let _zone = span!("Do Collisions");
 	let mut bounds = vec![];
 	for body_index in 0..physics_bodies.len() {
@@ -320,6 +323,14 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 	// 		},
 	// 	}
 	// }
+	tracy_client::plot!(
+		"collisions checked",
+		unsafe { CHECK_COUNTER }.into()
+	);
+	tracy_client::plot!(
+		"collisions",
+		collisions.len() as f64
+	);
 	collisions
 }
 
@@ -352,6 +363,7 @@ fn get_collision(pose: &Pose, voxels: &voxels::Voxels, separating_axes: &Vec<((f
 }
 
 fn get_collision_1x1x1_voxel(pose: &Pose, separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>, _to_global: &Pose) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> {
+	unsafe { CHECK_COUNTER += 1; }
 	if pose.translation.length_squared() >= 3.0 { return vec![]; }
 	let mut bests = vec![];
 	let mut best_dis = 10.0;
