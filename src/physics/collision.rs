@@ -31,7 +31,7 @@ pub struct Collision {
 }
 
 impl Collision {
-	pub fn get_swaped(&self) -> Collision {
+	pub fn get_swapped(&self) -> Collision {
 		Collision {
 			part1: self.part2,
 			part2: self.part1,
