@@ -70,6 +70,7 @@ impl PhysicsBodySubGrid {
 		self.voxel_center_of_mass_times_mass += voxel.mass as i64 * pos.as_i64vec3();
 		self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		if let Some(old_voxel) = self.voxels.add_voxel(pos, voxel) {
+			self.mass -= old_voxel.mass as u64;
 			self.voxel_center_of_mass_times_mass -= old_voxel.mass as i64 * pos.as_i64vec3();
 			self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		}
