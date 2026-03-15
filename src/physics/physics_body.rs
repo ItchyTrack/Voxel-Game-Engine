@@ -1,6 +1,7 @@
-use std::{cell::Cell, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use glam::{I64Vec3, I16Vec3, Mat4, Quat, Vec3};
+use tracy_client::span;
 use crate::{camera, gpu_objects::mesh::{self, GetMesh}, pose::Pose, voxels};
 
 use super::inertia_tensor::InertiaTensor;
@@ -8,7 +9,7 @@ use super::inertia_tensor::InertiaTensor;
 pub struct PhysicsBodySubGrid {
 	pub pose: Pose,
 	voxels: voxels::Voxels,
-	mesh: Cell<Option<Arc<mesh::Mesh>>>,
+	mesh: clone_cell::cell::Cell<Option<Arc<mesh::Mesh>>>,
 	mass: u64,
 	voxel_center_of_mass_times_mass: I64Vec3,
 	inertia_tensor_at_zero: InertiaTensor,
@@ -20,7 +21,7 @@ impl PhysicsBodySubGrid {
 		Self {
 			pose: *pose,
 			voxels: voxels::Voxels::new(),
-			mesh: Cell::new(None),
+			mesh: clone_cell::cell::Cell::new(None),
 			mass: 0,
 			voxel_center_of_mass_times_mass: I64Vec3::ZERO,
 			inertia_tensor_at_zero: InertiaTensor::ZERO,
@@ -51,13 +52,14 @@ impl PhysicsBodySubGrid {
 	pub fn mass(&self) -> f32 { self.mass as f32 }
 
 	pub fn get_rendering_meshes(&self, device: &wgpu::Device, _camera: &camera::Camera) -> Vec<Arc<mesh::Mesh>> {
-		let mesh = self.mesh.take();
+		let mesh = self.mesh.get();
 		if mesh.is_none() {
+			let _zone = span!("Recreate Mesh");
 			self.mesh.set(match self.voxels.get_mesh(device) {
 				Some(mesh) => Some(Arc::new(mesh)),
 				None => None,
 			});
-			return vec![self.mesh.take().unwrap()];
+			return vec![self.mesh.get().unwrap()];
 		}
 		vec![mesh.unwrap()]
 	}

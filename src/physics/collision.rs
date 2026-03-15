@@ -68,8 +68,8 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 	for body_index_a in 0..physics_bodies.len() {
 		let physics_body_a = &physics_bodies[body_index_a];
 		for grid_index_a in 0..physics_body_a.sub_grids().len() {
-			let sub_grid_a = physics_body_a.sub_grid(grid_index_a as u32).unwrap();
 			for (body_index_b, grid_index_b) in bvh.get_collisions(&physics_body_a.sub_grid_aabb(grid_index_a as u32).unwrap()) {
+				let sub_grid_a = physics_body_a.sub_grid(grid_index_a as u32).unwrap();
 				if (body_index_a as u32) <= body_index_b { continue; }
 				let physics_body_b = &physics_bodies[body_index_b as usize];
 				if physics_body_a.is_static && physics_body_b.is_static { continue; } // skip static on static collisions
@@ -257,69 +257,69 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Co
 			}
 		}
 	}
-	for collision in collisions.iter() {
-		let e1 = &physics_bodies[collision.body_index1 as usize];
-		let e2 = &physics_bodies[collision.body_index2 as usize];
+	// for collision in collisions.iter() {
+	// 	let e1 = &physics_bodies[collision.body_index1 as usize];
+	// 	let e2 = &physics_bodies[collision.body_index2 as usize];
 
-		debug_draw::line(collision.collision1, collision.collision2, &Vec4::new(1.0, 0.0, 0.0, 1.0));
-		debug_draw::point(collision.collision1, &Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
-		debug_draw::point(collision.collision2, &Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
+	// 	debug_draw::line(collision.collision1, collision.collision2, &Vec4::new(1.0, 0.0, 0.0, 1.0));
+	// 	debug_draw::point(collision.collision1, &Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
+	// 	debug_draw::point(collision.collision2, &Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
 
-		match collision.feature1 {
-			CubeFeature::Vertex { xyz } => {
-				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3();
-				debug_draw::aabb(
-					e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v + collision.voxel_pos1.as_vec3()) + Vec3::splat(0.01),
-					e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v + collision.voxel_pos1.as_vec3()) + Vec3::splat(0.01),
-					Vec4::ONE
-				);
-			},
-			CubeFeature::Edge { vertex_vertex } => {
-				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3();
-				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3();
-				debug_draw::line(
-					e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v1 + collision.voxel_pos1.as_vec3()),
-					e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v2 + collision.voxel_pos1.as_vec3()),
-					&Vec4::ONE
-				);
-			},
-			CubeFeature::Face { xyzs } => {
-				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
-				debug_draw::aabb(
-					e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-					e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
-					Vec4::W
-				);
-			},
-		}
-		match collision.feature2 {
-			CubeFeature::Vertex { xyz } => {
-				let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3();
-				debug_draw::aabb(
-					e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v + collision.voxel_pos2.as_vec3()) - Vec3::splat(0.01),
-					e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v + collision.voxel_pos2.as_vec3()) + Vec3::splat(0.01),
-					Vec4::ONE
-				);
-			},
-			CubeFeature::Edge { vertex_vertex } => {
-				let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3();
-				let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3();
-				debug_draw::line(
-					e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v1 + collision.voxel_pos2.as_vec3()),
-					e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v2 + collision.voxel_pos2.as_vec3()),
-					&Vec4::ONE
-				);
-			},
-			CubeFeature::Face { xyzs } => {
-				let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
-				debug_draw::aabb(
-					e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-					e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
-					Vec4::W
-				);
-			},
-		}
-	}
+	// 	match collision.feature1 {
+	// 		CubeFeature::Vertex { xyz } => {
+	// 			let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3();
+	// 			debug_draw::aabb(
+	// 				e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v + collision.voxel_pos1.as_vec3()) + Vec3::splat(0.01),
+	// 				e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v + collision.voxel_pos1.as_vec3()) + Vec3::splat(0.01),
+	// 				Vec4::ONE
+	// 			);
+	// 		},
+	// 		CubeFeature::Edge { vertex_vertex } => {
+	// 			let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3();
+	// 			let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3();
+	// 			debug_draw::line(
+	// 				e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v1 + collision.voxel_pos1.as_vec3()),
+	// 				e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v2 + collision.voxel_pos1.as_vec3()),
+	// 				&Vec4::ONE
+	// 			);
+	// 		},
+	// 		CubeFeature::Face { xyzs } => {
+	// 			let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
+	// 			debug_draw::aabb(
+	// 				e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+	// 				e1.pose * e1.sub_grids()[collision.sub_grid_index1 as usize].pose * (v + collision.voxel_pos1.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+	// 				Vec4::W
+	// 			);
+	// 		},
+	// 	}
+	// 	match collision.feature2 {
+	// 		CubeFeature::Vertex { xyz } => {
+	// 			let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3();
+	// 			debug_draw::aabb(
+	// 				e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v + collision.voxel_pos2.as_vec3()) - Vec3::splat(0.01),
+	// 				e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v + collision.voxel_pos2.as_vec3()) + Vec3::splat(0.01),
+	// 				Vec4::ONE
+	// 			);
+	// 		},
+	// 		CubeFeature::Edge { vertex_vertex } => {
+	// 			let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3();
+	// 			let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3();
+	// 			debug_draw::line(
+	// 				e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v1 + collision.voxel_pos2.as_vec3()),
+	// 				e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v2 + collision.voxel_pos2.as_vec3()),
+	// 				&Vec4::ONE
+	// 			);
+	// 		},
+	// 		CubeFeature::Face { xyzs } => {
+	// 			let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
+	// 			debug_draw::aabb(
+	// 				e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+	// 				e2.pose * e2.sub_grids()[collision.sub_grid_index2 as usize].pose * (v + collision.voxel_pos2.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+	// 				Vec4::W
+	// 			);
+	// 		},
+	// 	}
+	// }
 	collisions
 }
 

@@ -8,6 +8,7 @@ mod physics;
 mod state;
 mod pose;
 mod math;
+mod world_gen;
 mod grid_tree;
 mod debug_draw;
 mod entity_component_system;

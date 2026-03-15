@@ -109,95 +109,106 @@ impl mesh::GetMesh for Voxels {
 		for (pos, voxel_id) in &self.voxels {
 			let voxel = self.voxel_palette.get_voxel(*voxel_id).unwrap();
 			let fpos: Vec3 = pos.as_vec3();
-			let start_verties = verties.len() as u32;
+			// let start_verties = verties.len() as u32;
 			let f32_color = [voxel.color[0] as f32 / 255.0, voxel.color[1] as f32 / 255.0, voxel.color[2] as f32 / 255.0, voxel.color[3] as f32 / 255.0];
-			verties.push(mesh::MeshVertex { // 0
-				position: fpos.to_array(),
-				color: f32_color,
-				normal: [0.0, 0.0, 0.0]
-			});
-			verties.push(mesh::MeshVertex { // 1
-				position: (fpos + Vec3::new(1.0, 0.0, 0.0)).to_array(),
-				color: f32_color,
-				normal: [0.0, 0.0, 0.0]
-			});
-			verties.push(mesh::MeshVertex { // 2
-				position: (fpos + Vec3::new(0.0, 1.0, 0.0)).to_array(),
-				color: f32_color,
-				normal: [0.0, 0.0, 0.0]
-			});
-			verties.push(mesh::MeshVertex { // 3
-				position: (fpos + Vec3::new(0.0, 0.0, 1.0)).to_array(),
-				color: f32_color,
-				normal: [0.0, 0.0, 0.0]
-			});
-			verties.push(mesh::MeshVertex { // 4
-				position: (fpos + Vec3::new(1.0, 1.0, 0.0)).to_array(),
-				color: f32_color,
-				normal: [0.0, 0.0, 0.0]
-			});
-			verties.push(mesh::MeshVertex { // 5
-				position: (fpos + Vec3::new(1.0, 0.0, 1.0)).to_array(),
-				color: f32_color,
-				normal: [0.0, 0.0, 0.0]
-			});
-			verties.push(mesh::MeshVertex { // 6
-				position: (fpos + Vec3::new(0.0, 1.0, 1.0)).to_array(),
-				color: f32_color,
-				normal: [0.0, 0.0, 0.0]
-			});
-			verties.push(mesh::MeshVertex { // 7
-				position: (fpos + Vec3::new(1.0, 1.0, 1.0)).to_array(),
-				color: f32_color,
-				normal: [0.0, 0.0, 0.0]
-			});
+			let mut verties_index = [8; 8];
+			let mut get_index = |id: u8| -> u32 {
+				let val = &mut verties_index[id as usize];
+				if *val == 8 {
+					*val = verties.len();
+					match id {
+						0 => {verties.push(mesh::MeshVertex { // 0
+							position: fpos.to_array(),
+							color: f32_color,
+							normal: [0.0, 0.0, 0.0]
+						});}
+						1 => {verties.push(mesh::MeshVertex { // 1
+							position: (fpos + Vec3::new(1.0, 0.0, 0.0)).to_array(),
+							color: f32_color,
+							normal: [0.0, 0.0, 0.0]
+						});}
+						2 => {verties.push(mesh::MeshVertex { // 2
+							position: (fpos + Vec3::new(0.0, 1.0, 0.0)).to_array(),
+							color: f32_color,
+							normal: [0.0, 0.0, 0.0]
+						});}
+						3 => {verties.push(mesh::MeshVertex { // 3
+							position: (fpos + Vec3::new(0.0, 0.0, 1.0)).to_array(),
+							color: f32_color,
+							normal: [0.0, 0.0, 0.0]
+						});}
+						4 => {verties.push(mesh::MeshVertex { // 4
+							position: (fpos + Vec3::new(1.0, 1.0, 0.0)).to_array(),
+							color: f32_color,
+							normal: [0.0, 0.0, 0.0]
+						});}
+						5 => {verties.push(mesh::MeshVertex { // 5
+							position: (fpos + Vec3::new(1.0, 0.0, 1.0)).to_array(),
+							color: f32_color,
+							normal: [0.0, 0.0, 0.0]
+						});}
+						6 => {verties.push(mesh::MeshVertex { // 6
+							position: (fpos + Vec3::new(0.0, 1.0, 1.0)).to_array(),
+							color: f32_color,
+							normal: [0.0, 0.0, 0.0]
+						});}
+						7 => {verties.push(mesh::MeshVertex { // 7
+							position: (fpos + Vec3::new(1.0, 1.0, 1.0)).to_array(),
+							color: f32_color,
+							normal: [0.0, 0.0, 0.0]
+						});}
+						_ => unreachable!()
+					}
+				}
+				return *val as u32;
+			};
 			if !self.voxels.contains_key(&(pos + I16Vec3::X)) {
-				indexes.push(start_verties + 5); // +x
-				indexes.push(start_verties + 4);
-				indexes.push(start_verties + 7);
-				indexes.push(start_verties + 5);
-				indexes.push(start_verties + 1);
-				indexes.push(start_verties + 4);
+				indexes.push(get_index(5)); // +x
+				indexes.push(get_index(4));
+				indexes.push(get_index(7));
+				indexes.push(get_index(5));
+				indexes.push(get_index(1));
+				indexes.push(get_index(4));
 			}
 			if !self.voxels.contains_key(&(pos - I16Vec3::X)) {
-				indexes.push(start_verties + 0); // -x
-				indexes.push(start_verties + 3);
-				indexes.push(start_verties + 2);
-				indexes.push(start_verties + 2);
-				indexes.push(start_verties + 3);
-				indexes.push(start_verties + 6);
+				indexes.push(get_index(0)); // -x
+				indexes.push(get_index(3));
+				indexes.push(get_index(2));
+				indexes.push(get_index(2));
+				indexes.push(get_index(3));
+				indexes.push(get_index(6));
 			}
 			if !self.voxels.contains_key(&(pos + I16Vec3::Y)) {
-				indexes.push(start_verties + 7); // +y
-				indexes.push(start_verties + 4);
-				indexes.push(start_verties + 6);
-				indexes.push(start_verties + 4);
-				indexes.push(start_verties + 2);
-				indexes.push(start_verties + 6);
+				indexes.push(get_index(7)); // +y
+				indexes.push(get_index(4));
+				indexes.push(get_index(6));
+				indexes.push(get_index(4));
+				indexes.push(get_index(2));
+				indexes.push(get_index(6));
 			}
 			if !self.voxels.contains_key(&(pos - I16Vec3::Y)) {
-				indexes.push(start_verties + 0); // -y
-				indexes.push(start_verties + 1);
-				indexes.push(start_verties + 3);
-				indexes.push(start_verties + 1);
-				indexes.push(start_verties + 5);
-				indexes.push(start_verties + 3);
+				indexes.push(get_index(0)); // -y
+				indexes.push(get_index(1));
+				indexes.push(get_index(3));
+				indexes.push(get_index(1));
+				indexes.push(get_index(5));
+				indexes.push(get_index(3));
 			}
 			if !self.voxels.contains_key(&(pos + I16Vec3::Z)) {
-				indexes.push(start_verties + 7); // +z
-				indexes.push(start_verties + 6);
-				indexes.push(start_verties + 5);
-				indexes.push(start_verties + 6);
-				indexes.push(start_verties + 3);
-				indexes.push(start_verties + 5);
+				indexes.push(get_index(7)); // +z
+				indexes.push(get_index(6));
+				indexes.push(get_index(5));
+				indexes.push(get_index(6));
+				indexes.push(get_index(3));
+				indexes.push(get_index(5));
 			}
 			if !self.voxels.contains_key(&(pos - I16Vec3::Z)) {
-				indexes.push(start_verties + 0); // -z
-				indexes.push(start_verties + 2);
-				indexes.push(start_verties + 1);
-				indexes.push(start_verties + 2);
-				indexes.push(start_verties + 4);
-				indexes.push(start_verties + 1);
+				indexes.push(get_index(0)); // -z
+				indexes.push(get_index(2));
+				indexes.push(get_index(1));
+				indexes.push(get_index(2));
+				indexes.push(get_index(4));
+				indexes.push(get_index(1));
 			}
 		}
 		let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

@@ -27,11 +27,15 @@ impl BVHNode {
 		assert!(end > start);
 		let slice = &mut items[start as usize..end as usize];
 
+		let mut center_min = slice[0].1.0 + slice[0].1.1;
+		let mut center_max = slice[0].1.0 + slice[0].1.1;
 		let mut min = slice[0].1.0;
 		let mut max = slice[0].1.1;
 		let mut avg = Vec3::ZERO;
 
 		for v in slice.iter() {
+			center_min = center_min.min(v.1.0 + v.1.1);
+			center_max = center_max.max(v.1.0 + v.1.1);
 			min = min.min(v.1.0);
 			max = max.max(v.1.1);
 			avg += v.1.0 + v.1.1;
@@ -39,7 +43,7 @@ impl BVHNode {
 
 		let count = slice.len() as u32;
 
-		if count <= 8 || min == max {
+		if count <= 8 || min == max || center_min == center_max {
 			return Self {
 				min_corner: min,
 				max_corner: max,
@@ -49,7 +53,7 @@ impl BVHNode {
 
 		avg /= count as f32;
 
-		let axis = (max - min).max_position();
+		let axis = (center_max - center_min).max_position();
 		let split_value = avg[axis];
 
 		let split_index = partition(slice.iter_mut(), |a| (a.1.0 + a.1.1)[axis] < split_value) as u32;

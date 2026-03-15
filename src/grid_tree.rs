@@ -70,7 +70,7 @@ pub struct GridTree<T: Copy + Clone + Debug> {
 impl<T: Copy + Clone + Debug> GridTree<T> {
     pub fn new() -> Self {
 		Self {
-			nodes: vec![Some(GridTreeNode::new(None, I16Vec3::splat(SIZE as i16 / -2), 1))],
+			nodes: vec![Some(GridTreeNode::new(None, I16Vec3::splat(SIZE as i16 / -2 + 1), 1))],
 			root: 0,
 			item_count: 0,
 		}
