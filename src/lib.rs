@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 mod voxels;
 mod resources;
-mod camera;
+mod player;
 mod app;
 mod renderer;
 mod physics;

@@ -5,7 +5,7 @@ use glam::{I16Vec3, IVec2, Mat4, Quat, Vec3};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{camera, entity_component_system, gpu_objects::mesh, physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine}, pose::Pose, renderer::Renderer, voxels, world_gen::WorldGenerator};
+use crate::{player::{camera, player_input}, entity_component_system, gpu_objects::mesh, physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine}, pose::Pose, renderer::Renderer, voxels, world_gen::WorldGenerator};
 
 pub struct State {
 	pub renderer: Renderer,
@@ -21,16 +21,13 @@ impl State {
 		if code == KeyCode::Escape && is_pressed {
 			self.set_mouse_captured(false);
 		} else {
-			self.ecs.run_on_single_component_mut::<camera::CameraController, _>(self.player_id, |_entity_id, player_camera_controller|
-				{ player_camera_controller.handle_key(code, is_pressed); }
+			self.ecs.run_on_single_component_mut::<player_input::PlayerInput, _>(self.player_id, |_entity_id, player_input|
+				player_input.set_state(code, is_pressed)
 			);
 		}
 	}
 
 	pub fn set_mouse_captured(&mut self, captured: bool) {
-		if self.mouse_captured == captured {
-			return;
-		}
 		self.mouse_captured = captured;
 		let window = &self.renderer.window;
 		if captured {
@@ -46,6 +43,11 @@ impl State {
 	}
 
 	pub fn update(&mut self, dt: f32) {
+		self.ecs.run_on_components_pair_mut::<player_input::PlayerInput, camera::CameraController, _>(|_entity_id, player_input, camera_controller|
+			for key_code in player_input.updated_keys() {
+				camera_controller.handle_key(*key_code, player_input.key(*key_code).is_pressed);
+			}
+		);
 		self.ecs.run_on_components_pair_mut::<camera::CameraController, camera::Camera, _>(|_entity_id, camera_controller, camera|
 			camera::CameraController::update_camera(camera_controller, camera, dt)
 		);
@@ -60,6 +62,9 @@ impl State {
 				self.leaky_bucket = 0.0;
 			}
 		}
+		self.ecs.run_on_single_component_mut::<player_input::PlayerInput, _>(self.player_id, |_entity_id, player_input|
+			player_input.end_frame()
+		);
 	}
 
 	pub fn resize(&mut self, width: u32, height: u32) {
@@ -181,6 +186,7 @@ impl State {
 
 		// create player entity
 		let player_id = ecs.add_entity();
+		ecs.add_component_to_entity(player_id, player_input::PlayerInput::new());
 		ecs.add_component_to_entity(player_id, camera::Camera {
 			position: Vec3::new(20.0, 0.0, 0.0),
 			yaw: f32::consts::PI / 2.0,
@@ -361,7 +367,6 @@ impl State {
 		// 		}
 		// 	}
 		// }
-
 
 		// {
 		// 	let physics_body_id = physics_engine.add_physics_body();

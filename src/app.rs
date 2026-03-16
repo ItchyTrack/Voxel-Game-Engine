@@ -2,7 +2,7 @@ use std::time::Instant;
 use std::sync::Arc;
 use tracy_client::frame_mark;
 use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop}, keyboard::PhysicalKey, window::Window};
-use crate::{camera, state::State};
+use crate::{player::camera, state::State};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
