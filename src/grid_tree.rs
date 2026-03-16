@@ -1,5 +1,5 @@
-use std::mem::{replace};
 use std::fmt::Debug;
+use std::mem::replace;
 
 use glam::{I16Vec3, Quat, U8Vec3, U16Vec3, Vec3, Vec4};
 
@@ -70,7 +70,7 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTreeNode<T> {
 
 #[derive(Debug)]
 pub struct GridTree<T: Copy + Clone + PartialEq + Debug> {
-	nodes: Vec<Option<GridTreeNode<T>>>,
+	nodes: Vec<GridTreeNode<T>>,
 	root: u32,
 	item_count: u64,
 }
@@ -78,34 +78,24 @@ pub struct GridTree<T: Copy + Clone + PartialEq + Debug> {
 impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
     pub fn new() -> Self {
 		Self {
-			nodes: vec![Some(GridTreeNode::new(None, I16Vec3::splat(SIZE as i16 / -2 + 1), 1))],
+			nodes: vec![GridTreeNode::new(None, I16Vec3::splat(SIZE as i16 / -2 + 1), 1)],
 			root: 0,
 			item_count: 0,
 		}
     }
 	fn add_node(&mut self, parent: Option<u32>, pos: I16Vec3, scale: u16) -> u32 {
 		assert!(self.get_next_added_node_index() == self.nodes.len() as u32);
-		self.nodes.push(Some(GridTreeNode::new(parent, pos, scale)));
+		self.nodes.push(GridTreeNode::new(parent, pos, scale));
 		self.nodes.len() as u32 - 1
-	}
-	fn remove_node(&mut self, index: u32) {
-		let node = replace(&mut self.nodes[index as usize], None).unwrap();
-		let mut iter = node.contents.iter().filter_map(|child| match child {
-			ChildCell::Node { node } => Some(*node),
-			_ => None
-		});
-		for _ in 0..node.child_count {
-			self.remove_node(iter.next().unwrap());
-		}
 	}
 	fn get_next_added_node_index(&self) -> u32 {
 		self.nodes.len() as u32
 	}
 	fn get_node(&self, index: u32) -> &GridTreeNode<T> {
-		self.nodes.get(index as usize).unwrap().as_ref().unwrap()
+		self.nodes.get(index as usize).unwrap()
 	}
 	fn get_node_mut(&mut self, index: u32) -> &mut GridTreeNode<T> {
-		self.nodes.get_mut(index as usize).unwrap().as_mut().unwrap()
+		self.nodes.get_mut(index as usize).unwrap()
 	}
 	pub fn remove(&mut self, pos: &I16Vec3) -> Option<T> {
 		let root = self.get_node(self.root);
@@ -184,6 +174,35 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 		}
 		return true;
 	}
+	// Assumes childern are dead. Returns any mapping update.
+	pub fn remove_node(&mut self, node_index: u32) -> Option<(u32, u32)> {
+		if node_index as usize + 1 == self.nodes.len() {
+			self.nodes.pop();
+			return None;
+		}
+		let end = self.nodes.pop().unwrap();
+		for cell in end.contents {
+			match cell {
+				ChildCell::Node { node: child_index } => {
+					*self.nodes[child_index as usize].parent.as_mut().unwrap() = node_index;
+				},
+				_ => { }
+			}
+		}
+		if let Some(parent_index) = end.parent {
+			if (parent_index as usize) < self.nodes.len() {
+				let end_pos = end.pos;
+				let parent = &mut self.nodes[parent_index as usize];
+				let relitive_pos = get_relitive_child_pos(&end_pos, &parent.pos, parent.scale);
+				parent.contents[get_child_index(&relitive_pos) as usize] = ChildCell::Node { node: node_index };
+			}
+		}
+		self.nodes[node_index as usize] = end;
+		if (self.root as usize) == self.nodes.len() {
+			self.root = node_index;
+		}
+		return Some((self.nodes.len() as u32, node_index));
+	}
 	pub fn try_merge(&mut self, node_index: u32, value: T, ignored_index: u8) -> bool {
 		let node = self.get_node(node_index);
 		if node.child_count < 7 {
@@ -197,7 +216,12 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 			}
 		}
 		let child_pos = node.pos;
-		if let Some(parent_index) = node.parent {
+		if let Some(mut parent_index) = node.parent {
+			if let Some((pre, post)) = self.remove_node(node_index) {
+				if parent_index == pre {
+					parent_index = post;
+				}
+			}
 			let parent = self.get_node_mut(parent_index);
 			let local_child_pos = get_relitive_child_pos(&child_pos, &parent.pos, parent.scale);
 			if self.try_merge(parent_index, value, get_child_index(&local_child_pos)) {
@@ -296,7 +320,7 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 	pub fn render_debug(&self, pose: &Pose) {
 		let mut stack = vec![self.root];
 		while let Some(idx) = stack.pop() {
-			let node = self.nodes[idx as usize].as_ref().unwrap();
+			let node = &self.nodes[idx as usize];
 			let node_size = node.scale * SIZE as u16;
 			debug_draw::rectangular_prism(&(pose * Pose::new(node.pos.as_vec3(), Quat::IDENTITY)), Vec3::splat(node_size as f32), &Vec4::new(1.0, 1.0, 1.0, 0.0075), true);
 			if node.child_count == 0 {
@@ -313,6 +337,40 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 				}
 			}
 		}
+	}
+	pub fn print_debug_rec(&self, index: u32) {
+		if self.nodes.len() <= index as usize {
+			println!("out of range node as {}!", index);
+			return;
+		}
+		let node = &self.nodes[index as usize];
+		if node.scale == 1 {
+			return;
+		}
+		for _ in 0..(20 - ((node.scale) as f32).log2() as u32) {
+			print!(" ");
+		}
+		let mut any = false;
+		println!("{} [", index);
+		for child in node.contents {
+			match child {
+				ChildCell::None => { },
+				ChildCell::Node { node } => {
+					any = true;
+					self.print_debug_rec(node);
+				},
+				ChildCell::Data { data: _ } => { },
+			}
+		}
+		if any {
+			for _ in 0..(20 - ((node.scale) as f32).log2() as u32) {
+				print!(" ");
+			}
+			println!("]");
+		}
+	}
+	pub fn print_debug(&self) {
+		self.print_debug_rec(self.root);
 	}
 }
 
