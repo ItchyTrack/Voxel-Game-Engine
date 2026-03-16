@@ -86,6 +86,34 @@ impl EntityComponentSystem {
 		}
 	}
 
+	pub fn run_on_single_component_triple<A: 'static, B: 'static, C: 'static, F: Fn(u32, &A, &B, &C)>(&self, entity_id: u32, f: F){
+		if let Some(component_set_a) = self.component_sets.get(&TypeId::of::<A>()) {
+			if let Some(component_set_b) = self.component_sets.get(&TypeId::of::<B>()) {
+				if let Some(component_set_c) = self.component_sets.get(&TypeId::of::<C>()) {
+					if let Some(component_a) = component_set_a.get().get(&entity_id) {
+						if let Some(component_b) = component_set_b.get().get(&entity_id) {
+							if let Some(component_c) = component_set_c.get().get(&entity_id) {
+								f(entity_id, component_a, component_b, component_c);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	pub fn run_on_single_component_triple_mut<A: 'static, B: 'static, C: 'static, F: Fn(u32, &mut A, &mut B, &mut C)>(&mut self, entity_id: u32, f: F){
+		if let [Some(component_set_a), Some(component_set_b), Some(component_set_c)] = self.component_sets.get_disjoint_mut([&TypeId::of::<A>(), &TypeId::of::<B>(), &TypeId::of::<C>()]) {
+			if let Some(component_a) = component_set_a.get_mut().get_mut(&entity_id) {
+				if let Some(component_b) = component_set_b.get_mut().get_mut(&entity_id) {
+					if let Some(component_c) = component_set_c.get_mut().get_mut(&entity_id) {
+						f(entity_id, component_a, component_b, component_c);
+					}
+				}
+			}
+		}
+	}
+
 	pub fn run_on_components<A: 'static, F: Fn(u32, &A)>(&self, f: F){
 		if let Some(component_set) = self.component_sets.get(&TypeId::of::<A>()) {
 			for (entity_id, component) in component_set.get() {
@@ -121,6 +149,38 @@ impl EntityComponentSystem {
 			for (entity_id, component_a) in component_set_a.get_mut() {
 				if let Some(component_b) = component_set_b.get_mut(entity_id) {
 					f(*entity_id, component_a, component_b);
+				}
+			}
+		}
+	}
+
+	pub fn run_on_components_tripl<A: 'static, B: 'static, C: 'static, F: Fn(u32, &A, &B, &C)>(&self, f: F){
+		if let Some(component_set_a) = self.component_sets.get(&TypeId::of::<A>()) {
+			if let Some(component_set_b) = self.component_sets.get(&TypeId::of::<B>()) {
+				if let Some(component_set_c) = self.component_sets.get(&TypeId::of::<C>()) {
+					let component_set_b = component_set_b.get();
+					let component_set_c = component_set_c.get();
+					for (entity_id, component_a) in component_set_a.get() {
+						if let Some(component_b) = component_set_b.get(entity_id) {
+							if let Some(component_c) = component_set_c.get(entity_id) {
+								f(*entity_id, component_a, component_b, component_c);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	pub fn run_on_components_tripl_mut<A: 'static, B: 'static, C: 'static, F: Fn(u32, &mut A, &mut B, &mut C)>(&mut self, f: F){
+		if let [Some(component_set_a), Some(component_set_b), Some(component_set_c)] = self.component_sets.get_disjoint_mut([&TypeId::of::<A>(), &TypeId::of::<B>(), &TypeId::of::<C>()]) {
+			let component_set_b = component_set_b.get_mut();
+			let component_set_c = component_set_c.get_mut();
+			for (entity_id, component_a) in component_set_a.get_mut() {
+				if let Some(component_b) = component_set_b.get_mut(entity_id) {
+					if let Some(component_c) = component_set_c.get_mut(entity_id) {
+						f(*entity_id, component_a, component_b, component_c);
+					}
 				}
 			}
 		}

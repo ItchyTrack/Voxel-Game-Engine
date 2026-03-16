@@ -43,13 +43,8 @@ impl State {
 	}
 
 	pub fn update(&mut self, dt: f32) {
-		self.ecs.run_on_components_pair_mut::<player_input::PlayerInput, camera::CameraController, _>(|_entity_id, player_input, camera_controller|
-			for key_code in player_input.updated_keys() {
-				camera_controller.handle_key(*key_code, player_input.key(*key_code).is_pressed);
-			}
-		);
-		self.ecs.run_on_components_pair_mut::<camera::CameraController, camera::Camera, _>(|_entity_id, camera_controller, camera|
-			camera::CameraController::update_camera(camera_controller, camera, dt)
+		self.ecs.run_on_components_tripl_mut::<player_input::PlayerInput, camera::CameraController, camera::Camera, _>(|_entity_id, player_input, camera_controller, camera|
+			camera::CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);
 		self.leaky_bucket += dt;
 		let time_step = 1.0 / 120.0;

@@ -1,6 +1,8 @@
 use glam::{Vec3, Quat, Mat4};
 use winit::keyboard::KeyCode;
 
+use crate::player;
+
 pub struct Camera {
 	pub position: Vec3,
 	pub yaw: f32,
@@ -23,18 +25,6 @@ pub struct CameraController {
 	speed: f32,
 	rotation_speed: f32,
 	mouse_sensitivity: f32,
-	is_forward_pressed: bool,
-	is_backward_pressed: bool,
-	is_left_pressed: bool,
-	is_right_pressed: bool,
-	is_up_pressed: bool,
-	is_down_pressed: bool,
-	is_rotate_up_pressed: bool,
-	is_rotate_down_pressed: bool,
-	is_rotate_left_pressed: bool,
-	is_rotate_right_pressed: bool,
-	is_lshift_pressed: bool,
-	is_rshift_pressed: bool,
 }
 
 impl CameraController {
@@ -42,73 +32,7 @@ impl CameraController {
 		Self {
 			speed,
 			rotation_speed,
-			mouse_sensitivity,
-			is_forward_pressed: false,
-			is_backward_pressed: false,
-			is_left_pressed: false,
-			is_right_pressed: false,
-			is_up_pressed: false,
-			is_down_pressed: false,
-			is_rotate_up_pressed: false,
-			is_rotate_down_pressed: false,
-			is_rotate_left_pressed: false,
-			is_rotate_right_pressed: false,
-			is_lshift_pressed: false,
-			is_rshift_pressed: false,
-		}
-	}
-
-	pub fn handle_key(&mut self, code: KeyCode, is_pressed: bool) -> bool {
-		match code {
-			KeyCode::KeyW => {
-				self.is_forward_pressed = is_pressed;
-				true
-			}
-			KeyCode::KeyS => {
-				self.is_backward_pressed = is_pressed;
-				true
-			}
-			KeyCode::KeyA => {
-				self.is_left_pressed = is_pressed;
-				true
-			}
-			KeyCode::KeyD => {
-				self.is_right_pressed = is_pressed;
-				true
-			}
-			KeyCode::KeyQ => {
-				self.is_up_pressed = is_pressed;
-				true
-			}
-			KeyCode::KeyE => {
-				self.is_down_pressed = is_pressed;
-				true
-			}
-			KeyCode::ArrowUp => {
-				self.is_rotate_up_pressed = is_pressed;
-				true
-			}
-			KeyCode::ArrowDown => {
-				self.is_rotate_down_pressed = is_pressed;
-				true
-			}
-			KeyCode::ArrowLeft => {
-				self.is_rotate_left_pressed = is_pressed;
-				true
-			}
-			KeyCode::ArrowRight => {
-				self.is_rotate_right_pressed = is_pressed;
-				true
-			}
-			KeyCode::ShiftLeft => {
-				self.is_lshift_pressed = is_pressed;
-				true
-			}
-			KeyCode::ShiftRight => {
-				self.is_rshift_pressed = is_pressed;
-				true
-			}
-			_ => false,
+			mouse_sensitivity
 		}
 	}
 
@@ -121,37 +45,40 @@ impl CameraController {
 		);
 	}
 
-	pub fn update_camera(&self, camera: &mut Camera, dt: f32) {
-		let speed = self.speed * if self.is_lshift_pressed || self.is_rshift_pressed { 4.0 } else { 1.0 };
-		if self.is_forward_pressed {
+	pub fn update_camera(&self, camera: &mut Camera, player_input: &player::player_input::PlayerInput, dt: f32) {
+		let speed = self.speed * if
+			player_input.key(KeyCode::ShiftLeft).is_pressed || player_input.key(KeyCode::ShiftLeft).just_pressed ||
+			player_input.key(KeyCode::ShiftRight).is_pressed || player_input.key(KeyCode::ShiftRight).just_pressed
+		{ 4.0 } else { 1.0 };
+		if player_input.key(KeyCode::KeyW).is_pressed || player_input.key(KeyCode::KeyW).just_pressed {
 			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * speed * dt;
 		}
-		if self.is_backward_pressed {
+		if player_input.key(KeyCode::KeyS).is_pressed || player_input.key(KeyCode::KeyS).just_pressed {
 			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * speed * dt;
 		}
-		if self.is_left_pressed {
+		if player_input.key(KeyCode::KeyA).is_pressed || player_input.key(KeyCode::KeyA).just_pressed {
 			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * speed * dt;
 		}
-		if self.is_right_pressed {
+		if player_input.key(KeyCode::KeyD).is_pressed || player_input.key(KeyCode::KeyD).just_pressed {
 			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * speed * dt;
 		}
-		if self.is_up_pressed {
+		if player_input.key(KeyCode::KeyQ).is_pressed || player_input.key(KeyCode::KeyQ).just_pressed {
 			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Y) * speed * dt;
 		}
-		if self.is_down_pressed {
+		if player_input.key(KeyCode::KeyE).is_pressed || player_input.key(KeyCode::KeyE).just_pressed {
 			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Y) * speed * dt;
 		}
 
-		if self.is_rotate_up_pressed {
+		if player_input.key(KeyCode::ArrowUp).is_pressed || player_input.key(KeyCode::ArrowUp).just_pressed {
 			camera.pitch += self.rotation_speed * dt;
 		}
-		if self.is_rotate_down_pressed {
+		if player_input.key(KeyCode::ArrowDown).is_pressed || player_input.key(KeyCode::ArrowDown).just_pressed {
 			camera.pitch -= self.rotation_speed * dt;
 		}
-		if self.is_rotate_left_pressed {
+		if player_input.key(KeyCode::ArrowLeft).is_pressed || player_input.key(KeyCode::ArrowLeft).just_pressed {
 			camera.yaw += self.rotation_speed * dt;
 		}
-		if self.is_rotate_right_pressed {
+		if player_input.key(KeyCode::ArrowRight).is_pressed || player_input.key(KeyCode::ArrowRight).just_pressed {
 			camera.yaw -= self.rotation_speed * dt;
 		}
 	}
