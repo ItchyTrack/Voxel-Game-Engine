@@ -154,53 +154,76 @@ impl mesh::GetMesh for Voxels {
 				}
 				return *val as u32;
 			};
+			let mut add_face = |face_id: u8| {
+				match face_id {
+					0 => {
+						indexes.push(get_index(5)); // +x
+						indexes.push(get_index(4));
+						indexes.push(get_index(7));
+						indexes.push(get_index(5));
+						indexes.push(get_index(1));
+						indexes.push(get_index(4));
+					},
+					1 => {
+						indexes.push(get_index(0)); // -x
+						indexes.push(get_index(3));
+						indexes.push(get_index(2));
+						indexes.push(get_index(2));
+						indexes.push(get_index(3));
+						indexes.push(get_index(6));
+					},
+					2 => {
+						indexes.push(get_index(7)); // +y
+						indexes.push(get_index(4));
+						indexes.push(get_index(6));
+						indexes.push(get_index(4));
+						indexes.push(get_index(2));
+						indexes.push(get_index(6));
+					},
+					3 => {
+						indexes.push(get_index(0)); // -y
+						indexes.push(get_index(1));
+						indexes.push(get_index(3));
+						indexes.push(get_index(1));
+						indexes.push(get_index(5));
+						indexes.push(get_index(3));
+					},
+					4 => {
+						indexes.push(get_index(7)); // +z
+						indexes.push(get_index(6));
+						indexes.push(get_index(5));
+						indexes.push(get_index(6));
+						indexes.push(get_index(3));
+						indexes.push(get_index(5));
+					},
+					5 => {
+						indexes.push(get_index(0)); // -z
+						indexes.push(get_index(2));
+						indexes.push(get_index(1));
+						indexes.push(get_index(2));
+						indexes.push(get_index(4));
+						indexes.push(get_index(1));
+					},
+					_ => unreachable!()
+				}
+			};
 			if !self.voxels.is_area_filled(&(pos + I16Vec3::X * size as i16), &U16Vec3::new(1, size, size)) {
-				indexes.push(get_index(5)); // +x
-				indexes.push(get_index(4));
-				indexes.push(get_index(7));
-				indexes.push(get_index(5));
-				indexes.push(get_index(1));
-				indexes.push(get_index(4));
+				add_face(0); // +x
 			}
 			if !self.voxels.is_area_filled(&(pos - I16Vec3::X), &U16Vec3::new(1, size, size)) {
-				indexes.push(get_index(0)); // -x
-				indexes.push(get_index(3));
-				indexes.push(get_index(2));
-				indexes.push(get_index(2));
-				indexes.push(get_index(3));
-				indexes.push(get_index(6));
+				add_face(1); // -x
 			}
 			if !self.voxels.is_area_filled(&(pos + I16Vec3::Y * size as i16), &U16Vec3::new(size, 1, size)) {
-				indexes.push(get_index(7)); // +y
-				indexes.push(get_index(4));
-				indexes.push(get_index(6));
-				indexes.push(get_index(4));
-				indexes.push(get_index(2));
-				indexes.push(get_index(6));
+				add_face(2); // +y
 			}
 			if !self.voxels.is_area_filled(&(pos - I16Vec3::Y), &U16Vec3::new(size, 1, size)) {
-				indexes.push(get_index(0)); // -y
-				indexes.push(get_index(1));
-				indexes.push(get_index(3));
-				indexes.push(get_index(1));
-				indexes.push(get_index(5));
-				indexes.push(get_index(3));
+				add_face(3); // -y
 			}
 			if !self.voxels.is_area_filled(&(pos + I16Vec3::Z * size as i16), &U16Vec3::new(size, size, 1)) {
-				indexes.push(get_index(7)); // +z
-				indexes.push(get_index(6));
-				indexes.push(get_index(5));
-				indexes.push(get_index(6));
-				indexes.push(get_index(3));
-				indexes.push(get_index(5));
+				add_face(4); // +z
 			}
 			if !self.voxels.is_area_filled(&(pos - I16Vec3::Z), &U16Vec3::new(size, size, 1)) {
-				indexes.push(get_index(0)); // -z
-				indexes.push(get_index(2));
-				indexes.push(get_index(1));
-				indexes.push(get_index(2));
-				indexes.push(get_index(4));
-				indexes.push(get_index(1));
+				add_face(5); // -z
 			}
 		}
 		let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

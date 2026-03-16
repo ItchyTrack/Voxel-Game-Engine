@@ -188,7 +188,7 @@ impl State {
 			aspect: renderer.config.width as f32 / renderer.config.height as f32,
 			fovy: 45.0,
 			znear: 0.1,
-			zfar: 500.0,
+			zfar: 5000.0,
 		});
 		ecs.add_component_to_entity(player_id, camera::CameraController::new(20.0, 1.5, 0.0015));
 
@@ -386,8 +386,8 @@ impl State {
 			let physics_body_id = physics_engine.add_physics_body();
 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
 			let world_generator = WorldGenerator::new(2);
-			for x in -5..6 {
-				for z in -5..6 {
+			for x in -10..11 {
+				for z in -10..11 {
 					let sub_grid_id = physics_body.add_sub_grid(Pose::new(
 						Vec3::new(
 							(x * WorldGenerator::CHUNK_SIZE as i32) as f32,
