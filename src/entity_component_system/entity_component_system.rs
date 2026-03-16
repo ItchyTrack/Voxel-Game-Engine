@@ -130,7 +130,7 @@ impl EntityComponentSystem {
 		}
 	}
 
-	pub fn run_on_components_pair<A: 'static, B: 'static, F: Fn(u32, &A, &B)>(&self, f: F){
+	pub fn run_on_components_pair<A: 'static, B: 'static, F: Fn(u32, &A, &B)>(&self, f: &F){
 		if let Some(component_set_a) = self.component_sets.get(&TypeId::of::<A>()) {
 			if let Some(component_set_b) = self.component_sets.get(&TypeId::of::<B>()) {
 				let component_set_b = component_set_b.get();
@@ -143,7 +143,7 @@ impl EntityComponentSystem {
 		}
 	}
 
-	pub fn run_on_components_pair_mut<A: 'static, B: 'static, F: Fn(u32, &mut A, &mut B)>(&mut self, f: F){
+	pub fn run_on_components_pair_mut<A: 'static, B: 'static, F: FnMut(u32, &mut A, &mut B)>(&mut self, f: &mut F){
 		if let [Some(component_set_a), Some(component_set_b)] = self.component_sets.get_disjoint_mut([&TypeId::of::<A>(), &TypeId::of::<B>()]) {
 			let component_set_b = component_set_b.get_mut();
 			for (entity_id, component_a) in component_set_a.get_mut() {

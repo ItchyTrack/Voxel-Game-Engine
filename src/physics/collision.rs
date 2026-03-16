@@ -2,8 +2,8 @@ use std::vec;
 
 use glam::{I16Vec3, Quat, U8Vec3, Vec3};
 
-use crate::{pose::Pose, voxels};
-use super::{physics_body, bvh};
+use crate::{physics::bvh::BVH, pose::Pose, voxels};
+use super::{physics_body};
 
 use tracy_client::span;
 
@@ -45,19 +45,9 @@ fn get_bit(num: u8, bit: u8) -> u8 {
 
 static mut CHECK_COUNTER: u32 = 0;
 
-pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>) -> Vec<Collision> {
+pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, bvh: &BVH<(u32, u32)>) -> Vec<Collision> {
 	unsafe { CHECK_COUNTER = 0; }
 	let _zone = span!("Do Collisions");
-	let mut bounds = vec![];
-	for body_index in 0..physics_bodies.len() {
-		let physics_body = &physics_bodies[body_index];
-		for grid_index in 0..physics_body.sub_grids().len() {
-			if let Some(bound) = physics_body.sub_grid_aabb(grid_index as u32) {
-				bounds.push(((body_index as u32, grid_index as u32), bound));
-			}
-		}
-	}
-	let bvh = bvh::BVH::new(bounds.clone());
 	// bvh.render_debug();
 	let mut collisions: Vec<Collision> = vec![];
 	for body_index_a in 0..physics_bodies.len() {

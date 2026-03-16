@@ -1,10 +1,11 @@
 use std::{f32, sync::Arc};
 use std::time::Instant;
 
-use glam::{I16Vec3, IVec2, Mat4, Quat, Vec3};
+use glam::{I16Vec3, IVec2, Mat4, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
+use crate::debug_draw;
 use crate::{player::{camera, player_input}, entity_component_system, gpu_objects::mesh, physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine}, pose::Pose, renderer::Renderer, voxels, world_gen::WorldGenerator};
 
 pub struct State {
@@ -46,6 +47,12 @@ impl State {
 		self.ecs.run_on_components_tripl_mut::<player_input::PlayerInput, camera::CameraController, camera::Camera, _>(|_entity_id, player_input, camera_controller, camera|
 			camera::CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);
+		self.ecs.run_on_components_pair_mut::<player_input::PlayerInput, camera::Camera, _>(&mut |_entity_id, player_input, camera| {
+			if player_input.key(KeyCode::Space).is_pressed {
+				let hit = self.physics_engine.raycast(&Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch)), None);
+				debug_draw::line(camera.position - Vec3::Y * 0.1, hit, &Vec4::new(1.0, 0.0, 0.0, 1.0));
+			}
+		});
 		self.leaky_bucket += dt;
 		let time_step = 1.0 / 120.0;
 		let current_time = Instant::now();
@@ -183,7 +190,7 @@ impl State {
 		let player_id = ecs.add_entity();
 		ecs.add_component_to_entity(player_id, player_input::PlayerInput::new());
 		ecs.add_component_to_entity(player_id, camera::Camera {
-			position: Vec3::new(20.0, 0.0, 0.0),
+			position: Vec3::new(-30.0, 15.0, 0.0),
 			yaw: f32::consts::PI / 2.0,
 			pitch: 0.0,
 			aspect: renderer.config.width as f32 / renderer.config.height as f32,

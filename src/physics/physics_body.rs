@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
-use glam::{I64Vec3, I16Vec3, Mat4, Quat, Vec3};
+use glam::{I16Vec3, I64Vec3, Mat4, Quat, Vec3};
 use tracy_client::span;
-use crate::{player::camera, gpu_objects::mesh::{self, GetMesh}, pose::Pose, voxels};
+use crate::{gpu_objects::mesh::{self, GetMesh}, player::camera, pose::Pose, voxels};
 
 use super::inertia_tensor::InertiaTensor;
 

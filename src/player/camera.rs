@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use glam::{Vec3, Quat, Mat4};
 use winit::keyboard::KeyCode;
 
@@ -15,7 +17,7 @@ pub struct Camera {
 
 impl Camera {
 	pub fn build_view_projection_matrix(&self) -> Mat4 {
-		let view = Mat4::from_euler(glam::EulerRot::ZYX, 0.0, self.yaw, self.pitch).inverse() * Mat4::from_translation(-self.position);
+		let view = Mat4::from_euler(glam::EulerRot::ZYX, 0.0, self.yaw + PI, -self.pitch).inverse() * Mat4::from_translation(-self.position);
 		let proj = Mat4::perspective_rh_gl(self.fovy, self.aspect, self.znear, self.zfar);
 		return proj * view;
 	}
@@ -38,7 +40,7 @@ impl CameraController {
 
 	pub fn handle_mouse_motion(&self, camera: &mut Camera, dx: f64, dy: f64) {
 		camera.yaw -= dx as f32 * self.mouse_sensitivity;
-		let unclamped_pitch= camera.pitch - dy as f32 * self.mouse_sensitivity;
+		let unclamped_pitch= camera.pitch + dy as f32 * self.mouse_sensitivity;
 		camera.pitch = unclamped_pitch.clamp(
 			-std::f32::consts::FRAC_PI_2 + 0.01,
 			std::f32::consts::FRAC_PI_2 - 0.01
@@ -51,16 +53,16 @@ impl CameraController {
 			player_input.key(KeyCode::ShiftRight).is_pressed || player_input.key(KeyCode::ShiftRight).just_pressed
 		{ 4.0 } else { 1.0 };
 		if player_input.key(KeyCode::KeyW).is_pressed || player_input.key(KeyCode::KeyW).just_pressed {
-			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * speed * dt;
-		}
-		if player_input.key(KeyCode::KeyS).is_pressed || player_input.key(KeyCode::KeyS).just_pressed {
 			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * speed * dt;
 		}
+		if player_input.key(KeyCode::KeyS).is_pressed || player_input.key(KeyCode::KeyS).just_pressed {
+			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Z) * speed * dt;
+		}
 		if player_input.key(KeyCode::KeyA).is_pressed || player_input.key(KeyCode::KeyA).just_pressed {
-			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * speed * dt;
+			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * speed * dt;
 		}
 		if player_input.key(KeyCode::KeyD).is_pressed || player_input.key(KeyCode::KeyD).just_pressed {
-			camera.position += (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * speed * dt;
+			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::X) * speed * dt;
 		}
 		if player_input.key(KeyCode::KeyQ).is_pressed || player_input.key(KeyCode::KeyQ).just_pressed {
 			camera.position -= (Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch) * Vec3::Y) * speed * dt;
@@ -70,16 +72,16 @@ impl CameraController {
 		}
 
 		if player_input.key(KeyCode::ArrowUp).is_pressed || player_input.key(KeyCode::ArrowUp).just_pressed {
-			camera.pitch += self.rotation_speed * dt;
-		}
-		if player_input.key(KeyCode::ArrowDown).is_pressed || player_input.key(KeyCode::ArrowDown).just_pressed {
 			camera.pitch -= self.rotation_speed * dt;
 		}
-		if player_input.key(KeyCode::ArrowLeft).is_pressed || player_input.key(KeyCode::ArrowLeft).just_pressed {
-			camera.yaw += self.rotation_speed * dt;
+		if player_input.key(KeyCode::ArrowDown).is_pressed || player_input.key(KeyCode::ArrowDown).just_pressed {
+			camera.pitch += self.rotation_speed * dt;
 		}
 		if player_input.key(KeyCode::ArrowRight).is_pressed || player_input.key(KeyCode::ArrowRight).just_pressed {
 			camera.yaw -= self.rotation_speed * dt;
+		}
+		if player_input.key(KeyCode::ArrowLeft).is_pressed || player_input.key(KeyCode::ArrowLeft).just_pressed {
+			camera.yaw += self.rotation_speed * dt;
 		}
 	}
 }

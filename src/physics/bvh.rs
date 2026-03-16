@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use itertools::partition;
 use glam::{Vec3, Vec4};
 
@@ -5,6 +7,7 @@ use tracy_client::span;
 
 use crate::debug_draw;
 
+#[derive(Debug)]
 enum BVHInternal {
 	SubNodes {
 		sub1: u32,
@@ -16,6 +19,7 @@ enum BVHInternal {
 	},
 }
 
+#[derive(Debug)]
 struct BVHNode {
 	min_corner: Vec3,
 	max_corner: Vec3,
@@ -84,12 +88,13 @@ impl BVHNode {
 	}
 }
 
-pub struct BVH<Index: Copy> {
+#[derive(Debug)]
+pub struct BVH<Index: Copy + Debug> {
 	nodes: Vec<BVHNode>,
 	items: Vec<(Index, (Vec3, Vec3))>,
 }
 
-impl<Index: Copy> BVH<Index> {
+impl<Index: Copy + Debug> BVH<Index> {
 	pub fn new(mut items: Vec<(Index, (Vec3, Vec3))>) -> Self {
 		let _zone = span!("BVH creation");
 		let items_len = items.len() as u32;
@@ -139,13 +144,13 @@ impl<Index: Copy> BVH<Index> {
 			let node = &self.nodes[idx as usize];
 			match node.sub_nodes {
 				BVHInternal::SubNodes { sub1, sub2 } => {
-					debug_draw::aabb(node.min_corner, node.max_corner, Vec4::ONE);
+					debug_draw::aabb(node.min_corner, node.max_corner, &Vec4::ONE);
 					stack.push(sub1);
 					stack.push(sub2);
 				}
 				BVHInternal::Leaf { start, count } => {
 					for item in self.items[start as usize..(start + count) as usize].iter() {
-						debug_draw::aabb(item.1.0, item.1.1, Vec4::ONE);
+						debug_draw::aabb(item.1.0, item.1.1, &Vec4::ONE);
 					}
 				}
 			}

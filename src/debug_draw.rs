@@ -59,7 +59,7 @@ pub fn line(a: Vec3, b: Vec3, color: &Vec4) {
 	});
 }
 
-pub fn aabb(min: Vec3, max: Vec3, color: Vec4) {
+pub fn aabb(min: Vec3, max: Vec3, color: &Vec4) {
 	let corners = [
 		min,
 		Vec3::new(max.x, min.y, min.z),
@@ -80,7 +80,7 @@ pub fn aabb(min: Vec3, max: Vec3, color: Vec4) {
 		(6, 7)
 	];
 	for (i, j) in edges {
-		line(corners[i], corners[j], &color);
+		line(corners[i], corners[j], color);
 	}
 }
 

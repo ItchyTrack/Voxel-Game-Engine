@@ -3,7 +3,7 @@ use std::{collections::HashMap};
 use glam::{I16Vec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use crate::{math::{Mat6, Vec6}, pose::Pose};
+use crate::{math::{Mat6, Vec6}, physics::bvh::BVH, pose::Pose};
 
 use super::{physics_body, collision_constraint::CollisionConstraint, physics_constraint::PhysicsConstraint, collision};
 
@@ -28,10 +28,10 @@ impl Solver {
 		Vec6::from_vec3(state_a.translation - state_b.translation, Self::sub_quat(&state_a.rotation, &state_b.rotation))
 	}
 
-	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32) {
+	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32, bvh: &BVH<(u32, u32)>) {
 		let _zone = span!("Solve Collisions");
 		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
-		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies).iter().map(
+		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies, &bvh).iter().map(
 			|c| {
 				let body1 = &physics_bodies[c.part1.body_index as usize];
 				let body2 = &physics_bodies[c.part2.body_index as usize];
