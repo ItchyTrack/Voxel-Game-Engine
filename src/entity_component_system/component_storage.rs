@@ -72,8 +72,8 @@ impl ComponentStorage {
 		self.internal.remove(entity_id);
 	}
 
-	pub fn type_id(&self) -> TypeId {
-		self.internal.type_id()
+	pub fn held_type_id(&self) -> TypeId {
+		self.internal.held_type_id()
 	}
 
 	pub fn type_name(&self) -> &'static str {

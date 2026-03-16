@@ -1,3 +1,4 @@
+use glam::{U16Vec3};
 use glam::{I16Vec3, Vec3};
 use wgpu::util::DeviceExt;
 use std::cell::Cell;
@@ -84,10 +85,10 @@ impl Voxels {
 	pub fn get_bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
 		if self.bounding_box_dirty.get() {
 			self.bounding_box_dirty.set(false);
-			self.bounding_box.set(self.voxels.iter().fold(None, |bb, (p, _)| {
+			self.bounding_box.set(self.voxels.iter().fold(None, |bb, (p, size, _)| {
 				match bb {
-					Some((min, max)) => Some((min.min(p), max.max(p))),
-					None => Some((p, p))
+					Some((min, max)) => Some((min.min(p), max.max(p + size as i16))),
+					None => Some((p, p + size as i16))
 				}
 			}));
 		}
@@ -106,7 +107,7 @@ impl mesh::GetMesh for Voxels {
 		}
 		let mut verties: Vec<mesh::MeshVertex> = vec![];
 		let mut indexes: Vec<u32> = vec![];
-		for (pos, voxel_id) in &self.voxels {
+		for (pos, size, voxel_id) in &self.voxels {
 			let voxel = self.voxel_palette.get_voxel(*voxel_id).unwrap();
 			let fpos: Vec3 = pos.as_vec3();
 			// let start_verties = verties.len() as u32;
@@ -123,37 +124,37 @@ impl mesh::GetMesh for Voxels {
 							normal: [0.0, 0.0, 0.0]
 						});}
 						1 => {verties.push(mesh::MeshVertex { // 1
-							position: (fpos + Vec3::new(1.0, 0.0, 0.0)).to_array(),
+							position: (fpos + Vec3::new(1.0, 0.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
 							normal: [0.0, 0.0, 0.0]
 						});}
 						2 => {verties.push(mesh::MeshVertex { // 2
-							position: (fpos + Vec3::new(0.0, 1.0, 0.0)).to_array(),
+							position: (fpos + Vec3::new(0.0, 1.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
 							normal: [0.0, 0.0, 0.0]
 						});}
 						3 => {verties.push(mesh::MeshVertex { // 3
-							position: (fpos + Vec3::new(0.0, 0.0, 1.0)).to_array(),
+							position: (fpos + Vec3::new(0.0, 0.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
 							normal: [0.0, 0.0, 0.0]
 						});}
 						4 => {verties.push(mesh::MeshVertex { // 4
-							position: (fpos + Vec3::new(1.0, 1.0, 0.0)).to_array(),
+							position: (fpos + Vec3::new(1.0, 1.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
 							normal: [0.0, 0.0, 0.0]
 						});}
 						5 => {verties.push(mesh::MeshVertex { // 5
-							position: (fpos + Vec3::new(1.0, 0.0, 1.0)).to_array(),
+							position: (fpos + Vec3::new(1.0, 0.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
 							normal: [0.0, 0.0, 0.0]
 						});}
 						6 => {verties.push(mesh::MeshVertex { // 6
-							position: (fpos + Vec3::new(0.0, 1.0, 1.0)).to_array(),
+							position: (fpos + Vec3::new(0.0, 1.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
 							normal: [0.0, 0.0, 0.0]
 						});}
 						7 => {verties.push(mesh::MeshVertex { // 7
-							position: (fpos + Vec3::new(1.0, 1.0, 1.0)).to_array(),
+							position: (fpos + Vec3::new(1.0, 1.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
 							normal: [0.0, 0.0, 0.0]
 						});}
@@ -162,7 +163,7 @@ impl mesh::GetMesh for Voxels {
 				}
 				return *val as u32;
 			};
-			if !self.voxels.contains_key(&(pos + I16Vec3::X)) {
+			if !self.voxels.is_area_filled(&(pos + I16Vec3::X * size as i16), &U16Vec3::new(1, size, size)) {
 				indexes.push(get_index(5)); // +x
 				indexes.push(get_index(4));
 				indexes.push(get_index(7));
@@ -170,7 +171,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(get_index(1));
 				indexes.push(get_index(4));
 			}
-			if !self.voxels.contains_key(&(pos - I16Vec3::X)) {
+			if !self.voxels.is_area_filled(&(pos - I16Vec3::X), &U16Vec3::new(1, size, size)) {
 				indexes.push(get_index(0)); // -x
 				indexes.push(get_index(3));
 				indexes.push(get_index(2));
@@ -178,7 +179,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(get_index(3));
 				indexes.push(get_index(6));
 			}
-			if !self.voxels.contains_key(&(pos + I16Vec3::Y)) {
+			if !self.voxels.is_area_filled(&(pos + I16Vec3::Y * size as i16), &U16Vec3::new(size, 1, size)) {
 				indexes.push(get_index(7)); // +y
 				indexes.push(get_index(4));
 				indexes.push(get_index(6));
@@ -186,7 +187,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(get_index(2));
 				indexes.push(get_index(6));
 			}
-			if !self.voxels.contains_key(&(pos - I16Vec3::Y)) {
+			if !self.voxels.is_area_filled(&(pos - I16Vec3::Y), &U16Vec3::new(size, 1, size)) {
 				indexes.push(get_index(0)); // -y
 				indexes.push(get_index(1));
 				indexes.push(get_index(3));
@@ -194,7 +195,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(get_index(5));
 				indexes.push(get_index(3));
 			}
-			if !self.voxels.contains_key(&(pos + I16Vec3::Z)) {
+			if !self.voxels.is_area_filled(&(pos + I16Vec3::Z * size as i16), &U16Vec3::new(size, size, 1)) {
 				indexes.push(get_index(7)); // +z
 				indexes.push(get_index(6));
 				indexes.push(get_index(5));
@@ -202,7 +203,7 @@ impl mesh::GetMesh for Voxels {
 				indexes.push(get_index(3));
 				indexes.push(get_index(5));
 			}
-			if !self.voxels.contains_key(&(pos - I16Vec3::Z)) {
+			if !self.voxels.is_area_filled(&(pos - I16Vec3::Z), &U16Vec3::new(size, size, 1)) {
 				indexes.push(get_index(0)); // -z
 				indexes.push(get_index(2));
 				indexes.push(get_index(1));
