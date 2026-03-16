@@ -110,7 +110,6 @@ impl mesh::GetMesh for Voxels {
 		for (pos, size, voxel_id) in &self.voxels {
 			let voxel = self.voxel_palette.get_voxel(*voxel_id).unwrap();
 			let fpos: Vec3 = pos.as_vec3();
-			// let start_verties = verties.len() as u32;
 			let f32_color = [voxel.color[0] as f32 / 255.0, voxel.color[1] as f32 / 255.0, voxel.color[2] as f32 / 255.0, voxel.color[3] as f32 / 255.0];
 			let mut verties_index = [8; 8];
 			let mut get_index = |id: u8| -> u32 {
@@ -121,42 +120,34 @@ impl mesh::GetMesh for Voxels {
 						0 => {verties.push(mesh::MeshVertex { // 0
 							position: fpos.to_array(),
 							color: f32_color,
-							normal: [0.0, 0.0, 0.0]
 						});}
 						1 => {verties.push(mesh::MeshVertex { // 1
 							position: (fpos + Vec3::new(1.0, 0.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
-							normal: [0.0, 0.0, 0.0]
 						});}
 						2 => {verties.push(mesh::MeshVertex { // 2
 							position: (fpos + Vec3::new(0.0, 1.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
-							normal: [0.0, 0.0, 0.0]
 						});}
 						3 => {verties.push(mesh::MeshVertex { // 3
 							position: (fpos + Vec3::new(0.0, 0.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
-							normal: [0.0, 0.0, 0.0]
 						});}
 						4 => {verties.push(mesh::MeshVertex { // 4
 							position: (fpos + Vec3::new(1.0, 1.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
-							normal: [0.0, 0.0, 0.0]
 						});}
 						5 => {verties.push(mesh::MeshVertex { // 5
 							position: (fpos + Vec3::new(1.0, 0.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
-							normal: [0.0, 0.0, 0.0]
 						});}
 						6 => {verties.push(mesh::MeshVertex { // 6
 							position: (fpos + Vec3::new(0.0, 1.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
-							normal: [0.0, 0.0, 0.0]
 						});}
 						7 => {verties.push(mesh::MeshVertex { // 7
 							position: (fpos + Vec3::new(1.0, 1.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
-							normal: [0.0, 0.0, 0.0]
 						});}
 						_ => unreachable!()
 					}
@@ -222,7 +213,6 @@ impl mesh::GetMesh for Voxels {
 			contents: bytemuck::cast_slice(&indexes),
 			usage: wgpu::BufferUsages::INDEX,
 		});
-
 
 		let matrix_buffer = matrix::MatrixUniform::get_buffer(device, 0);
 		Some(mesh::Mesh {
