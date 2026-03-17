@@ -263,9 +263,9 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 				let cell = &node.contents[local_pos_index as usize];
 				match cell {
 					ChildCell::None => {
-						// if self.try_merge(index, t, local_pos_index) {
-						// 	return None;
-						// }
+						if self.try_merge(index, t, local_pos_index) {
+							return None;
+						}
 						let node = self.get_node_mut(index);
 						let cell = &mut node.contents[local_pos_index as usize];
 						*cell = ChildCell::Data { data: t };
