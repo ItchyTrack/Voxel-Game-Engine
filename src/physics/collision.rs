@@ -52,14 +52,14 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, bvh: &BVH
 	let mut collisions: Vec<Collision> = vec![];
 	for body_index_a in 0..physics_bodies.len() {
 		let physics_body_a = &physics_bodies[body_index_a];
-		for grid_index_a in 0..physics_body_a.sub_grids().len() {
-			if let Some(bound) = physics_body_a.sub_grid_aabb(grid_index_a as u32) {
+		for grid_index_a in 0..physics_body_a.grids().len() {
+			if let Some(bound) = physics_body_a.grid_aabb(grid_index_a as u32) {
 				for (body_index_b, grid_index_b) in bvh.get_collisions(&bound) {
-					let sub_grid_a = physics_body_a.sub_grid(grid_index_a as u32).unwrap();
+					let sub_grid_a = physics_body_a.grid(grid_index_a as u32).unwrap();
 					if (body_index_a as u32) <= body_index_b { continue; }
 					let physics_body_b = &physics_bodies[body_index_b as usize];
 					if physics_body_a.is_static && physics_body_b.is_static { continue; } // skip static on static collisions
-					let sub_grid_b = physics_body_b.sub_grid(grid_index_b as u32).unwrap();
+					let sub_grid_b = physics_body_b.grid(grid_index_b as u32).unwrap();
 					let no_swap = sub_grid_a.get_voxels().get_voxels().len() < sub_grid_b.get_voxels().get_voxels().len();
 					let (physics_body1, sub_grid_1, physics_body2, sub_grid_2) = {
 						if no_swap { (physics_body_a, sub_grid_a, physics_body_b, sub_grid_b) }
@@ -503,27 +503,27 @@ fn get_collision_1x1x1_voxel(pose: &Pose, separating_axes: &Vec<((f32, f32), (f3
 }
 
 pub fn points_with_direction(
-    p1: Vec3,
-    d1: Vec3,
-    p2: Vec3,
-    d2: Vec3,
-    u: Vec3,
+	p1: Vec3,
+	d1: Vec3,
+	p2: Vec3,
+	d2: Vec3,
+	u: Vec3,
 ) -> Option<(Vec3, Vec3)> {
-    let r = p2 - p1;
+	let r = p2 - p1;
 
-    let denom = d1.dot((-d2).cross(u));
+	let denom = d1.dot((-d2).cross(u));
 
-    if denom.abs() < 1e-6 { return None; }
+	if denom.abs() < 1e-6 { return None; }
 
-    let s = r.dot((-d2).cross(u)) / denom;
-    let t = d1.dot(r.cross(u)) / denom;
+	let s = r.dot((-d2).cross(u)) / denom;
+	let t = d1.dot(r.cross(u)) / denom;
 
 	if s != s.clamp(-0.5, 0.5) || t != t.clamp(-0.5, 0.5) { return None; }
 
-    let x1 = p1 + d1 * s;
-    let x2 = p2 + d2 * t;
+	let x1 = p1 + d1 * s;
+	let x2 = p2 + d2 * t;
 
-    Some((x1, x2))
+	Some((x1, x2))
 }
 
 // assumes other cube has no rotation and both are centered at (0,0,0)

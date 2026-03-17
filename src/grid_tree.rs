@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::mem::replace;
 
-use glam::{I16Vec3, Quat, U8Vec3, U16Vec3, Vec3, Vec4};
+use glam::{I8Vec3, I16Vec3, Quat, U8Vec3, U16Vec3, Vec3, Vec4};
 
 use crate::debug_draw;
 use crate::pose::Pose;
@@ -12,14 +12,14 @@ const SIZE_USIZE_CUBED: usize = SIZE_USIZE * SIZE_USIZE * SIZE_USIZE;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ChildCell<T: Copy + Clone + PartialEq + Debug> {
-    None,
-    Node { node: u32 },
-    Data { data: T },
+	None,
+	Node { node: u32 },
+	Data { data: T },
 }
 
 #[derive(Debug)]
 struct GridTreeNode<T: Copy + Clone + PartialEq + Debug> {
-    contents: [ChildCell<T>; SIZE_USIZE_CUBED],
+	contents: [ChildCell<T>; SIZE_USIZE_CUBED],
 	child_count: u8,
 	parent: Option<u32>,
 	pos: I16Vec3,
@@ -47,16 +47,16 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTreeNode<T> {
 			pos: pos,
 			scale: scale,
 		}
-    }
+	}
 	fn get_child_cell_pos(&self, index: u8) -> U8Vec3 {
 		U8Vec3::new(index % SIZE, (index / SIZE) % SIZE, index / (SIZE * SIZE))
 	}
 	fn get_child_cell(&self, pos: &U8Vec3) -> &ChildCell<T> {
-        &self.contents[get_child_index(pos) as usize]
-    }
+		&self.contents[get_child_index(pos) as usize]
+	}
 	fn get_child_cell_mut(&mut self, pos: &U8Vec3) -> &mut ChildCell<T> {
 		&mut self.contents[get_child_index(pos) as usize]
-    }
+	}
 	fn get_child_cell_world_pos(&self, index: u8) -> I16Vec3 {
 		(self.get_child_cell_pos(index).as_u16vec3() * self.child_wold_size()).as_i16vec3() + self.pos
 	}
@@ -76,13 +76,13 @@ pub struct GridTree<T: Copy + Clone + PartialEq + Debug> {
 }
 
 impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
-    pub fn new() -> Self {
+	pub fn new() -> Self {
 		Self {
 			nodes: vec![GridTreeNode::new(None, I16Vec3::splat(SIZE as i16 / -2 + 1), 1)],
 			root: 0,
 			item_count: 0,
 		}
-    }
+	}
 	fn add_node(&mut self, parent: Option<u32>, pos: I16Vec3, scale: u16) -> u32 {
 		assert!(self.get_next_added_node_index() == self.nodes.len() as u32);
 		self.nodes.push(GridTreeNode::new(parent, pos, scale));
@@ -263,9 +263,9 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 				let cell = &node.contents[local_pos_index as usize];
 				match cell {
 					ChildCell::None => {
-						if self.try_merge(index, t, local_pos_index) {
-							return None;
-						}
+						// if self.try_merge(index, t, local_pos_index) {
+						// 	return None;
+						// }
 						let node = self.get_node_mut(index);
 						let cell = &mut node.contents[local_pos_index as usize];
 						*cell = ChildCell::Data { data: t };
@@ -316,6 +316,108 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 	pub fn is_empty(&self) -> bool { return self.item_count == 0; }
 	pub fn iter<'a>(&'a self) -> GridTreeIterator<'a, T> {
 		GridTreeIterator::<'a>::new(self)
+	}
+	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(I16Vec3, I8Vec3, f32)> {
+		let max_length = max_length.unwrap_or(f32::MAX);
+		let origin = pose.translation;
+		let dir = pose.rotation * Vec3::Z;
+		let inv_dir = Vec3::ONE / dir;
+		let dir_sign = I16Vec3::new(
+			(dir.x >= 0.0) as i16,
+			(dir.y >= 0.0) as i16,
+			(dir.z >= 0.0) as i16,
+		);
+		self.dda_node(self.root, origin, inv_dir, dir_sign, 0.0, max_length)
+	}
+
+	fn dda_node<'a>(
+		&'a self,
+		node_idx: u32,
+		origin: Vec3,
+		inv_dir: Vec3,
+		dir_sign: I16Vec3,
+		t_min: f32,
+		t_max: f32,
+	) -> Option<(I16Vec3, I8Vec3, f32)> {
+		let node = &self.nodes[node_idx as usize];
+		let cell_size = node.scale as f32;
+		let node_pos = node.pos.as_vec3();
+		let step = dir_sign * 2 - I16Vec3::ONE;
+
+		let entry_world = (origin + inv_dir.recip() * t_min).clamp(
+			node_pos,
+			node_pos + Vec3::splat(node.world_size() as f32 - f32::EPSILON * cell_size),
+		);
+		let mut cell = ((entry_world - node_pos) / cell_size)
+			.floor()
+			.as_i16vec3()
+			.clamp(I16Vec3::ZERO, I16Vec3::splat(SIZE as i16 - 1));
+
+		let cell_exit_face = node_pos + (cell + dir_sign).as_vec3() * cell_size;
+		let mut t_next = (cell_exit_face - origin) * inv_dir;
+		let t_delta = (Vec3::splat(cell_size) * inv_dir).abs();
+
+		let mut t_current = t_min;
+
+		let t_entry = t_next - t_delta;
+		let mut normal_axis = if t_entry.x > t_entry.y && t_entry.x > t_entry.z { 0 } else if t_entry.y > t_entry.z { 1 } else { 2 };
+
+		loop {
+			if cell.x < 0 || cell.x >= SIZE as i16
+			|| cell.y < 0 || cell.y >= SIZE as i16
+			|| cell.z < 0 || cell.z >= SIZE as i16 {
+				return None;
+			}
+
+			let t_cell_exit = t_next.min_element().min(t_max);
+			let idx = get_child_index(&cell.as_u8vec3());
+
+			match &node.contents[idx as usize] {
+				ChildCell::None => {}
+				ChildCell::Data { data: _ } => {
+					if t_current <= t_max {
+						let hit_world = origin + inv_dir.recip() * t_current;
+						let mut normal = I8Vec3::ZERO;
+						normal[normal_axis] = -(step[normal_axis] as i8);
+						let scale1_pos = (hit_world - normal.as_vec3() * 0.5).floor().as_i16vec3();
+						return Some((scale1_pos, normal, t_current));
+					} else {
+						return None;
+					}
+				}
+				ChildCell::Node { node: child_idx } => {
+					if let Some(hit) = self.dda_node(*child_idx, origin, inv_dir, dir_sign, t_current, t_cell_exit) {
+						return Some(hit);
+					}
+				}
+			}
+
+			if t_next.x < t_next.y {
+				if t_next.x < t_next.z {
+					if t_next.x > t_max { return None; }
+					t_current = t_next.x; normal_axis = 0;
+					cell.x += step.x; t_next.x += t_delta.x;
+				} else {
+					if t_next.z > t_max { return None; }
+					t_current = t_next.z; normal_axis = 2;
+					cell.z += step.z; t_next.z += t_delta.z;
+				}
+			} else if t_next.y < t_next.z {
+				if t_next.y > t_max { return None; }
+				t_current = t_next.y; normal_axis = 1;
+				cell.y += step.y; t_next.y += t_delta.y;
+			} else {
+				if t_next.z > t_max { return None; }
+				t_current = t_next.z; normal_axis = 2;
+				cell.z += step.z; t_next.z += t_delta.z;
+			}
+		}
+	}
+
+	fn node_entry_t(&self, origin: Vec3, inv_dir: Vec3, aabb: &(Vec3, Vec3)) -> f32 {
+		let t1 = (aabb.0 - origin) * inv_dir;
+		let t2 = (aabb.1 - origin) * inv_dir;
+		t1.min(t2).max_element()
 	}
 	pub fn render_debug(&self, pose: &Pose) {
 		let mut stack = vec![self.root];
@@ -435,10 +537,62 @@ impl<'a, T: Copy + Clone + PartialEq + Debug> Iterator for GridTreeIterator<'a, 
 }
 
 impl<'a, T: Copy + Clone + PartialEq + Debug> IntoIterator for &'a GridTree<T> {
-    type Item = (I16Vec3, u16, &'a T);
-    type IntoIter = GridTreeIterator<'a, T>;
+	type Item = (I16Vec3, u16, &'a T);
+	type IntoIter = GridTreeIterator<'a, T>;
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
+	fn into_iter(self) -> Self::IntoIter {
+		self.iter()
+	}
+}
+
+struct DDAState {
+	pos: I16Vec3,
+	step: I16Vec3,
+	length_max: Vec3,
+	t_delta: Vec3,
+	t: f32,
+}
+
+impl DDAState {
+	fn new(start: Vec3, dir: Vec3, entry_t: f32) -> Self {
+		let entry_point = start + dir * entry_t.max(0.0);
+		let pos = entry_point.floor().as_i16vec3();
+		let step = I16Vec3::new(
+			if dir.x >= 0.0 { 1 } else { -1 },
+			if dir.y >= 0.0 { 1 } else { -1 },
+			if dir.z >= 0.0 { 1 } else { -1 },
+		);
+		let next_boundary = Vec3::new(
+			if dir.x >= 0.0 { (pos.x + 1) as f32 } else { pos.x as f32 },
+			if dir.y >= 0.0 { (pos.y + 1) as f32 } else { pos.y as f32 },
+			if dir.z >= 0.0 { (pos.z + 1) as f32 } else { pos.z as f32 },
+		);
+		let t_delta = (Vec3::ONE / dir).abs();
+		let length_max = (next_boundary - start) / dir;
+		Self { pos, step, length_max, t_delta, t: entry_t.max(0.0) }
+	}
+
+	// Advance to next cell, stepping `scale` units on the chosen axis
+	fn advance(&mut self, scale: i16) {
+		let s = scale as f32;
+		if self.length_max.x < self.length_max.y {
+			if self.length_max.x < self.length_max.z {
+				self.t = self.length_max.x;
+				self.pos.x += self.step.x * scale;
+				self.length_max.x += self.t_delta.x * s;
+			} else {
+				self.t = self.length_max.z;
+				self.pos.z += self.step.z * scale;
+				self.length_max.z += self.t_delta.z * s;
+			}
+		} else if self.length_max.y < self.length_max.z {
+			self.t = self.length_max.y;
+			self.pos.y += self.step.y * scale;
+			self.length_max.y += self.t_delta.y * s;
+		} else {
+			self.t = self.length_max.z;
+			self.pos.z += self.step.z * scale;
+			self.length_max.z += self.t_delta.z * s;
+		}
+	}
 }

@@ -49,8 +49,16 @@ impl State {
 		);
 		self.ecs.run_on_components_pair_mut::<player_input::PlayerInput, camera::Camera, _>(&mut |_entity_id, player_input, camera| {
 			if player_input.key(KeyCode::Space).is_pressed {
-				let hit = self.physics_engine.raycast(&Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch)), None);
-				debug_draw::line(camera.position - Vec3::Y * 0.1, hit, &Vec4::new(1.0, 0.0, 0.0, 1.0));
+				let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
+				if let Some((body_index, grid_index, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
+					let physics_body = self.physics_engine.physics_body_by_index(body_index).unwrap();
+					let grid = physics_body.grid(grid_index).unwrap();
+					let globle_hit_normal = physics_body.pose.rotation * grid.pose.rotation * hit_normal.as_vec3();
+					let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
+					let globle_hit_pos_snap = physics_body.pose * grid.pose * hit_pos.as_vec3();
+					debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
+					debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid.pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.2), true);
+				}
 			}
 		});
 		self.leaky_bucket += dt;
@@ -78,8 +86,8 @@ impl State {
 
 	fn make_ball(physics_body: &mut PhysicsBody, radius: i16) {
 		{
-			let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
-			let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+			let sub_grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+			let sub_grid = physics_body.grid_mut(sub_grid_id).unwrap();
 
 			for x in -radius..radius + 1 {
 				for y in -0..radius + 1 {
@@ -95,8 +103,8 @@ impl State {
 			}
 		}
 		{
-			let sub_grid_id = physics_body.add_sub_grid(Pose::new(Vec3::new(-0.707 + 0.5, 0.0, 0.707 - 0.5), Quat::from_rotation_y(f32::consts::PI/4.0)));
-			let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+			let sub_grid_id = physics_body.add_grid(Pose::new(Vec3::new(-0.707 + 0.5, 0.0, 0.707 - 0.5), Quat::from_rotation_y(f32::consts::PI/4.0)));
+			let sub_grid = physics_body.grid_mut(sub_grid_id).unwrap();
 			for x in -radius..radius + 1 {
 				for y in -radius..0 {
 					for z in -radius..radius + 1 {
@@ -162,8 +170,8 @@ impl State {
 					let inward = -normal;
 					let rotation = Quat::from_rotation_arc(Vec3::Z, inward);
 					let translation = center - rotation * voxel_center;
-					let sub_grid_id = physics_body.add_sub_grid(Pose::new(translation, rotation));
-					let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+					let sub_grid_id = physics_body.add_grid(Pose::new(translation, rotation));
+					let sub_grid = physics_body.grid_mut(sub_grid_id).unwrap();
 					sub_grid.add_voxel(
 						I16Vec3::ZERO,
 						voxels::Voxel {
@@ -395,7 +403,7 @@ impl State {
 			let world_generator = WorldGenerator::new(2);
 			for x in -10..11 {
 				for z in -10..11 {
-					let sub_grid_id = physics_body.add_sub_grid(Pose::new(
+					let sub_grid_id = physics_body.add_grid(Pose::new(
 						Vec3::new(
 							(x * WorldGenerator::CHUNK_SIZE as i32) as f32,
 							0.0,
@@ -403,7 +411,7 @@ impl State {
 						),
 						Quat::IDENTITY
 					));
-					let sub_grid = physics_body.sub_grid_mut(sub_grid_id).unwrap();
+					let sub_grid = physics_body.grid_mut(sub_grid_id).unwrap();
 					world_generator.create_chunk(IVec2::new(x, z), sub_grid);
 				}
 			}

@@ -17,7 +17,7 @@ pub struct PhysicsBodySubGrid {
 }
 
 impl PhysicsBodySubGrid {
-	pub fn new(sub_grid_id: u32, pose: &Pose) -> Self {
+	pub fn new(grid_id: u32, pose: &Pose) -> Self {
 		Self {
 			pose: *pose,
 			voxels: voxels::Voxels::new(),
@@ -25,7 +25,7 @@ impl PhysicsBodySubGrid {
 			mass: 0,
 			voxel_center_of_mass_times_mass: I64Vec3::ZERO,
 			inertia_tensor_at_zero: InertiaTensor::ZERO,
-			id: sub_grid_id,
+			id: grid_id,
 		}
 	}
 
@@ -118,9 +118,9 @@ pub struct PhysicsBody {
 	pub velocity: Vec3,
 	pub angular_velocity: Vec3,
 	pub is_static: bool,
-	sub_grids: Vec<PhysicsBodySubGrid>,
-	sub_grids_id_to_index: HashMap<u32, u32>,
-	next_sub_grid_id: u32,
+	grids: Vec<PhysicsBodySubGrid>,
+	grids_id_to_index: HashMap<u32, u32>,
+	next_grid_id: u32,
 	id: u32,
 }
 
@@ -131,9 +131,9 @@ impl PhysicsBody {
 			velocity: Vec3::ZERO,
 			angular_velocity: Vec3::ZERO,
 			is_static: false,
-			sub_grids: vec![],
-			sub_grids_id_to_index: HashMap::new(),
-			next_sub_grid_id: 0,
+			grids: vec![],
+			grids_id_to_index: HashMap::new(),
+			next_grid_id: 0,
 			id: id,
 		}
 	}
@@ -142,17 +142,17 @@ impl PhysicsBody {
 	}
 	pub fn mass(&self) -> f32 {
 		let mut mass_sum = 0.0;
-		for sub_grid in self.sub_grids.iter() {
-			mass_sum += sub_grid.mass();
+		for grid in self.grids.iter() {
+			mass_sum += grid.mass();
 		}
 		mass_sum
 	}
 	pub fn get_local_center_of_mass(&self) -> Vec3 {
 		let mut center_of_mass_times_mass = Vec3::ZERO;
 		let mut mass_sum = 0.0;
-		for sub_grid in self.sub_grids.iter() {
-			center_of_mass_times_mass += sub_grid.get_body_center_of_mass() * sub_grid.mass();
-			mass_sum += sub_grid.mass();
+		for grid in self.grids.iter() {
+			center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
+			mass_sum += grid.mass();
 		}
 		if mass_sum == 0.0 { return Vec3::ZERO; }
 		center_of_mass_times_mass / mass_sum
@@ -160,9 +160,9 @@ impl PhysicsBody {
 	pub fn get_local_center_of_mass_and_mass(&self) -> (Vec3, f32) {
 		let mut center_of_mass_times_mass = Vec3::ZERO;
 		let mut mass_sum = 0.0;
-		for sub_grid in self.sub_grids.iter() {
-			center_of_mass_times_mass += sub_grid.get_body_center_of_mass() * sub_grid.mass();
-			mass_sum += sub_grid.mass();
+		for grid in self.grids.iter() {
+			center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
+			mass_sum += grid.mass();
 		}
 		if mass_sum == 0.0 { return (Vec3::ZERO, 0.0); }
 		(center_of_mass_times_mass / mass_sum, mass_sum)
@@ -170,9 +170,9 @@ impl PhysicsBody {
 	pub fn get_global_rotated_center_of_mass(&self) -> Vec3 {
 		let mut center_of_mass_times_mass = Vec3::ZERO;
 		let mut mass_sum = 0.0;
-		for sub_grid in self.sub_grids.iter() {
-			center_of_mass_times_mass += sub_grid.get_body_center_of_mass() * sub_grid.mass();
-			mass_sum += sub_grid.mass();
+		for grid in self.grids.iter() {
+			center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
+			mass_sum += grid.mass();
 		}
 		if mass_sum == 0.0 { return Vec3::ZERO; }
 		self.pose.rotation * (center_of_mass_times_mass / mass_sum)
@@ -180,9 +180,9 @@ impl PhysicsBody {
 	pub fn get_global_center_of_mass(&self) -> Vec3 {
 		let mut center_of_mass_times_mass = Vec3::ZERO;
 		let mut mass_sum = 0.0;
-		for sub_grid in self.sub_grids.iter() {
-			center_of_mass_times_mass += sub_grid.get_body_center_of_mass() * sub_grid.mass();
-			mass_sum += sub_grid.mass();
+		for grid in self.grids.iter() {
+			center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
+			mass_sum += grid.mass();
 		}
 		if mass_sum == 0.0 { return Vec3::ZERO; }
 		self.pose * (center_of_mass_times_mass / mass_sum)
@@ -190,8 +190,8 @@ impl PhysicsBody {
 	pub fn rotational_inertia(&self) -> InertiaTensor {
 		let (com, mass) = self.get_local_center_of_mass_and_mass();
 		let mut inertia_tensor_at_zero: InertiaTensor = InertiaTensor::ZERO;
-		for sub_grid in self.sub_grids.iter() {
-			inertia_tensor_at_zero += sub_grid.get_inertia_tensor_at_body();
+		for grid in self.grids.iter() {
+			inertia_tensor_at_zero += grid.get_inertia_tensor_at_body();
 		}
 		inertia_tensor_at_zero.move_to_center_of_mass(
 			&com.as_dvec3(),
@@ -201,54 +201,58 @@ impl PhysicsBody {
 
 	pub fn get_rendering_meshes(&self, device: &wgpu::Device, camera: &camera::Camera) -> Vec<(Arc<mesh::Mesh>, Mat4)> {
 		let mut meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
-		for sub_grid in self.sub_grids.iter() {
-			let pose = self.pose * sub_grid.pose;
+		for grid in self.grids.iter() {
+			let pose = self.pose * grid.pose;
 			let matrix = Mat4::from_rotation_translation(pose.rotation, pose.translation);
-			for mesh in sub_grid.get_rendering_meshes(device, camera) {
+			for mesh in grid.get_rendering_meshes(device, camera) {
 				meshes.push((mesh, matrix));
 			}
 		}
 		meshes
 	}
 
-	pub fn add_sub_grid(&mut self, sub_grid_pose: Pose) -> u32 {
-		self.sub_grids_id_to_index.insert(self.next_sub_grid_id, self.sub_grids.len() as u32);
-		self.sub_grids.push(PhysicsBodySubGrid::new(self.next_sub_grid_id, &sub_grid_pose));
-		self.next_sub_grid_id += 1;
-		self.next_sub_grid_id - 1
+	pub fn add_grid(&mut self, grid_pose: Pose) -> u32 {
+		self.grids_id_to_index.insert(self.next_grid_id, self.grids.len() as u32);
+		self.grids.push(PhysicsBodySubGrid::new(self.next_grid_id, &grid_pose));
+		self.next_grid_id += 1;
+		self.next_grid_id - 1
 	}
 
-	pub fn remove_sub_grid(&mut self, sub_grid_id: u32) {
-		let index = match self.sub_grids_id_to_index.remove(&sub_grid_id) {
+	pub fn remove_grid(&mut self, grid_id: u32) {
+		let index = match self.grids_id_to_index.remove(&grid_id) {
 			Some(i) => i,
 			None => return,
 		};
-		self.sub_grids.swap_remove(index as usize);
-		if index != self.sub_grids.len() as u32 {
-			let other_id = self.sub_grids[index as usize].id();
-			self.sub_grids_id_to_index.insert(other_id, index);
+		self.grids.swap_remove(index as usize);
+		if index != self.grids.len() as u32 {
+			let other_id = self.grids[index as usize].id();
+			self.grids_id_to_index.insert(other_id, index);
 		}
 	}
 
-	pub fn sub_grid(&self, sub_grid_id: u32) -> Option<&PhysicsBodySubGrid> {
-		let index = *self.sub_grids_id_to_index.get(&sub_grid_id)?;
-		self.sub_grids.get(index as usize)
+	pub fn grid(&self, grid_id: u32) -> Option<&PhysicsBodySubGrid> {
+		let index = *self.grids_id_to_index.get(&grid_id)?;
+		self.grids.get(index as usize)
 	}
 
-	pub fn sub_grid_mut(&mut self, sub_grid_id: u32) -> Option<&mut PhysicsBodySubGrid> {
-		let index = *self.sub_grids_id_to_index.get(&sub_grid_id)?;
-		self.sub_grids.get_mut(index as usize)
+	pub fn grid_by_index(&self, grid_index: u32) -> Option<&PhysicsBodySubGrid> {
+		self.grids.get(grid_index as usize)
 	}
 
-	pub fn sub_grids(&self) -> &[PhysicsBodySubGrid] {
-		&self.sub_grids
+	pub fn grid_mut(&mut self, grid_id: u32) -> Option<&mut PhysicsBodySubGrid> {
+		let index = *self.grids_id_to_index.get(&grid_id)?;
+		self.grids.get_mut(index as usize)
+	}
+
+	pub fn grids(&self) -> &[PhysicsBodySubGrid] {
+		&self.grids
 	}
 
 	pub fn aabb(&self) -> (Vec3, Vec3) {
 		let mut aabb_min = Vec3::splat(f32::MAX);
 		let mut aabb_max = Vec3::splat(f32::MIN);
-		for sub_grid in &self.sub_grids {
-			let (min, max) = sub_grid.get_voxels().get_bounding_box().unwrap();
+		for grid in &self.grids {
+			let (min, max) = grid.get_voxels().get_bounding_box().unwrap();
 			let min = min.as_vec3();
 			let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
 			let corners = [
@@ -261,16 +265,16 @@ impl PhysicsBody {
 				Vec3::new(min.x, max.y, max.z),
 				max,
 			];
-			let rotated_corners = corners.map(|c| self.pose * sub_grid.pose * c);
+			let rotated_corners = corners.map(|c| self.pose * grid.pose * c);
 			aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
 			aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
 		}
 		(aabb_min, aabb_max)
 	}
 
-	pub fn sub_grid_aabb(&self, sub_grid_id: u32) -> Option<(Vec3, Vec3)> {
-		let sub_grid = self.sub_grids.get(sub_grid_id as usize)?;
-		let (min, max) = sub_grid.get_voxels().get_bounding_box()?;
+	pub fn grid_aabb(&self, grid_id: u32) -> Option<(Vec3, Vec3)> {
+		let grid = self.grids.get(grid_id as usize)?;
+		let (min, max) = grid.get_voxels().get_bounding_box()?;
 		let min = min.as_vec3();
 		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
 		let corners = [
@@ -283,7 +287,7 @@ impl PhysicsBody {
 			Vec3::new(min.x, max.y, max.z),
 			max,
 		];
-		let rotated_corners = corners.map(|c| self.pose * sub_grid.pose * c);
+		let rotated_corners = corners.map(|c| self.pose * grid.pose * c);
 		Some((
 			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
 			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))
@@ -301,10 +305,10 @@ impl PhysicsBody {
 	pub fn world_to_local_rot(&self, rot: &Quat) -> Quat { self.pose.inverse() * rot }
 	pub fn local_to_world_rot(&self, rot: &Quat) -> Quat { self.pose * rot }
 
-	pub fn world_to_sub_grid(&self, sub_grid_index: u32, other: &Pose) -> Pose { self.sub_grids[sub_grid_index as usize].body_to_local(&self.world_to_local(other)) }
-	pub fn sub_grid_to_world(&self, sub_grid_index: u32, other: &Pose) -> Pose { self.local_to_world(&self.sub_grids[sub_grid_index as usize].local_to_body(other)) }
-	pub fn world_to_sub_grid_vec(&self, sub_grid_index: u32, pos: &Vec3) -> Vec3 { self.sub_grids[sub_grid_index as usize].body_to_local_vec(&self.world_to_local_vec(pos)) }
-	pub fn sub_grid_to_world_vec(&self, sub_grid_index: u32, pos: &Vec3) -> Vec3 { self.local_to_world_vec(&self.sub_grids[sub_grid_index as usize].local_to_body_vec(pos)) }
-	pub fn world_to_sub_grid_rot(&self, sub_grid_index: u32, rot: &Quat) -> Quat { self.sub_grids[sub_grid_index as usize].body_to_local_rot(&self.world_to_local_rot(rot)) }
-	pub fn sub_grid_to_world_rot(&self, sub_grid_index: u32, rot: &Quat) -> Quat { self.local_to_world_rot(&self.sub_grids[sub_grid_index as usize].local_to_body_rot(rot)) }
+	pub fn world_to_grid(&self, grid_index: u32, other: &Pose) -> Pose { self.grids[grid_index as usize].body_to_local(&self.world_to_local(other)) }
+	pub fn grid_to_world(&self, grid_index: u32, other: &Pose) -> Pose { self.local_to_world(&self.grids[grid_index as usize].local_to_body(other)) }
+	pub fn world_to_grid_vec(&self, grid_index: u32, pos: &Vec3) -> Vec3 { self.grids[grid_index as usize].body_to_local_vec(&self.world_to_local_vec(pos)) }
+	pub fn grid_to_world_vec(&self, grid_index: u32, pos: &Vec3) -> Vec3 { self.local_to_world_vec(&self.grids[grid_index as usize].local_to_body_vec(pos)) }
+	pub fn world_to_grid_rot(&self, grid_index: u32, rot: &Quat) -> Quat { self.grids[grid_index as usize].body_to_local_rot(&self.world_to_local_rot(rot)) }
+	pub fn grid_to_world_rot(&self, grid_index: u32, rot: &Quat) -> Quat { self.local_to_world_rot(&self.grids[grid_index as usize].local_to_body_rot(rot)) }
 }
