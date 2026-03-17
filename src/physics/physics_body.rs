@@ -244,6 +244,10 @@ impl PhysicsBody {
 		self.grids.get_mut(index as usize)
 	}
 
+	pub fn grid_by_index_mut(&mut self, grid_index: u32) -> Option<&mut PhysicsBodySubGrid> {
+		self.grids.get_mut(grid_index as usize)
+	}
+
 	pub fn grids(&self) -> &[PhysicsBodySubGrid] {
 		&self.grids
 	}

@@ -6,6 +6,7 @@ use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
 use crate::debug_draw;
+use crate::voxels::Voxel;
 use crate::{player::{camera, player_input}, entity_component_system, gpu_objects::mesh, physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine}, pose::Pose, renderer::Renderer, voxels, world_gen::WorldGenerator};
 
 pub struct State {
@@ -48,7 +49,7 @@ impl State {
 			camera::CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);
 		self.ecs.run_on_components_pair_mut::<player_input::PlayerInput, camera::Camera, _>(&mut |_entity_id, player_input, camera| {
-			if player_input.key(KeyCode::Space).is_pressed {
+			// if player_input.key(KeyCode::Space).is_pressed {
 				let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
 				if let Some((body_index, grid_index, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
 					let physics_body = self.physics_engine.physics_body_by_index(body_index).unwrap();
@@ -57,9 +58,12 @@ impl State {
 					let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
 					let globle_hit_pos_snap = physics_body.pose * grid.pose * hit_pos.as_vec3();
 					debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
-					debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid.pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.2), true);
+					debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid.pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
+					if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
+						self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().add_voxel(hit_pos + hit_normal.as_i16vec3(), Voxel{ color: [100, 100, 100, 1], mass: 100 });
+					}
 				}
-			}
+			// }
 		});
 		self.leaky_bucket += dt;
 		let time_step = 1.0 / 120.0;

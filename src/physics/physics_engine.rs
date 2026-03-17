@@ -84,6 +84,10 @@ impl PhysicsEngine {
 		self.physics_bodies.get_mut(index as usize)
 	}
 
+	pub fn physics_body_by_index_mut(&mut self, physics_body_index: u32) -> Option<&mut PhysicsBody> {
+		self.physics_bodies.get_mut(physics_body_index as usize)
+	}
+
 	pub fn physics_bodies(&self) -> &[PhysicsBody] {
 		&self.physics_bodies
 	}
