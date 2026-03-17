@@ -77,155 +77,155 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, bvh: &BVH
 										&separating_axis,
 										&(physics_body2.pose * sub_grid_2.pose),
 									).iter().filter_map(|c| {
-										// let mut first_edge_covered = false;
-										// match c.1 {
-										// 	CubeFeature::Vertex { xyz } => {
-										// 		for i in 1..8 {
-										// 			if sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					get_bit(i, 0) as i16 * (get_bit(xyz, 0) as i16 * 2 - 1),
-										// 					get_bit(i, 1) as i16 * (get_bit(xyz, 1) as i16 * 2 - 1),
-										// 					get_bit(i, 2) as i16 * (get_bit(xyz, 2) as i16 * 2 - 1)
-										// 				)).is_some() { return None; }
-										// 		}
-										// 	},
-										// 	CubeFeature::Edge { vertex_vertex } => {
-										// 		if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
-										// 			if
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					0,
-										// 					get_bit(vertex_vertex, 1) as i16 * 2 - 1,
-										// 					0
-										// 				)).is_some() ||
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					0,
-										// 					0,
-										// 					get_bit(vertex_vertex, 2) as i16 * 2 - 1
-										// 				)).is_some() ||
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					0,
-										// 					get_bit(vertex_vertex, 1) as i16 * 2 - 1,
-										// 					get_bit(vertex_vertex, 2) as i16 * 2 - 1
-										// 				)).is_some()
-										// 			{ first_edge_covered = true; }
-										// 		} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
-										// 			if
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					get_bit(vertex_vertex, 0) as i16 * 2 - 1,
-										// 					0,
-										// 					0
-										// 				)).is_some() ||
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					0,
-										// 					0,
-										// 					get_bit(vertex_vertex, 2) as i16 * 2 - 1
-										// 				)).is_some() ||
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					get_bit(vertex_vertex, 0) as i16 * 2 - 1,
-										// 					0,
-										// 					get_bit(vertex_vertex, 2) as i16 * 2 - 1
-										// 				)).is_some()
-										// 			{ first_edge_covered = true; }
-										// 		} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
-										// 			if
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					get_bit(vertex_vertex, 0) as i16 * 2 - 1,
-										// 					0,
-										// 					0
-										// 				)).is_some() ||
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					0,
-										// 					get_bit(vertex_vertex, 1) as i16 * 2 - 1,
-										// 					0
-										// 				)).is_some() ||
-										// 				sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
-										// 					get_bit(vertex_vertex, 0) as i16 * 2 - 1,
-										// 					get_bit(vertex_vertex, 1) as i16 * 2 - 1,
-										// 					0
-										// 				)).is_some()
-										// 			{ first_edge_covered = true; }
-										// 		}
-										// 	},
-										// 	CubeFeature::Face { xyzs } => {
-										// 		if sub_grid_1.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_i16vec3() * (1 - 2 * get_bit(xyzs, 3) as i16)).is_some() {
-										// 			return None;
-										// 		}
-										// 	},
-										// };
-										// match c.3 {
-										// 	CubeFeature::Vertex { xyz } => {
-										// 		for i in 1..8 {
-										// 			if sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 					get_bit(i, 0) as i16 * (get_bit(xyz, 0) as i16 * 2 - 1),
-										// 					get_bit(i, 1) as i16 * (get_bit(xyz, 1) as i16 * 2 - 1),
-										// 					get_bit(i, 2) as i16 * (get_bit(xyz, 2) as i16 * 2 - 1)
-										// 				)).is_some() { return None; }
-										// 		}
-										// 	},
-										// 	CubeFeature::Edge { vertex_vertex } => {
-										// 		if first_edge_covered { // only if both edges are covered
-										// 			if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
-										// 				if
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						0,
-										// 						get_bit(vertex_vertex, 1) as i16 * 2 - 1,
-										// 						0
-										// 					)).is_some() ||
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						0,
-										// 						0,
-										// 						get_bit(vertex_vertex, 2) as i16 * 2 - 1
-										// 					)).is_some() ||
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						0,
-										// 						get_bit(vertex_vertex, 1) as i16 * 2 - 1,
-										// 						get_bit(vertex_vertex, 2) as i16 * 2 - 1
-										// 					)).is_some()
-										// 				{ return None; }
-										// 			} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
-										// 				if
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						get_bit(vertex_vertex, 0) as i16 * 2 - 1,
-										// 						0,
-										// 						0
-										// 					)).is_some() ||
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						0,
-										// 						0,
-										// 						get_bit(vertex_vertex, 2) as i16 * 2 - 1
-										// 					)).is_some() ||
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						get_bit(vertex_vertex, 0) as i16 * 2 - 1,
-										// 						0,
-										// 						get_bit(vertex_vertex, 2) as i16 * 2 - 1
-										// 					)).is_some()
-										// 				{ return None; }
-										// 			} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
-										// 				if
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						get_bit(vertex_vertex, 0) as i16 * 2 - 1,
-										// 						0,
-										// 						0
-										// 					)).is_some() ||
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						0,
-										// 						get_bit(vertex_vertex, 1) as i16 * 2 - 1,
-										// 						0
-										// 					)).is_some() ||
-										// 					sub_grid_2.get_voxel(c.4 + I16Vec3::new(
-										// 						get_bit(vertex_vertex, 0) as i16 * 2 - 1,
-										// 						get_bit(vertex_vertex, 1) as i16 * 2 - 1,
-										// 						0
-										// 					)).is_some()
-										// 				{ return None; }
-										// 			}
-										// 		}
-										// 	},
-										// 	CubeFeature::Face { xyzs } => {
-										// 		if sub_grid_2.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_i16vec3() * (1 - 2 * get_bit(xyzs, 3) as i16)).is_some() {
-										// 			return None;
-										// 		}
-										// 	},
-										// };
+										let mut first_edge_covered = false;
+										match c.1 {
+											CubeFeature::Vertex { xyz } => {
+												for i in 1..8 {
+													if sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															get_bit(i, 0) as i16 * (get_bit(xyz, 0) as i16 * 2 - 1),
+															get_bit(i, 1) as i16 * (get_bit(xyz, 1) as i16 * 2 - 1),
+															get_bit(i, 2) as i16 * (get_bit(xyz, 2) as i16 * 2 - 1)
+														)).is_some() { return None; }
+												}
+											},
+											CubeFeature::Edge { vertex_vertex } => {
+												if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
+													if
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															0,
+															get_bit(vertex_vertex, 1) as i16 * 2 - 1,
+															0
+														)).is_some() ||
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															0,
+															0,
+															get_bit(vertex_vertex, 2) as i16 * 2 - 1
+														)).is_some() ||
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															0,
+															get_bit(vertex_vertex, 1) as i16 * 2 - 1,
+															get_bit(vertex_vertex, 2) as i16 * 2 - 1
+														)).is_some()
+													{ first_edge_covered = true; }
+												} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
+													if
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															get_bit(vertex_vertex, 0) as i16 * 2 - 1,
+															0,
+															0
+														)).is_some() ||
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															0,
+															0,
+															get_bit(vertex_vertex, 2) as i16 * 2 - 1
+														)).is_some() ||
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															get_bit(vertex_vertex, 0) as i16 * 2 - 1,
+															0,
+															get_bit(vertex_vertex, 2) as i16 * 2 - 1
+														)).is_some()
+													{ first_edge_covered = true; }
+												} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
+													if
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															get_bit(vertex_vertex, 0) as i16 * 2 - 1,
+															0,
+															0
+														)).is_some() ||
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															0,
+															get_bit(vertex_vertex, 1) as i16 * 2 - 1,
+															0
+														)).is_some() ||
+														sub_grid_1.get_voxel(voxel.0 + I16Vec3::new(
+															get_bit(vertex_vertex, 0) as i16 * 2 - 1,
+															get_bit(vertex_vertex, 1) as i16 * 2 - 1,
+															0
+														)).is_some()
+													{ first_edge_covered = true; }
+												}
+											},
+											CubeFeature::Face { xyzs } => {
+												if sub_grid_1.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_i16vec3() * (1 - 2 * get_bit(xyzs, 3) as i16)).is_some() {
+													return None;
+												}
+											},
+										};
+										match c.3 {
+											CubeFeature::Vertex { xyz } => {
+												for i in 1..8 {
+													if sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+															get_bit(i, 0) as i16 * (get_bit(xyz, 0) as i16 * 2 - 1),
+															get_bit(i, 1) as i16 * (get_bit(xyz, 1) as i16 * 2 - 1),
+															get_bit(i, 2) as i16 * (get_bit(xyz, 2) as i16 * 2 - 1)
+														)).is_some() { return None; }
+												}
+											},
+											CubeFeature::Edge { vertex_vertex } => {
+												if first_edge_covered { // only if both edges are covered
+													if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
+														if
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																0,
+																get_bit(vertex_vertex, 1) as i16 * 2 - 1,
+																0
+															)).is_some() ||
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																0,
+																0,
+																get_bit(vertex_vertex, 2) as i16 * 2 - 1
+															)).is_some() ||
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																0,
+																get_bit(vertex_vertex, 1) as i16 * 2 - 1,
+																get_bit(vertex_vertex, 2) as i16 * 2 - 1
+															)).is_some()
+														{ return None; }
+													} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
+														if
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																get_bit(vertex_vertex, 0) as i16 * 2 - 1,
+																0,
+																0
+															)).is_some() ||
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																0,
+																0,
+																get_bit(vertex_vertex, 2) as i16 * 2 - 1
+															)).is_some() ||
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																get_bit(vertex_vertex, 0) as i16 * 2 - 1,
+																0,
+																get_bit(vertex_vertex, 2) as i16 * 2 - 1
+															)).is_some()
+														{ return None; }
+													} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
+														if
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																get_bit(vertex_vertex, 0) as i16 * 2 - 1,
+																0,
+																0
+															)).is_some() ||
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																0,
+																get_bit(vertex_vertex, 1) as i16 * 2 - 1,
+																0
+															)).is_some() ||
+															sub_grid_2.get_voxel(c.4 + I16Vec3::new(
+																get_bit(vertex_vertex, 0) as i16 * 2 - 1,
+																get_bit(vertex_vertex, 1) as i16 * 2 - 1,
+																0
+															)).is_some()
+														{ return None; }
+													}
+												}
+											},
+											CubeFeature::Face { xyzs } => {
+												if sub_grid_2.get_voxel(U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_i16vec3() * (1 - 2 * get_bit(xyzs, 3) as i16)).is_some() {
+													return None;
+												}
+											},
+										};
 
 										Some(Collision {
 											part1: HalfCollision{
