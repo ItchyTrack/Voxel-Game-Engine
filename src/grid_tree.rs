@@ -308,23 +308,50 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 			let node_size = node.scale;
 			let local_pos = (upos / node_size).as_u8vec3();
 			upos %= node_size;
+			let child_count = node.child_count;
 			let cell = node.get_child_cell_mut(local_pos);
-			match cell {
+			match *cell {
 				ChildCell::None => { return None; },
 				ChildCell::Node { node: child_node } => {
-					index = *child_node;
+					index = child_node;
 				},
-				ChildCell::Data { data: _ } => {
+				ChildCell::Data { data: removed_data } => {
 					if node_size != 1 {
 						index = self.split(index, local_pos);
 					} else {
-						let out = match replace(cell, ChildCell::None) {
-							ChildCell::Data { data } => data,
-							_ => unreachable!()
-						};
-						node.child_count -= 1;
-						self.item_count -= 1;
-						return Some(out);
+						if child_count == 1 {
+							let mut node = node;
+							loop {
+								if let Some(mut parent) = node.parent {
+									if let Some((pre, post)) = self.remove_node(index) {
+										if parent == pre {
+											parent = post;
+										}
+									}
+									node = self.get_node_mut(parent);
+									index = parent;
+									if node.child_count != 1 {
+										break;
+									}
+								} else {
+									break;
+								}
+							}
+							assert!((pos - node.pos).is_negative_bitmask() == 0);
+							let local_pos = ((pos - node.pos).as_u16vec3() / node.scale).as_u8vec3();
+							*node.get_child_cell_mut(local_pos) = ChildCell::None;
+							node.child_count -= 1;
+							self.item_count -= 1;
+							return Some(removed_data);
+						} else {
+							let out = match replace(cell, ChildCell::None) {
+								ChildCell::Data { data } => data,
+								_ => unreachable!()
+							};
+							node.child_count -= 1;
+							self.item_count -= 1;
+							return Some(out);
+						}
 					}
 				},
 			};
@@ -345,89 +372,133 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 			(dir.y >= 0.0) as i16,
 			(dir.z >= 0.0) as i16,
 		);
-		self.dda_node(self.root, origin, inv_dir, dir_sign, 0.0, max_length)
+
+		let root = self.get_node(self.root);
+		let root_min = root.pos.as_vec3();
+		let root_max = root_min + Vec3::splat(root.world_size() as f32);
+
+		let root_entry_distance = {
+			let dist1 = (root_min - origin) * inv_dir;
+			let dist2 = (root_max - origin) * inv_dir;
+			dist1.min(dist2).max_element().max(0.0)
+		};
+		let root_exit_distance = {
+			let dist1 = (root_min - origin) * inv_dir;
+			let dist2 = (root_max - origin) * inv_dir;
+			dist1.max(dist2).min_element()
+		};
+
+		if root_entry_distance > root_exit_distance || root_entry_distance > max_length {
+			return None;
+		}
+
+		self.dda_node(self.root, origin, inv_dir, dir_sign, root_entry_distance, max_length)
 	}
 
-	fn dda_node<'a>(
-		&'a self,
+	fn dda_node(
+		&self,
 		node_idx: u32,
 		origin: Vec3,
 		inv_dir: Vec3,
 		dir_sign: I16Vec3,
-		t_min: f32,
-		t_max: f32,
+		entry_distance: f32,
+		max_distance: f32,
 	) -> Option<(I16Vec3, I8Vec3, f32)> {
 		let node = &self.nodes[node_idx as usize];
 		let cell_size = node.scale as f32;
 		let node_pos = node.pos.as_vec3();
 		let step = dir_sign * 2 - I16Vec3::ONE;
 
-		let entry_world = (origin + inv_dir.recip() * t_min).clamp(
+		let entry_world_pos = (origin + inv_dir.recip() * entry_distance).clamp(
 			node_pos,
 			node_pos + Vec3::splat(node.world_size() as f32 - f32::EPSILON * cell_size),
 		);
-		let mut cell = ((entry_world - node_pos) / cell_size)
+		let mut cell = ((entry_world_pos - node_pos) / cell_size)
 			.floor()
 			.as_i16vec3()
 			.clamp(I16Vec3::ZERO, I16Vec3::splat(SIZE as i16 - 1));
 
-		let cell_exit_face = node_pos + (cell + dir_sign).as_vec3() * cell_size;
-		let mut t_next = (cell_exit_face - origin) * inv_dir;
-		let t_delta = (Vec3::splat(cell_size) * inv_dir).abs();
+		// Distance along the ray to the exit face of the starting cell, per axis
+		let cell_exit_face_pos = node_pos + (cell + dir_sign).as_vec3() * cell_size;
+		let mut axis_exit_distances = (cell_exit_face_pos - origin) * inv_dir;
+		let axis_step_distances = (Vec3::splat(cell_size) * inv_dir).abs();
 
-		let mut t_current = t_min;
+		let mut current_distance = entry_distance;
 
-		let t_entry = t_next - t_delta;
-		let mut normal_axis = if t_entry.x > t_entry.y && t_entry.x > t_entry.z { 0 } else if t_entry.y > t_entry.z { 1 } else { 2 };
+		// Determine entry face normal axis from which axis the ray entered on
+		let axis_entry_distances = axis_exit_distances - axis_step_distances;
+		let mut hit_normal_axis = if axis_entry_distances.x > axis_entry_distances.y && axis_entry_distances.x > axis_entry_distances.z {
+			0
+		} else if axis_entry_distances.y > axis_entry_distances.z {
+			1
+		} else {
+			2
+		};
 
 		loop {
 			if cell.x < 0 || cell.x >= SIZE as i16
 			|| cell.y < 0 || cell.y >= SIZE as i16
-			|| cell.z < 0 || cell.z >= SIZE as i16 {
+			|| cell.z < 0 || cell.z >= SIZE as i16
+			{
 				return None;
 			}
 
-			let t_cell_exit = t_next.min_element().min(t_max);
+			let cell_exit_distance = axis_exit_distances.min_element().min(max_distance);
 			let idx = get_child_index(cell.as_u8vec3());
 
 			match &node.contents[idx as usize] {
 				ChildCell::None => {}
 				ChildCell::Data { data: _ } => {
-					if t_current <= t_max {
-						let hit_world = origin + inv_dir.recip() * t_current;
+					if current_distance <= max_distance {
+						let hit_world_pos = origin + inv_dir.recip() * current_distance;
 						let mut normal = I8Vec3::ZERO;
-						normal[normal_axis] = -(step[normal_axis] as i8);
-						let scale1_pos = (hit_world - normal.as_vec3() * 0.5).floor().as_i16vec3();
-						return Some((scale1_pos, normal, t_current));
+						normal[hit_normal_axis] = -(step[hit_normal_axis] as i8);
+						let scale1_pos = (hit_world_pos - normal.as_vec3() * 0.5).floor().as_i16vec3();
+						return Some((scale1_pos, normal, current_distance));
 					} else {
 						return None;
 					}
 				}
 				ChildCell::Node { node: child_idx } => {
-					if let Some(hit) = self.dda_node(*child_idx, origin, inv_dir, dir_sign, t_current, t_cell_exit) {
+					if let Some(hit) = self.dda_node(
+						*child_idx,
+						origin,
+						inv_dir,
+						dir_sign,
+						current_distance,
+						cell_exit_distance,
+					) {
 						return Some(hit);
 					}
 				}
 			}
 
-			if t_next.x < t_next.y {
-				if t_next.x < t_next.z {
-					if t_next.x > t_max { return None; }
-					t_current = t_next.x; normal_axis = 0;
-					cell.x += step.x; t_next.x += t_delta.x;
+			if axis_exit_distances.x < axis_exit_distances.y {
+				if axis_exit_distances.x < axis_exit_distances.z {
+					if axis_exit_distances.x > max_distance { return None; }
+					current_distance = axis_exit_distances.x;
+					hit_normal_axis = 0;
+					cell.x += step.x;
+					axis_exit_distances.x += axis_step_distances.x;
 				} else {
-					if t_next.z > t_max { return None; }
-					t_current = t_next.z; normal_axis = 2;
-					cell.z += step.z; t_next.z += t_delta.z;
+					if axis_exit_distances.z > max_distance { return None; }
+					current_distance = axis_exit_distances.z;
+					hit_normal_axis = 2;
+					cell.z += step.z;
+					axis_exit_distances.z += axis_step_distances.z;
 				}
-			} else if t_next.y < t_next.z {
-				if t_next.y > t_max { return None; }
-				t_current = t_next.y; normal_axis = 1;
-				cell.y += step.y; t_next.y += t_delta.y;
+			} else if axis_exit_distances.y < axis_exit_distances.z {
+				if axis_exit_distances.y > max_distance { return None; }
+				current_distance = axis_exit_distances.y;
+				hit_normal_axis = 1;
+				cell.y += step.y;
+				axis_exit_distances.y += axis_step_distances.y;
 			} else {
-				if t_next.z > t_max { return None; }
-				t_current = t_next.z; normal_axis = 2;
-				cell.z += step.z; t_next.z += t_delta.z;
+				if axis_exit_distances.z > max_distance { return None; }
+				current_distance = axis_exit_distances.z;
+				hit_normal_axis = 2;
+				cell.z += step.z;
+				axis_exit_distances.z += axis_step_distances.z;
 			}
 		}
 	}
