@@ -7,6 +7,7 @@ use crate::debug_draw;
 use crate::pose::Pose;
 
 const SIZE: u8 = 2;
+const SIZE_CUBED: u8 = SIZE * SIZE * SIZE;
 const SIZE_USIZE: usize = SIZE as usize;
 const SIZE_USIZE_CUBED: usize = SIZE_USIZE * SIZE_USIZE * SIZE_USIZE;
 
@@ -26,7 +27,7 @@ struct GridTreeNode<T: Copy + Clone + PartialEq + Debug> {
 	scale: u16,
 }
 
-fn get_child_index(pos: &U8Vec3) -> u8 {
+fn get_child_index(pos: U8Vec3) -> u8 {
 	pos.x + pos.y * SIZE + pos.z * SIZE * SIZE
 }
 
@@ -51,10 +52,10 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTreeNode<T> {
 	fn get_child_cell_pos(&self, index: u8) -> U8Vec3 {
 		U8Vec3::new(index % SIZE, (index / SIZE) % SIZE, index / (SIZE * SIZE))
 	}
-	fn get_child_cell(&self, pos: &U8Vec3) -> &ChildCell<T> {
+	fn get_child_cell(&self, pos: U8Vec3) -> &ChildCell<T> {
 		&self.contents[get_child_index(pos) as usize]
 	}
-	fn get_child_cell_mut(&mut self, pos: &U8Vec3) -> &mut ChildCell<T> {
+	fn get_child_cell_mut(&mut self, pos: U8Vec3) -> &mut ChildCell<T> {
 		&mut self.contents[get_child_index(pos) as usize]
 	}
 	fn get_child_cell_world_pos(&self, index: u8) -> I16Vec3 {
@@ -97,37 +98,6 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 	fn get_node_mut(&mut self, index: u32) -> &mut GridTreeNode<T> {
 		self.nodes.get_mut(index as usize).unwrap()
 	}
-	pub fn remove(&mut self, pos: &I16Vec3) -> Option<T> {
-		let root = self.get_node(self.root);
-		let root_relative_pos = pos - root.pos;
-		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
-		let root_size = root.world_size();
-		let mut upos = root_relative_pos.as_u16vec3();
-		if upos.x >= root_size || upos.y >= root_size || upos.z >= root_size { return None; }
-		let mut index = self.root;
-		loop {
-			let node = self.get_node_mut(index);
-			let node_size = node.scale;
-			let local_pos = (upos / node_size).as_u8vec3();
-			upos %= node_size;
-			let cell = node.get_child_cell_mut(&local_pos);
-			match cell {
-				ChildCell::None => { return None; },
-				ChildCell::Node { node: child_node } => {
-					index = *child_node;
-				},
-				ChildCell::Data { data: _ } => {
-					let out = match replace(cell, ChildCell::None) {
-						ChildCell::Data { data } => data,
-						_ => unreachable!()
-					};
-					node.child_count -= 1;
-					self.item_count -= 1;
-					return Some(out);
-				},
-			};
-		}
-	}
 	pub fn get_cell(&self, pos: &I16Vec3) -> Option<&ChildCell<T>> {
 		let root = self.get_node(self.root);
 		let root_relative_pos = pos - root.pos;
@@ -141,7 +111,7 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 			let node_size = node.scale;
 			let local_pos = (upos / node_size).as_u8vec3();
 			upos %= node_size;
-			let cell = node.get_child_cell(&local_pos);
+			let cell = node.get_child_cell(local_pos);
 			match cell {
 				ChildCell::Node { node: child_node } => {
 					index = *child_node;
@@ -194,7 +164,7 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 				let end_pos = end.pos;
 				let parent = &mut self.nodes[parent_index as usize];
 				let relitive_pos = get_relitive_child_pos(&end_pos, &parent.pos, parent.scale);
-				parent.contents[get_child_index(&relitive_pos) as usize] = ChildCell::Node { node: node_index };
+				parent.contents[get_child_index(relitive_pos) as usize] = ChildCell::Node { node: node_index };
 			}
 		}
 		self.nodes[node_index as usize] = end;
@@ -203,12 +173,30 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 		}
 		return Some((self.nodes.len() as u32, node_index));
 	}
+	// assumes the split cell is of type data
+	pub fn split(&mut self, node_index: u32, pos: U8Vec3) -> u32 {
+		let node = self.get_node(node_index);
+		assert!(node.scale != 1); // cant split cells of size 1
+		let node_pos = node.pos;
+		let node_scale = node.scale;
+		let child_index = self.add_node(Some(node_index), node_pos + (pos.as_u16vec3() * node_scale).as_i16vec3(), node_scale / SIZE as u16);
+		let cell = self.get_node_mut(node_index).get_child_cell_mut(pos);
+		let cell_data = *match cell {
+			ChildCell::Data { data } => { data },
+			_ => unreachable!(),
+		};
+		*cell = ChildCell::Node { node: child_index };
+		let child_node = self.get_node_mut(child_index);
+		child_node.child_count = 8;
+		child_node.contents = [ChildCell::Data { data: cell_data }; SIZE_USIZE_CUBED];
+		child_index
+	}
 	pub fn try_merge(&mut self, node_index: u32, value: T, ignored_index: u8) -> bool {
 		let node = self.get_node(node_index);
 		if node.child_count < 7 {
 			return false;
 		}
-		for child_index in 0..8 {
+		for child_index in 0..SIZE_CUBED {
 			if child_index == ignored_index { continue; }
 			match node.contents[child_index as usize] {
 				ChildCell::Data { data } => if data != value { return false },
@@ -224,10 +212,10 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 			}
 			let parent = self.get_node_mut(parent_index);
 			let local_child_pos = get_relitive_child_pos(&child_pos, &parent.pos, parent.scale);
-			if self.try_merge(parent_index, value, get_child_index(&local_child_pos)) {
+			if self.try_merge(parent_index, value, get_child_index(local_child_pos)) {
 				return true;
 			}
-			*self.get_node_mut(parent_index).get_child_cell_mut(&local_child_pos) = ChildCell::Data { data: value };
+			*self.get_node_mut(parent_index).get_child_cell_mut(local_child_pos) = ChildCell::Data { data: value };
 			return true;
 		}
 		return false;
@@ -247,7 +235,7 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 			self.get_node_mut(old_root).parent = Some(self.root);
 			let new_root_node = self.get_node_mut(self.root);
 			new_root_node.child_count += 1;
-			*new_root_node.get_child_cell_mut(&U8Vec3::splat(new_root_pos)) = ChildCell::Node { node: old_root };
+			*new_root_node.get_child_cell_mut(U8Vec3::splat(new_root_pos)) = ChildCell::Node { node: old_root };
 			root_relative_pos = pos - root_world_pos;
 			upos = root_relative_pos.as_u16vec3();
 			root_scale = root_size;
@@ -256,10 +244,10 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 		let mut index = self.root;
 		loop {
 			let node = self.get_node(index);
-			let node_scale = node.scale;
-			let local_pos = (upos / node_scale).as_u8vec3();
-			if node.scale == 1 {
-				let local_pos_index = get_child_index(&local_pos);
+			let node_size = node.scale;
+			let local_pos = (upos / node_size).as_u8vec3();
+			if node_size == 1 {
+				let local_pos_index = get_child_index(local_pos);
 				let cell = &node.contents[local_pos_index as usize];
 				match cell {
 					ChildCell::None => {
@@ -285,10 +273,10 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 					},
 				}
 			}
-			upos %= node_scale;
+			upos %= node_size;
 			let node_pos = node.pos;
 			let node = self.get_node_mut(index);
-			let cell = node.get_child_cell_mut(&local_pos);
+			let cell = node.get_child_cell_mut(local_pos);
 			match cell {
 				ChildCell::None => {
 					unsafe {
@@ -296,19 +284,49 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 						node.child_count += 1;
 						*ptr = ChildCell::Node { node: self.get_next_added_node_index() };
 					};
-					index = self.add_node(Some(index), node_pos + (node_scale * local_pos.as_u16vec3()).as_i16vec3(), node_scale / SIZE as u16);
+					index = self.add_node(Some(index), node_pos + (node_size * local_pos.as_u16vec3()).as_i16vec3(), node_size / SIZE as u16);
 				},
 				ChildCell::Node { node: child_node } => {
 					index = *child_node;
 				}
-				ChildCell::Data { data: _ } => { // TODO: fill rest of node with data.
-					unsafe {
-						let ptr = cell as *mut ChildCell<T>;
-						node.child_count += 1;
-						*ptr = ChildCell::Node { node: self.get_next_added_node_index() };
-					};
-					index = self.add_node(Some(index), node_pos + (node_scale * local_pos.as_u16vec3()).as_i16vec3(), node_scale / SIZE as u16);
+				ChildCell::Data { data: _ } => {
+					index = self.split(index, local_pos);
 				}
+			};
+		}
+	}
+	pub fn remove(&mut self, pos: &I16Vec3) -> Option<T> {
+		let root = self.get_node(self.root);
+		let root_relative_pos = pos - root.pos;
+		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
+		let root_size = root.world_size();
+		let mut upos = root_relative_pos.as_u16vec3();
+		if upos.x >= root_size || upos.y >= root_size || upos.z >= root_size { return None; }
+		let mut index = self.root;
+		loop {
+			let node = self.get_node_mut(index);
+			let node_size = node.scale;
+			let local_pos = (upos / node_size).as_u8vec3();
+			upos %= node_size;
+			let cell = node.get_child_cell_mut(local_pos);
+			match cell {
+				ChildCell::None => { return None; },
+				ChildCell::Node { node: child_node } => {
+					index = *child_node;
+				},
+				ChildCell::Data { data: _ } => {
+					if node_size != 1 {
+						index = self.split(index, local_pos);
+					} else {
+						let out = match replace(cell, ChildCell::None) {
+							ChildCell::Data { data } => data,
+							_ => unreachable!()
+						};
+						node.child_count -= 1;
+						self.item_count -= 1;
+						return Some(out);
+					}
+				},
 			};
 		}
 	}
@@ -370,7 +388,7 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 			}
 
 			let t_cell_exit = t_next.min_element().min(t_max);
-			let idx = get_child_index(&cell.as_u8vec3());
+			let idx = get_child_index(cell.as_u8vec3());
 
 			match &node.contents[idx as usize] {
 				ChildCell::None => {}
@@ -503,7 +521,7 @@ impl<'a, T: Copy + Clone + PartialEq + Debug> Iterator for GridTreeIterator<'a, 
 				let pos = node.pos;
 				self.current_node = node.parent.unwrap();
 				node = self.tree.get_node(self.current_node);
-				self.current_index = get_child_index(&((pos - node.pos).as_u16vec3() / node.scale).as_u8vec3()) + 1;
+				self.current_index = get_child_index(((pos - node.pos).as_u16vec3() / node.scale).as_u8vec3()) + 1;
 			} else {
 				for i in self.current_index..SIZE.pow(3) {
 					match &node.contents[i as usize] {
@@ -529,7 +547,7 @@ impl<'a, T: Copy + Clone + PartialEq + Debug> Iterator for GridTreeIterator<'a, 
 					let pos = node.pos;
 					self.current_node = node.parent.unwrap();
 					node = self.tree.get_node(self.current_node);
-					self.current_index = get_child_index(&((pos - node.pos).as_u16vec3() / node.scale).as_u8vec3()) + 1;
+					self.current_index = get_child_index(((pos - node.pos).as_u16vec3() / node.scale).as_u8vec3()) + 1;
 				}
 			}
 		}
