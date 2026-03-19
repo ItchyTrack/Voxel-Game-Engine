@@ -182,7 +182,7 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 				}
 				BVHInternal::Leaf { start, count } => {
 					for item in self.items[start as usize..(start + count) as usize].iter() {
-						debug_draw::aabb(item.1.0, item.1.1, &Vec4::ONE);
+						debug_draw::aabb(item.1.0, item.1.1, &Vec4::W);
 					}
 				}
 			}
