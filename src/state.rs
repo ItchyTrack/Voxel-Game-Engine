@@ -437,10 +437,12 @@ impl State {
 	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
 
 		// for physics_body in self.physics_engine.physics_bodies() {
-			// for sub_grid in physics_body.sub_grids() {
-			// 	sub_grid.get_voxels().render_debug(&(physics_body.pose * sub_grid.pose));
+			// for grid in physics_body.grids() {
+			// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
 			// }
-			// physics_body.render_debug_inertia_box();
+			// if !physics_body.is_static {
+			// 	physics_body.render_debug_inertia_box();
+			// }
 		// }
 		if let Some(player_camera) = self.ecs.get_component(self.player_id) {
 			let mut rendering_meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
