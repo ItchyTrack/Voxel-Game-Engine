@@ -6,7 +6,7 @@ use crate::{gpu_objects::mesh::{self, GetMesh}, player::camera, pose::Pose, voxe
 
 use super::inertia_tensor::InertiaTensor;
 
-pub struct PhysicsBodySubGrid {
+pub struct PhysicsBodyGrid {
 	pub pose: Pose,
 	voxels: voxels::Voxels,
 	mesh: clone_cell::cell::Cell<Option<Arc<mesh::Mesh>>>,
@@ -16,7 +16,7 @@ pub struct PhysicsBodySubGrid {
 	id: u32,
 }
 
-impl PhysicsBodySubGrid {
+impl PhysicsBodyGrid {
 	pub fn new(grid_id: u32, pose: &Pose) -> Self {
 		Self {
 			pose: *pose,
@@ -118,7 +118,7 @@ pub struct PhysicsBody {
 	pub velocity: Vec3,
 	pub angular_velocity: Vec3,
 	pub is_static: bool,
-	grids: Vec<PhysicsBodySubGrid>,
+	grids: Vec<PhysicsBodyGrid>,
 	grids_id_to_index: HashMap<u32, u32>,
 	next_grid_id: u32,
 	id: u32,
@@ -187,6 +187,16 @@ impl PhysicsBody {
 		if mass_sum == 0.0 { return Vec3::ZERO; }
 		self.pose * (center_of_mass_times_mass / mass_sum)
 	}
+	pub fn get_global_center_of_mass_and_mass(&self) -> (Vec3, f32) {
+		let mut center_of_mass_times_mass = Vec3::ZERO;
+		let mut mass_sum = 0.0;
+		for grid in self.grids.iter() {
+			center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
+			mass_sum += grid.mass();
+		}
+		if mass_sum == 0.0 { return (Vec3::ZERO, 0.0); }
+		(self.pose * (center_of_mass_times_mass / mass_sum), mass_sum)
+	}
 	pub fn rotational_inertia(&self) -> InertiaTensor {
 		let (com, mass) = self.get_local_center_of_mass_and_mass();
 		let mut inertia_tensor_at_zero: InertiaTensor = InertiaTensor::ZERO;
@@ -197,6 +207,13 @@ impl PhysicsBody {
 			&com.as_dvec3(),
 			mass as f64
 		).get_rotated(self.pose.rotation.as_dquat())
+	}
+	pub fn rotational_inertia_at_zero(&self) -> InertiaTensor {
+		let mut inertia_tensor_at_zero: InertiaTensor = InertiaTensor::ZERO;
+		for grid in self.grids.iter() {
+			inertia_tensor_at_zero += grid.get_inertia_tensor_at_body();
+		}
+		inertia_tensor_at_zero.get_rotated(self.pose.rotation.as_dquat())
 	}
 
 	pub fn get_rendering_meshes(&self, device: &wgpu::Device, camera: &camera::Camera) -> Vec<(Arc<mesh::Mesh>, Mat4)> {
@@ -213,7 +230,7 @@ impl PhysicsBody {
 
 	pub fn add_grid(&mut self, grid_pose: Pose) -> u32 {
 		self.grids_id_to_index.insert(self.next_grid_id, self.grids.len() as u32);
-		self.grids.push(PhysicsBodySubGrid::new(self.next_grid_id, &grid_pose));
+		self.grids.push(PhysicsBodyGrid::new(self.next_grid_id, &grid_pose));
 		self.next_grid_id += 1;
 		self.next_grid_id - 1
 	}
@@ -230,25 +247,25 @@ impl PhysicsBody {
 		}
 	}
 
-	pub fn grid(&self, grid_id: u32) -> Option<&PhysicsBodySubGrid> {
+	pub fn grid(&self, grid_id: u32) -> Option<&PhysicsBodyGrid> {
 		let index = *self.grids_id_to_index.get(&grid_id)?;
 		self.grids.get(index as usize)
 	}
 
-	pub fn grid_by_index(&self, grid_index: u32) -> Option<&PhysicsBodySubGrid> {
+	pub fn grid_by_index(&self, grid_index: u32) -> Option<&PhysicsBodyGrid> {
 		self.grids.get(grid_index as usize)
 	}
 
-	pub fn grid_mut(&mut self, grid_id: u32) -> Option<&mut PhysicsBodySubGrid> {
+	pub fn grid_mut(&mut self, grid_id: u32) -> Option<&mut PhysicsBodyGrid> {
 		let index = *self.grids_id_to_index.get(&grid_id)?;
 		self.grids.get_mut(index as usize)
 	}
 
-	pub fn grid_by_index_mut(&mut self, grid_index: u32) -> Option<&mut PhysicsBodySubGrid> {
+	pub fn grid_by_index_mut(&mut self, grid_index: u32) -> Option<&mut PhysicsBodyGrid> {
 		self.grids.get_mut(grid_index as usize)
 	}
 
-	pub fn grids(&self) -> &[PhysicsBodySubGrid] {
+	pub fn grids(&self) -> &[PhysicsBodyGrid] {
 		&self.grids
 	}
 
@@ -300,6 +317,14 @@ impl PhysicsBody {
 
 	pub fn render_debug_inertia_box(&self) {
 		self.rotational_inertia().render_debug_box(self.mass(), self.get_global_center_of_mass());
+	}
+
+	pub fn apply_central_impulse(&mut self, impluse: &Vec3) {
+		self.velocity += impluse / self.mass();
+	}
+	pub fn apply_impulse(&mut self, impluse_pos: &Vec3, impluse: &Vec3) {
+		self.velocity += impluse / self.mass();
+		self.angular_velocity += self.rotational_inertia().mat.as_mat3().inverse() * (impluse_pos - self.get_global_center_of_mass()).cross(*impluse);
 	}
 
 	pub fn world_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }

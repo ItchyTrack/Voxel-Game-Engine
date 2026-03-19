@@ -1,7 +1,7 @@
 use glam::{I16Vec3, IVec2};
 use noise::{NoiseFn, SuperSimplex};
 
-use crate::{physics::physics_body::PhysicsBodySubGrid, voxels::{Voxel}};
+use crate::{physics::physics_body::PhysicsBodyGrid, voxels::{Voxel}};
 
 pub struct WorldGenerator {
 	noise: SuperSimplex,
@@ -16,7 +16,7 @@ impl WorldGenerator {
 		}
 	}
 
-	pub fn create_chunk(&self, chunk: IVec2, voxels: &mut PhysicsBodySubGrid) {
+	pub fn create_chunk(&self, chunk: IVec2, voxels: &mut PhysicsBodyGrid) {
 		for x in 0..Self::CHUNK_SIZE {
 			for z in 0..Self::CHUNK_SIZE {
 				let noise0 = self.noise.get([

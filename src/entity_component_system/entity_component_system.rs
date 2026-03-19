@@ -122,7 +122,7 @@ impl EntityComponentSystem {
 		}
 	}
 
-	pub fn run_on_components_mut<A: 'static, F: Fn(u32, &mut A)>(&mut self, f: F){
+	pub fn run_on_components_mut<A: 'static, F: FnMut(u32, &mut A)>(&mut self, f: &mut F){
 		if let Some(component_set) = self.component_sets.get_mut(&TypeId::of::<A>()) {
 			for (entity_id, component) in component_set.get_mut() {
 				f(*entity_id, component);
@@ -172,7 +172,7 @@ impl EntityComponentSystem {
 		}
 	}
 
-	pub fn run_on_components_tripl_mut<A: 'static, B: 'static, C: 'static, F: Fn(u32, &mut A, &mut B, &mut C)>(&mut self, f: F){
+	pub fn run_on_components_tripl_mut<A: 'static, B: 'static, C: 'static, F: FnMut(u32, &mut A, &mut B, &mut C)>(&mut self, f: &mut F){
 		if let [Some(component_set_a), Some(component_set_b), Some(component_set_c)] = self.component_sets.get_disjoint_mut([&TypeId::of::<A>(), &TypeId::of::<B>(), &TypeId::of::<C>()]) {
 			let component_set_b = component_set_b.get_mut();
 			let component_set_c = component_set_c.get_mut();

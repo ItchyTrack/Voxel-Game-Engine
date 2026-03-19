@@ -5,9 +5,11 @@ use glam::{I16Vec3, IVec2, Mat4, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::debug_draw;
+use crate::{entity_component_system, gpu_objects::mesh, pose::Pose, renderer::Renderer, voxels, world_gen::WorldGenerator};
+use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
+use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::voxels::Voxel;
-use crate::{player::{camera, player_input}, entity_component_system, gpu_objects::mesh, physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine}, pose::Pose, renderer::Renderer, voxels, world_gen::WorldGenerator};
+use crate::debug_draw;
 
 pub struct State {
 	pub renderer: Renderer,
@@ -23,7 +25,7 @@ impl State {
 		if code == KeyCode::Escape && is_pressed {
 			self.set_mouse_captured(false);
 		} else {
-			self.ecs.run_on_single_component_mut::<player_input::PlayerInput, _>(self.player_id, |_entity_id, player_input|
+			self.ecs.run_on_single_component_mut::<PlayerInput, _>(self.player_id, |_entity_id, player_input|
 				player_input.set_state(code, is_pressed)
 			);
 		}
@@ -45,11 +47,12 @@ impl State {
 	}
 
 	pub fn update(&mut self, dt: f32) {
-		self.ecs.run_on_components_tripl_mut::<player_input::PlayerInput, camera::CameraController, camera::Camera, _>(|_entity_id, player_input, camera_controller, camera|
-			camera::CameraController::update_camera(camera_controller, camera, player_input, dt)
+		self.ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
+			CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);
-		self.ecs.run_on_components_pair_mut::<player_input::PlayerInput, camera::Camera, _>(&mut |_entity_id, player_input, camera| {
-				let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
+		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
+			let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
+			let started_holding = object_pickup.is_holding();
 			if let Some((body_index, grid_index, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
 				let physics_body = self.physics_engine.physics_body_by_index(body_index).unwrap();
 				let grid = physics_body.grid(grid_index).unwrap();
@@ -64,6 +67,25 @@ impl State {
 				if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
 					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().remove_voxel(&(hit_pos));
 				}
+				if player_input.key(KeyCode::KeyR).just_pressed {
+					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().apply_impulse(&globle_hit_pos, &(ray_start.rotation * Vec3::Z * 200000.0));
+				}
+				if player_input.key(KeyCode::KeyF).just_pressed {
+					if !started_holding {
+						object_pickup.set(self.physics_engine.physics_body_by_index(body_index).unwrap().id());
+					}
+				}
+			}
+			if player_input.key(KeyCode::KeyF).just_pressed {
+				if started_holding {
+					object_pickup.reset();
+				}
+			}
+		});
+		self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
+			if object_pickup.is_holding() {
+				let camera_pos = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
+				object_pickup.hold_at_pos(&(camera_pos.translation + camera_pos.rotation * Vec3::Z * 20.0), &mut self.physics_engine);
 			}
 		});
 		self.leaky_bucket += dt;
@@ -77,14 +99,14 @@ impl State {
 				self.leaky_bucket = 0.0;
 			}
 		}
-		self.ecs.run_on_single_component_mut::<player_input::PlayerInput, _>(self.player_id, |_entity_id, player_input|
+		self.ecs.run_on_single_component_mut::<PlayerInput, _>(self.player_id, |_entity_id, player_input|
 			player_input.end_frame()
 		);
 	}
 
 	pub fn resize(&mut self, width: u32, height: u32) {
 		self.renderer.resize(width, height);
-		self.ecs.run_on_components_mut::<camera::Camera, _>(|_entity_id, camera,| {
+		self.ecs.run_on_components_mut::<Camera, _>(&mut |_entity_id, camera| {
 			camera.aspect = self.renderer.config.width as f32 / self.renderer.config.height as f32;
 		})
 	}
@@ -201,8 +223,8 @@ impl State {
 
 		// create player entity
 		let player_id = ecs.add_entity();
-		ecs.add_component_to_entity(player_id, player_input::PlayerInput::new());
-		ecs.add_component_to_entity(player_id, camera::Camera {
+		ecs.add_component_to_entity(player_id, PlayerInput::new());
+		ecs.add_component_to_entity(player_id, Camera {
 			position: Vec3::new(-30.0, 15.0, 0.0),
 			yaw: f32::consts::PI / 2.0,
 			pitch: 0.0,
@@ -211,7 +233,8 @@ impl State {
 			znear: 0.1,
 			zfar: 5000.0,
 		});
-		ecs.add_component_to_entity(player_id, camera::CameraController::new(20.0, 1.5, 0.0015));
+		ecs.add_component_to_entity(player_id, CameraController::new(20.0, 1.5, 0.0015));
+		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
 		// match load_binary("#treehouse.vox").await {
 		// 	Ok(bytes) => {
@@ -435,7 +458,6 @@ impl State {
 	}
 
 	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-
 		// for physics_body in self.physics_engine.physics_bodies() {
 			// for grid in physics_body.grids() {
 			// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
