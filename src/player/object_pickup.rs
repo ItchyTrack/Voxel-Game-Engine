@@ -38,9 +38,17 @@ impl ObjectPickup {
 				let velocity_in_dir = body.velocity.dot(dir);
 				body.apply_central_impulse(&(mass * (
 					dir * (
-						(pos - com).length() * 2.0 -
-						velocity_in_dir / 3.0
+						(pos - com).length() * 4.0 -
+						velocity_in_dir / 2.0
 					) - (body.velocity - dir * velocity_in_dir)
+				)));
+				let (axis, angle) = body.pose.rotation.to_axis_angle();
+				let angular_velocity_in_dir = body.angular_velocity.dot(axis);
+				body.apply_rotational_impulse(&(body.rotational_inertia().mat.as_mat3() * (
+					axis * (
+						-angle * 4.0 -
+						angular_velocity_in_dir / 2.0
+					) - (body.angular_velocity - axis * angular_velocity_in_dir)
 				)));
 			}
 		}

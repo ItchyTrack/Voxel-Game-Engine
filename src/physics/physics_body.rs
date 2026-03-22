@@ -322,6 +322,9 @@ impl PhysicsBody {
 	pub fn apply_central_impulse(&mut self, impluse: &Vec3) {
 		self.velocity += impluse / self.mass();
 	}
+	pub fn apply_rotational_impulse(&mut self, rotational_impluse: &Vec3) {
+		self.angular_velocity += self.rotational_inertia().mat.as_mat3().inverse() * rotational_impluse;
+	}
 	pub fn apply_impulse(&mut self, impluse_pos: &Vec3, impluse: &Vec3) {
 		self.velocity += impluse / self.mass();
 		self.angular_velocity += self.rotational_inertia().mat.as_mat3().inverse() * (impluse_pos - self.get_global_center_of_mass()).cross(*impluse);
