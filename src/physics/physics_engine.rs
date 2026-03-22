@@ -1,6 +1,6 @@
 use std::{cell::{Ref, RefCell}, collections::HashMap};
 
-use glam::{I8Vec3, I16Vec3, Vec3};
+use glam::{I8Vec3, Vec3, IVec3};
 
 use crate::{pose::Pose};
 
@@ -11,7 +11,7 @@ pub struct PhysicsEngine {
 	physics_body_id_to_index: HashMap<u32, u32>,
 	next_body_id: u32,
 	solver: Solver,
-	bvh: RefCell<Option<BVH<(u32, u32)>>>,
+	bvh: RefCell<Option<BVH<(u32, u32, IVec3)>>>,
 }
 
 macro_rules! get_bvh_macro {
@@ -20,9 +20,11 @@ macro_rules! get_bvh_macro {
 			let mut bounds = vec![];
 			for body_index in 0..$self.physics_bodies.len() {
 				let physics_body = &$self.physics_bodies[body_index];
-				for grid_index in 0..physics_body.grids().len() {
-					if let Some(bound) = physics_body.grid_aabb(grid_index as u32) {
-						bounds.push(((body_index as u32, grid_index as u32), bound));
+				for grid_index in 0..physics_body.grids().len() as u32 {
+					for (sub_grid_pos, _) in physics_body.grid_by_index(grid_index).unwrap().get_sub_grids() {
+						if let Some(bound) = physics_body.sub_grid_aabb(grid_index, sub_grid_pos) {
+							bounds.push(((body_index as u32, grid_index as u32, *sub_grid_pos), bound));
+						}
 					}
 				}
 			}
@@ -92,32 +94,34 @@ impl PhysicsEngine {
 		&self.physics_bodies
 	}
 
-	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(u32, u32, I16Vec3, I8Vec3, f32)> {
-		let mut best_hit: Option<(u32, u32, I16Vec3, I8Vec3, f32)> = None;
-		for ((body_index, grid_index), bvh_distance) in self.get_bvh().raycast(pose, max_length) {
+	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(u32, u32, IVec3, I8Vec3, f32)> {
+		let mut best_hit: Option<(u32, u32, IVec3, I8Vec3, f32)> = None;
+		for ((body_index, grid_index, sub_grid_pos), bvh_distance) in self.get_bvh().raycast(pose, max_length) {
 			if best_hit.is_some() && bvh_distance > best_hit.unwrap().4 { break; }
 			let physics_body = &self.physics_bodies[body_index as usize];
 			let grid = physics_body.grid_by_index(grid_index).unwrap();
-			if let Some((hit_pos, hit_normal, grid_distance)) = grid.get_voxels().get_voxels().raycast(
-				&(grid.pose.inverse() * physics_body.pose.inverse() * Pose::new(pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
+			if let Some((hit_pos, hit_normal, grid_distance)) = grid.get_sub_grid_from_sub_grid_pos(&sub_grid_pos).unwrap().get_voxels().get_voxels().raycast(
+				&(&Pose::from_translation(-grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3()) * grid.pose.inverse() * physics_body.pose.inverse() * Pose::new(pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
 				max_length.map(|max_length| max_length - bvh_distance)
 			) {
 				if best_hit.is_none() || grid_distance + bvh_distance < best_hit.unwrap().4 {
-					best_hit = Some((body_index, grid_index, hit_pos, hit_normal, grid_distance + bvh_distance));
+					best_hit = Some((body_index, grid_index, hit_pos.as_ivec3() + grid.sub_grid_pos_to_grid_pos(&sub_grid_pos), hit_normal, grid_distance + bvh_distance));
 				}
 			}
 		}
 		best_hit
 	}
 
-	pub fn get_bvh(&'_ self) -> Ref<'_, BVH<(u32, u32)>> {
+	pub fn get_bvh(&'_ self) -> Ref<'_, BVH<(u32, u32, IVec3)>> {
 		if self.bvh.borrow().is_none() {
 			let mut bounds = vec![];
 			for body_index in 0..self.physics_bodies.len() {
 				let physics_body = &self.physics_bodies[body_index];
-				for grid_index in 0..physics_body.grids().len() {
-					if let Some(bound) = physics_body.grid_aabb(grid_index as u32) {
-						bounds.push(((body_index as u32, grid_index as u32), bound));
+				for grid_index in 0..physics_body.grids().len() as u32 {
+					for (sub_grid_pos, _) in physics_body.grid_by_index(grid_index).unwrap().get_sub_grids() {
+						if let Some(bound) = physics_body.sub_grid_aabb(grid_index, sub_grid_pos) {
+							bounds.push(((body_index as u32, grid_index as u32, *sub_grid_pos), bound));
+						}
 					}
 				}
 			}

@@ -59,7 +59,7 @@ impl Voxels {
 			bounding_box_dirty: Cell::new(false)
 		}
 	}
-	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<&Voxel> {
+	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<Voxel> {
 		match self.bounding_box.get() {
 			Some((min, max)) => {
 				self.bounding_box.set(Some((min.min(pos), max.max(pos))));
@@ -69,12 +69,12 @@ impl Voxels {
 			}
 		}
 		let out = self.voxels.insert(pos, self.voxel_palette.get_palette_id(&voxel))?;
-		self.voxel_palette.get_voxel(out)
+		self.voxel_palette.get_voxel(out).cloned()
 	}
 
-	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<&Voxel> {
+	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
 		self.bounding_box_dirty.set(true);
-		self.voxel_palette.get_voxel(self.voxels.remove(pos)?)
+		self.voxel_palette.get_voxel(self.voxels.remove(pos)?).cloned()
 	}
 
 	pub fn get_voxel(&self, pos: I16Vec3) -> Option<&Voxel> {

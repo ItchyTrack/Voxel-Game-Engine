@@ -18,6 +18,20 @@ impl Pose {
 		}
 	}
 
+	pub const fn from_translation(translation: Vec3) -> Self {
+		Self {
+			translation,
+			rotation: Quat::IDENTITY,
+		}
+	}
+
+	pub const fn from_rotation(rotation: Quat) -> Self {
+		Self {
+			translation: Vec3::ZERO,
+			rotation,
+		}
+	}
+
 	pub fn inverse(&self) -> Self {
 		Self::new(self.rotation.inverse() * -self.translation, self.rotation.inverse())
 	}

@@ -1,32 +1,94 @@
 use std::{collections::HashMap, sync::Arc};
 
-use glam::{I16Vec3, I64Vec3, Mat4, Quat, Vec3};
+use glam::{I16Vec3, I64Vec3, IVec3, Mat4, Quat, Vec3};
 use tracy_client::span;
 use crate::{gpu_objects::mesh::{self, GetMesh}, player::camera, pose::Pose, voxels};
 
 use super::inertia_tensor::InertiaTensor;
 
-pub struct PhysicsBodyGrid {
-	pub pose: Pose,
+pub struct SubGrid {
 	voxels: voxels::Voxels,
 	mesh: clone_cell::cell::Cell<Option<Arc<mesh::Mesh>>>,
+}
+
+impl SubGrid {
+	pub fn new() -> Self {
+		Self {
+			voxels: voxels::Voxels::new(),
+			mesh: clone_cell::cell::Cell::new(None),
+		}
+	}
+	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: voxels::Voxel) -> Option<voxels::Voxel> {
+		self.mesh.set(None);
+		self.voxels.add_voxel(pos, voxel)
+	}
+	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<voxels::Voxel> {
+		self.mesh.set(None);
+		self.voxels.remove_voxel(pos)
+	}
+	pub fn get_voxel(&self, pos: I16Vec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
+	pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
+
+	// pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
+	pub fn get_rendering_meshes(&self, device: &wgpu::Device, _camera: &camera::Camera) -> Option<Arc<mesh::Mesh>> {
+		let mesh = self.mesh.get();
+		if mesh.is_none() {
+			let _zone = span!("Recreate Mesh");
+			self.mesh.set(match self.voxels.get_mesh(device) {
+				Some(mesh) => Some(Arc::new(mesh)),
+				None => None,
+			});
+			return self.mesh.get();
+		}
+		mesh
+	}
+}
+
+pub struct PhysicsBodyGrid {
+	pub pose: Pose,
+	sub_grids: HashMap<IVec3, SubGrid>,
 	mass: u64,
 	voxel_center_of_mass_times_mass: I64Vec3,
 	inertia_tensor_at_zero: InertiaTensor,
 	id: u32,
 }
 
+const SUB_GRID_SIZE: u16 = 32;
+
 impl PhysicsBodyGrid {
 	pub fn new(grid_id: u32, pose: &Pose) -> Self {
 		Self {
 			pose: *pose,
-			voxels: voxels::Voxels::new(),
-			mesh: clone_cell::cell::Cell::new(None),
+			sub_grids: HashMap::new(),
 			mass: 0,
 			voxel_center_of_mass_times_mass: I64Vec3::ZERO,
 			inertia_tensor_at_zero: InertiaTensor::ZERO,
 			id: grid_id,
 		}
+	}
+
+	pub fn get_sub_grids(&self) -> &HashMap<IVec3, SubGrid> {
+		&self.sub_grids
+	}
+
+	pub fn get_sub_grid(&self, pos: &IVec3) -> Option<(&SubGrid, I16Vec3)> {
+		Some((self.sub_grids.get(&(pos.div_euclid(IVec3::splat(SUB_GRID_SIZE as i32))))?, pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()))
+	}
+
+	pub fn get_sub_grid_from_sub_grid_pos(&self, sub_grid_pos: &IVec3) -> Option<&SubGrid> {
+		Some(self.sub_grids.get(&sub_grid_pos)?)
+	}
+
+	fn get_sub_grid_mut(&mut self, pos: &IVec3) -> Option<(&mut SubGrid, I16Vec3)> {
+		Some((self.sub_grids.get_mut(&(pos.div_euclid(IVec3::splat(SUB_GRID_SIZE as i32))))?, pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()))
+	}
+
+	fn get_sub_grid_mut_create(&mut self, pos: &IVec3) -> (&mut SubGrid, I16Vec3) {
+		(self.sub_grids.entry(pos.div_euclid(IVec3::splat(SUB_GRID_SIZE as i32))).or_insert_with(|| SubGrid::new()), pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3())
+	}
+
+	pub fn sub_grid_pos_to_grid_pos(&self, sub_grid_pos: &IVec3) -> IVec3 {
+		sub_grid_pos * SUB_GRID_SIZE as i32
 	}
 
 	pub fn id(&self) -> u32 {
@@ -51,42 +113,37 @@ impl PhysicsBodyGrid {
 
 	pub fn mass(&self) -> f32 { self.mass as f32 }
 
-	pub fn get_rendering_meshes(&self, device: &wgpu::Device, _camera: &camera::Camera) -> Vec<Arc<mesh::Mesh>> {
-		let mesh = self.mesh.get();
-		if mesh.is_none() {
-			let _zone = span!("Recreate Mesh");
-			self.mesh.set(match self.voxels.get_mesh(device) {
-				Some(mesh) => Some(Arc::new(mesh)),
-				None => None,
-			});
-			return vec![self.mesh.get().unwrap()];
-		}
-		vec![mesh.unwrap()]
+	pub fn get_rendering_meshes(&self, device: &wgpu::Device, camera: &camera::Camera) -> Vec<(Arc<mesh::Mesh>, Vec3)> {
+		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)| Some((sub_grid.get_rendering_meshes(device, camera)?, self.sub_grid_pos_to_grid_pos(sub_grid_pos).as_vec3()))).collect()
 	}
 
-	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: voxels::Voxel) {
-		self.mesh.set(None);
+	pub fn add_voxel(&mut self, pos: IVec3, voxel: voxels::Voxel) {
 		self.mass += voxel.mass as u64;
 		self.voxel_center_of_mass_times_mass += voxel.mass as i64 * pos.as_i64vec3();
 		self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
-		if let Some(old_voxel) = self.voxels.add_voxel(pos, voxel) {
+		let (sub_grid, sub_grid_pos) = self.get_sub_grid_mut_create(&pos);
+		if let Some(old_voxel) = sub_grid.add_voxel(sub_grid_pos, voxel) {
 			self.mass -= old_voxel.mass as u64;
 			self.voxel_center_of_mass_times_mass -= old_voxel.mass as i64 * pos.as_i64vec3();
 			self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
 		}
 	}
 
-	pub fn remove_voxel(&mut self, pos: &I16Vec3) {
-		if let Some(voxel) = self.voxels.remove_voxel(pos) {
-			self.mesh.set(None);
-			self.mass -= voxel.mass as u64;
-			self.voxel_center_of_mass_times_mass -= voxel.mass as i64 * pos.as_i64vec3();
-			self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
+	pub fn remove_voxel(&mut self, pos: &IVec3) {
+		if let Some((sub_grid, sub_grid_pos)) = self.get_sub_grid_mut(&pos) {
+			if let Some(voxel) = sub_grid.remove_voxel(&sub_grid_pos) {
+				self.mass -= voxel.mass as u64;
+				self.voxel_center_of_mass_times_mass -= voxel.mass as i64 * pos.as_i64vec3();
+				self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
+			}
 		}
 	}
 
-	pub fn get_voxel(&self, pos: I16Vec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
-	pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
+	pub fn get_voxel(&self, pos: IVec3) -> Option<&voxels::Voxel> {
+		let (sub_grid, sub_grid_pos) = self.get_sub_grid(&pos)?;
+		sub_grid.get_voxel(sub_grid_pos)
+	}
+	// pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
 
 	pub fn body_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }
 	pub fn local_to_body(&self, other: &Pose) -> Pose { self.pose * other }
@@ -220,8 +277,8 @@ impl PhysicsBody {
 		let mut meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
 		for grid in self.grids.iter() {
 			let pose = self.pose * grid.pose;
-			let matrix = Mat4::from_rotation_translation(pose.rotation, pose.translation);
-			for mesh in grid.get_rendering_meshes(device, camera) {
+			for (mesh, mesh_translation) in grid.get_rendering_meshes(device, camera) {
+				let matrix = Mat4::from_rotation_translation(pose.rotation, pose.translation + pose.rotation * mesh_translation);
 				meshes.push((mesh, matrix));
 			}
 		}
@@ -269,33 +326,66 @@ impl PhysicsBody {
 		&self.grids
 	}
 
-	pub fn aabb(&self) -> (Vec3, Vec3) {
+	pub fn aabb(&self) -> Option<(Vec3, Vec3)> {
 		let mut aabb_min = Vec3::splat(f32::MAX);
 		let mut aabb_max = Vec3::splat(f32::MIN);
 		for grid in &self.grids {
-			let (min, max) = grid.get_voxels().get_bounding_box().unwrap();
-			let min = min.as_vec3();
-			let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
-			let corners = [
-				min,
-				Vec3::new(max.x, min.y, min.z),
-				Vec3::new(min.x, max.y, min.z),
-				Vec3::new(min.x, min.y, max.z),
-				Vec3::new(max.x, max.y, min.z),
-				Vec3::new(max.x, min.y, max.z),
-				Vec3::new(min.x, max.y, max.z),
-				max,
-			];
-			let rotated_corners = corners.map(|c| self.pose * grid.pose * c);
-			aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
-			aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
+			for (sub_grid_pos, sub_grid) in grid.get_sub_grids() {
+				if let Some((min, max)) = sub_grid.get_voxels().get_bounding_box() {
+					let min = min.as_vec3();
+					let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
+					let corners = [
+						min,
+						Vec3::new(max.x, min.y, min.z),
+						Vec3::new(min.x, max.y, min.z),
+						Vec3::new(min.x, min.y, max.z),
+						Vec3::new(max.x, max.y, min.z),
+						Vec3::new(max.x, min.y, max.z),
+						Vec3::new(min.x, max.y, max.z),
+						max,
+					];
+					let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3();
+					let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
+					aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
+					aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
+				}
+			}
 		}
-		(aabb_min, aabb_max)
+		if aabb_min.x == f32::MAX { return None; }
+		Some((aabb_min, aabb_max))
 	}
 
-	pub fn grid_aabb(&self, grid_id: u32) -> Option<(Vec3, Vec3)> {
-		let grid = self.grids.get(grid_id as usize)?;
-		let (min, max) = grid.get_voxels().get_bounding_box()?;
+	pub fn grid_aabb(&self, grid_index: u32) -> Option<(Vec3, Vec3)> {
+		let mut aabb_min = Vec3::splat(f32::MAX);
+		let mut aabb_max = Vec3::splat(f32::MIN);
+		let grid = self.grids.get(grid_index as usize)?;
+		for (sub_grid_pos, sub_grid) in grid.get_sub_grids() {
+			if let Some((min, max)) = sub_grid.get_voxels().get_bounding_box() {
+				let min = min.as_vec3();
+				let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
+				let corners = [
+					min,
+					Vec3::new(max.x, min.y, min.z),
+					Vec3::new(min.x, max.y, min.z),
+					Vec3::new(min.x, min.y, max.z),
+					Vec3::new(max.x, max.y, min.z),
+					Vec3::new(max.x, min.y, max.z),
+					Vec3::new(min.x, max.y, max.z),
+					max,
+				];
+				let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3();
+				let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
+				aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
+				aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
+			}
+		}
+		Some((aabb_min, aabb_max))
+	}
+
+	pub fn sub_grid_aabb(&self, grid_index: u32, sub_grid_pos: &IVec3) -> Option<(Vec3, Vec3)> {
+		let grid = self.grids.get(grid_index as usize)?;
+		let sub_grid = grid.get_sub_grid_from_sub_grid_pos(sub_grid_pos)?;
+		let (min, max) = sub_grid.get_voxels().get_bounding_box()?;
 		let min = min.as_vec3();
 		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
 		let corners = [
@@ -308,7 +398,8 @@ impl PhysicsBody {
 			Vec3::new(min.x, max.y, max.z),
 			max,
 		];
-		let rotated_corners = corners.map(|c| self.pose * grid.pose * c);
+		let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3();
+		let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
 		Some((
 			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
 			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))

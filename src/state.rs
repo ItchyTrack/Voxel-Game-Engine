@@ -1,7 +1,7 @@
 use std::{f32, sync::Arc};
 use std::time::Instant;
 
-use glam::{I16Vec3, IVec2, Mat4, Quat, Vec3, Vec4};
+use glam::{IVec2, IVec3, Mat4, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
@@ -62,7 +62,7 @@ impl State {
 				debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
 				debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid.pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
 				if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().add_voxel(hit_pos + hit_normal.as_i16vec3(), Voxel{ color: [100, 100, 100, 1], mass: 100 });
+					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().add_voxel(hit_pos + hit_normal.as_ivec3(), Voxel{ color: [100, 100, 100, 1], mass: 100 });
 				}
 				if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
 					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().remove_voxel(&(hit_pos));
@@ -111,7 +111,7 @@ impl State {
 		})
 	}
 
-	fn make_ball(physics_body: &mut PhysicsBody, radius: i16) {
+	fn make_ball(physics_body: &mut PhysicsBody, radius: i32) {
 		{
 			let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
 			let grid = physics_body.grid_mut(grid_id).unwrap();
@@ -119,9 +119,9 @@ impl State {
 			for x in -radius..radius + 1 {
 				for y in -0..radius + 1 {
 					for z in -radius..radius + 1 {
-						if I16Vec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
+						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
 							grid.add_voxel(
-								I16Vec3::new(x, y + 2, z),
+								IVec3::new(x, y + 2, z),
 								voxels::Voxel{ color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
@@ -135,9 +135,9 @@ impl State {
 			for x in -radius..radius + 1 {
 				for y in -radius..0 {
 					for z in -radius..radius + 1 {
-						if I16Vec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
+						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
 							grid.add_voxel(
-								I16Vec3::new(x, y + 2, z),
+								IVec3::new(x, y + 2, z),
 								voxels::Voxel{ color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
@@ -200,7 +200,7 @@ impl State {
 					let grid_id = physics_body.add_grid(Pose::new(translation, rotation));
 					let grid = physics_body.grid_mut(grid_id).unwrap();
 					grid.add_voxel(
-						I16Vec3::ZERO,
+						IVec3::ZERO,
 						voxels::Voxel {
 							color: [
 								((normal.x * 0.5 + 0.5) * 255.0) as u8,
@@ -429,20 +429,9 @@ impl State {
 			let physics_body_id = physics_engine.add_physics_body();
 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
 			let world_generator = WorldGenerator::new(2);
-			for x in -10..11 {
-				for z in -10..11 {
-					let grid_id = physics_body.add_grid(Pose::new(
-						Vec3::new(
-							(x * WorldGenerator::CHUNK_SIZE as i32) as f32,
-							0.0,
-							(z * WorldGenerator::CHUNK_SIZE as i32) as f32
-						),
-						Quat::IDENTITY
-					));
-					let grid = physics_body.grid_mut(grid_id).unwrap();
-					world_generator.create_chunk(IVec2::new(x, z), grid);
-				}
-			}
+			let grid_id = physics_body.add_grid(Pose::ZERO);
+			let grid = physics_body.grid_mut(grid_id).unwrap();
+			world_generator.gererate_area(IVec2::new(-512, -512), IVec2::new(512, 512), grid);
 			physics_body.is_static = true;
 			physics_body.pose.translation.y = -10.0;
 		}

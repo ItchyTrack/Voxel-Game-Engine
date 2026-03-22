@@ -1,13 +1,13 @@
 use std::{collections::HashMap};
 
-use glam::{I16Vec3, Mat3, Quat, Vec3};
+use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
 use crate::{math::{Mat6, Vec6}, physics::bvh::BVH, pose::Pose};
 
 use super::{physics_body, collision_constraint::CollisionConstraint, physics_constraint::PhysicsConstraint, collision};
 
-type CollisionKlMapKey = (u32, u32, I16Vec3, collision::CubeFeature, u32, u32, I16Vec3, collision::CubeFeature);
+type CollisionKlMapKey = (u32, u32, IVec3, collision::CubeFeature, u32, u32, IVec3, collision::CubeFeature);
 pub struct Solver {
 	collisions_kl_map: HashMap<CollisionKlMapKey, (Vec3, Vec3)>,
 }
@@ -28,7 +28,7 @@ impl Solver {
 		Vec6::from_vec3(state_a.translation - state_b.translation, Self::sub_quat(&state_a.rotation, &state_b.rotation))
 	}
 
-	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32, bvh: &BVH<(u32, u32)>) {
+	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, dt: f32, bvh: &BVH<(u32, u32, IVec3)>) {
 		let _zone = span!("Solve Collisions");
 		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
 		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies, &bvh).iter().map(

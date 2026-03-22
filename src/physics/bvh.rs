@@ -104,7 +104,7 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 			max_corner: Vec3::ZERO,
 			sub_nodes: BVHInternal::Leaf { start: 0, count: 0 },
 		});
-		nodes[0] = BVHNode::build_range(&mut items, &mut nodes, 0, items_len);
+		if items_len != 0 { nodes[0] = BVHNode::build_range(&mut items, &mut nodes, 0, items_len); }
 		BVH {
 			nodes,
 			items,
