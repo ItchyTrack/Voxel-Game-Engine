@@ -47,13 +47,13 @@ impl Solver {
 				};
 				let (old_penalty, old_lambda) = self.collisions_kl_map.get(&if collision.part1.body_index < collision.part2.body_index {
 					(
-						collision.part1.body_index, collision.part1.sub_grid_index, collision.part1.voxel_pos, collision.part1.feature,
-						collision.part2.body_index, collision.part2.sub_grid_index, collision.part2.voxel_pos, collision.part2.feature
+						collision.part1.body_index, collision.part1.grid_index, collision.part1.voxel_pos, collision.part1.feature,
+						collision.part2.body_index, collision.part2.grid_index, collision.part2.voxel_pos, collision.part2.feature
 					)
 				} else {
 					(
-						collision.part2.body_index, collision.part2.sub_grid_index, collision.part2.voxel_pos, collision.part2.feature,
-						collision.part1.body_index, collision.part1.sub_grid_index, collision.part1.voxel_pos, collision.part1.feature
+						collision.part2.body_index, collision.part2.grid_index, collision.part2.voxel_pos, collision.part2.feature,
+						collision.part1.body_index, collision.part1.grid_index, collision.part1.voxel_pos, collision.part1.feature
 					)
 				}).unwrap_or(&(Vec3::ZERO, Vec3::ZERO));
 				let mut collision_constraint = CollisionConstraint::new(collision, old_penalty, old_lambda);
@@ -133,13 +133,13 @@ impl Solver {
 			let collision = collision_constraint.collision;
 			self.collisions_kl_map.insert(if collision.part1.body_index < collision.part2.body_index {
 				(
-					collision.part1.body_index, collision.part1.sub_grid_index, collision.part1.voxel_pos, collision.part1.feature,
-					collision.part2.body_index, collision.part2.sub_grid_index, collision.part2.voxel_pos, collision.part2.feature
+					collision.part1.body_index, collision.part1.grid_index, collision.part1.voxel_pos, collision.part1.feature,
+					collision.part2.body_index, collision.part2.grid_index, collision.part2.voxel_pos, collision.part2.feature
 				)
 			} else {
 				(
-					collision.part2.body_index, collision.part2.sub_grid_index, collision.part2.voxel_pos, collision.part2.feature,
-					collision.part1.body_index, collision.part1.sub_grid_index, collision.part1.voxel_pos, collision.part1.feature
+					collision.part2.body_index, collision.part2.grid_index, collision.part2.voxel_pos, collision.part2.feature,
+					collision.part1.body_index, collision.part1.grid_index, collision.part1.voxel_pos, collision.part1.feature
 				)
 			}, (collision_constraint.penalty, collision_constraint.lambda));
 		}
