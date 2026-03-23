@@ -1,5 +1,5 @@
 @group(0) @binding(0)
-var<uniform> screen_size: vec2<f32>;
+var<uniform> screen_size: vec4<f32>;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
@@ -10,6 +10,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 
 @fragment
 fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+	let screen_size = screen_size.xy;
 	let p = abs(pos.xy - screen_size * 0.5);
 	let thickness = 1.0;
 	let length = 10.0;

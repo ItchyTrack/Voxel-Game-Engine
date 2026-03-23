@@ -26,11 +26,25 @@ pub struct Renderer {
 	pub debug_tri_pipeline: wgpu::RenderPipeline,
 }
 
+#[cfg(target_arch = "wasm32")]
+const max: u32 = 2048;
+
 impl Renderer {
 	pub fn resize(&mut self, width: u32, height: u32) {
 		if width > 0 && height > 0 {
-			self.config.width = width;
-			self.config.height = height;
+			#[cfg(target_arch = "wasm32")]
+			if width < height {
+				self.config.width = (height.min(max) * width) / height;
+				self.config.height = height.min(max);
+			} else {
+				self.config.width = width.min(max);
+				self.config.height = (width.min(max) * height) / width;
+			}
+			#[cfg(not(target_arch = "wasm32"))]
+			{
+				self.config.width = width;
+				self.config.height = height;
+			}
 
 			self.is_surface_configured = true;
 			self.surface.configure(&self.device, &self.config);
@@ -42,17 +56,25 @@ impl Renderer {
 		let mut size = window.inner_size();
 		size.width = size.width.max(1);
 		size.height = size.height.max(1);
+		#[cfg(target_arch = "wasm32")]
+		if size.width < size.height {
+			size.width = (size.height.min(max) * size.width) / size.height;
+			size.height = size.height.min(max);
+		} else {
+			size.width = size.width.min(max);
+			size.height = (size.width.min(max) * size.height) / size.width;
+		}
 		// The instance is a handle to our GPU
 		// BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
 		let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-			#[cfg(not(target_arch = "wasm32"))]
-			backends: wgpu::Backends::PRIMARY,
-			#[cfg(target_arch = "wasm32")]
-			backends: wgpu::Backends::GL,
-			..Default::default()
-		});
+            #[cfg(not(target_arch = "wasm32"))]
+            backends: wgpu::Backends::PRIMARY,
+            #[cfg(target_arch = "wasm32")]
+            backends: wgpu::Backends::GL,
+            ..Default::default()
+        });
 
-		let surface = instance.create_surface(window.clone()).unwrap();
+        let surface = instance.create_surface(window.clone()).unwrap();
 
 		let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
 				power_preference: wgpu::PowerPreference::default(),
@@ -77,13 +99,13 @@ impl Renderer {
 
 		let surface_format = surface_caps.formats.iter().find(|f| f.is_srgb()).copied().unwrap_or(surface_caps.formats[0]);
 
-		let crosshair_format = match surface_format {
-			wgpu::TextureFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8Unorm,
-			wgpu::TextureFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8Unorm,
-			other => other,
-		};
+		let crosshair_format = surface_format;// {
+		// 	wgpu::TextureFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8Unorm,
+		// 	wgpu::TextureFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8Unorm,
+		// 	other => other,
+		// };
 
-		let view_formats = if crosshair_format != surface_format { vec![crosshair_format] } else { vec![] };
+		// let view_formats = if crosshair_format != surface_format { vec![crosshair_format] } else { vec![] };
 
 		let config = wgpu::SurfaceConfiguration {
 			usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -92,7 +114,7 @@ impl Renderer {
 			height: size.height,
 			present_mode: surface_caps.present_modes[0],
 			alpha_mode: surface_caps.alpha_modes[0],
-			view_formats,
+			view_formats: vec![],
 			desired_maximum_frame_latency: 2,
 		};
 
@@ -164,7 +186,10 @@ impl Renderer {
 		});
 		let crosshair_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("Crosshair Screen Size"),
-			size: 8,
+			// #[cfg(target_arch = "wasm32")]
+			size: 16,
+			// #[cfg(not(target_arch = "wasm32"))]
+			// size: 8,
 			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 			mapped_at_creation: false,
 		});

@@ -1,11 +1,17 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 use std::sync::Arc;
+
 use tracy_client::frame_mark;
 use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop}, keyboard::PhysicalKey, window::Window};
 use crate::{player::camera, state::State};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use winit::event_loop::EventLoop;
 
 pub struct App {
 	#[cfg(target_arch = "wasm32")]
@@ -72,8 +78,8 @@ impl ApplicationHandler<State> for App {
 		// This is where proxy.send_event() ends up
 		#[cfg(target_arch = "wasm32")]
 		{
-			event.window.request_redraw();
-			event.resize(event.window.inner_size().width, event.window.inner_size().height);
+			event.renderer.window.request_redraw();
+			event.resize(event.renderer.window.inner_size().width, event.renderer.window.inner_size().height);
 		}
 
 		self.state = Some(event);

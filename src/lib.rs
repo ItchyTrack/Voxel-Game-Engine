@@ -43,10 +43,12 @@ pub fn run() -> anyhow::Result<()> {
 }
 
 #[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn run_web() -> Result<(), JsValue> {
 	console_error_panic_hook::set_once();
-
+	use wasm_bindgen::UnwrapThrowExt;
 	run().unwrap_throw();
 	Ok(())
 }
