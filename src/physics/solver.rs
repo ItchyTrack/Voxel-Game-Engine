@@ -1,3 +1,4 @@
+use core::f32;
 use std::{collections::HashMap};
 
 use glam::{IVec3, Mat3, Quat, Vec3};
@@ -26,7 +27,10 @@ impl Solver {
 	}
 
 	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose) {
-		self.constraints.insert(if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) }, BallJointConstraint::new(body_1_attachment, body_2_attachment));
+		self.constraints.insert(if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) }, BallJointConstraint::new(body_1_attachment, body_2_attachment, f32::INFINITY, 0.0));
+	}
+	pub fn create_ball_joint_spring_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose, stiffness : f32) {
+		self.constraints.insert(if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) }, BallJointConstraint::new(body_1_attachment, body_2_attachment, stiffness, 0.0));
 	}
 
 	pub fn add_vec_to_quat(q: &Quat, dx: &Vec3) -> Quat { (q + (Quat::from_xyzw(dx.x, dx.y, dx.z, 0.0) * 0.5) * q).normalize() }

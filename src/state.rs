@@ -2,7 +2,7 @@
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
-use std::{f32, sync::Arc};
+use std::{collections::HashMap, f32, sync::Arc};
 
 use glam::{IVec2, IVec3, Mat4, Quat, Vec3, Vec4};
 use tracy_client::span;
@@ -353,7 +353,7 @@ impl State {
 		// }
 		// ------------------------------ Ball ------------------------------
 		for x in -1..2 {
-			for y in -1..2 {
+			for y in -1..0 {
 				for z in -1..2 {
 					let r = 4;
 					let physics_body_id = physics_engine.add_physics_body();
@@ -372,7 +372,7 @@ impl State {
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_main).unwrap();
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y += 50.0;
-				physics_body.pose.translation.z += 40.0;
+				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, 2);
 			}
 			let physics_body_id_1 = physics_engine.add_physics_body();
@@ -380,7 +380,7 @@ impl State {
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_1).unwrap();
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y += 50.0;
-				physics_body.pose.translation.z += 50.0;
+				physics_body.pose.translation.z += 50.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
 			let physics_body_id_2 = physics_engine.add_physics_body();
@@ -388,7 +388,7 @@ impl State {
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_2).unwrap();
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y += 50.0;
-				physics_body.pose.translation.z += 30.0;
+				physics_body.pose.translation.z += 30.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
 			let physics_body_id_3 = physics_engine.add_physics_body();
@@ -396,7 +396,7 @@ impl State {
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_3).unwrap();
 				physics_body.pose.translation.x += 10.0;
 				physics_body.pose.translation.y += 50.0;
-				physics_body.pose.translation.z += 40.0;
+				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
 			let physics_body_id_4 = physics_engine.add_physics_body();
@@ -404,13 +404,42 @@ impl State {
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_4).unwrap();
 				physics_body.pose.translation.x += -10.0;
 				physics_body.pose.translation.y += 50.0;
-				physics_body.pose.translation.z += 40.0;
+				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
 			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, 10.0)), physics_body_id_1, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
 			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, -10.0)), physics_body_id_2, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
 			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(10.0, 0.0, 0.0)), physics_body_id_3, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
 			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(-10.0, 0.0, 0.0)), physics_body_id_4, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
+		}
+		{
+			let mut bodies = HashMap::new();
+			let size_w = 15;
+			let size_l = 15;
+			for x in 0..size_w {
+				for z in 0..size_l {
+					let physics_body_id = physics_engine.add_physics_body();
+					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+					let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+					let grid = physics_body.grid_mut(grid_id).unwrap();
+					grid.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [(x * 255 / size_w) as u8, 0, (z * 255 / size_l) as u8, 255], mass: 50 });
+					physics_body.pose.translation.x += x as f32 * 1.5;
+					physics_body.pose.translation.y += 60.0;
+					physics_body.pose.translation.z += z as f32 * 1.5;
+					bodies.insert((x, z), physics_body_id);
+				}
+			}
+			for x in 0..size_w {
+				for z in 0..size_l {
+					let body_id = bodies.get(&(x, z)).unwrap();
+					if let Some(body_x_id) = bodies.get(&(x + 1, z)) {
+						physics_engine.create_ball_joint_spring_constraint(*body_id, &Pose::from_translation(Vec3::new(0.75, 0.0, 0.0)), *body_x_id, &Pose::from_translation(Vec3::new(-0.75, 0.0, 0.0)), 80000.0);
+					}
+					if let Some(body_z_id) = bodies.get(&(x, z + 1)) {
+						physics_engine.create_ball_joint_spring_constraint(*body_id, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.75)), *body_z_id, &Pose::from_translation(Vec3::new(0.0, 0.0, -0.75)), 80000.0);
+					}
+				}
+			}
 		}
 		// for x in -1..0 {
 		// 	for y in -1..0 {

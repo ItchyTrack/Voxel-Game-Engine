@@ -101,6 +101,12 @@ impl PhysicsEngine {
 		}
 	}
 
+	pub fn create_ball_joint_spring_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose, stiffness : f32) {
+		if self.physics_body_id_to_index.contains_key(&physics_body_id_1) && self.physics_body_id_to_index.contains_key(&physics_body_id_2) {
+			self.solver.create_ball_joint_spring_constraint(physics_body_id_1, body_1_attachment, physics_body_id_2, body_2_attachment, stiffness);
+		}
+	}
+
 	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(u32, u32, IVec3, I8Vec3, f32)> {
 		let mut best_hit: Option<(u32, u32, IVec3, I8Vec3, f32)> = None;
 		for ((body_index, grid_index, sub_grid_pos), bvh_distance) in self.get_bvh().raycast(pose, max_length) {

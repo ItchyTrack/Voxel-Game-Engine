@@ -13,10 +13,12 @@ pub struct BallJointConstraint {
 	lambda_angular: Vec3,
 	body_1_attachment: Pose,
 	body_2_attachment: Pose,
+	stiffness_linear: f32,
+	stiffness_angular: f32,
 }
 
 impl BallJointConstraint {
-	pub fn new(body_1_attachment: &Pose, body_2_attachment: &Pose) -> Self {
+	pub fn new(body_1_attachment: &Pose, body_2_attachment: &Pose, stiffness_linear: f32, stiffness_angular: f32) -> Self {
 		Self {
 			c0_linear: Vec3::ZERO,
 			c0_angular: Vec3::ZERO,
@@ -26,6 +28,8 @@ impl BallJointConstraint {
 			lambda_angular: Vec3::ZERO,
 			body_1_attachment: *body_1_attachment,
 			body_2_attachment: *body_2_attachment,
+			stiffness_linear: stiffness_linear,
+			stiffness_angular: stiffness_angular,
 		}
 	}
 }
@@ -57,8 +61,8 @@ impl PhysicsConstraint for BallJointConstraint {
 		self.c0_linear = initial_state_1 * self.body_1_attachment.translation - initial_state_2 * self.body_2_attachment.translation;
 		self.c0_angular = Solver::sub_quat(&initial_state_1.rotation, &initial_state_2.rotation)/* * torqueArm*/; // TODO: what is torqueArm
 
-		self.penalty_linear = (self.penalty_linear * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0));
-		self.penalty_angular = (self.penalty_angular * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0));
+		self.penalty_linear = (self.penalty_linear * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0)).clamp_length_max(self.stiffness_linear);
+		self.penalty_angular = (self.penalty_angular * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0)).clamp_length_max(self.stiffness_angular);
 	}
 
 	fn get_updated(
@@ -71,26 +75,31 @@ impl PhysicsConstraint for BallJointConstraint {
 		calc_1: bool
 	) -> Option<(Vec6, Mat6)> {
 		// linear
-		let penalty_mat = Mat3::from_diagonal(self.penalty_linear);
-		let c = state_1 * self.body_1_attachment.translation - state_2 * self.body_2_attachment.translation - self.c0_linear * alpha;
-		let force: Vec3 = penalty_mat * c + self.lambda_linear;
+		if self.stiffness_linear > 0.0 {
+			let penalty_mat = Mat3::from_diagonal(self.penalty_linear);
+			let mut c = state_1 * self.body_1_attachment.translation - state_2 * self.body_2_attachment.translation;
+			if self.stiffness_linear.is_infinite() {
+				c -= self.c0_linear * alpha;
+			}
+			let force: Vec3 = penalty_mat * c + self.lambda_linear;
 
-		let d_prime_linear = if calc_1 { Mat3::IDENTITY } else { -Mat3::IDENTITY };
-		let d_prime_angular = if calc_1 { skew(&-(state_1.rotation * self.body_1_attachment.translation)) } else { skew(&(state_2.rotation * self.body_2_attachment.translation)) };
+			let d_prime_linear = if calc_1 { Mat3::IDENTITY } else { -Mat3::IDENTITY };
+			let d_prime_angular = if calc_1 { skew(&-(state_1.rotation * self.body_1_attachment.translation)) } else { skew(&(state_2.rotation * self.body_2_attachment.translation)) };
 
-		let d_prime_linear_transpose_times_k = d_prime_linear.transpose() * penalty_mat;
-		let d_prime_angular_transpose_times_k = d_prime_angular.transpose() * penalty_mat;
+			let d_prime_linear_transpose_times_k = d_prime_linear.transpose() * penalty_mat;
+			let d_prime_angular_transpose_times_k = d_prime_angular.transpose() * penalty_mat;
 
-		Some((
-			Vec6::from_vec3(d_prime_linear.transpose() * force, d_prime_angular.transpose() * force),
-			Mat6::from_mat3(
-				d_prime_linear_transpose_times_k * d_prime_linear,
-				d_prime_linear_transpose_times_k * d_prime_angular,
-				d_prime_angular_transpose_times_k * d_prime_linear,
-				d_prime_angular_transpose_times_k * d_prime_angular
-			)
-		))
-
+			return Some((
+				Vec6::from_vec3(d_prime_linear.transpose() * force, d_prime_angular.transpose() * force),
+				Mat6::from_mat3(
+					d_prime_linear_transpose_times_k * d_prime_linear,
+					d_prime_linear_transpose_times_k * d_prime_angular,
+					d_prime_angular_transpose_times_k * d_prime_linear,
+					d_prime_angular_transpose_times_k * d_prime_angular
+				)
+			));
+		}
+		None
 
         // Diagonal approximation for higher order terms
         // float3 r = body == bodyA ? rotate(bodyA->positionAng, rA) : -rotate(bodyB->positionAng, rB);
@@ -111,13 +120,16 @@ impl PhysicsConstraint for BallJointConstraint {
 		alpha: f32
 	) {
 		let penalty_mat = Mat3::from_diagonal(self.penalty_linear);
-		let c = state_1 * self.body_1_attachment.translation - state_2 * self.body_2_attachment.translation - self.c0_linear * alpha;
-		let force: Vec3 = penalty_mat * c + self.lambda_linear;
+		let mut c = state_1 * self.body_1_attachment.translation - state_2 * self.body_2_attachment.translation;
 
-		self.lambda_linear = force;
+		if self.stiffness_linear.is_infinite() {
+			c -= self.c0_linear * alpha;
+			let force: Vec3 = penalty_mat * c + self.lambda_linear;
+			self.lambda_linear = force;
+		}
 
 		// penalty
 		let beta = 5000000.0; // beta
-		self.penalty_linear = (self.penalty_linear + beta * c.abs()).min(Vec3::splat(10000000000.0));
+		self.penalty_linear = (self.penalty_linear + beta * c.abs()).clamp_length_max(self.stiffness_linear.min(10000000000.0));
 	}
 }
