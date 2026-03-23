@@ -1,165 +1,123 @@
-// use glam::{Mat3, Vec2, Vec3};
+use glam::{Mat3, Vec3};
 
-// use crate::{math::{Mat6, Vec6}, pose::Pose};
+use crate::{math::{Mat6, Vec6}, pose::Pose};
 
-// use super::{physics_constraint::{PhysicsConstraint, GAMMA}, solver::Solver, physics_body::PhysicsBody};
+use super::{physics_constraint::{PhysicsConstraint, GAMMA}, solver::Solver};
 
-// pub struct BallJointConstraint {
-// 	c0_linear: Vec3,
-// 	c0_angular: Vec3,
-// 	penalty_linear: Vec3,
-// 	penalty_angular: Vec3,
-// 	lambda_linear: Vec3,
-// 	lambda_angular: Vec3,
-// }
+pub struct BallJointConstraint {
+	c0_linear: Vec3,
+	c0_angular: Vec3,
+	penalty_linear: Vec3,
+	penalty_angular: Vec3,
+	lambda_linear: Vec3,
+	lambda_angular: Vec3,
+	body_1_attachment: Pose,
+	body_2_attachment: Pose,
+}
 
-// impl BallJointConstraint {
-// 	pub fn new(physics_body_1: &PhysicsBody, local_pos_1: &Vec3, physics_body_2: &PhysicsBody, local_pos_1: &Vec3) -> Self {
-// 		Self {
-// 			c0_linear: Vec3::ZERO,
-// 			c0_angular: Vec3::ZERO,
-// 			penalty_linear: Vec3::ZERO,
-// 			penalty_angular: Vec3::ZERO,
-// 			lambda_linear: Vec3::ZERO,
-// 			lambda_angular: Vec3::ZERO,
-// 		}
-// 	}
-// }
+impl BallJointConstraint {
+	pub fn new(body_1_attachment: &Pose, body_2_attachment: &Pose) -> Self {
+		Self {
+			c0_linear: Vec3::ZERO,
+			c0_angular: Vec3::ZERO,
+			penalty_linear: Vec3::ZERO,
+			penalty_angular: Vec3::ZERO,
+			lambda_linear: Vec3::ZERO,
+			lambda_angular: Vec3::ZERO,
+			body_1_attachment: *body_1_attachment,
+			body_2_attachment: *body_2_attachment,
+		}
+	}
+}
 
-// impl PhysicsConstraint for BallJointConstraint {
-// 	fn init(&mut self, _initial_state_1: &Pose, _initial_state_2: &Pose) {
-// 		self.friction = 0.1;
 
-// 		let normal = (self.collision.collision2 - self.collision.collision1).normalize();
-// 		if normal.is_nan() { return; }
+fn skew(r: &Vec3) -> Mat3 {
+	Mat3::from_cols_array_2d(&[
+		[0.0, -r.z, r.y],
+		[r.z, 0.0, -r.x],
+		[-r.y, r.x, 0.0],
+	]).transpose()
+}
 
-// 		let basis_pair = normal.any_orthonormal_pair();
-// 		self.basis = Mat3::from_cols(
-// 			normal,
-// 			basis_pair.0,
-// 			basis_pair.1
-// 		).transpose();
+impl PhysicsConstraint for BallJointConstraint {
+	fn init(&mut self, initial_state_1: &Pose, initial_state_2: &Pose) {
+		// let normal = (self.collision.collision2 - self.collision.collision1).normalize();
+		// if normal.is_nan() { return; }
 
-// 		self.c0 = self.basis * (self.collision.collision1 - self.collision.collision2) + Vec3::new(0.01, 0.0, 0.0);
-// 		self.penalty = (self.penalty * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0));
-// 	}
+		// let basis_pair = normal.any_orthonormal_pair();
+		// self.basis = Mat3::from_cols(
+		// 	normal,
+		// 	basis_pair.0,
+		// 	basis_pair.1
+		// ).transpose();
 
-// 	fn get_updated(
-// 		&self,
-// 		state_1: &Pose,
-// 		initial_state_1: &Pose,
-// 		state_2: &Pose,
-// 		initial_state_2: &Pose,
-// 		alpha: f32,
-// 		calc_1: bool
-// 	) -> Option<(Vec6, Mat6)> {
-// 		let world_local_collision_1 = state_1.rotation * self.collision.local_collision1;
-// 		let world_local_collision_2 = state_2.rotation * self.collision.local_collision2;
+		// self.c0 = self.basis * (self.collision.collision1 - self.collision.collision2) + Vec3::new(0.01, 0.0, 0.0);
 
-// 		let d_prime_linear_1 = self.basis;
-// 		let d_prime_angular_1 = Mat3::from_cols(
-// 			world_local_collision_1.cross(d_prime_linear_1.row(0)),
-// 			world_local_collision_1.cross(d_prime_linear_1.row(1)),
-// 			world_local_collision_1.cross(d_prime_linear_1.row(2))
-// 		).transpose();
-// 		let d_prime_linear_2 = -self.basis;
-// 		let d_prime_angular_2 = Mat3::from_cols(
-// 			world_local_collision_2.cross(d_prime_linear_2.row(0)),
-// 			world_local_collision_2.cross(d_prime_linear_2.row(1)),
-// 			world_local_collision_2.cross(d_prime_linear_2.row(2))
-// 		).transpose();
 
-// 		let diff_1 = Solver::sub_state(state_1, initial_state_1);
-// 		let diff_2 = Solver::sub_state(state_2, initial_state_2);
+		self.c0_linear = initial_state_1 * self.body_1_attachment.translation - initial_state_2 * self.body_2_attachment.translation;
+		self.c0_angular = Solver::sub_quat(&initial_state_1.rotation, &initial_state_2.rotation)/* * torqueArm*/; // TODO: what is torqueArm
 
-// 		let c = self.c0 * (1.0 - alpha) + (
-// 			d_prime_linear_1 * diff_1.upper_vec3() + d_prime_angular_1 * diff_1.lower_vec3() +
-// 			d_prime_linear_2 * diff_2.upper_vec3() + d_prime_angular_2 * diff_2.lower_vec3()
-// 		);
+		self.penalty_linear = (self.penalty_linear * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0));
+		self.penalty_angular = (self.penalty_angular * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0));
+	}
 
-// 		let penalty_mat = Mat3::from_diagonal(self.penalty);
+	fn get_updated(
+		&self,
+		state_1: &Pose,
+		_initial_state_1: &Pose,
+		state_2: &Pose,
+		_initial_state_2: &Pose,
+		alpha: f32,
+		calc_1: bool
+	) -> Option<(Vec6, Mat6)> {
+		// linear
+		let penalty_mat = Mat3::from_diagonal(self.penalty_linear);
+		let c = state_1 * self.body_1_attachment.translation - state_2 * self.body_2_attachment.translation - self.c0_linear * alpha;
+		let force: Vec3 = penalty_mat * c + self.lambda_linear;
 
-// 		let mut force: Vec3 = penalty_mat * c + self.lambda;
-// 		force.x = force.x.min(0.0);
+		let d_prime_linear = if calc_1 { Mat3::IDENTITY } else { -Mat3::IDENTITY };
+		let d_prime_angular = if calc_1 { skew(&-(state_1.rotation * self.body_1_attachment.translation)) } else { skew(&(state_2.rotation * self.body_2_attachment.translation)) };
 
-// 		let bounds = force.x.abs() * self.friction;
-// 		let friction_scale = Vec2::new(force.y, force.z).length();
-// 		if friction_scale > bounds && friction_scale > 0.0 {
-//             force.y *= bounds / friction_scale;
-//             force.z *= bounds / friction_scale;
-//         }
+		let d_prime_linear_transpose_times_k = d_prime_linear.transpose() * penalty_mat;
+		let d_prime_angular_transpose_times_k = d_prime_angular.transpose() * penalty_mat;
 
-// 		let (d_prime_linear, d_prime_angular) = if calc_1 { (d_prime_linear_1, d_prime_angular_1) } else { (d_prime_linear_2, d_prime_angular_2) };
-// 		// let (d_prime_linear, d_prime_angular) = (d_prime_linear_1, d_prime_angular_1);
+		Some((
+			Vec6::from_vec3(d_prime_linear.transpose() * force, d_prime_angular.transpose() * force),
+			Mat6::from_mat3(
+				d_prime_linear_transpose_times_k * d_prime_linear,
+				d_prime_linear_transpose_times_k * d_prime_angular,
+				d_prime_angular_transpose_times_k * d_prime_linear,
+				d_prime_angular_transpose_times_k * d_prime_angular
+			)
+		))
 
-// 		let d_prime_linear_transpose_times_k = d_prime_linear.transpose() * penalty_mat;
-// 		let d_prime_angular_transpose_times_k = d_prime_angular.transpose() * penalty_mat;
 
-// 		Some((
-// 			Vec6::from_vec3(d_prime_linear.transpose() * force, d_prime_angular.transpose() * force),
-// 			Mat6::from_mat3(
-// 				d_prime_linear_transpose_times_k * d_prime_linear,
-// 				d_prime_linear_transpose_times_k * d_prime_angular,
-// 				d_prime_angular_transpose_times_k * d_prime_linear,
-// 				d_prime_angular_transpose_times_k * d_prime_angular
-// 			)
-// 		))
-// 	}
+        // Diagonal approximation for higher order terms
+        // float3 r = body == bodyA ? rotate(bodyA->positionAng, rA) : -rotate(bodyB->positionAng, rB);
+        // float3x3 H =
+        //     geometricStiffnessBallSocket(0, r) * F[0] +
+        //     geometricStiffnessBallSocket(1, r) * F[1] +
+        //     geometricStiffnessBallSocket(2, r) * F[2];
+        // lhsAng += diagonalize(H);
 
-// 	fn update_dual(
-// 		&mut self,
-// 		state_1: &Pose,
-// 		initial_state_1: &Pose,
-// 		state_2: &Pose,
-// 		initial_state_2: &Pose,
-// 		alpha: f32
-// 	) {
-// 		let world_local_collision_1 = state_1.rotation * self.collision.local_collision1;
-// 		let world_local_collision_2 = state_2.rotation * self.collision.local_collision2;
+	}
 
-// 		let d_prime_linear_1 = self.basis;
-// 		let d_prime_angular_1 = Mat3::from_cols(
-// 			world_local_collision_1.cross(d_prime_linear_1.row(0)),
-// 			world_local_collision_1.cross(d_prime_linear_1.row(1)),
-// 			world_local_collision_1.cross(d_prime_linear_1.row(2))
-// 		).transpose();
-// 		let d_prime_linear_2 = -self.basis;
-// 		let d_prime_angular_2 = Mat3::from_cols(
-// 			world_local_collision_2.cross(d_prime_linear_2.row(0)),
-// 			world_local_collision_2.cross(d_prime_linear_2.row(1)),
-// 			world_local_collision_2.cross(d_prime_linear_2.row(2))
-// 		).transpose();
+	fn update_dual(
+		&mut self,
+		state_1: &Pose,
+		_initial_state_1: &Pose,
+		state_2: &Pose,
+		_initial_state_2: &Pose,
+		alpha: f32
+	) {
+		let penalty_mat = Mat3::from_diagonal(self.penalty_linear);
+		let c = state_1 * self.body_1_attachment.translation - state_2 * self.body_2_attachment.translation - self.c0_linear * alpha;
+		let force: Vec3 = penalty_mat * c + self.lambda_linear;
 
-// 		let diff = Solver::sub_state(state_1, initial_state_1);
-// 		let diff_other = Solver::sub_state(state_2, initial_state_2);
+		self.lambda_linear = force;
 
-// 		let c = self.c0 * (1.0 - alpha) + (
-// 			d_prime_linear_1 * diff.upper_vec3() + d_prime_angular_1 * diff.lower_vec3() +
-// 			d_prime_linear_2 * diff_other.upper_vec3() + d_prime_angular_2 * diff_other.lower_vec3()
-// 		);
-
-// 		let penalty_mat = Mat3::from_diagonal(self.penalty);
-
-// 		let mut force: Vec3 = penalty_mat * c + self.lambda;
-// 		force.x = force.x.min(0.0);
-
-// 		let bounds = force.x.abs() * self.friction;
-// 		let friction_scale = Vec2::new(force.y, force.z).length();
-// 		if friction_scale > bounds && friction_scale > 0.0 {
-//             force.y *= bounds / friction_scale;
-//             force.z *= bounds / friction_scale;
-//         }
-
-// 		self.lambda = force;
-
-// 		// penalty
-// 		let beta = 10000.0; // beta
-// 		if force.x < 0.0 {
-// 			self.penalty.x = (self.penalty.x + beta * c.x.abs()).min(10000000000.0);
-// 		}
-//         if friction_scale <= bounds {
-//             self.penalty.y = (self.penalty.y + beta * c.y.abs()).min(10000000000.0);
-//             self.penalty.z = (self.penalty.z + beta * c.z.abs()).min(10000000000.0);
-//         }
-// 	}
-// }
+		// penalty
+		let beta = 5000000.0; // beta
+		self.penalty_linear = (self.penalty_linear + beta * c.abs()).min(Vec3::splat(10000000000.0));
+	}
+}

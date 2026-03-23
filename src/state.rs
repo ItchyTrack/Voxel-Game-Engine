@@ -352,18 +352,65 @@ impl State {
 		// 	physics_body.pose.translation.y += 2.0;
 		// }
 		// ------------------------------ Ball ------------------------------
-		for x in -1..2 {
-			for y in -1..2 {
-				for z in -1..2 {
-					let r = 4;
-					let physics_body_id = physics_engine.add_physics_body();
-					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 40.0;
-					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
-					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
-					State::make_ball(physics_body, r);
-				}
+		// for x in -1..2 {
+		// 	for y in -1..2 {
+		// 		for z in -1..2 {
+		// 			let r = 4;
+		// 			let physics_body_id = physics_engine.add_physics_body();
+		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 40.0;
+		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
+		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
+		// 			State::make_ball(physics_body, r);
+		// 		}
+		// 	}
+		// }
+		{
+			let r = 5;
+			let physics_body_id_main = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(physics_body_id_main).unwrap();
+				physics_body.pose.translation.x += 0.0;
+				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.z += 40.0;
+				State::make_ball(physics_body, 2);
 			}
+			let physics_body_id_1 = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(physics_body_id_1).unwrap();
+				physics_body.pose.translation.x += 0.0;
+				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.z += 50.0;
+				State::make_ball(physics_body, r);
+			}
+			let physics_body_id_2 = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(physics_body_id_2).unwrap();
+				physics_body.pose.translation.x += 0.0;
+				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.z += 30.0;
+				State::make_ball(physics_body, r);
+			}
+			let physics_body_id_3 = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(physics_body_id_3).unwrap();
+				physics_body.pose.translation.x += 10.0;
+				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.z += 40.0;
+				State::make_ball(physics_body, r);
+			}
+			let physics_body_id_4 = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(physics_body_id_4).unwrap();
+				physics_body.pose.translation.x += -10.0;
+				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.z += 40.0;
+				State::make_ball(physics_body, r);
+			}
+			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, 10.0)), physics_body_id_1, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
+			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, -10.0)), physics_body_id_2, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
+			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(10.0, 0.0, 0.0)), physics_body_id_3, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
+			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(-10.0, 0.0, 0.0)), physics_body_id_4, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
 		}
 		// for x in -1..0 {
 		// 	for y in -1..0 {

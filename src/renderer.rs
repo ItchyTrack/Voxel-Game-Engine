@@ -99,13 +99,7 @@ impl Renderer {
 
 		let surface_format = surface_caps.formats.iter().find(|f| f.is_srgb()).copied().unwrap_or(surface_caps.formats[0]);
 
-		let crosshair_format = surface_format;// {
-		// 	wgpu::TextureFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8Unorm,
-		// 	wgpu::TextureFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8Unorm,
-		// 	other => other,
-		// };
-
-		// let view_formats = if crosshair_format != surface_format { vec![crosshair_format] } else { vec![] };
+		let crosshair_format = surface_format;
 
 		let config = wgpu::SurfaceConfiguration {
 			usage: wgpu::TextureUsages::RENDER_ATTACHMENT,

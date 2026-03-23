@@ -48,7 +48,7 @@ impl PhysicsEngine {
 	pub fn update(&mut self, dt: f32) {
 		{
 			let bvh = &get_bvh_macro!(self);
-			self.solver.solve(&mut self.physics_bodies, dt, bvh);
+			self.solver.solve(&mut self.physics_bodies, &self.physics_body_id_to_index, dt, bvh);
 		}
 		*self.bvh.borrow_mut() = None;
 	}
@@ -72,6 +72,7 @@ impl PhysicsEngine {
 		}
 	}
 
+
 	pub fn physics_body(&self, physics_body_id: u32) -> Option<&PhysicsBody> {
 		let index = *self.physics_body_id_to_index.get(&physics_body_id)?;
 		self.physics_bodies.get(index as usize)
@@ -92,6 +93,12 @@ impl PhysicsEngine {
 
 	pub fn physics_bodies(&self) -> &[PhysicsBody] {
 		&self.physics_bodies
+	}
+
+	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose) {
+		if self.physics_body_id_to_index.contains_key(&physics_body_id_1) && self.physics_body_id_to_index.contains_key(&physics_body_id_2) {
+			self.solver.create_ball_joint_constraint(physics_body_id_1, body_1_attachment, physics_body_id_2, body_2_attachment);
+		}
 	}
 
 	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(u32, u32, IVec3, I8Vec3, f32)> {
