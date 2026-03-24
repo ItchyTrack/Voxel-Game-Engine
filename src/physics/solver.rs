@@ -11,7 +11,6 @@ use super::{physics_body, collision_constraint::CollisionConstraint, ball_joint_
 type CollisionKlMapKey = (u32, u32, IVec3, collision::CubeFeature, u32, u32, IVec3, collision::CubeFeature);
 pub struct Solver {
 	collisions_kl_map: HashMap<CollisionKlMapKey, (Vec3, Vec3)>,
-	constraints: HashMap<(u32, u32), BallJointConstraint>,
 }
 
 fn mat6_outer(a: Vec6, b: Vec6) -> Mat6 {
@@ -22,15 +21,7 @@ impl Solver {
 	pub fn new() -> Self {
 		Self {
 			collisions_kl_map: HashMap::new(),
-			constraints: HashMap::new(),
 		}
-	}
-
-	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose) {
-		self.constraints.insert(if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) }, BallJointConstraint::new(body_1_attachment, body_2_attachment, f32::INFINITY, 0.0));
-	}
-	pub fn create_ball_joint_spring_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose, stiffness : f32) {
-		self.constraints.insert(if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) }, BallJointConstraint::new(body_1_attachment, body_2_attachment, stiffness, 0.0));
 	}
 
 	pub fn add_vec_to_quat(q: &Quat, dx: &Vec3) -> Quat { (q + (Quat::from_xyzw(dx.x, dx.y, dx.z, 0.0) * 0.5) * q).normalize() }
@@ -40,8 +31,15 @@ impl Solver {
 		Vec6::from_vec3(state_a.translation - state_b.translation, Self::sub_quat(&state_a.rotation, &state_b.rotation))
 	}
 
-	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, physics_body_id_to_index: &HashMap<u32, u32>, dt: f32, bvh: &BVH<(u32, u32, IVec3)>) {
+	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, mut constraints: Vec<((u32, u32), &mut BallJointConstraint)>, dt: f32, bvh: &BVH<(u32, u32, IVec3)>) {
 		let _zone = span!("Solve Collisions");
+		constraints.iter_mut().for_each(|((physics_body_index_1, physics_body_index_2), constraint)| {
+			if let Some(physics_body_1) = physics_bodies.get(*physics_body_index_1 as usize) {
+				if let Some(physics_body_2) = physics_bodies.get(*physics_body_index_2 as usize) {
+					constraint.update_attachment_com(&physics_body_1.get_local_center_of_mass(), &physics_body_2.get_local_center_of_mass());
+				}
+			}
+		});
 		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
 		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies, &bvh).iter().map(
 			|c| {
@@ -110,24 +108,20 @@ impl Solver {
 					f += c_f;
 					h += c_h;
 				}
-				let physics_body_constraints = self.constraints.iter().filter(|(key, _)| {
+				let physics_body_constraints = constraints.iter().filter(|(key, _)| {
 					key.0 == index as u32 || key.1 == index as u32
 				});
-				for (key, physics_body_constraint) in physics_body_constraints {
-					if let Some(physics_body_index_1) = physics_body_id_to_index.get(&key.0) {
-						if let Some(physics_body_index_2) = physics_body_id_to_index.get(&key.1) {
-							let result = physics_body_constraint.get_updated(
-								&x_guess[*physics_body_index_1 as usize], &initial_all[*physics_body_index_1 as usize],
-								&x_guess[*physics_body_index_2 as usize], &initial_all[*physics_body_index_2 as usize],
-								alpha,
-								key.0 == index as u32
-							);
-							if result.is_none() { continue; }
-							let (c_f, c_h) = result.unwrap();
-							f += c_f;
-							h += c_h;
-						}
-					}
+				for ((physics_body_index_1, physics_body_index_2), physics_body_constraint) in physics_body_constraints {
+					let result = physics_body_constraint.get_updated(
+						&x_guess[*physics_body_index_1 as usize], &initial_all[*physics_body_index_1 as usize],
+						&x_guess[*physics_body_index_2 as usize], &initial_all[*physics_body_index_2 as usize],
+						alpha,
+						*physics_body_index_1 == index as u32
+					);
+					if result.is_none() { continue; }
+					let (c_f, c_h) = result.unwrap();
+					f += c_f;
+					h += c_h;
 				}
 				let mats = h.to_mat3();
 				let solved = solve(mats[0], mats[3], mats[1], -f.upper_vec3(), -f.lower_vec3());
@@ -146,16 +140,12 @@ impl Solver {
 						alpha
 					);
 				}
-				for (key, constraint) in self.constraints.iter_mut() {
-					if let Some(physics_body_index_1) = physics_body_id_to_index.get(&key.0) {
-						if let Some(physics_body_index_2) = physics_body_id_to_index.get(&key.1) {
-							constraint.update_dual(
-								&x_guess[*physics_body_index_1 as usize], &initial_all[*physics_body_index_1 as usize],
-								&x_guess[*physics_body_index_2 as usize], &initial_all[*physics_body_index_2 as usize],
-								alpha
-							);
-						}
-					}
+				for ((physics_body_index_1, physics_body_index_2), constraint) in constraints.iter_mut() {
+					constraint.update_dual(
+						&x_guess[*physics_body_index_1 as usize], &initial_all[*physics_body_index_1 as usize],
+						&x_guess[*physics_body_index_2 as usize], &initial_all[*physics_body_index_2 as usize],
+						alpha
+					);
 				}
 			}
 			if iteration == iterations - 1 { // before post stabilize

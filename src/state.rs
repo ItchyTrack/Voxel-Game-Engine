@@ -116,16 +116,16 @@ impl State {
 
 	fn make_ball(physics_body: &mut PhysicsBody, radius: i32) {
 		{
-			let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+			let grid_id = physics_body.add_grid(Pose::new(Vec3::new(-0.5, -0.5, -0.5), Quat::IDENTITY));
 			let grid = physics_body.grid_mut(grid_id).unwrap();
 
 			for x in -radius..radius + 1 {
 				for y in -0..radius + 1 {
 					for z in -radius..radius + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
+						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
-								IVec3::new(x, y + 2, z),
-								voxels::Voxel{ color: [x as u8, y as u8, z as u8, 1], mass: 100 }
+								IVec3::new(x, y, z),
+								voxels::Voxel { color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
 					}
@@ -133,15 +133,16 @@ impl State {
 			}
 		}
 		{
-			let grid_id = physics_body.add_grid(Pose::new(Vec3::new(-0.707 + 0.5, 0.0, 0.707 - 0.5), Quat::from_rotation_y(f32::consts::PI/4.0)));
+			let grid_id = physics_body.add_grid(Pose::new(Vec3::new(-0.707, -0.5, 0.0), Quat::from_rotation_y(f32::consts::PI / 4.0)));
 			let grid = physics_body.grid_mut(grid_id).unwrap();
+
 			for x in -radius..radius + 1 {
 				for y in -radius..0 {
 					for z in -radius..radius + 1 {
-						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0)  {
+						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
-								IVec3::new(x, y + 2, z),
-								voxels::Voxel{ color: [x as u8, y as u8, z as u8, 1], mass: 100 }
+								IVec3::new(x, y, z),
+								voxels::Voxel { color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
 					}

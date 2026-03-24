@@ -2,13 +2,14 @@ use std::{cell::{Ref, RefCell}, collections::HashMap};
 
 use glam::{I8Vec3, Vec3, IVec3};
 
-use crate::{pose::Pose};
+use crate::{physics::ball_joint_constraint::BallJointConstraint, pose::Pose};
 
 use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver};
 
 pub struct PhysicsEngine {
 	physics_bodies: Vec<PhysicsBody>,
 	physics_body_id_to_index: HashMap<u32, u32>,
+	constraints: HashMap<(u32, u32), BallJointConstraint>,
 	next_body_id: u32,
 	solver: Solver,
 	bvh: RefCell<Option<BVH<(u32, u32, IVec3)>>>,
@@ -39,6 +40,7 @@ impl PhysicsEngine {
 		Self {
 			physics_bodies: vec![],
 			physics_body_id_to_index: HashMap::new(),
+			constraints: HashMap::new(),
 			next_body_id: 0,
 			solver: Solver::new(),
 			bvh: RefCell::new(None),
@@ -48,7 +50,10 @@ impl PhysicsEngine {
 	pub fn update(&mut self, dt: f32) {
 		{
 			let bvh = &get_bvh_macro!(self);
-			self.solver.solve(&mut self.physics_bodies, &self.physics_body_id_to_index, dt, bvh);
+			let constraints = self.constraints.iter_mut().filter_map(|((id1, id2), constraint)| {
+				Some(((*self.physics_body_id_to_index.get(id1)?, *self.physics_body_id_to_index.get(id2)?), constraint))
+			}).collect();
+			self.solver.solve(&mut self.physics_bodies, constraints, dt, bvh);
 		}
 		*self.bvh.borrow_mut() = None;
 	}
@@ -97,13 +102,19 @@ impl PhysicsEngine {
 
 	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose) {
 		if self.physics_body_id_to_index.contains_key(&physics_body_id_1) && self.physics_body_id_to_index.contains_key(&physics_body_id_2) {
-			self.solver.create_ball_joint_constraint(physics_body_id_1, body_1_attachment, physics_body_id_2, body_2_attachment);
+			self.constraints.insert(
+				if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
+				BallJointConstraint::new(body_1_attachment, body_2_attachment, f32::INFINITY, 0.0)
+			);
 		}
 	}
 
 	pub fn create_ball_joint_spring_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose, stiffness : f32) {
 		if self.physics_body_id_to_index.contains_key(&physics_body_id_1) && self.physics_body_id_to_index.contains_key(&physics_body_id_2) {
-			self.solver.create_ball_joint_spring_constraint(physics_body_id_1, body_1_attachment, physics_body_id_2, body_2_attachment, stiffness);
+			self.constraints.insert(
+				if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
+				BallJointConstraint::new(body_1_attachment, body_2_attachment, stiffness, 0.0)
+			);
 		}
 	}
 
