@@ -2,13 +2,13 @@
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
-use std::{collections::HashMap, f32, sync::Arc};
+use std::{f32, sync::Arc};
 
-use glam::{IVec2, IVec3, Mat4, Quat, Vec3, Vec4};
+use glam::{IVec3, Mat4, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, gpu_objects::mesh, pose::Pose, renderer::Renderer, voxels, world_gen::WorldGenerator};
+use crate::{entity_component_system, gpu_objects::mesh, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::voxels::Voxel;
@@ -239,29 +239,65 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(20.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		// match load_binary("#treehouse.vox").await {
-		// 	Ok(bytes) => {
-		// 		match dot_vox::load_bytes(&bytes) {
-		// 			Ok(dot_vox_data) => {
-		// 				for model in dot_vox_data.models {
-		// 					physics_bodies.push(physics_body::PhysicsBody::new());
-		// 					let physics_body = physics_bodies.last_mut().unwrap();
-		// 					physics_body.is_static = true;
-		// 					for voxel in model.voxels {
-		// 						physics_body.add_voxel(IVec3::new(voxel.x as i32, voxel.z as i32, voxel.y as i32), voxels::Voxel{ color: [
-		// 							dot_vox_data.palette[voxel.i as usize].r as f32 / 255.0,
-		// 							dot_vox_data.palette[voxel.i as usize].g as f32 / 255.0,
-		// 							dot_vox_data.palette[voxel.i as usize].b as f32 / 255.0,
-		// 							dot_vox_data.palette[voxel.i as usize].a as f32 / 255.0
-		// 						], mass: 1.0 });
-		// 					}
-		// 				}
-		// 			},
-		// 			Err(err) => println!("dot_vox error: {err}"),
-		// 		};
-		// 	},
-		// 	Err(err) => println!("load_string error: {err}"),
-		// }
+		match load_binary("sponza.vox").await {
+			Ok(bytes) => {
+				match dot_vox::load_bytes(&bytes) {
+					Ok(dot_vox_data) => {
+						let physics_body_id = physics_engine.add_physics_body();
+						let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+						physics_body.is_static = true;
+						let mut stack = vec![(0, Pose::ZERO, IVec3::new(1, 1, -1))];
+						while let Some((scene_id, pose, flip)) = stack.pop() {
+							match &dot_vox_data.scenes[scene_id as usize] {
+								dot_vox::SceneNode::Transform { attributes: _, frames, child, layer_id: _ } => {
+									if let Some(frame) = frames.first() {
+										let pos = frame.position().unwrap_or(dot_vox::Position{x: 0, y: 0, z: 0});
+										let (rot, flip_vec) = frame.orientation().and_then(|quat| {
+											let (q, v) = quat.to_quat_scale();
+											let q = Quat::from_array(q);
+											Some((Quat::from_xyzw(q.x, q.z, -q.y, q.w), Vec3::from_array(v).as_ivec3()))
+										}).unwrap_or((Quat::IDENTITY, IVec3::ONE));
+										stack.push((*child, Pose::new(pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32), pose.rotation * rot), flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y)));
+									}
+								},
+								dot_vox::SceneNode::Group { attributes: _, children } => {
+									for child in children {
+										stack.push((*child, pose, flip));
+									}
+								},
+								dot_vox::SceneNode::Shape { attributes: _, models } => {
+									for shape_model in models {
+										if let Some(model) = dot_vox_data.models.get(shape_model.model_id as usize) {
+											let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
+											let half = (size / 2.0).floor();
+											let grid_id = physics_body.add_grid(pose * Pose::from_translation(-half * flip.as_vec3()));
+											let grid = physics_body.grid_mut(grid_id).unwrap();
+											for voxel in &model.voxels {
+												grid.add_voxel(IVec3::new(
+													voxel.x as i32,
+													voxel.z as i32,
+													voxel.y as i32,
+												) * flip + flip.min(IVec3::ZERO), voxels::Voxel {
+													color: [
+														dot_vox_data.palette[voxel.i as usize].r,
+														dot_vox_data.palette[voxel.i as usize].g,
+														dot_vox_data.palette[voxel.i as usize].b,
+														dot_vox_data.palette[voxel.i as usize].a,
+													],
+													mass: 100,
+												});
+											}
+										}
+									}
+								},
+							}
+						}
+					},
+					Err(err) => println!("dot_vox error: {err}"),
+				};
+			},
+			Err(err) => println!("load_string error: {err}"),
+		}
 
 		// ------------------------------ Static Box ------------------------------
 		// {
@@ -412,35 +448,35 @@ impl State {
 			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(10.0, 0.0, 0.0)), physics_body_id_3, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
 			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(-10.0, 0.0, 0.0)), physics_body_id_4, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.0)));
 		}
-		{
-			let mut bodies = HashMap::new();
-			let size_w = 15;
-			let size_l = 15;
-			for x in 0..size_w {
-				for z in 0..size_l {
-					let physics_body_id = physics_engine.add_physics_body();
-					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-					let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
-					let grid = physics_body.grid_mut(grid_id).unwrap();
-					grid.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [(x * 255 / size_w) as u8, 0, (z * 255 / size_l) as u8, 255], mass: 50 });
-					physics_body.pose.translation.x += x as f32 * 1.5;
-					physics_body.pose.translation.y += 60.0;
-					physics_body.pose.translation.z += z as f32 * 1.5;
-					bodies.insert((x, z), physics_body_id);
-				}
-			}
-			for x in 0..size_w {
-				for z in 0..size_l {
-					let body_id = bodies.get(&(x, z)).unwrap();
-					if let Some(body_x_id) = bodies.get(&(x + 1, z)) {
-						physics_engine.create_ball_joint_spring_constraint(*body_id, &Pose::from_translation(Vec3::new(0.75, 0.0, 0.0)), *body_x_id, &Pose::from_translation(Vec3::new(-0.75, 0.0, 0.0)), 80000.0);
-					}
-					if let Some(body_z_id) = bodies.get(&(x, z + 1)) {
-						physics_engine.create_ball_joint_spring_constraint(*body_id, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.75)), *body_z_id, &Pose::from_translation(Vec3::new(0.0, 0.0, -0.75)), 80000.0);
-					}
-				}
-			}
-		}
+		// {
+		// 	let mut bodies = HashMap::new();
+		// 	let size_w = 15;
+		// 	let size_l = 15;
+		// 	for x in 0..size_w {
+		// 		for z in 0..size_l {
+		// 			let physics_body_id = physics_engine.add_physics_body();
+		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 			let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+		// 			let grid = physics_body.grid_mut(grid_id).unwrap();
+		// 			grid.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [(x * 255 / size_w) as u8, 0, (z * 255 / size_l) as u8, 255], mass: 50 });
+		// 			physics_body.pose.translation.x += x as f32 * 1.5;
+		// 			physics_body.pose.translation.y += 60.0;
+		// 			physics_body.pose.translation.z += z as f32 * 1.5;
+		// 			bodies.insert((x, z), physics_body_id);
+		// 		}
+		// 	}
+		// 	for x in 0..size_w {
+		// 		for z in 0..size_l {
+		// 			let body_id = bodies.get(&(x, z)).unwrap();
+		// 			if let Some(body_x_id) = bodies.get(&(x + 1, z)) {
+		// 				physics_engine.create_ball_joint_spring_constraint(*body_id, &Pose::from_translation(Vec3::new(0.75, 0.0, 0.0)), *body_x_id, &Pose::from_translation(Vec3::new(-0.75, 0.0, 0.0)), 80000.0);
+		// 			}
+		// 			if let Some(body_z_id) = bodies.get(&(x, z + 1)) {
+		// 				physics_engine.create_ball_joint_spring_constraint(*body_id, &Pose::from_translation(Vec3::new(0.0, 0.0, 0.75)), *body_z_id, &Pose::from_translation(Vec3::new(0.0, 0.0, -0.75)), 80000.0);
+		// 			}
+		// 		}
+		// 	}
+		// }
 		// for x in -1..0 {
 		// 	for y in -1..0 {
 		// 		for z in -1..0 {
@@ -504,16 +540,16 @@ impl State {
 		// 	physics_body.pose.translation.x = 4.0;
 		// }
 
-		{
-			let physics_body_id = physics_engine.add_physics_body();
-			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-			let world_generator = WorldGenerator::new(2);
-			let grid_id = physics_body.add_grid(Pose::ZERO);
-			let grid = physics_body.grid_mut(grid_id).unwrap();
-			world_generator.gererate_area(IVec2::new(-512, -512), IVec2::new(512, 512), grid);
-			physics_body.is_static = true;
-			physics_body.pose.translation.y = -10.0;
-		}
+		// {
+		// 	let physics_body_id = physics_engine.add_physics_body();
+		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 	let world_generator = WorldGenerator::new(2);
+		// 	let grid_id = physics_body.add_grid(Pose::ZERO);
+		// 	let grid = physics_body.grid_mut(grid_id).unwrap();
+		// 	world_generator.gererate_area(IVec2::new(-512, -512), IVec2::new(512, 512), grid);
+		// 	physics_body.is_static = true;
+		// 	physics_body.pose.translation.y = -10.0;
+		// }
 
 		Ok(Self {
 			renderer,

@@ -76,12 +76,12 @@ impl Solver {
 		self.collisions_kl_map.clear();
 		let y_all: Vec<Pose> = physics_bodies.iter().map(|physics_body| {
 			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose; }
-			let gravity = -90.0;
+			let gravity = -300.0;
 			let pos = physics_body.pose.translation + physics_body.velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_global_rotated_center_of_mass();
 			let orientation = (Quat::from_scaled_axis(physics_body.angular_velocity * dt) * physics_body.pose.rotation).normalize();
 			Pose::new(pos, orientation)
 		}).collect();
-		let mut x_guess = initial_all.clone();
+		let mut x_guess = y_all.clone();
 		let iterations = 30;
 		let total_iterations = iterations + 1; // because post stabilize
 		for iteration in 0..total_iterations {
