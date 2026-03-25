@@ -101,51 +101,51 @@ impl Voxels {
 }
 
 impl mesh::GetMesh for Voxels {
-	fn get_mesh(&self, device: &wgpu::Device) -> Option<mesh::Mesh> {
+	fn get_mesh_buffers(&self) -> Option<(Vec<mesh::MeshVertex>, Vec<u32>)> {
 		if self.voxels.is_empty() {
 			return None;
 		}
-		let mut verties: Vec<mesh::MeshVertex> = vec![];
+		let mut vertices: Vec<mesh::MeshVertex> = vec![];
 		let mut indexes: Vec<u32> = vec![];
 		for (pos, size, voxel_id) in &self.voxels {
 			let voxel = self.voxel_palette.get_voxel(*voxel_id).unwrap();
 			let fpos: Vec3 = pos.as_vec3();
 			let f32_color = [voxel.color[0] as f32 / 255.0, voxel.color[1] as f32 / 255.0, voxel.color[2] as f32 / 255.0, voxel.color[3] as f32 / 255.0];
-			let mut verties_index = [8; 8];
+			let mut vertices_index = [8; 8];
 			let mut get_index = |id: u8| -> u32 {
-				let val = &mut verties_index[id as usize];
+				let val = &mut vertices_index[id as usize];
 				if *val == 8 {
-					*val = verties.len();
+					*val = vertices.len();
 					match id {
-						0 => {verties.push(mesh::MeshVertex { // 0
+						0 => {vertices.push(mesh::MeshVertex { // 0
 							position: fpos.to_array(),
 							color: f32_color,
 						});}
-						1 => {verties.push(mesh::MeshVertex { // 1
+						1 => {vertices.push(mesh::MeshVertex { // 1
 							position: (fpos + Vec3::new(1.0, 0.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
 						});}
-						2 => {verties.push(mesh::MeshVertex { // 2
+						2 => {vertices.push(mesh::MeshVertex { // 2
 							position: (fpos + Vec3::new(0.0, 1.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
 						});}
-						3 => {verties.push(mesh::MeshVertex { // 3
+						3 => {vertices.push(mesh::MeshVertex { // 3
 							position: (fpos + Vec3::new(0.0, 0.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
 						});}
-						4 => {verties.push(mesh::MeshVertex { // 4
+						4 => {vertices.push(mesh::MeshVertex { // 4
 							position: (fpos + Vec3::new(1.0, 1.0, 0.0) * size as f32).to_array(),
 							color: f32_color,
 						});}
-						5 => {verties.push(mesh::MeshVertex { // 5
+						5 => {vertices.push(mesh::MeshVertex { // 5
 							position: (fpos + Vec3::new(1.0, 0.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
 						});}
-						6 => {verties.push(mesh::MeshVertex { // 6
+						6 => {vertices.push(mesh::MeshVertex { // 6
 							position: (fpos + Vec3::new(0.0, 1.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
 						});}
-						7 => {verties.push(mesh::MeshVertex { // 7
+						7 => {vertices.push(mesh::MeshVertex { // 7
 							position: (fpos + Vec3::new(1.0, 1.0, 1.0) * size as f32).to_array(),
 							color: f32_color,
 						});}
@@ -226,9 +226,13 @@ impl mesh::GetMesh for Voxels {
 				add_face(5); // -z
 			}
 		}
+		Some((vertices, indexes))
+	}
+	fn get_mesh(&self, device: &wgpu::Device) -> Option<mesh::Mesh> {
+		let (vertices, indexes) = self.get_mesh_buffers()?;
 		let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("Vertex Buffer"),
-			contents: bytemuck::cast_slice(&verties),
+			contents: bytemuck::cast_slice(&vertices),
 			usage: wgpu::BufferUsages::VERTEX,
 		});
 		let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

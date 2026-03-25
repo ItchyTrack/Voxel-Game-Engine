@@ -25,6 +25,21 @@ impl MatrixUniform {
 				label: Some("matrix_bind_group_layout"),
 			})
 	}
+	pub fn get_dynamic_offset_bind_group_layout(device: &wgpu::Device, binding: u32) -> wgpu::BindGroupLayout {
+		device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+				entries: &[wgpu::BindGroupLayoutEntry {
+					binding: binding,
+					visibility: wgpu::ShaderStages::VERTEX,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Uniform,
+						has_dynamic_offset: true,
+						min_binding_size: None,
+					},
+					count: None,
+				}],
+				label: Some("matrix_bind_group_layout"),
+			})
+	}
 	pub fn get_buffer(device: &wgpu::Device, binding: u32) -> (wgpu::Buffer, wgpu::BindGroup, wgpu::BindGroupLayout) {
 		let buffer = device.create_buffer(&wgpu::BufferDescriptor {
 				label: Some("Matrix Buffer"),

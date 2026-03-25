@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::{ops::*, sync::Arc};
 use std::vec;
 
 use glam::{Mat4};
 use wgpu::util::DeviceExt;
 use winit::{window::Window};
 
-use crate::{debug_draw, gpu_objects::{matrix, mesh, texture}};
+use crate::{debug_draw, gpu_objects::{matrix, mesh, packed_buffer::PackedBufferGroupId, packed_mesh_buffer::PackedMeshBuffer, texture}, pose::Pose};
 
 pub struct Renderer {
 	pub surface: wgpu::Surface<'static>,
@@ -13,6 +13,7 @@ pub struct Renderer {
 	pub queue: wgpu::Queue,
 	pub config: wgpu::SurfaceConfiguration,
 	pub is_surface_configured: bool,
+	pub packed_mesh_buffer: PackedMeshBuffer,
 	pub window: Arc<Window>,
 	pub render_pipeline: wgpu::RenderPipeline,
 	pub depth_texture: texture::Texture,
@@ -123,7 +124,7 @@ impl Renderer {
 
 		let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Render Pipeline Layout"),
-			bind_group_layouts: &[&camera_buffer.2, &matrix::MatrixUniform::get_bind_group_layout(&device, 0)],
+			bind_group_layouts: &[&camera_buffer.2, &matrix::MatrixUniform::get_dynamic_offset_bind_group_layout(&device, 0)],
 			push_constant_ranges: &[],
 		});
 		let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -288,6 +289,12 @@ impl Renderer {
 		let debug_line_pipeline = make_debug_pipeline("Debug Line Pipeline", wgpu::PrimitiveTopology::LineList);
 		let debug_tri_pipeline = make_debug_pipeline("Debug Tri Pipeline", wgpu::PrimitiveTopology::TriangleList);
 
+		let packed_mesh_buffer = PackedMeshBuffer::new(&device, 1u32.shl(22));
+		if let Err(err) = packed_mesh_buffer {
+			println!("{}", err);
+			return Err(anyhow::Error::msg(err));
+		}
+
 		Ok(Self {
 			surface,
 			device,
@@ -305,10 +312,11 @@ impl Renderer {
 			crosshair_format,
 			debug_line_pipeline,
 			debug_tri_pipeline,
+			packed_mesh_buffer: packed_mesh_buffer.unwrap(),
 		})
 	}
 
-	pub fn render(&mut self, camera_matrix: &Mat4, meshes: &Vec<(Arc<mesh::Mesh>, Mat4)>) -> Result<(), wgpu::SurfaceError> {
+	pub fn render(&mut self, camera_matrix: &Mat4, meshes: &Vec<(PackedBufferGroupId, Pose)>) -> Result<(), wgpu::SurfaceError> {
 		self.window.request_redraw();
 
 		if !self.is_surface_configured { return Ok(()); }
@@ -340,12 +348,13 @@ impl Renderer {
 
 			render_pass.set_pipeline(&self.render_pipeline);
 
-			for mesh in meshes.iter() {
-				self.queue.write_buffer(&mesh.0.matrix_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&mesh.1)]));
+			self.packed_mesh_buffer.render(&self.device, &self.queue, &mut render_pass, &self.camera_bind_group, &meshes);
+			// for mesh in meshes.iter() {
+			// 	self.queue.write_buffer(&mesh.0.matrix_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&mesh.1)]));
 
-				use mesh::DrawMesh;
-				render_pass.draw_mesh(&mesh.0, &self.camera_bind_group);
-			}
+			// 	use mesh::DrawMesh;
+			// 	render_pass.draw_mesh(&mesh.0, &self.camera_bind_group);
+			// }
 		}
 
 		{

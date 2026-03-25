@@ -4,11 +4,11 @@ use std::time::Instant;
 use web_time::Instant;
 use std::{f32, sync::Arc};
 
-use glam::{IVec3, Mat4, Quat, Vec3, Vec4};
+use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, gpu_objects::mesh, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
+use crate::{entity_component_system, gpu_objects::{packed_buffer::PackedBufferGroupId}, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::voxels::Voxel;
@@ -240,7 +240,7 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(20.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		match load_binary("sponza.vox").await {
+		match load_binary("Church_Of_St_Sophia.vox").await {
 			Ok(bytes) => {
 				match dot_vox::load_bytes(&bytes) {
 					Ok(dot_vox_data) => {
@@ -572,11 +572,11 @@ impl State {
 			// }
 		// }
 		if let Some(player_camera) = self.ecs.get_component(self.player_id) {
-			let mut rendering_meshes: Vec<(Arc<mesh::Mesh>, Mat4)> = vec![];
+			let mut rendering_meshes: Vec<(PackedBufferGroupId, Pose)> = vec![];
 			{
 				let _zone = span!("Collect Meshes");
 				for physics_body in self.physics_engine.physics_bodies() {
-					rendering_meshes.extend(physics_body.get_rendering_meshes(&self.renderer.device, &player_camera));
+					rendering_meshes.extend(physics_body.update_render_mesh(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_mesh_buffer, &player_camera));
 				}
 			}
 			let _zone = span!("Render");

@@ -17,6 +17,7 @@ mod gpu_objects {
 	pub mod mesh;
 	pub mod matrix;
 	pub mod packed_buffer;
+	pub mod packed_mesh_buffer;
 }
 
 use winit::{event_loop::{EventLoop}};

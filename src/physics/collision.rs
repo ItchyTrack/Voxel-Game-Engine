@@ -400,7 +400,7 @@ fn get_collision_1x1x1_voxel(pose: &Pose, separating_axes: &Vec<((f32, f32), (f3
 		let axis_neg = if best.0.1 < 0.0 { -1.0 } else { 1.0 };
 		if best.2 < 3 {
 			assert!((best.1 - Vec3::X).length() < 0.0001 || (best.1 - Vec3::Y).length() < 0.0001 || (best.1 - Vec3::Z).length() < 0.0001);
-			let mut best_verties = vec![];
+			let mut best_vertices = vec![];
 			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
 				let v = pose * (U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5);
@@ -412,23 +412,23 @@ fn get_collision_1x1x1_voxel(pose: &Pose, separating_axes: &Vec<((f32, f32), (f3
 					surface_pos.z > 0.5 || surface_pos.z < -0.5
 				{
 					if (best_dis - dis).abs() >= 0.001 && best_dis > dis {
-						best_verties.clear();
+						best_vertices.clear();
 						best_dis = dis;
 					}
 					return;
 				}
 				if (best_dis - dis).abs() < 0.001 {
-					best_verties.push((v, CubeFeature::Vertex { xyz: i }));
+					best_vertices.push((v, CubeFeature::Vertex { xyz: i }));
 				} else if best_dis > dis {
-					best_verties.clear();
+					best_vertices.clear();
 					best_dis = dis;
-					best_verties.push((v, CubeFeature::Vertex { xyz: i }));
+					best_vertices.push((v, CubeFeature::Vertex { xyz: i }));
 				}
 			});
-			// best_verties.iter().for_each(|v| debug_draw::point(p + q * v.0, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
-			// best_verties.iter().for_each(|v| debug_draw::point(p + q * (best.1 * best.0.0 + v.0 - v.0.project_onto(best.1)), Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
+			// best_vertices.iter().for_each(|v| debug_draw::point(p + q * v.0, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
+			// best_vertices.iter().for_each(|v| debug_draw::point(p + q * (best.1 * best.0.0 + v.0 - v.0.project_onto(best.1)), Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
 			let face_vec = best.1.round().as_i8vec3() * axis_neg as i8;
-			collisions.extend(best_verties.into_iter().map(|v| {(
+			collisions.extend(best_vertices.into_iter().map(|v| {(
 				v.0,
 				v.1,
 				best.1 * best.0.1 + v.0 - v.0.project_onto(best.1),
@@ -436,7 +436,7 @@ fn get_collision_1x1x1_voxel(pose: &Pose, separating_axes: &Vec<((f32, f32), (f3
 			)}));
 		} else if best.2 < 6 {
 			assert!((best.1 - pose.rotation * Vec3::X).length() < 0.0001 || (best.1 - pose.rotation * Vec3::Y).length() < 0.0001 || (best.1 - pose.rotation * Vec3::Z).length() < 0.0001);
-			let mut best_verties = vec![];
+			let mut best_vertices = vec![];
 			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
 				let v = U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5;
@@ -448,23 +448,23 @@ fn get_collision_1x1x1_voxel(pose: &Pose, separating_axes: &Vec<((f32, f32), (f3
 					surface_pos.z > 0.5 || surface_pos.z < -0.5
 				{
 					if (best_dis - dis).abs() >= 0.001 && best_dis > dis {
-						best_verties.clear();
+						best_vertices.clear();
 						best_dis = dis;
 					}
 					return;
 				}
 				if (best_dis - dis).abs() < 0.001 {
-					best_verties.push((v, CubeFeature::Vertex { xyz: i }));
+					best_vertices.push((v, CubeFeature::Vertex { xyz: i }));
 				} else if best_dis > dis {
-					best_verties.clear();
+					best_vertices.clear();
 					best_dis = dis;
-					best_verties.push((v, CubeFeature::Vertex { xyz: i }));
+					best_vertices.push((v, CubeFeature::Vertex { xyz: i }));
 				}
 			});
-			// best_verties.iter().for_each(|v| debug_draw::point(p + q * v.0, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
-			// best_verties.iter().for_each(|v| debug_draw::point(p + q * (best.1 * best.0.0 + v.0 - v.0.project_onto(best.1)), Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
+			// best_vertices.iter().for_each(|v| debug_draw::point(p + q * v.0, Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
+			// best_vertices.iter().for_each(|v| debug_draw::point(p + q * (best.1 * best.0.0 + v.0 - v.0.project_onto(best.1)), Vec4::new(0.0, 1.0, 0.0, 1.0), 0.05));
 			let face_vec = (pose.rotation.inverse() * best.1).round().as_i8vec3() * -axis_neg as i8;
-			collisions.extend(best_verties.into_iter().map(|v| {(
+			collisions.extend(best_vertices.into_iter().map(|v| {(
 				best.1 * best.0.0 + v.0 - v.0.project_onto(best.1),
 				CubeFeature::Face { xyzs: face_vec.abs().as_u8vec3().dot(U8Vec3::new(1, 2, 4)) + 8 * (face_vec.element_sum().signum() == -1) as u8 },
 				v.0,

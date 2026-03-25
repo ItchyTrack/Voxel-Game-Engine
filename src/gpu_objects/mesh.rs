@@ -61,5 +61,6 @@ where
 }
 
 pub trait GetMesh {
+	fn get_mesh_buffers(&self) -> Option<(Vec<MeshVertex>, Vec<u32>)>;
 	fn get_mesh(&self, device: &wgpu::Device) -> Option<Mesh>;
 }
