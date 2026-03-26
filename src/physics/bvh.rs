@@ -61,7 +61,7 @@ impl BVHNode {
 		let split_value = avg[axis];
 
 		let split_index = partition(slice.iter_mut(), |a| (a.1.0 + a.1.1)[axis] < split_value) as u32;
-		assert!(split_index != 0 || split_index != end - start);
+		assert!(split_index != 0 && split_index != end - start);
 		// slice.select_nth_unstable_by(mid as usize, |a, b| (a.1.0 + a.1.1)[axis].partial_cmp(&(b.1.0 + b.1.1)[axis]).unwrap());
 		nodes.push(BVHNode {
 			min_corner: Vec3::ZERO,
@@ -114,6 +114,7 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 		a.0.cmple(b.1).all() && a.1.cmpge(b.0).all()
 	}
 	pub fn get_collisions(&self, bounds: &(Vec3, Vec3)) -> Vec<Index> {
+		let _zone = span!("BVH get collisions");
 		let mut out: Vec<Index> = vec![];
 		let mut stack = vec![0];
 
