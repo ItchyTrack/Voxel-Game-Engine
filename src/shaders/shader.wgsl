@@ -13,7 +13,7 @@ var<uniform> matrix: Matrix;
 
 struct VertexInput {
 	@location(0) position: vec3<f32>,
-	@location(1) color: vec4<f32>,
+	@location(1) color: u32,
 }
 
 struct VertexOutput {
@@ -27,7 +27,11 @@ fn vs_main(
 	vertex: VertexInput,
 ) -> VertexOutput {
 	var out: VertexOutput;
-	out.color = vertex.color;
+
+	out.color.x = f32((vertex.color >> 0) & 0xff) / 255.0;
+	out.color.y = f32((vertex.color >> 8) & 0xff) / 255.0;
+	out.color.z = f32((vertex.color >> 16) & 0xff) / 255.0;
+	out.color.w = f32((vertex.color >> 24) & 0xff) / 255.0;
 	let world_pos = matrix.matrix * vec4<f32>(vertex.position, 1.0);
 	out.world_position = world_pos.xyz;
 	out.clip_position = camera.view_proj * world_pos;

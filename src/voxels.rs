@@ -110,7 +110,6 @@ impl mesh::GetMesh for Voxels {
 		for (pos, size, voxel_id) in &self.voxels {
 			let voxel = self.voxel_palette.get_voxel(*voxel_id).unwrap();
 			let fpos: Vec3 = pos.as_vec3();
-			let f32_color = [voxel.color[0] as f32 / 255.0, voxel.color[1] as f32 / 255.0, voxel.color[2] as f32 / 255.0, voxel.color[3] as f32 / 255.0];
 			let mut vertices_index = [8; 8];
 			let mut get_index = |id: u8| -> u32 {
 				let val = &mut vertices_index[id as usize];
@@ -119,35 +118,35 @@ impl mesh::GetMesh for Voxels {
 					match id {
 						0 => {vertices.push(mesh::MeshVertex { // 0
 							position: fpos.to_array(),
-							color: f32_color,
+							color: voxel.color,
 						});}
 						1 => {vertices.push(mesh::MeshVertex { // 1
 							position: (fpos + Vec3::new(1.0, 0.0, 0.0) * size as f32).to_array(),
-							color: f32_color,
+							color: voxel.color,
 						});}
 						2 => {vertices.push(mesh::MeshVertex { // 2
 							position: (fpos + Vec3::new(0.0, 1.0, 0.0) * size as f32).to_array(),
-							color: f32_color,
+							color: voxel.color,
 						});}
 						3 => {vertices.push(mesh::MeshVertex { // 3
 							position: (fpos + Vec3::new(0.0, 0.0, 1.0) * size as f32).to_array(),
-							color: f32_color,
+							color: voxel.color,
 						});}
 						4 => {vertices.push(mesh::MeshVertex { // 4
 							position: (fpos + Vec3::new(1.0, 1.0, 0.0) * size as f32).to_array(),
-							color: f32_color,
+							color: voxel.color,
 						});}
 						5 => {vertices.push(mesh::MeshVertex { // 5
 							position: (fpos + Vec3::new(1.0, 0.0, 1.0) * size as f32).to_array(),
-							color: f32_color,
+							color: voxel.color,
 						});}
 						6 => {vertices.push(mesh::MeshVertex { // 6
 							position: (fpos + Vec3::new(0.0, 1.0, 1.0) * size as f32).to_array(),
-							color: f32_color,
+							color: voxel.color,
 						});}
 						7 => {vertices.push(mesh::MeshVertex { // 7
 							position: (fpos + Vec3::new(1.0, 1.0, 1.0) * size as f32).to_array(),
-							color: f32_color,
+							color: voxel.color,
 						});}
 						_ => unreachable!()
 					}

@@ -6,7 +6,7 @@ pub trait Vertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MeshVertex {
 	pub position: [f32; 3],
-	pub color: [f32; 4],
+	pub color: [u8; 4],
 }
 
 impl Vertex for MeshVertex {
@@ -24,7 +24,7 @@ impl Vertex for MeshVertex {
 				wgpu::VertexAttribute {
 					offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
 					shader_location: 1,
-					format: wgpu::VertexFormat::Float32x4,
+					format: wgpu::VertexFormat::Uint32,
 				},
 			],
 		}
