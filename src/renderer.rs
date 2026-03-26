@@ -2,6 +2,7 @@ use std::{ops::*, sync::Arc};
 use std::vec;
 
 use glam::{Mat4};
+use tracy_client::span;
 use wgpu::util::DeviceExt;
 use winit::{window::Window};
 
@@ -67,12 +68,12 @@ impl Renderer {
 		}
 		// The instance is a handle to our GPU
 		// BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
-		let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+		let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             #[cfg(not(target_arch = "wasm32"))]
             backends: wgpu::Backends::PRIMARY,
             #[cfg(target_arch = "wasm32")]
             backends: wgpu::Backends::GL,
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         let surface = instance.create_surface(window.clone()).unwrap();
@@ -86,7 +87,7 @@ impl Renderer {
 
 		let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
 				label: None,
-				required_features: wgpu::Features::empty(),
+				required_features: wgpu::Features { features_wgpu: wgpu::FeaturesWGPU::default(), features_webgpu: wgpu::FeaturesWebGPU::TIMESTAMP_QUERY },
 				experimental_features: wgpu::ExperimentalFeatures::disabled(),
 				// WebGL doesn't support all of wgpu's features, so if
 				// we're building for the web we'll have to disable some.
@@ -124,13 +125,12 @@ impl Renderer {
 
 		let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Render Pipeline Layout"),
-			bind_group_layouts: &[&camera_buffer.2, &matrix::MatrixUniform::get_dynamic_offset_bind_group_layout(&device, 0)],
-			push_constant_ranges: &[],
+			bind_group_layouts: &[Some(&camera_buffer.2), Some(&matrix::MatrixUniform::get_dynamic_offset_bind_group_layout(&device, 0))],
+			immediate_size: 0,
 		});
 		let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: Some("Render Pipeline"),
 			layout: Some(&render_pipeline_layout),
-
 			vertex: wgpu::VertexState {
 				module: &shader,
 				entry_point: Some("vs_main"),
@@ -161,8 +161,8 @@ impl Renderer {
 			},
 			depth_stencil: Some(wgpu::DepthStencilState {
 				format: texture::Texture::DEPTH_FORMAT,
-				depth_write_enabled: true,
-				depth_compare: wgpu::CompareFunction::Less,
+				depth_write_enabled: Some(true),
+				depth_compare: Some(wgpu::CompareFunction::Less),
 				stencil: wgpu::StencilState::default(),
 				bias: wgpu::DepthBiasState::default(),
 			}),
@@ -171,7 +171,7 @@ impl Renderer {
 				mask: !0,
 				alpha_to_coverage_enabled: false,
 			},
-			multiview: None,
+			multiview_mask: None,
 			cache: None,
 		});
 
@@ -204,8 +204,8 @@ impl Renderer {
 		});
 		let crosshair_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Crosshair Pipeline Layout"),
-			bind_group_layouts: &[&crosshair_bgl],
-			push_constant_ranges: &[],
+			bind_group_layouts: &[Some(&crosshair_bgl)],
+			immediate_size: 0,
 		});
 		let crosshair_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: Some("Crosshair Pipeline"),
@@ -236,7 +236,7 @@ impl Renderer {
 			primitive: wgpu::PrimitiveState::default(),
 			depth_stencil: None,
 			multisample: wgpu::MultisampleState::default(),
-			multiview: None,
+			multiview_mask: None,
 			cache: None,
 		});
 
@@ -246,8 +246,8 @@ impl Renderer {
 		});
 		let debug_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Debug Pipeline Layout"),
-			bind_group_layouts: &[&camera_buffer.2],
-			push_constant_ranges: &[],
+			bind_group_layouts: &[Some(&camera_buffer.2)],
+			immediate_size: 0,
 		});
 
 		let make_debug_pipeline = |label: &str, topology: wgpu::PrimitiveTopology| -> wgpu::RenderPipeline {
@@ -281,7 +281,7 @@ impl Renderer {
 				},
 				depth_stencil: None, // overlay — no depth test
 				multisample: wgpu::MultisampleState::default(),
-				multiview: None,
+				multiview_mask: None,
 				cache: None,
 			})
 		};
@@ -316,14 +316,23 @@ impl Renderer {
 		})
 	}
 
-	pub fn render(&mut self, camera_matrix: &Mat4, meshes: &Vec<(PackedBufferGroupId, Pose)>) -> Result<(), wgpu::SurfaceError> {
+	pub fn render(&mut self, camera_matrix: &Mat4, meshes: &Vec<(PackedBufferGroupId, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
 
 		if !self.is_surface_configured { return Ok(()); }
 
 		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(camera_matrix)]));
 
-		let output = self.surface.get_current_texture()?;
+		let output = match self.surface.get_current_texture() {
+			wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+			wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => return Err(wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture)),
+            wgpu::CurrentSurfaceTexture::Timeout => 			return Err(wgpu::CurrentSurfaceTexture::Timeout),
+            wgpu::CurrentSurfaceTexture::Occluded => 			return Err(wgpu::CurrentSurfaceTexture::Occluded),
+            wgpu::CurrentSurfaceTexture::Outdated => 			return Err(wgpu::CurrentSurfaceTexture::Outdated),
+            wgpu::CurrentSurfaceTexture::Lost => 				return Err(wgpu::CurrentSurfaceTexture::Lost),
+            wgpu::CurrentSurfaceTexture::Validation => 			return Err(wgpu::CurrentSurfaceTexture::Validation),
+        };
+
 
 		let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -344,6 +353,7 @@ impl Renderer {
 				}),
 				occlusion_query_set: None,
 				timestamp_writes: None,
+				multiview_mask: None,
 			});
 
 			render_pass.set_pipeline(&self.render_pipeline);
@@ -374,6 +384,7 @@ impl Renderer {
 					depth_stencil_attachment: None,
 					occlusion_query_set: None,
 					timestamp_writes: None,
+					multiview_mask: None,
 				});
 
 				if has_lines {
@@ -419,14 +430,20 @@ impl Renderer {
 				depth_stencil_attachment: None,
 				occlusion_query_set: None,
 				timestamp_writes: None,
+				multiview_mask: None,
 			});
 			pass.set_pipeline(&self.crosshair_pipeline);
 			pass.set_bind_group(0, &self.crosshair_bind_group, &[]);
 			pass.draw(0..3, 0..1);
 		}
-
-		self.queue.submit(std::iter::once(encoder.finish()));
-		output.present();
+		{
+			let _zone = span!("Submit");
+			self.queue.submit(std::iter::once(encoder.finish()));
+		}
+		{
+			let _zone = span!("Present");
+			output.present();
+		}
 
 		Ok(())
 	}

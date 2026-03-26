@@ -101,12 +101,15 @@ impl ApplicationHandler<State> for App {
 				match state.render() {
 					Ok(_) => {}
 					// Reconfigure the surface if it's lost or outdated
-					Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+					Err(wgpu::CurrentSurfaceTexture::Suboptimal(_) | wgpu::CurrentSurfaceTexture::Outdated) => {
 						let size = state.renderer.window.inner_size();
 						state.resize(size.width, size.height);
 					}
+					Err(wgpu::CurrentSurfaceTexture::Occluded) => {
+						// nothing to render if its occluded
+					}
 					Err(e) => {
-						log::error!("Unable to render {}", e);
+						log::error!("Unable to render {:?}", e);
 					}
 				}
 				frame_mark();

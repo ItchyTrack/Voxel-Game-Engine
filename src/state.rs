@@ -8,7 +8,7 @@ use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, gpu_objects::{packed_buffer::PackedBufferGroupId}, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
+use crate::{entity_component_system, gpu_objects::packed_buffer::PackedBufferGroupId, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::voxels::Voxel;
@@ -562,7 +562,7 @@ impl State {
 		})
 	}
 
-	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+	pub fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		// for physics_body in self.physics_engine.physics_bodies() {
 			// for grid in physics_body.grids() {
 			// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
@@ -571,12 +571,13 @@ impl State {
 			// 	physics_body.render_debug_inertia_box();
 			// }
 		// }
-		if let Some(player_camera) = self.ecs.get_component(self.player_id) {
+		if let Some(player_camera) = self.ecs.get_component::<camera::Camera>(self.player_id) {
 			let mut rendering_meshes: Vec<(PackedBufferGroupId, Pose)> = vec![];
 			{
 				let _zone = span!("Collect Meshes");
+				let view_frustum = player_camera.frustum();
 				for physics_body in self.physics_engine.physics_bodies() {
-					rendering_meshes.extend(physics_body.update_render_mesh(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_mesh_buffer, &player_camera));
+					rendering_meshes.extend(physics_body.update_render_mesh(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_mesh_buffer, &view_frustum));
 				}
 			}
 			let _zone = span!("Render");

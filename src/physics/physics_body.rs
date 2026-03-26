@@ -2,7 +2,7 @@ use std::{cell::Cell, collections::HashMap};
 
 use glam::{I16Vec3, I64Vec3, IVec3, Quat, Vec3};
 use tracy_client::span;
-use crate::{gpu_objects::{mesh::{GetMesh}, packed_buffer::PackedBufferGroupId, packed_mesh_buffer::PackedMeshBuffer}, player::camera, pose::Pose, voxels};
+use crate::{gpu_objects::{mesh::GetMesh, packed_buffer::PackedBufferGroupId, packed_mesh_buffer::PackedMeshBuffer}, player::camera, pose::Pose, voxels};
 
 use super::inertia_tensor::InertiaTensor;
 
@@ -33,43 +33,70 @@ impl SubGrid {
 
 	// pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
 
-	pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, _camera: &camera::Camera) -> Option<PackedBufferGroupId> {
-		let mesh_id_val = self.mesh_id.get();
-		if let Some(id) = mesh_id_val {
-			if self.rebuild_mesh.get() {
-				let _zone = span!("Recreate Mesh");
-				self.rebuild_mesh.set(false);
-				self.mesh_id.set(match self.voxels.get_mesh_buffers() {
-					Some((vertices, indices)) => {
-						let out = packed_mesh_buffer.replace_buffer(device, queue, id, &vertices, &indices);
-						if let Err(err) = out {
-							println!("{}", err);
-							None
-						} else {
-							Some(out.unwrap())
-						}
-					},
-					None => None,
-				});
-				return self.mesh_id.get();
-			}
-			return Some(id);
-		}
-		let _zone = span!("Create Mesh");
-		self.rebuild_mesh.set(false);
-		self.mesh_id.set(match self.voxels.get_mesh_buffers() {
-			Some((vertices, indices)) => {
-				let out = packed_mesh_buffer.add_mesh(device, queue, &vertices, &indices);
-				if let Err(err) = out {
-					println!("{}", err);
-					None
-				} else {
-					Some(out.unwrap())
+	pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, view_frustum: &camera::ViewFrustum, pose: Pose) -> Option<(PackedBufferGroupId, Pose)> {
+		let aabb = self.voxels.get_bounding_box()?;
+		let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
+		let radius = aabb.0.distance(aabb.1) / 2.0;
+		let center = (aabb.0 + aabb.1) / 2.0;
+		let in_view = view_frustum.compare_sphere(center, radius);
+		// if in_view {
+			let mesh_id_val = self.mesh_id.get();
+			if let Some(id) = mesh_id_val {
+				if self.rebuild_mesh.get() {
+					let _zone = span!("Recreate Mesh");
+					self.rebuild_mesh.set(false);
+					self.mesh_id.set(match self.voxels.get_mesh_buffers() {
+						Some((vertices, indices)) => {
+							let out = packed_mesh_buffer.replace_buffer(device, queue, id, &vertices, &indices);
+							if let Err(err) = out {
+								println!("{}", err);
+								None
+							} else {
+								Some(out.unwrap())
+							}
+						},
+						None => None,
+					});
+					if in_view {
+						return Some((self.mesh_id.get()?, pose));
+					} else {
+						return None;
+					}
 				}
-			},
-			None => None,
-		});
-		self.mesh_id.get()
+				if in_view {
+					return Some((id, pose));
+				} else {
+					return None;
+				}
+			}
+			let _zone = span!("Create Mesh");
+			self.rebuild_mesh.set(false);
+			self.mesh_id.set(match self.voxels.get_mesh_buffers() {
+				Some((vertices, indices)) => {
+					let out = packed_mesh_buffer.add_mesh(device, queue, &vertices, &indices);
+					if let Err(err) = out {
+						println!("{}", err);
+						None
+					} else {
+						Some(out.unwrap())
+					}
+				},
+				None => None,
+			});
+			if in_view {
+				Some((self.mesh_id.get()?, pose))
+			} else {
+				None
+			}
+		// } else {
+		// 	if let Some(id) = mesh_id_val {
+		// 		self.mesh_id.set(None);
+		// 		if let Err(err) = packed_mesh_buffer.remove_buffer(id) {
+		// 			println!("{}", err);
+		// 		}
+		// 	}
+		// 	None
+		// }
 	}
 }
 
@@ -142,8 +169,10 @@ impl PhysicsBodyGrid {
 
 	pub fn mass(&self) -> f32 { self.mass as f32 }
 
-	pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, camera: &camera::Camera) -> Vec<(PackedBufferGroupId, Vec3)> {
-		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)| Some((sub_grid.update_render_mesh(device, queue, packed_mesh_buffer, camera)?, self.sub_grid_pos_to_grid_pos(sub_grid_pos).as_vec3()))).collect()
+	pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, view_frustum: &camera::ViewFrustum, pose: &Pose) -> Vec<(PackedBufferGroupId, Pose)> {
+		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)|
+			Some(sub_grid.update_render_mesh(device, queue, packed_mesh_buffer, view_frustum, pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(sub_grid_pos).as_vec3()))?)
+		).collect()
 	}
 
 	pub fn add_voxel(&mut self, pos: IVec3, voxel: voxels::Voxel) {
@@ -302,12 +331,11 @@ impl PhysicsBody {
 		inertia_tensor_at_zero.get_rotated(self.pose.rotation.as_dquat())
 	}
 
-	pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, camera: &camera::Camera) -> Vec<(PackedBufferGroupId, Pose)> {
+	pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, view_frustum: &camera::ViewFrustum) -> Vec<(PackedBufferGroupId, Pose)> {
 		let mut meshes = vec![];
 		for grid in self.grids.iter() {
-			let pose = self.pose * grid.pose;
-			for (packed_buffer_group_id, mesh_translation) in grid.update_render_mesh(device, queue, packed_mesh_buffer, camera) {
-				meshes.push((packed_buffer_group_id, pose * Pose::from_translation(mesh_translation)));
+			for (packed_buffer_group_id, mesh_pose) in grid.update_render_mesh(device, queue, packed_mesh_buffer, view_frustum, &self.pose) {
+				meshes.push((packed_buffer_group_id, mesh_pose));
 			}
 		}
 		meshes
