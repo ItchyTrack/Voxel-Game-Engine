@@ -66,17 +66,47 @@ impl Renderer {
 			size.width = size.width.min(max);
 			size.height = (size.width.min(max) * size.height) / size.width;
 		}
+
+		// #[cfg(target_arch = "wasm32")]
+		// if !wgpu::util::is_browser_webgpu_supported().await {
+		// 	panic!("Browser does not support webgpu")
+		// }
+
 		// The instance is a handle to our GPU
 		// BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
 		let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            #[cfg(not(target_arch = "wasm32"))]
-            backends: wgpu::Backends::PRIMARY,
-            #[cfg(target_arch = "wasm32")]
-            backends: wgpu::Backends::GL,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
+			#[cfg(not(target_arch = "wasm32"))]
+			backends: wgpu::Backends::PRIMARY,
+			#[cfg(target_arch = "wasm32")]
+			backends: wgpu::Backends::BROWSER_WEBGPU,
+			..wgpu::InstanceDescriptor::new_without_display_handle()
+		});
 
-        let surface = instance.create_surface(window.clone()).unwrap();
+		let surface = instance.create_surface(window.clone()).unwrap();
+		// let surface = {
+		// 	#[cfg(target_arch = "wasm32")]
+		// 	{
+		// 		use wasm_bindgen::JsCast;
+		// 		use web_sys::HtmlCanvasElement;
+
+		// 		let canvas = web_sys::window()
+		// 			.unwrap()
+		// 			.document()
+		// 			.unwrap()
+		// 			.get_element_by_id("your-canvas-id")  // match your HTML
+		// 			.unwrap()
+		// 			.dyn_into::<HtmlCanvasElement>()
+		// 			.unwrap();
+
+		// 		instance
+		// 			.create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+		// 			.unwrap()
+		// 	}
+		// 	#[cfg(not(target_arch = "wasm32"))]
+		// 	{
+		// 		instance.create_surface(window.clone()).unwrap()
+		// 	}
+		// };
 
 		let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
 				power_preference: wgpu::PowerPreference::default(),
@@ -87,7 +117,7 @@ impl Renderer {
 
 		let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
 				label: None,
-				required_features: wgpu::Features { features_wgpu: wgpu::FeaturesWGPU::default(), features_webgpu: wgpu::FeaturesWebGPU::TIMESTAMP_QUERY },
+				required_features: wgpu::Features::default(),
 				experimental_features: wgpu::ExperimentalFeatures::disabled(),
 				// WebGL doesn't support all of wgpu's features, so if
 				// we're building for the web we'll have to disable some.
@@ -181,10 +211,7 @@ impl Renderer {
 		});
 		let crosshair_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("Crosshair Screen Size"),
-			// #[cfg(target_arch = "wasm32")]
 			size: 16,
-			// #[cfg(not(target_arch = "wasm32"))]
-			// size: 8,
 			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 			mapped_at_creation: false,
 		});
@@ -326,12 +353,12 @@ impl Renderer {
 		let output = match self.surface.get_current_texture() {
 			wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
 			wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => return Err(wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture)),
-            wgpu::CurrentSurfaceTexture::Timeout => 			return Err(wgpu::CurrentSurfaceTexture::Timeout),
-            wgpu::CurrentSurfaceTexture::Occluded => 			return Err(wgpu::CurrentSurfaceTexture::Occluded),
-            wgpu::CurrentSurfaceTexture::Outdated => 			return Err(wgpu::CurrentSurfaceTexture::Outdated),
-            wgpu::CurrentSurfaceTexture::Lost => 				return Err(wgpu::CurrentSurfaceTexture::Lost),
-            wgpu::CurrentSurfaceTexture::Validation => 			return Err(wgpu::CurrentSurfaceTexture::Validation),
-        };
+			wgpu::CurrentSurfaceTexture::Timeout => 			return Err(wgpu::CurrentSurfaceTexture::Timeout),
+			wgpu::CurrentSurfaceTexture::Occluded => 			return Err(wgpu::CurrentSurfaceTexture::Occluded),
+			wgpu::CurrentSurfaceTexture::Outdated => 			return Err(wgpu::CurrentSurfaceTexture::Outdated),
+			wgpu::CurrentSurfaceTexture::Lost => 				return Err(wgpu::CurrentSurfaceTexture::Lost),
+			wgpu::CurrentSurfaceTexture::Validation => 			return Err(wgpu::CurrentSurfaceTexture::Validation),
+		};
 
 
 		let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());

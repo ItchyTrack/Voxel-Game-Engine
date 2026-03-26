@@ -71,7 +71,7 @@ impl State {
 					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().remove_voxel(&(hit_pos));
 				}
 				if player_input.key(KeyCode::KeyR).just_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().apply_impulse(&globle_hit_pos, &(ray_start.rotation * Vec3::Z * 200000.0));
+					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().apply_impulse(&globle_hit_pos, &(ray_start.rotation * Vec3::Z * 1600000.0));
 				}
 				if player_input.key(KeyCode::KeyF).just_pressed {
 					if !started_holding {
@@ -88,7 +88,7 @@ impl State {
 		self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
 			if object_pickup.is_holding() {
 				let camera_pos = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
-				object_pickup.hold_at_pos(&(camera_pos.translation + camera_pos.rotation * Vec3::Z * 20.0), &mut self.physics_engine);
+				object_pickup.hold_at_pos(&(camera_pos.translation + camera_pos.rotation * Vec3::Z * 40.0), &mut self.physics_engine);
 			}
 		});
 		self.leaky_bucket += dt;
@@ -235,9 +235,12 @@ impl State {
 			aspect: renderer.config.width as f32 / renderer.config.height as f32,
 			fovy: 45.0,
 			znear: 0.1,
+			#[cfg(not(target_arch = "wasm32"))]
 			zfar: 5000.0,
+			#[cfg(target_arch = "wasm32")]
+			zfar: 900.0,
 		});
-		ecs.add_component_to_entity(player_id, CameraController::new(20.0, 1.5, 0.0015));
+		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
 		match load_binary("Church_Of_St_Sophia.vox").await {
@@ -246,6 +249,7 @@ impl State {
 					Ok(dot_vox_data) => {
 						let physics_body_id = physics_engine.add_physics_body();
 						let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+						physics_body.pose.translation.y -= 350.0;
 						physics_body.is_static = true;
 						let mut stack = vec![(0, Pose::ZERO, IVec3::new(1, 1, -1))];
 						while let Some((scene_id, pose, flip)) = stack.pop() {
@@ -392,7 +396,7 @@ impl State {
 		for x in -1..2 {
 			for y in -1..0 {
 				for z in -1..2 {
-					let r = 4;
+					let r = 6;
 					let physics_body_id = physics_engine.add_physics_body();
 					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
 					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 40.0;

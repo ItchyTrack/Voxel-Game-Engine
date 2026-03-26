@@ -35,18 +35,18 @@ num = "0.4.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
-console_error_panic_hook = "0.1.6"
+console_error_panic_hook = "0.1.7"
 console_log = "1.0"
-wgpu = { version = "27.0.0", features = ["webgl"]}
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4.30"
-reqwest = { version = "0.11" }
-web-sys = { version = "0.3", features = [
+wgpu = { version = "29.0.0", features = ["webgpu"]}
+wasm-bindgen = "0.2.114"
+wasm-bindgen-futures = "0.4.64"
+reqwest = { version = "0.13.2" }
+web-sys = { version = "0.3.91", features = [
 	"Window",
 	"Element",
 	"Location",
 ]}
-web-time = "0.2"
+web-time = "1.1.0"
 
 [build-dependencies]
 anyhow = "1.0"
