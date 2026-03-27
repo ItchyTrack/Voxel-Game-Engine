@@ -4,7 +4,7 @@ use std::time::Instant;
 use web_time::Instant;
 use std::sync::Arc;
 
-use tracy_client::frame_mark;
+use tracy_client::{frame_mark, span};
 use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop}, keyboard::PhysicalKey, window::Window};
 use crate::{player::camera, state::State};
 
@@ -95,6 +95,7 @@ impl ApplicationHandler<State> for App {
 			WindowEvent::CloseRequested => event_loop.exit(),
 			WindowEvent::Resized(size) => state.resize(size.width, size.height),
 			WindowEvent::RedrawRequested => {
+				let _zone = span!("Redraw Requested");
 				let dt = (Instant::now() - self.last_update).as_secs_f32();
 				self.last_update = Instant::now();
 				state.update(dt);

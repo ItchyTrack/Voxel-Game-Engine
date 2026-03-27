@@ -50,6 +50,7 @@ impl State {
 	}
 
 	pub fn update(&mut self, dt: f32) {
+		let _zone = span!("State Update");
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
 			CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);

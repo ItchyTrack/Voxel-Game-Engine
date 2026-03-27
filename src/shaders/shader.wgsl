@@ -27,7 +27,6 @@ fn vs_main(
 	vertex: VertexInput,
 ) -> VertexOutput {
 	var out: VertexOutput;
-
 	out.color.x = f32((vertex.color >> 0) & 0xff) / 255.0;
 	out.color.y = f32((vertex.color >> 8) & 0xff) / 255.0;
 	out.color.z = f32((vertex.color >> 16) & 0xff) / 255.0;

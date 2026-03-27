@@ -1,10 +1,11 @@
 use std::{cell::{Ref, RefCell}, collections::HashMap};
 
 use glam::{I8Vec3, Vec3, IVec3};
+use tracy_client::span;
 
-use crate::{physics::ball_joint_constraint::BallJointConstraint, pose::Pose};
+use crate::{pose::Pose};
 
-use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver};
+use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver, ball_joint_constraint::BallJointConstraint};
 
 pub struct PhysicsEngine {
 	physics_bodies: Vec<PhysicsBody>,
@@ -19,12 +20,15 @@ macro_rules! get_bvh_macro {
 	($self:expr) => {{
 		if $self.bvh.borrow().is_none() {
 			let mut bounds = vec![];
-			for body_index in 0..$self.physics_bodies.len() {
-				let physics_body = &$self.physics_bodies[body_index];
-				for grid_index in 0..physics_body.grids().len() as u32 {
-					for (sub_grid_pos, _) in physics_body.grid_by_index(grid_index).unwrap().get_sub_grids() {
-						if let Some(bound) = physics_body.sub_grid_aabb(grid_index, sub_grid_pos) {
-							bounds.push(((body_index as u32, grid_index as u32, *sub_grid_pos), bound));
+			{
+				let _zone = span!("Collect aabb");
+				for body_index in 0..$self.physics_bodies.len() {
+					let physics_body = &$self.physics_bodies[body_index];
+					for grid_index in 0..physics_body.grids().len() as u32 {
+						for (sub_grid_pos, _) in physics_body.grid_by_index(grid_index).unwrap().get_sub_grids() {
+							if let Some(bound) = physics_body.sub_grid_aabb(grid_index, sub_grid_pos) {
+								bounds.push(((body_index as u32, grid_index as u32, *sub_grid_pos), bound));
+							}
 						}
 					}
 				}
@@ -50,9 +54,11 @@ impl PhysicsEngine {
 	pub fn update(&mut self, dt: f32) {
 		{
 			let bvh = &get_bvh_macro!(self);
+			let _zone = span!("Collect constraints");
 			let constraints = self.constraints.iter_mut().filter_map(|((id1, id2), constraint)| {
 				Some(((*self.physics_body_id_to_index.get(id1)?, *self.physics_body_id_to_index.get(id2)?), constraint))
 			}).collect();
+			drop(_zone);
 			self.solver.solve(&mut self.physics_bodies, constraints, dt, bvh);
 		}
 		*self.bvh.borrow_mut() = None;
@@ -139,12 +145,15 @@ impl PhysicsEngine {
 	pub fn get_bvh(&'_ self) -> Ref<'_, BVH<(u32, u32, IVec3)>> {
 		if self.bvh.borrow().is_none() {
 			let mut bounds = vec![];
-			for body_index in 0..self.physics_bodies.len() {
-				let physics_body = &self.physics_bodies[body_index];
-				for grid_index in 0..physics_body.grids().len() as u32 {
-					for (sub_grid_pos, _) in physics_body.grid_by_index(grid_index).unwrap().get_sub_grids() {
-						if let Some(bound) = physics_body.sub_grid_aabb(grid_index, sub_grid_pos) {
-							bounds.push(((body_index as u32, grid_index as u32, *sub_grid_pos), bound));
+			{
+				let _zone = span!("Collect aabb");
+				for body_index in 0..self.physics_bodies.len() {
+					let physics_body = &self.physics_bodies[body_index];
+					for grid_index in 0..physics_body.grids().len() as u32 {
+						for (sub_grid_pos, _) in physics_body.grid_by_index(grid_index).unwrap().get_sub_grids() {
+							if let Some(bound) = physics_body.sub_grid_aabb(grid_index, sub_grid_pos) {
+								bounds.push(((body_index as u32, grid_index as u32, *sub_grid_pos), bound));
+							}
 						}
 					}
 				}
