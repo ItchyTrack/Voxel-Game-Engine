@@ -60,11 +60,11 @@ impl Renderer {
 		size.height = size.height.max(1);
 		#[cfg(target_arch = "wasm32")]
 		if size.width < size.height {
-			size.width = (size.height.min(max) * size.width) / size.height;
-			size.height = size.height.min(max);
+			size.width = (size.height.min(MAX_SCREEN_SIZE) * size.width) / size.height;
+			size.height = size.height.min(MAX_SCREEN_SIZE);
 		} else {
-			size.width = size.width.min(max);
-			size.height = (size.width.min(max) * size.height) / size.width;
+			size.width = size.width.min(MAX_SCREEN_SIZE);
+			size.height = (size.width.min(MAX_SCREEN_SIZE) * size.height) / size.width;
 		}
 
 		// #[cfg(target_arch = "wasm32")]
