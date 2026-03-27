@@ -1,4 +1,5 @@
 use glam::{U16Vec3, I16Vec3};
+use tracy_client::span;
 use std::cell::Cell;
 use bimap::BiHashMap;
 
@@ -81,6 +82,7 @@ impl Voxels {
 
 	pub fn get_bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
 		if self.bounding_box_dirty.get() {
+			let _zone = span!("rebuild voxel bounding box");
 			self.bounding_box_dirty.set(false);
 			self.bounding_box.set(self.voxels.iter().fold(None, |bb, (p, size, _)| {
 				match bb {
