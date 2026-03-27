@@ -8,8 +8,7 @@ use wgpu::{Device, Queue, RenderPass};
 use crate::{gpu_objects::{matrix::MatrixUniform, mesh::MeshVertex, packed_buffer::{PackedBufferGroup, PackedBufferGroupId}}, pose::Pose};
 
 struct PackedMeshInfo {
-	pub vertex_count: u32,
-    pub index_count: u32,
+	pub vertex_data_count: u32,
 }
 
 pub struct PackedMeshBuffer {
@@ -44,8 +43,8 @@ impl PackedMeshBuffer {
 		Ok(Self {
 			packed_buffer: PackedBufferGroup::new(
 				sinlge_buffer_size,
-				(wgpu::VERTEX_ALIGNMENT as u32).lcm(&(size_of::<MeshVertex>() as u32)).lcm(&(size_of::<u32>() as u32)),
-				wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::INDEX
+				(size_of::<MeshVertex>() as u32).lcm(&(size_of::<u32>() as u32)),
+				wgpu::BufferUsages::STORAGE
 			)?,
 			buffer_infos: BTreeMap::new(),
 			mat_bind_group_layout,
@@ -54,16 +53,16 @@ impl PackedMeshBuffer {
 		})
 	}
 
-	pub fn add_mesh(&mut self, device: &Device, queue: &Queue, vertices: &[MeshVertex], indices: &[u32]) -> Result<PackedBufferGroupId, &str> {
-		let vertices_raw = bytemuck::cast_slice::<_, u8>(vertices);
-		let indices_raw = bytemuck::cast_slice::<_, u8>(indices);
-		let mesh = [
-				vertices_raw,
-				&vec![0; vertices_raw.len().next_multiple_of((wgpu::VERTEX_ALIGNMENT as usize).lcm(&size_of::<u32>())) - vertices_raw.len()],
-				indices_raw
-			].concat();
-		let id = self.packed_buffer.add_buffer(device, queue, &mesh)?;
-		self.buffer_infos.insert(id, PackedMeshInfo { vertex_count: vertices.len() as u32, index_count: indices.len() as u32 });
+	pub fn add_mesh(&mut self, device: &Device, queue: &Queue, vertex_data: &[MeshVertex]) -> Result<PackedBufferGroupId, &str> {
+		let vertices_raw = bytemuck::cast_slice::<_, u8>(vertex_data);
+		// let indices_raw = bytemuck::cast_slice::<_, u8>(indices);
+		// let mesh = [
+		// 		vertices_raw,
+		// 		&vec![0; vertices_raw.len().next_multiple_of((wgpu::VERTEX_ALIGNMENT as usize).lcm(&size_of::<u32>())) - vertices_raw.len()],
+		// 		indices_raw
+		// 	].concat();
+		let id = self.packed_buffer.add_buffer(device, queue, &vertices_raw)?;
+		self.buffer_infos.insert(id, PackedMeshInfo { vertex_data_count: vertex_data.len() as u32 });
 		Ok(id)
 	}
 
@@ -73,17 +72,16 @@ impl PackedMeshBuffer {
 		Ok(())
 	}
 
-	pub fn replace_buffer(&mut self, device: &Device, queue: &Queue, id: PackedBufferGroupId, vertices: &[MeshVertex], indices: &[u32]) -> Result<PackedBufferGroupId, &'static str> {
-		let vertices_raw = bytemuck::cast_slice::<_, u8>(vertices);
-		let indices_raw = bytemuck::cast_slice::<_, u8>(indices);
-		let mesh = [
-				vertices_raw,
-				&vec![0; vertices_raw.len().next_multiple_of((wgpu::VERTEX_ALIGNMENT as usize).lcm(&size_of::<u32>())) - vertices_raw.len()],
-				indices_raw
-			].concat();
-		let new_id = self.packed_buffer.replace_buffer(device, queue, id, &mesh)?;
+	pub fn replace_buffer(&mut self, device: &Device, queue: &Queue, id: PackedBufferGroupId, vertex_data: &[MeshVertex]) -> Result<PackedBufferGroupId, &'static str> {
+		let vertices_raw = bytemuck::cast_slice::<_, u8>(vertex_data);
+		// let mesh = [
+		// 		vertices_raw,
+		// 		&vec![0; vertices_raw.len().next_multiple_of((wgpu::VERTEX_ALIGNMENT as usize).lcm(&size_of::<u32>())) - vertices_raw.len()],
+		// 		indices_raw
+		// 	].concat();
+		let new_id = self.packed_buffer.replace_buffer(device, queue, id, &vertices_raw)?;
 		if let Some(_) = self.buffer_infos.remove(&id) {
-			self.buffer_infos.insert(new_id, PackedMeshInfo { vertex_count: vertices.len() as u32, index_count: indices.len() as u32 });
+			self.buffer_infos.insert(new_id, PackedMeshInfo { vertex_data_count: vertex_data.len() as u32 });
 		} else {
 			println!("replace_buffer returned Ok but buffer_infos.remove failed");
 		}
@@ -135,19 +133,40 @@ impl PackedMeshBuffer {
 				// write mats to burffer
 				queue.write_buffer(&self.mat_buffer, mat_buffer_offset, &mats);
 				// bind main buffer
-				render_pass.set_vertex_buffer(0, single_packed_buffer.get_buffer().slice(..));
-				render_pass.set_index_buffer(single_packed_buffer.get_buffer().slice(..), wgpu::IndexFormat::Uint32);
+				let vertex_data_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+					label: None,
+					entries: &[wgpu::BindGroupLayoutEntry {
+						binding: 0,
+						visibility: wgpu::ShaderStages::VERTEX,
+						ty: wgpu::BindingType::Buffer {
+							ty: wgpu::BufferBindingType::Storage { read_only: true },
+							has_dynamic_offset: false,
+							min_binding_size: None,
+						},
+						count: None,
+					}],
+				});
+				let vertex_data_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+					label: None,
+					layout: &vertex_data_bind_group_layout,
+					entries: &[wgpu::BindGroupEntry {
+						binding: 0,
+						resource: single_packed_buffer.get_buffer().as_entire_binding(),
+					}],
+				});
+				render_pass.set_bind_group(2, &vertex_data_bind_group, &[]);
+				// render_pass.set_vertex_buffer(0, single_packed_buffer.get_buffer().slice(..));
+				// render_pass.set_index_buffer(single_packed_buffer.get_buffer().slice(..), wgpu::IndexFormat::Uint32);
 				// render
 				for (i, (held_buffer, packed_mesh_info)) in held_buffers.iter().enumerate() {
-					assert!(held_buffer.offset().is_multiple_of((wgpu::VERTEX_ALIGNMENT as usize).lcm(&size_of::<u32>()) as u32));
-					let first_index_index = (
-						held_buffer.offset() as usize +
-						(packed_mesh_info.vertex_count as usize * size_of::<MeshVertex>()).next_multiple_of(
-							(wgpu::VERTEX_ALIGNMENT as usize).lcm(&size_of::<u32>())
-						)
-					) / size_of::<u32>();
+					assert!(held_buffer.offset().is_multiple_of((size_of::<MeshVertex>() as u32).lcm(&(size_of::<u32>() as u32))));
+					let first_index = held_buffer.offset() as u32 / size_of::<MeshVertex>() as u32;
+					// 	held_buffer.offset() as usize +
+					// 	(packed_mesh_info.vertex_count as usize * size_of::<MeshVertex>()).next_multiple_of(*size_of::<u32>())
+					// ) / size_of::<u32>();
 					render_pass.set_bind_group(1, &self.mat_bind_group, &[mat_alignment as u32 * i as u32 + mat_buffer_offset as u32]);
-					render_pass.draw_indexed(first_index_index as u32..first_index_index as u32 + packed_mesh_info.index_count, (held_buffer.offset() as usize / size_of::<MeshVertex>()) as i32, 0..1);
+					// render_pass.draw_indexed(first_index_index as u32..first_index_index as u32 + packed_mesh_info.index_count, (held_buffer.offset() as usize / size_of::<MeshVertex>()) as i32, 0..1);
+					render_pass.draw(first_index * 6..(first_index + packed_mesh_info.vertex_data_count) * 6, 0..1);
 				}
 				mat_buffer_offset += mats.len() as u64;
 			}

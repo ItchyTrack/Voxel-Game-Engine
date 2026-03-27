@@ -46,8 +46,8 @@ impl SubGrid {
 					let _zone = span!("Recreate Mesh");
 					self.rebuild_mesh.set(false);
 					self.mesh_id.set(match self.voxels.get_mesh_buffers() {
-						Some((vertices, indices)) => {
-							let out = packed_mesh_buffer.replace_buffer(device, queue, id, &vertices, &indices);
+						Some(vertices) => {
+							let out = packed_mesh_buffer.replace_buffer(device, queue, id, &vertices);
 							if let Err(err) = out {
 								println!("{}", err);
 								None
@@ -72,8 +72,8 @@ impl SubGrid {
 			let _zone = span!("Create Mesh");
 			self.rebuild_mesh.set(false);
 			self.mesh_id.set(match self.voxels.get_mesh_buffers() {
-				Some((vertices, indices)) => {
-					let out = packed_mesh_buffer.add_mesh(device, queue, &vertices, &indices);
+				Some(vertices) => {
+					let out = packed_mesh_buffer.add_mesh(device, queue, &vertices);
 					if let Err(err) = out {
 						println!("{}", err);
 						None

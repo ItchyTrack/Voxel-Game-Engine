@@ -6,7 +6,7 @@ use tracy_client::span;
 use wgpu::util::DeviceExt;
 use winit::{window::Window};
 
-use crate::{debug_draw, gpu_objects::{matrix, mesh, packed_buffer::PackedBufferGroupId, packed_mesh_buffer::PackedMeshBuffer, texture}, pose::Pose};
+use crate::{debug_draw, gpu_objects::{matrix, packed_buffer::PackedBufferGroupId, packed_mesh_buffer::PackedMeshBuffer, texture}, pose::Pose};
 
 pub struct Renderer {
 	pub surface: wgpu::Surface<'static>,
@@ -29,18 +29,18 @@ pub struct Renderer {
 }
 
 #[cfg(target_arch = "wasm32")]
-const max: u32 = 2048;
+const MAX_SCREEN_SIZE: u32 = 2048;
 
 impl Renderer {
 	pub fn resize(&mut self, width: u32, height: u32) {
 		if width > 0 && height > 0 {
 			#[cfg(target_arch = "wasm32")]
 			if width < height {
-				self.config.width = (height.min(max) * width) / height;
-				self.config.height = height.min(max);
+				self.config.width = (height.min(MAX_SCREEN_SIZE) * width) / height;
+				self.config.height = height.min(MAX_SCREEN_SIZE);
 			} else {
-				self.config.width = width.min(max);
-				self.config.height = (width.min(max) * height) / width;
+				self.config.width = width.min(MAX_SCREEN_SIZE);
+				self.config.height = (width.min(MAX_SCREEN_SIZE) * height) / width;
 			}
 			#[cfg(not(target_arch = "wasm32"))]
 			{
@@ -140,7 +140,7 @@ impl Renderer {
 			height: size.height,
 			present_mode: surface_caps.present_modes[0],
 			alpha_mode: surface_caps.alpha_modes[0],
-			view_formats: vec![],
+			view_formats: vec![surface_format],
 			desired_maximum_frame_latency: 2,
 		};
 
@@ -153,9 +153,27 @@ impl Renderer {
 
 		let camera_buffer = matrix::MatrixUniform::get_buffer(&device, 0);
 
+		let vertex_data_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+			label: None,
+			entries: &[wgpu::BindGroupLayoutEntry {
+				binding: 0,
+				visibility: wgpu::ShaderStages::VERTEX,
+				ty: wgpu::BindingType::Buffer {
+					ty: wgpu::BufferBindingType::Storage { read_only: true },
+					has_dynamic_offset: false,
+					min_binding_size: None,
+				},
+				count: None,
+			}],
+		});
+
 		let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Render Pipeline Layout"),
-			bind_group_layouts: &[Some(&camera_buffer.2), Some(&matrix::MatrixUniform::get_dynamic_offset_bind_group_layout(&device, 0))],
+			bind_group_layouts: &[
+				Some(&camera_buffer.2),
+				Some(&matrix::MatrixUniform::get_dynamic_offset_bind_group_layout(&device, 0)),
+				Some(&vertex_data_bind_group_layout),
+			],
 			immediate_size: 0,
 		});
 		let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -164,7 +182,7 @@ impl Renderer {
 			vertex: wgpu::VertexState {
 				module: &shader,
 				entry_point: Some("vs_main"),
-				buffers: &[<mesh::MeshVertex as mesh::Vertex>::desc()],
+				buffers: &[],
 				compilation_options: wgpu::PipelineCompilationOptions::default(),
 			},
 			fragment: Some(wgpu::FragmentState {

@@ -5,7 +5,8 @@ pub trait Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MeshVertex {
-	pub position: [f32; 3],
+	pub position: [i8; 3],
+	pub orientation_size: u8,
 	pub color: [u8; 4],
 }
 
@@ -61,6 +62,6 @@ where
 }
 
 pub trait GetMesh {
-	fn get_mesh_buffers(&self) -> Option<(Vec<MeshVertex>, Vec<u32>)>;
-	fn get_mesh(&self, device: &wgpu::Device) -> Option<Mesh>;
+	fn get_mesh_buffers(&self) -> Option<Vec<MeshVertex>>;
+	// fn get_mesh(&self, device: &wgpu::Device) -> Option<Mesh>;
 }
