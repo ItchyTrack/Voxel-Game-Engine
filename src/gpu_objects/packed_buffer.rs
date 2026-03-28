@@ -155,6 +155,10 @@ impl PackedBufferGroup {
 			}
 		}
 		self.buffers.push(PackedBuffer::new(device, self.buffer_size, self.alignment, self.usage)?);
+		tracy_client::plot!(
+			"Packed Buffer Size",
+			self.buffers.len() as f64 * self.buffer_size as f64
+		);
 		return Ok(PackedBufferGroupId::new(self.buffers.last_mut().unwrap().add_buffer(queue, buffer)?, self.buffers.len() as u16 - 1));
 	}
 
