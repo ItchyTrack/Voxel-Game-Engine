@@ -2,7 +2,7 @@
 struct CameraUniform {
 	view_proj: mat4x4<f32>,
 };
-@group(0) @binding(0) // 0.
+@group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
 struct Matrix {
@@ -26,7 +26,6 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(
-	// vertex: VertexInput,
 	@builtin(vertex_index) vertex_index : u32,
 ) -> VertexOutput {
 	const offsets_2d = array<vec2<f32>, 6>(
@@ -39,7 +38,7 @@ fn vs_main(
 	);
 
 	let vertex = vertex_data[vertex_index / 6u];
-	let base = offsets_2d[vertex_index % 6u] * f32(vertex.position_x_y_z_orientation_size >> 27);
+	let base = offsets_2d[vertex_index % 6u];
 	var offset: vec3<f32>;
 	switch((vertex.position_x_y_z_orientation_size >> 24) & 7) {
 		case 0u: { offset = vec3( 1.0,			 base.x + 0.5,   base.y + 0.5); } // +X
@@ -52,7 +51,7 @@ fn vs_main(
 	}
 	var out: VertexOutput;
 	out.color = unpack4x8unorm(vertex.color);
-	let world_pos = matrix.matrix * vec4<f32>(vec3<f32>(unpack4xI8(vertex.position_x_y_z_orientation_size).xyz) + offset, 1.0);
+	let world_pos = matrix.matrix * vec4<f32>(vec3<f32>(unpack4xI8(vertex.position_x_y_z_orientation_size).xyz) + offset * f32(vertex.position_x_y_z_orientation_size >> 27), 1.0);
 	out.world_position = world_pos.xyz;
 	out.clip_position = camera.view_proj * world_pos;
 

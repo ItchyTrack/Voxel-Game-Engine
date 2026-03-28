@@ -365,19 +365,22 @@ impl Renderer {
 		self.window.request_redraw();
 
 		if !self.is_surface_configured { return Ok(()); }
-
 		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(camera_matrix)]));
 
-		let output = match self.surface.get_current_texture() {
-			wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
-			wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => return Err(wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture)),
-			wgpu::CurrentSurfaceTexture::Timeout => 			return Err(wgpu::CurrentSurfaceTexture::Timeout),
-			wgpu::CurrentSurfaceTexture::Occluded => 			return Err(wgpu::CurrentSurfaceTexture::Occluded),
-			wgpu::CurrentSurfaceTexture::Outdated => 			return Err(wgpu::CurrentSurfaceTexture::Outdated),
-			wgpu::CurrentSurfaceTexture::Lost => 				return Err(wgpu::CurrentSurfaceTexture::Lost),
-			wgpu::CurrentSurfaceTexture::Validation => 			return Err(wgpu::CurrentSurfaceTexture::Validation),
+		let output = {
+			let _zone = span!("Finish Last Render");
+			match self.surface.get_current_texture() {
+				wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+				wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => return Err(wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture)),
+				wgpu::CurrentSurfaceTexture::Timeout => 					return Err(wgpu::CurrentSurfaceTexture::Timeout),
+				wgpu::CurrentSurfaceTexture::Occluded => 					return Err(wgpu::CurrentSurfaceTexture::Occluded),
+				wgpu::CurrentSurfaceTexture::Outdated => 					return Err(wgpu::CurrentSurfaceTexture::Outdated),
+				wgpu::CurrentSurfaceTexture::Lost => 						return Err(wgpu::CurrentSurfaceTexture::Lost),
+				wgpu::CurrentSurfaceTexture::Validation => 					return Err(wgpu::CurrentSurfaceTexture::Validation),
+			}
 		};
 
+		let _zone = span!("Render");
 
 		let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 

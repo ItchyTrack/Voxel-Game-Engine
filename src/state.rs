@@ -585,7 +585,6 @@ impl State {
 					rendering_meshes.extend(physics_body.update_render_mesh(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_mesh_buffer, &view_frustum));
 				}
 			}
-			let _zone = span!("Render");
 			return self.renderer.render(&player_camera.build_view_projection_matrix(), &rendering_meshes);
 		} else {
 			println!("Error: could not find player camera!");
