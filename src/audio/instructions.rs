@@ -1,6 +1,13 @@
 use glam::Vec3;
 
 #[derive(Clone, Copy)]
+pub enum SoundEffect {
+	BlockPlace,
+	BlockBreak,
+	DebugBeep,
+}
+
+#[derive(Clone, Copy)]
 pub struct ListenerState {
 	pub position: Vec3,
 	pub forward: Vec3,

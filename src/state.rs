@@ -11,7 +11,7 @@ use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabM
 use crate::{entity_component_system, gpu_objects::packed_buffer::PackedBufferGroupId, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
-use crate::audio::audio_engine::{AudioEngine, ListenerState, SpawnVoiceInstruction};
+use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
 use crate::voxels::Voxel;
 use crate::debug_draw;
 
@@ -66,25 +66,19 @@ impl State {
 				up,
 			}
 		});
-		let debug_voice = self.ecs.get_component::<PlayerInput>(self.player_id).and_then(|player_input| {
+		let debug_sound = self.ecs.get_component::<PlayerInput>(self.player_id).and_then(|player_input| {
 			if !player_input.key(KeyCode::KeyM).just_pressed {
 				return None;
 			}
 
 			let listener_state = listener_state?;
-			Some(SpawnVoiceInstruction {
-				position: listener_state.position + listener_state.forward * 20.0,
-				frequency_hz: 220.0,
-				gain: 1.0,
-				duration_seconds: 15.0,
-				decay_rate: 0.3,
-			})
+			Some(listener_state.position + listener_state.forward * 20.0)
 		});
 		if let Some(listener_state) = listener_state {
 			self.audio_engine.set_listener(listener_state);
 		}
-		if let Some(debug_voice) = debug_voice {
-			self.audio_engine.spawn_voice(debug_voice);
+		if let Some(debug_sound_pos) = debug_sound {
+			self.audio_engine.play_sound(SoundEffect::DebugBeep, debug_sound_pos);
 		}
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
 			let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
@@ -95,13 +89,19 @@ impl State {
 				let globle_hit_normal = physics_body.pose.rotation * grid.pose.rotation * hit_normal.as_vec3();
 				let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
 				let globle_hit_pos_snap = physics_body.pose * grid.pose * hit_pos.as_vec3();
+				let place_voxel_pos = hit_pos + hit_normal.as_ivec3();
+				let break_voxel_pos = hit_pos;
+				let place_sound_pos = physics_body.pose * grid.pose * (place_voxel_pos.as_vec3() + Vec3::splat(0.5));
+				let break_sound_pos = physics_body.pose * grid.pose * (break_voxel_pos.as_vec3() + Vec3::splat(0.5));
 				debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
 				debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid.pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
 				if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().add_voxel(hit_pos + hit_normal.as_ivec3(), Voxel{ color: [100, 100, 100, 1], mass: 100 });
+					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().add_voxel(place_voxel_pos, Voxel{ color: [100, 100, 100, 1], mass: 100 });
+					self.audio_engine.play_sound(SoundEffect::BlockPlace, place_sound_pos);
 				}
 				if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().remove_voxel(&(hit_pos));
+					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().remove_voxel(&break_voxel_pos);
+					self.audio_engine.play_sound(SoundEffect::BlockBreak, break_sound_pos);
 				}
 				if player_input.key(KeyCode::KeyR).just_pressed {
 					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().apply_impulse(&globle_hit_pos, &(ray_start.rotation * Vec3::Z * 1600000.0));

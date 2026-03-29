@@ -2,10 +2,12 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use glam::Vec3;
+
 use super::instructions::AudioInstruction;
 use super::mixer::build_output_stream_typed;
 
-pub use super::instructions::{ListenerState, SpawnVoiceInstruction};
+pub use super::instructions::{ListenerState, SoundEffect, SpawnVoiceInstruction};
 
 const INSTRUCTION_QUEUE_CAPACITY: usize = 256;
 
@@ -75,6 +77,12 @@ impl AudioEngine {
 		self.push_instruction(AudioInstruction::SpawnVoice(instruction));
 	}
 
+	pub fn play_sound(&mut self, effect: SoundEffect, position: Vec3) {
+		for instruction in sound_effect_recipe(effect, position) {
+			self.spawn_voice(instruction);
+		}
+	}
+
 	pub fn set_listener(&mut self, listener: ListenerState) {
 		self.push_instruction(AudioInstruction::SetListener(listener));
 	}
@@ -83,6 +91,59 @@ impl AudioEngine {
 		if self.instruction_producer.push(instruction).is_err() {
 			log::warn!("Audio instruction queue is full; dropping instruction");
 		}
+	}
+}
+
+fn sound_effect_recipe(effect: SoundEffect, position: Vec3) -> [SpawnVoiceInstruction; 2] {
+	match effect {
+		SoundEffect::BlockPlace => [
+			SpawnVoiceInstruction {
+				position,
+				frequency_hz: 880.0,
+				gain: 0.10,
+				duration_seconds: 0.5,
+				decay_rate: 18.0,
+			},
+			SpawnVoiceInstruction {
+				position,
+				frequency_hz: 1320.0,
+				gain: 0.04,
+				duration_seconds: 0.3,
+				decay_rate: 26.0,
+			},
+		],
+		SoundEffect::BlockBreak => [
+			SpawnVoiceInstruction {
+				position,
+				frequency_hz: 240.0,
+				gain: 0.12,
+				duration_seconds: 0.9,
+				decay_rate: 12.0,
+			},
+			SpawnVoiceInstruction {
+				position,
+				frequency_hz: 420.0,
+				gain: 0.05,
+				duration_seconds: 0.6,
+				decay_rate: 17.0,
+			},
+		],
+		SoundEffect::DebugBeep => [
+			SpawnVoiceInstruction {
+				position,
+				frequency_hz: 660.0,
+				gain: 0.16,
+				duration_seconds: 15.0,
+				decay_rate: 0.3,
+			},
+			SpawnVoiceInstruction {
+				position,
+				frequency_hz: 990.0,
+				gain: 0.08,
+				duration_seconds: 15.0,
+				decay_rate: 0.6,
+			},
+		],
 	}
 }
 
