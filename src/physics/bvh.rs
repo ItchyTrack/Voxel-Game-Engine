@@ -8,26 +8,26 @@ use tracy_client::span;
 use crate::{debug_draw, pose::Pose};
 
 #[derive(Debug)]
-enum BVHInternal {
+pub enum BVHInternal {
 	SubNodes {
-		sub1: u32,
-		sub2: u32,
+		sub1: u16,
+		sub2: u16,
 	},
 	Leaf {
-		start: u32,
-		count: u32,
+		start: u16,
+		count: u16,
 	},
 }
 
 #[derive(Debug)]
-struct BVHNode {
-	min_corner: Vec3,
-	max_corner: Vec3,
-	sub_nodes: BVHInternal,
+pub struct BVHNode {
+	pub min_corner: Vec3,
+	pub max_corner: Vec3,
+	pub sub_nodes: BVHInternal,
 }
 
 impl BVHNode {
-	fn build_range<Index>(items: &mut [(Index, (Vec3, Vec3))], nodes: &mut Vec<BVHNode>, start: u32, end: u32) -> Self {
+	fn build_range<Index>(items: &mut [(Index, (Vec3, Vec3))], nodes: &mut Vec<BVHNode>, start: u16, end: u16) -> Self {
 		assert!(end > start);
 		let slice = &mut items[start as usize..end as usize];
 
@@ -45,7 +45,7 @@ impl BVHNode {
 			avg += v.1.0 + v.1.1;
 		}
 
-		let count = slice.len() as u32;
+		let count = slice.len() as u16;
 
 		if count <= 8 || min == max || center_min == center_max {
 			return Self {
@@ -60,7 +60,7 @@ impl BVHNode {
 		let axis = (center_max - center_min).max_position();
 		let split_value = avg[axis];
 
-		let split_index = partition(slice.iter_mut(), |a| (a.1.0 + a.1.1)[axis] < split_value) as u32;
+		let split_index = partition(slice.iter_mut(), |a| (a.1.0 + a.1.1)[axis] < split_value) as u16;
 		assert!(split_index != 0 && split_index != end - start);
 		// slice.select_nth_unstable_by(mid as usize, |a, b| (a.1.0 + a.1.1)[axis].partial_cmp(&(b.1.0 + b.1.1)[axis]).unwrap());
 		nodes.push(BVHNode {
@@ -81,8 +81,8 @@ impl BVHNode {
 			min_corner: min,
 			max_corner: max,
 			sub_nodes: BVHInternal::SubNodes {
-				sub1: sub1 as u32,
-				sub2: sub2 as u32,
+				sub1: sub1 as u16,
+				sub2: sub2 as u16,
 			},
 		}
 	}
@@ -97,7 +97,7 @@ pub struct BVH<Index: Copy + Debug + PartialEq> {
 impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 	pub fn new(mut items: Vec<(Index, (Vec3, Vec3))>) -> Self {
 		let _zone = span!("BVH creation");
-		let items_len = items.len() as u32;
+		let items_len = items.len() as u16;
 		let mut nodes: Vec<BVHNode> = vec![];
 		nodes.push(BVHNode {
 			min_corner: Vec3::ZERO,
@@ -189,11 +189,15 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 			}
 		}
 	}
+
+	pub fn get_internals(&self) -> (&Vec<BVHNode>, &Vec<(Index, (Vec3, Vec3))>) {
+		(&self.nodes, &self.items)
+	}
 }
 
 #[derive(PartialEq)]
 enum BVHEntry<Index> {
-	Node(u32),
+	Node(u16),
 	Hit(Index),
 }
 

@@ -64,6 +64,10 @@ impl PhysicsEngine {
 		*self.bvh.borrow_mut() = None;
 	}
 
+	pub fn bvh(&self) -> Ref<'_, BVH<(u32, u32, IVec3)>> {
+		self.get_bvh()
+	}
+
 	pub fn add_physics_body(&mut self) -> u32 {
 		self.physics_body_id_to_index.insert(self.next_body_id, self.physics_bodies.len() as u32);
 		self.physics_bodies.push(PhysicsBody::new(self.next_body_id));
@@ -82,7 +86,6 @@ impl PhysicsEngine {
 			self.physics_body_id_to_index.insert(other_id, index);
 		}
 	}
-
 
 	pub fn physics_body(&self, physics_body_id: u32) -> Option<&PhysicsBody> {
 		let index = *self.physics_body_id_to_index.get(&physics_body_id)?;

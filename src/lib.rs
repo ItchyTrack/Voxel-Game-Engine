@@ -13,10 +13,13 @@ mod grid_tree;
 mod debug_draw;
 mod entity_component_system;
 mod gpu_objects {
+	pub mod gpu_bvh;
+	pub mod gpu_grid_tree;
 	pub mod texture;
 	pub mod mesh;
 	pub mod matrix;
 	pub mod packed_buffer;
+	pub mod packed_dynamic_buffer;
 	pub mod packed_mesh_buffer;
 }
 

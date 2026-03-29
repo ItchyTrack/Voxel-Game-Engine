@@ -1,12 +1,17 @@
-use std::{ops::*, sync::Arc};
+use std::sync::Arc;
 use std::vec;
 
-use glam::{Mat4};
+use glam::IVec3;
 use tracy_client::span;
 use wgpu::util::DeviceExt;
 use winit::{window::Window};
 
-use crate::{debug_draw, gpu_objects::{matrix, packed_buffer::PackedBufferGroupId, packed_mesh_buffer::PackedMeshBuffer, texture}, pose::Pose};
+use crate::gpu_objects::gpu_bvh;
+use crate::gpu_objects::gpu_grid_tree;
+use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
+use crate::physics::bvh;
+use crate::player::camera;
+use crate::{debug_draw, gpu_objects::{matrix, texture}};
 
 pub struct Renderer {
 	pub surface: wgpu::Surface<'static>,
@@ -14,12 +19,15 @@ pub struct Renderer {
 	pub queue: wgpu::Queue,
 	pub config: wgpu::SurfaceConfiguration,
 	pub is_surface_configured: bool,
-	pub packed_mesh_buffer: PackedMeshBuffer,
+	pub packed_64_tree_dynamic_buffer: PackedDynamicBuffer,
 	pub window: Arc<Window>,
 	pub render_pipeline: wgpu::RenderPipeline,
 	pub depth_texture: texture::Texture,
+	pub ray_marching_pipeline: wgpu::RenderPipeline,
 	pub camera_buffer: wgpu::Buffer,
 	pub camera_bind_group: wgpu::BindGroup,
+	pub camera_transform_buffer: wgpu::Buffer,
+	pub camera_transform_bind_group: wgpu::BindGroup,
 	pub crosshair_pipeline: wgpu::RenderPipeline,
 	pub crosshair_buffer: wgpu::Buffer,
 	pub crosshair_bind_group: wgpu::BindGroup,
@@ -152,6 +160,7 @@ impl Renderer {
 		});
 
 		let camera_buffer = matrix::MatrixUniform::get_buffer(&device, 0);
+		let camera_transform_buffer = camera::CameraUniform::get_buffer(&device, 0);
 
 		let vertex_data_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			label: None,
@@ -214,6 +223,66 @@ impl Renderer {
 				stencil: wgpu::StencilState::default(),
 				bias: wgpu::DepthBiasState::default(),
 			}),
+			multisample: wgpu::MultisampleState {
+				count: 1,
+				mask: !0,
+				alpha_to_coverage_enabled: false,
+			},
+			multiview_mask: None,
+			cache: None,
+		});
+
+		let ray_marching_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+			label: Some("Ray Marching Shader"),
+			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/ray_marching.wgsl").into()),
+		});
+		let ray_marching_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+			label: Some("Ray Marching Pipeline Layout"),
+			bind_group_layouts: &[
+				Some(&camera_transform_buffer.2),
+				Some(&gpu_bvh::GpuBvh::bind_group_layout(&device)),
+				// Some(&vertex_data_bind_group_layout),
+			],
+			immediate_size: 0,
+		});
+		let ray_marching_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+			label: Some("Ray Marching Pipeline"),
+			layout: Some(&ray_marching_pipeline_layout),
+			vertex: wgpu::VertexState {
+				module: &ray_marching_shader,
+				entry_point: Some("vs_main"),
+				buffers: &[],
+				compilation_options: wgpu::PipelineCompilationOptions::default(),
+			},
+			fragment: Some(wgpu::FragmentState {
+				module: &ray_marching_shader,
+				entry_point: Some("fs_main"),
+				targets: &[Some(wgpu::ColorTargetState {
+					format: config.format,
+					blend: Some(wgpu::BlendState::REPLACE),
+					write_mask: wgpu::ColorWrites::ALL,
+				})],
+				compilation_options: wgpu::PipelineCompilationOptions::default(),
+			}),
+			primitive: wgpu::PrimitiveState {
+				topology: wgpu::PrimitiveTopology::TriangleList, // 1.
+				strip_index_format: None,
+				front_face: wgpu::FrontFace::Ccw, // 2.
+				cull_mode: Some(wgpu::Face::Back),
+				// Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+				polygon_mode: wgpu::PolygonMode::Fill,
+				// Requires Features::DEPTH_CLIP_CONTROL
+				unclipped_depth: false,
+				// Requires Features::CONSERVATIVE_RASTERIZATION
+				conservative: false,
+			},
+			depth_stencil: None, //Some(wgpu::DepthStencilState {
+			// 	format: texture::Texture::DEPTH_FORMAT,
+			// 	depth_write_enabled: Some(true),
+			// 	depth_compare: Some(wgpu::CompareFunction::Less),
+			// 	stencil: wgpu::StencilState::default(),
+			// 	bias: wgpu::DepthBiasState::default(),
+			// }),
 			multisample: wgpu::MultisampleState {
 				count: 1,
 				mask: !0,
@@ -334,8 +403,8 @@ impl Renderer {
 		let debug_line_pipeline = make_debug_pipeline("Debug Line Pipeline", wgpu::PrimitiveTopology::LineList);
 		let debug_tri_pipeline = make_debug_pipeline("Debug Tri Pipeline", wgpu::PrimitiveTopology::TriangleList);
 
-		let packed_mesh_buffer = PackedMeshBuffer::new(&device, 1u32.shl(22));
-		if let Err(err) = packed_mesh_buffer {
+		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(&device, size_of::<gpu_grid_tree::GpuGridTeeNode>() as u32, wgpu::BufferUsages::STORAGE);
+		if let Err(err) = packed_64_tree_dynamic_buffer {
 			println!("{}", err);
 			return Err(anyhow::Error::msg(err));
 		}
@@ -349,23 +418,27 @@ impl Renderer {
 			window,
 			render_pipeline,
 			depth_texture,
+			ray_marching_pipeline,
 			camera_buffer: camera_buffer.0,
 			camera_bind_group: camera_buffer.1,
+			camera_transform_buffer: camera_transform_buffer.0,
+			camera_transform_bind_group: camera_transform_buffer.1,
 			crosshair_pipeline,
 			crosshair_buffer,
 			crosshair_bind_group,
 			crosshair_format,
 			debug_line_pipeline,
 			debug_tri_pipeline,
-			packed_mesh_buffer: packed_mesh_buffer.unwrap(),
+			packed_64_tree_dynamic_buffer: packed_64_tree_dynamic_buffer.unwrap(),
 		})
 	}
 
-	pub fn render(&mut self, camera_matrix: &Mat4, meshes: &Vec<(PackedBufferGroupId, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
+	pub fn render(&mut self, camera: &camera::Camera, bvh: &bvh::BVH<(u32, u32, IVec3)>, /* _meshes: &Vec<(PackedBufferGroupId, Pose)> */) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
 
 		if !self.is_surface_configured { return Ok(()); }
-		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(camera_matrix)]));
+		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&camera.build_view_projection_matrix())]));
+		self.queue.write_buffer(&self.camera_transform_buffer, 0, bytemuck::cast_slice(&[camera::CameraUniform::from_camera(camera)]));
 
 		let output = {
 			let _zone = span!("Finish Last Render");
@@ -394,19 +467,25 @@ impl Renderer {
 					depth_slice: None,
 					ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 }), store: wgpu::StoreOp::Store },
 				})],
-				depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-					view: &self.depth_texture.view,
-					depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
-					stencil_ops: None,
-				}),
+				depth_stencil_attachment: None, //Some(wgpu::RenderPassDepthStencilAttachment {
+				// 	view: &self.depth_texture.view,
+				// 	depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+				// 	stencil_ops: None,
+				// }),
 				occlusion_query_set: None,
 				timestamp_writes: None,
 				multiview_mask: None,
 			});
 
-			render_pass.set_pipeline(&self.render_pipeline);
+			// render_pass.set_pipeline(&self.render_pipeline);
 
-			self.packed_mesh_buffer.render(&self.device, &self.queue, &mut render_pass, &self.camera_bind_group, &meshes);
+			// self.packed_mesh_buffer.render(&self.device, &self.queue, &mut render_pass, &self.camera_bind_group, &meshes);
+			render_pass.set_bind_group(0, &self.camera_transform_bind_group, &[]);
+			let gpu_bvh = gpu_bvh::GpuBvh::from_bvh(&self.device, bvh);
+			render_pass.set_bind_group(1, &gpu_bvh.bind_group, &[]);
+			render_pass.set_pipeline(&self.ray_marching_pipeline);
+			render_pass.draw(0..3, 0..1);
+
 			// for mesh in meshes.iter() {
 			// 	self.queue.write_buffer(&mesh.0.matrix_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&mesh.1)]));
 
