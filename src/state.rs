@@ -11,12 +11,14 @@ use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabM
 use crate::{entity_component_system, gpu_objects::packed_buffer::PackedBufferGroupId, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
+use crate::audio::audio_engine::AudioEngine;
 use crate::voxels::Voxel;
 use crate::debug_draw;
 
 pub struct State {
 	pub renderer: Renderer,
 	pub mouse_captured: bool,
+	pub audio_engine: AudioEngine,
 	pub physics_engine: PhysicsEngine,
 	pub ecs: entity_component_system::EntityComponentSystem,
 	pub player_id: u32,
@@ -560,6 +562,7 @@ impl State {
 		Ok(Self {
 			renderer,
 			mouse_captured: false,
+			audio_engine: AudioEngine::new(),
 			physics_engine,
 			ecs,
 			player_id,

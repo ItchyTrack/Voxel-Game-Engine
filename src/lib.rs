@@ -5,6 +5,7 @@ mod player;
 mod app;
 mod renderer;
 mod physics;
+mod audio;
 mod state;
 mod pose;
 mod math;

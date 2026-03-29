@@ -33,6 +33,9 @@ noise = "0.9.0"
 clone_cell = "0.4.2"
 num = "0.4.3"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = "0.16"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
 console_error_panic_hook = "0.1.7"
