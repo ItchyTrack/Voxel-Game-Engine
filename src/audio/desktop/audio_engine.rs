@@ -31,6 +31,8 @@ impl AudioEngine {
 		Self { _stream: stream }
 	}
 
+	pub fn resume(&mut self) {}
+
 	fn build_output_stream<T>(device: &cpal::Device, config: &StreamConfig) -> Stream
 	where
 		T: Sample + SizedSample + FromSample<f32>,
