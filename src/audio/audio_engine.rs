@@ -10,6 +10,8 @@ use super::mixer::build_output_stream_typed;
 pub use super::instructions::{ListenerState, SoundEffect, SpawnVoiceInstruction};
 
 const INSTRUCTION_QUEUE_CAPACITY: usize = 256;
+const DEFAULT_MAX_VOLUME_DISTANCE: f32 = 4.0;
+const DEFAULT_DISTANCE_FALLOFF: f32 = 0.10;
 
 pub struct AudioEngine {
 	stream: Option<Stream>,
@@ -24,13 +26,13 @@ impl AudioEngine {
 		let mut engine = Self {
 			stream: None,
 			instruction_producer,
-			instruction_consumer: Some(instruction_consumer),
+			instruction_consumer: Some(instruction_consumer)
 		};
 		#[cfg(target_arch = "wasm32")]
 		let engine = Self {
 			stream: None,
 			instruction_producer,
-			instruction_consumer: Some(instruction_consumer),
+			instruction_consumer: Some(instruction_consumer)
 		};
 
 		#[cfg(not(target_arch = "wasm32"))]
@@ -61,7 +63,7 @@ impl AudioEngine {
 			&device,
 			&supported_config.config(),
 			supported_config.sample_format(),
-			instruction_consumer,
+			instruction_consumer
 		);
 		match stream.play() {
 			Ok(()) => {
@@ -100,14 +102,18 @@ fn sound_effect_recipe(effect: SoundEffect, position: Vec3) -> [SpawnVoiceInstru
 			SpawnVoiceInstruction {
 				position,
 				frequency_hz: 880.0,
-				gain: 0.10,
+				gain: 0.05,
+				max_volume_distance: DEFAULT_MAX_VOLUME_DISTANCE,
+				distance_falloff: DEFAULT_DISTANCE_FALLOFF,
 				duration_seconds: 0.5,
 				decay_rate: 18.0,
 			},
 			SpawnVoiceInstruction {
 				position,
 				frequency_hz: 1320.0,
-				gain: 0.04,
+				gain: 0.02,
+				max_volume_distance: DEFAULT_MAX_VOLUME_DISTANCE,
+				distance_falloff: DEFAULT_DISTANCE_FALLOFF,
 				duration_seconds: 0.3,
 				decay_rate: 26.0,
 			},
@@ -116,14 +122,18 @@ fn sound_effect_recipe(effect: SoundEffect, position: Vec3) -> [SpawnVoiceInstru
 			SpawnVoiceInstruction {
 				position,
 				frequency_hz: 240.0,
-				gain: 0.12,
+				gain: 0.06,
+				max_volume_distance: DEFAULT_MAX_VOLUME_DISTANCE,
+				distance_falloff: DEFAULT_DISTANCE_FALLOFF,
 				duration_seconds: 0.9,
 				decay_rate: 12.0,
 			},
 			SpawnVoiceInstruction {
 				position,
 				frequency_hz: 420.0,
-				gain: 0.05,
+				gain: 0.025,
+				max_volume_distance: DEFAULT_MAX_VOLUME_DISTANCE,
+				distance_falloff: DEFAULT_DISTANCE_FALLOFF,
 				duration_seconds: 0.6,
 				decay_rate: 17.0,
 			},
@@ -132,14 +142,18 @@ fn sound_effect_recipe(effect: SoundEffect, position: Vec3) -> [SpawnVoiceInstru
 			SpawnVoiceInstruction {
 				position,
 				frequency_hz: 660.0,
-				gain: 0.16,
+				gain: 0.32,
+				max_volume_distance: DEFAULT_MAX_VOLUME_DISTANCE,
+				distance_falloff: DEFAULT_DISTANCE_FALLOFF,
 				duration_seconds: 15.0,
 				decay_rate: 0.3,
 			},
 			SpawnVoiceInstruction {
 				position,
 				frequency_hz: 990.0,
-				gain: 0.08,
+				gain: 0.16,
+				max_volume_distance: DEFAULT_MAX_VOLUME_DISTANCE,
+				distance_falloff: DEFAULT_DISTANCE_FALLOFF,
 				duration_seconds: 15.0,
 				decay_rate: 0.6,
 			},
