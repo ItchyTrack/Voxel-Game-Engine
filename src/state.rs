@@ -11,7 +11,7 @@ use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabM
 use crate::{entity_component_system, gpu_objects::packed_buffer::PackedBufferGroupId, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
-use crate::audio::audio_engine::AudioEngine;
+use crate::audio::audio_engine::{AudioEngine, ListenerState, SpawnVoiceInstruction};
 use crate::voxels::Voxel;
 use crate::debug_draw;
 
@@ -56,6 +56,36 @@ impl State {
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
 			CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);
+		let listener_state = self.ecs.get_component::<Camera>(self.player_id).map(|camera| {
+			let listener_rotation = Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch);
+			let forward = listener_rotation * Vec3::Z;
+			let up = listener_rotation * Vec3::Y;
+			ListenerState {
+				position: camera.position,
+				forward,
+				up,
+			}
+		});
+		let debug_voice = self.ecs.get_component::<PlayerInput>(self.player_id).and_then(|player_input| {
+			if !player_input.key(KeyCode::KeyM).just_pressed {
+				return None;
+			}
+
+			let listener_state = listener_state?;
+			Some(SpawnVoiceInstruction {
+				position: listener_state.position + listener_state.forward * 20.0,
+				frequency_hz: 220.0,
+				gain: 1.0,
+				duration_seconds: 15.0,
+				decay_rate: 0.3,
+			})
+		});
+		if let Some(listener_state) = listener_state {
+			self.audio_engine.set_listener(listener_state);
+		}
+		if let Some(debug_voice) = debug_voice {
+			self.audio_engine.spawn_voice(debug_voice);
+		}
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
 			let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
 			let started_holding = object_pickup.is_holding();
