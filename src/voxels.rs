@@ -1,11 +1,9 @@
-use glam::{U16Vec3, I16Vec3};
+use glam::I16Vec3;
 use tracy_client::span;
 use std::cell::Cell;
 use bimap::BiHashMap;
 
-use crate::gpu_objects::mesh::{self, MeshVertex};
 use crate::grid_tree::GridTree;
-use crate::pose::Pose;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Voxel {
@@ -42,7 +40,7 @@ impl VoxelPalette {
 }
 
 pub struct Voxels {
-	voxels: GridTree<u16>,
+	voxels: GridTree,
 	voxel_palette: VoxelPalette,
 	bounding_box: Cell<Option<(I16Vec3, I16Vec3)>>,
 	bounding_box_dirty: Cell<bool>,
@@ -66,7 +64,7 @@ impl Voxels {
 				self.bounding_box.set(Some((pos, pos)));
 			}
 		}
-		let out = self.voxels.insert(pos, self.voxel_palette.get_palette_id(&voxel))?;
+		let out = self.voxels.insert(&pos, self.voxel_palette.get_palette_id(&voxel))?;
 		self.voxel_palette.get_voxel(out).cloned()
 	}
 
@@ -76,9 +74,9 @@ impl Voxels {
 	}
 
 	pub fn get_voxel(&self, pos: I16Vec3) -> Option<&Voxel> {
-			self.voxel_palette.get_voxel(*self.voxels.get(&pos)?)
+			self.voxel_palette.get_voxel(self.voxels.get(&pos)?)
 		}
-	pub fn get_voxels(&self) -> &GridTree<u16> { &self.voxels }
+	pub fn get_voxels(&self) -> &GridTree { &self.voxels }
 
 	pub fn get_bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
 		if self.bounding_box_dirty.get() {
@@ -86,93 +84,89 @@ impl Voxels {
 			self.bounding_box_dirty.set(false);
 			self.bounding_box.set(self.voxels.iter().fold(None, |bb, (p, size, _)| {
 				match bb {
-					Some((min, max)) => Some((min.min(p), max.max(p + size as i16))),
-					None => Some((p, p + size as i16))
+					Some((min, max)) => Some((min.min(p), max.max(p + size as i16 - 1))),
+					None => Some((p, p + size as i16 - 1))
 				}
 			}));
 		}
 		self.bounding_box.get()
 	}
-
-	pub fn render_debug(&self, pose: &Pose) {
-		self.voxels.render_debug(pose);
-	}
 }
 
-impl mesh::GetMesh for Voxels {
-	fn get_mesh_buffers(&self) -> Option<Vec<mesh::MeshVertex>> {
-		if self.voxels.is_empty() {
-			return None;
-		}
-		let mut vertices: Vec<mesh::MeshVertex> = vec![];
-		// let mut indexes: Vec<u32> = vec![];
-		for (pos, size, voxel_id) in &self.voxels {
-			let voxel = self.voxel_palette.get_voxel(*voxel_id).unwrap();
-			if !self.voxels.is_area_filled(&(pos + I16Vec3::X * size as i16), &U16Vec3::new(1, size, size)) {
-				vertices.push(MeshVertex{ // +x
-					position: pos.as_i8vec3().to_array(),
-					orientation_size: 0 + size as u8 * 8,
-					color: voxel.color,
-				});
-			}
-			if !self.voxels.is_area_filled(&(pos - I16Vec3::X), &U16Vec3::new(1, size, size)) {
-				vertices.push(MeshVertex{ // -x
-					position: pos.as_i8vec3().to_array(),
-					orientation_size: 1 + size as u8 * 8,
-					color: voxel.color,
-				});
-			}
-			if !self.voxels.is_area_filled(&(pos + I16Vec3::Y * size as i16), &U16Vec3::new(size, 1, size)) {
-				vertices.push(MeshVertex{ // +y
-					position: pos.as_i8vec3().to_array(),
-					orientation_size: 2 + size as u8 * 8,
-					color: voxel.color,
-				});
-			}
-			if !self.voxels.is_area_filled(&(pos - I16Vec3::Y), &U16Vec3::new(size, 1, size)) {
-				vertices.push(MeshVertex{ // -y
-					position: pos.as_i8vec3().to_array(),
-					orientation_size: 3 + size as u8 * 8,
-					color: voxel.color,
-				});
-			}
-			if !self.voxels.is_area_filled(&(pos + I16Vec3::Z * size as i16), &U16Vec3::new(size, size, 1)) {
-				vertices.push(MeshVertex{ // +z
-					position: pos.as_i8vec3().to_array(),
-					orientation_size: 4 + size as u8 * 8,
-					color: voxel.color,
-				});
-			}
-			if !self.voxels.is_area_filled(&(pos - I16Vec3::Z), &U16Vec3::new(size, size, 1)) {
-				vertices.push(MeshVertex{ // -z
-					position: pos.as_i8vec3().to_array(),
-					orientation_size: 5 + size as u8 * 8,
-					color: voxel.color,
-				});
-			}
-		}
-		Some(vertices)
-	}
-	// fn get_mesh(&self, device: &wgpu::Device) -> Option<mesh::Mesh> {
-	// 	let vertices = self.get_mesh_buffers()?;
-	// 	let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-	// 		label: Some("Vertex Buffer"),
-	// 		contents: bytemuck::cast_slice(&vertices),
-	// 		usage: wgpu::BufferUsages::STORAGE,
-	// 	});
-	// 	let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-	// 		label: Some("Index Buffer"),
-	// 		contents: bytemuck::cast_slice(&indexes),
-	// 		usage: wgpu::BufferUsages::INDEX,
-	// 	});
+// impl mesh::GetMesh for Voxels {
+// 	fn get_mesh_buffers(&self) -> Option<Vec<mesh::MeshVertex>> {
+// 		if self.voxels.is_empty() {
+// 			return None;
+// 		}
+// 		let mut vertices: Vec<mesh::MeshVertex> = vec![];
+// 		// let mut indexes: Vec<u32> = vec![];
+// 		for (pos, size, voxel_id) in &self.voxels {
+// 			let voxel = self.voxel_palette.get_voxel(voxel_id).unwrap();
+// 			if !self.voxels.is_area_filled(&(pos + I16Vec3::X * size as i16), &U16Vec3::new(1, size, size)) {
+// 				vertices.push(MeshVertex{ // +x
+// 					position: pos.as_i8vec3().to_array(),
+// 					orientation_size: 0 + size as u8 * 8,
+// 					color: voxel.color,
+// 				});
+// 			}
+// 			if !self.voxels.is_area_filled(&(pos - I16Vec3::X), &U16Vec3::new(1, size, size)) {
+// 				vertices.push(MeshVertex{ // -x
+// 					position: pos.as_i8vec3().to_array(),
+// 					orientation_size: 1 + size as u8 * 8,
+// 					color: voxel.color,
+// 				});
+// 			}
+// 			if !self.voxels.is_area_filled(&(pos + I16Vec3::Y * size as i16), &U16Vec3::new(size, 1, size)) {
+// 				vertices.push(MeshVertex{ // +y
+// 					position: pos.as_i8vec3().to_array(),
+// 					orientation_size: 2 + size as u8 * 8,
+// 					color: voxel.color,
+// 				});
+// 			}
+// 			if !self.voxels.is_area_filled(&(pos - I16Vec3::Y), &U16Vec3::new(size, 1, size)) {
+// 				vertices.push(MeshVertex{ // -y
+// 					position: pos.as_i8vec3().to_array(),
+// 					orientation_size: 3 + size as u8 * 8,
+// 					color: voxel.color,
+// 				});
+// 			}
+// 			if !self.voxels.is_area_filled(&(pos + I16Vec3::Z * size as i16), &U16Vec3::new(size, size, 1)) {
+// 				vertices.push(MeshVertex{ // +z
+// 					position: pos.as_i8vec3().to_array(),
+// 					orientation_size: 4 + size as u8 * 8,
+// 					color: voxel.color,
+// 				});
+// 			}
+// 			if !self.voxels.is_area_filled(&(pos - I16Vec3::Z), &U16Vec3::new(size, size, 1)) {
+// 				vertices.push(MeshVertex{ // -z
+// 					position: pos.as_i8vec3().to_array(),
+// 					orientation_size: 5 + size as u8 * 8,
+// 					color: voxel.color,
+// 				});
+// 			}
+// 		}
+// 		Some(vertices)
+// 	}
+// 	// fn get_mesh(&self, device: &wgpu::Device) -> Option<mesh::Mesh> {
+// 	// 	let vertices = self.get_mesh_buffers()?;
+// 	// 	let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+// 	// 		label: Some("Vertex Buffer"),
+// 	// 		contents: bytemuck::cast_slice(&vertices),
+// 	// 		usage: wgpu::BufferUsages::STORAGE,
+// 	// 	});
+// 	// 	let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+// 	// 		label: Some("Index Buffer"),
+// 	// 		contents: bytemuck::cast_slice(&indexes),
+// 	// 		usage: wgpu::BufferUsages::INDEX,
+// 	// 	});
 
-	// 	let matrix_buffer = matrix::MatrixUniform::get_buffer(device, 0);
-	// 	Some(mesh::Mesh {
-	// 		vertex_buffer,
-	// 		index_buffer,
-	// 		num_elements: indexes.len() as u32,
-	// 		matrix_buffer: matrix_buffer.0,
-	// 		matrix_bind_group: matrix_buffer.1,
-	// 	})
-	// }
-}
+// 	// 	let matrix_buffer = matrix::MatrixUniform::get_buffer(device, 0);
+// 	// 	Some(mesh::Mesh {
+// 	// 		vertex_buffer,
+// 	// 		index_buffer,
+// 	// 		num_elements: indexes.len() as u32,
+// 	// 		matrix_buffer: matrix_buffer.0,
+// 	// 		matrix_bind_group: matrix_buffer.1,
+// 	// 	})
+// 	// }
+// }

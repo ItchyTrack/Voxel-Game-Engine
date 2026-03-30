@@ -8,7 +8,7 @@ use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, gpu_objects::packed_buffer::PackedBufferGroupId, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
+use crate::{entity_component_system, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
@@ -615,15 +615,16 @@ impl State {
 			// }
 		// }
 		if let Some(player_camera) = self.ecs.get_component::<camera::Camera>(self.player_id) {
-			let mut rendering_meshes: Vec<(PackedBufferGroupId, Pose)> = vec![];
-			{
-				let _zone = span!("Collect Meshes");
-				let view_frustum = player_camera.frustum();
-				for physics_body in self.physics_engine.physics_bodies() {
-					rendering_meshes.extend(physics_body.update_render_mesh(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_mesh_buffer, &view_frustum));
-				}
-			}
-			return self.renderer.render(&player_camera.build_view_projection_matrix(), &rendering_meshes);
+			// let mut rendering_meshes: Vec<(PackedBufferGroupId, Pose)> = vec![];
+			// {
+			// 	let _zone = span!("Collect Meshes");
+			// 	let view_frustum = player_camera.frustum();
+			// 	for physics_body in self.physics_engine.physics_bodies() {
+			// 		rendering_meshes.extend(physics_body.update_render_mesh(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_mesh_buffer, &view_frustum));
+			// 	}
+			// }
+			let bvh = self.physics_engine.bvh();
+			return self.renderer.render(&player_camera, &(*bvh));
 		} else {
 			println!("Error: could not find player camera!");
 			return Ok(());

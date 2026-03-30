@@ -1,132 +1,245 @@
 use std::fmt::Debug;
-use std::mem::replace;
+use std::hint::unreachable_unchecked;
+use std::u16;
 
-use glam::{I8Vec3, I16Vec3, Quat, U8Vec3, U16Vec3, Vec3, Vec4};
+use glam::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3};
 
-use crate::debug_draw;
 use crate::pose::Pose;
 
-const SIZE: u8 = 2;
-const SIZE_CUBED: u8 = SIZE * SIZE * SIZE;
-const SIZE_USIZE: usize = SIZE as usize;
-const SIZE_USIZE_CUBED: usize = SIZE_USIZE * SIZE_USIZE * SIZE_USIZE;
+pub const LOG_SIZE: u8 = 2;
+pub const SIZE: u8 = 2_u8.pow(LOG_SIZE as u32);
+pub const SIZE_CUBED: u8 = SIZE * SIZE * SIZE;
+pub const SIZE_USIZE: usize = SIZE as usize;
+pub const SIZE_USIZE_CUBED: usize = SIZE_USIZE * SIZE_USIZE * SIZE_USIZE;
 
-#[derive(Clone, Copy, Debug)]
-pub enum ChildCell<T: Copy + Clone + PartialEq + Debug> {
-	None,
-	Node { node: u32 },
-	Data { data: T },
+pub const MAX_TREE_DEPTH: u8 = 4; // it is lower than this but im being safe
+pub const MAX_TREE_DEPTH_USIZE: usize = MAX_TREE_DEPTH as usize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GridTreeCell {
+	// If value == 1<<16-1: NONE, Else if last bit is 0: DATA, Else last bit is 1: NODE.
+	// NODE value != 1<<15-1 because then NONE
+	value: u16,
 }
 
-#[derive(Debug)]
-struct GridTreeNode<T: Copy + Clone + PartialEq + Debug> {
-	contents: [ChildCell<T>; SIZE_USIZE_CUBED],
-	child_count: u8,
-	parent: Option<u32>,
-	pos: I16Vec3,
-	scale: u16,
-}
-
-fn get_child_index(pos: U8Vec3) -> u8 {
-	pos.x + pos.y * SIZE + pos.z * SIZE * SIZE
-}
-
-fn get_relitive_child_pos(child_pos: &I16Vec3, parent_pos: &I16Vec3, child_size: u16) -> U8Vec3 {
-	((child_pos - parent_pos).as_u16vec3() / child_size).as_u8vec3()
-}
-
-fn get_parent_pos(child_pos: &I16Vec3, relitive_child_pos: U8Vec3, child_size: u16) -> I16Vec3 {
-	child_pos - (relitive_child_pos.as_u16vec3() * child_size).as_i16vec3()
-}
-
-impl<T: Copy + Clone + PartialEq + Debug> GridTreeNode<T> {
-	fn new(parent: Option<u32>, pos: I16Vec3, scale: u16) -> Self {
+impl GridTreeCell {
+	const LAST_BIT_INDEX: u8 = u16::BITS as u8 - 1;
+	pub const NONE: GridTreeCell = GridTreeCell{ value: u16::MAX };
+	// You can only use the first 15 bits
+	fn from_data(data: u16) -> Self {
 		Self {
-			contents: [ChildCell::None; SIZE_USIZE_CUBED],
-			child_count: 0,
-			parent: parent,
-			pos: pos,
-			scale: scale,
+			value: data,
 		}
 	}
-	fn get_child_cell_pos(&self, index: u8) -> U8Vec3 {
-		U8Vec3::new(index % SIZE, (index / SIZE) % SIZE, index / (SIZE * SIZE))
+	// You can only use the first 15 bits and cant be 15 ones
+	fn from_node_offset(node_index: u16) -> Self {
+		Self {
+			value: node_index | 1 << Self::LAST_BIT_INDEX,
+		}
 	}
-	fn get_child_cell(&self, pos: U8Vec3) -> &ChildCell<T> {
-		&self.contents[get_child_index(pos) as usize]
+	fn from_raw(value: u16) -> Self {
+		Self {
+			value: value,
+		}
 	}
-	fn get_child_cell_mut(&mut self, pos: U8Vec3) -> &mut ChildCell<T> {
-		&mut self.contents[get_child_index(pos) as usize]
+	// 0: NONE, 1: DATA, 2: NODE
+	fn value_type(&self) -> u8 {
+		if self.value == u16::MAX { return 0; }
+		1 + (self.value >> Self::LAST_BIT_INDEX) as u8
 	}
-	fn get_child_cell_world_pos(&self, index: u8) -> I16Vec3 {
-		(self.get_child_cell_pos(index).as_u16vec3() * self.child_wold_size()).as_i16vec3() + self.pos
+	// Undefined output if NONE
+	fn value(&self) -> u16 {
+		self.value & ((1 << Self::LAST_BIT_INDEX) - 1)
 	}
-	fn child_wold_size(&self) -> u16 {
-		self.scale
+	fn value_raw(&self) -> u16 {
+		self.value
 	}
-	fn world_size(&self) -> u16 {
-		self.scale * SIZE as u16
+	fn raw_as_data(raw_value: u16) -> u16 {
+		raw_value
+	}
+	fn raw_as_node(raw_value: u16) -> u16 {
+		raw_value & ((1 << Self::LAST_BIT_INDEX) - 1)
 	}
 }
 
 #[derive(Debug)]
-pub struct GridTree<T: Copy + Clone + PartialEq + Debug> {
-	nodes: Vec<GridTreeNode<T>>,
-	root: u32,
+struct GridTreeNode {
+	pub contents: [GridTreeCell; SIZE_USIZE_CUBED],
+	pub parent_offset: u16, // if parent_index == 0 then no parent
+	pub depth: u8, // 0 is the bottom
+	pub used_cell_count: u8,
+}
+
+fn get_child_contents_index(contents_pos: U8Vec3) -> u8 {
+	contents_pos.x + contents_pos.y * SIZE + contents_pos.z * SIZE * SIZE
+}
+
+fn get_child_contents_pos(contents_index: u8) -> U8Vec3 {
+	U8Vec3::new(contents_index % SIZE, (contents_index / SIZE) % SIZE, contents_index / (SIZE * SIZE))
+}
+
+// fn get_relative_child_pos(child_pos: &I16Vec3, parent_pos: &I16Vec3, child_size: u16) -> U8Vec3 {
+// 	((child_pos - parent_pos).as_u16vec3() / child_size).as_u8vec3()
+// }
+
+// fn get_parent_pos(child_pos: &I16Vec3, relative_child_pos: U8Vec3, child_size: u16) -> I16Vec3 {
+// 	child_pos - (relative_child_pos.as_u16vec3() * child_size).as_i16vec3()
+// }
+
+impl GridTreeNode {
+	fn new_root(depth: u8) -> Self {
+		Self {
+			contents: [GridTreeCell::NONE; SIZE_USIZE_CUBED],
+			parent_offset: 0,
+			depth: depth,
+			used_cell_count: 0,
+		}
+	}
+	fn new(parent_offset: u16, depth: u8) -> Self {
+		Self {
+			contents: [GridTreeCell::NONE; SIZE_USIZE_CUBED],
+			parent_offset: parent_offset,
+			depth: depth,
+			used_cell_count: 0,
+		}
+	}
+	fn get_parent_offset(&self) -> Option<u16> {
+		if self.parent_offset == 0 {
+			None
+		} else {
+			Some(self.parent_offset)
+		}
+	}
+	fn set_parent_offset(&mut self, parent_offset: Option<u16>) {
+		match parent_offset {
+			Some(parent_offset) => self.parent_offset = parent_offset,
+			None => self.parent_offset = 0,
+		}
+	}
+	fn size(&self) -> u16 {
+		1 << (LOG_SIZE * (self.depth + 1))
+	}
+	fn child_size(&self) -> u16 {
+		1 << (LOG_SIZE * self.depth)
+	}
+	fn parent_size(&self) -> u16 {
+		1 << (LOG_SIZE * (self.depth + 2))
+	}
+	fn child_relative_pos(&self, child_contents_pos: U8Vec3) -> U16Vec3 {
+		self.child_size() * child_contents_pos.as_u16vec3()
+	}
+	fn parent_relative_pos(&self, this_contents_pos: U8Vec3) -> U16Vec3 {
+		self.size() * this_contents_pos.as_u16vec3()
+	}
+	// (type, value)
+	fn get_child_cell_from_index(&self, contents_index: u8) -> (u8, u16) {
+		let cell: GridTreeCell = self.contents[contents_index as usize];
+		(cell.value_type(), cell.value())
+	}
+	// (type, value)
+	fn get_child_cell(&self, contents_pos: U8Vec3) -> (u8, u16) {
+		self.get_child_cell_from_index(get_child_contents_index(contents_pos))
+	}
+	fn get_child_cell_raw_from_index(&self, contents_index: u8) -> u16 {
+		self.contents[contents_index as usize].value_raw()
+	}
+	fn get_child_cell_raw(&self, contents_pos: U8Vec3) -> u16 {
+		self.get_child_cell_raw_from_index(get_child_contents_index(contents_pos))
+	}
+	fn get_child_cell_type_and_raw_from_index(&self, contents_index: u8) -> (u8, u16) {
+		let cell: GridTreeCell = self.contents[contents_index as usize];
+		(cell.value_type(), cell.value_raw())
+	}
+	fn get_child_cell_type_and_raw(&self, contents_pos: U8Vec3) -> (u8, u16) {
+		self.get_child_cell_type_and_raw_from_index(get_child_contents_index(contents_pos))
+	}
+	fn set_child_cell_from_index(&mut self, contents_index: u8, cell: GridTreeCell) {
+		self.contents[contents_index as usize] = cell;
+	}
+	fn set_child_cell(&mut self, contents_pos: U8Vec3, cell: GridTreeCell) {
+		self.set_child_cell_from_index(get_child_contents_index(contents_pos), cell)
+	}
+	fn set_child_cell_to_none_from_index(&mut self, contents_index: u8) {
+		self.set_child_cell_from_index(contents_index, GridTreeCell::NONE);
+	}
+	fn set_child_cell_to_none(&mut self, contents_pos: U8Vec3) {
+		self.set_child_cell_to_none_from_index(get_child_contents_index(contents_pos))
+	}
+	fn set_child_cell_to_data_from_index(&mut self, contents_index: u8, data: u16) {
+		self.set_child_cell_from_index(contents_index, GridTreeCell::from_data(data));
+	}
+	fn set_child_cell_to_data(&mut self, contents_pos: U8Vec3, data: u16) {
+		self.set_child_cell_to_data_from_index(get_child_contents_index(contents_pos), data)
+	}
+	fn set_child_cell_to_node_from_index(&mut self, contents_index: u8, node_index: u16) {
+		self.set_child_cell_from_index(contents_index, GridTreeCell::from_node_offset(node_index));
+	}
+	fn set_child_cell_to_node(&mut self, contents_pos: U8Vec3, node_index: u16) {
+		self.set_child_cell_to_node_from_index(get_child_contents_index(contents_pos), node_index)
+	}
+}
+
+#[derive(Debug)]
+pub struct GridTree {
+	nodes: Vec<GridTreeNode>, // root at 0
+	root_pos: I16Vec3,
 	item_count: u64,
 }
 
-impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
+impl GridTree {
 	pub fn new() -> Self {
 		Self {
-			nodes: vec![GridTreeNode::new(None, I16Vec3::splat(SIZE as i16 / -2 + 1), 1)],
-			root: 0,
+			nodes: vec![GridTreeNode::new_root(0)],
+			root_pos: I16Vec3::ZERO,
 			item_count: 0,
 		}
 	}
-	fn add_node(&mut self, parent: Option<u32>, pos: I16Vec3, scale: u16) -> u32 {
-		assert!(self.get_next_added_node_index() == self.nodes.len() as u32);
-		self.nodes.push(GridTreeNode::new(parent, pos, scale));
-		self.nodes.len() as u32 - 1
+	fn add_child_node(&mut self, parent_index: u32, contents_pos: U8Vec3) -> u16 {
+		let next_node_offset = (self.nodes.len() as u32 - parent_index) as u16;
+		let parent = &mut self.nodes[parent_index as usize];
+		assert!(next_node_offset != 0);
+		parent.set_child_cell_to_node(contents_pos, next_node_offset);
+		let parent_depth = parent.depth;
+		self.nodes.push(GridTreeNode::new(next_node_offset, parent_depth));
+		next_node_offset
 	}
-	fn get_next_added_node_index(&self) -> u32 {
-		self.nodes.len() as u32
-	}
-	fn get_node(&self, index: u32) -> &GridTreeNode<T> {
-		self.nodes.get(index as usize).unwrap()
-	}
-	fn get_node_mut(&mut self, index: u32) -> &mut GridTreeNode<T> {
-		self.nodes.get_mut(index as usize).unwrap()
-	}
-	pub fn get_cell(&self, pos: &I16Vec3) -> Option<&ChildCell<T>> {
-		let root = self.get_node(self.root);
-		let root_relative_pos = pos - root.pos;
-		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
-		let root_size = root.scale * SIZE as u16;
-		let mut upos = root_relative_pos.as_u16vec3();
-		if upos.x >= root_size || upos.y >= root_size || upos.z >= root_size { return None; }
-		let mut index = self.root;
-		loop {
-			let node = self.get_node(index);
-			let node_size = node.scale;
-			let local_pos = (upos / node_size).as_u8vec3();
-			upos %= node_size;
-			let cell = node.get_child_cell(local_pos);
-			match cell {
-				ChildCell::Node { node: child_node } => {
-					index = *child_node;
-				}
-				_ => return Some(cell),
-			};
-		}
-	}
-	pub fn get(&self, pos: &I16Vec3) -> Option<&T> {
-		match self.get_cell(&pos) {
-			Some( value ) => match value {
-				crate::grid_tree::ChildCell::Data { data } => return Some(data),
-				_ => None,
+	fn make_new_root(&mut self, contents_pos_of_old_root: U8Vec3) {
+		let old_root = &mut self.nodes[0];
+		old_root.set_parent_offset(Some(1));
+		self.root_pos -= (old_root.size() * contents_pos_of_old_root.as_u16vec3()).as_i16vec3();
+		let new_root_depth = old_root.depth + 1;
+		self.nodes.insert(0, GridTreeNode {
+			contents: {
+				let mut contents = [GridTreeCell::NONE; SIZE_USIZE_CUBED];
+				contents[get_child_contents_index(contents_pos_of_old_root) as usize] = GridTreeCell::from_node_offset(1);
+				contents
 			},
-			None => None,
+			parent_offset: 0,
+			depth: new_root_depth,
+			used_cell_count: 1,
+		});
+	}
+	pub fn get(&self, pos: &I16Vec3) -> Option<u16> {
+		let root_relative_pos = pos - self.root_pos;
+		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
+		let root_relative_pos = root_relative_pos.as_u16vec3();
+		let root = &self.nodes[0];
+		if root_relative_pos.x >= root.size() || root_relative_pos.y >= root.size() || root_relative_pos.z >= root.size() { return None; }
+		let mut current_node_index: u32 = 0;
+		let mut current_relative_pos = root_relative_pos;
+		loop {
+			let node = &self.nodes[current_node_index as usize];
+			let contents_pos = (current_relative_pos / node.child_size()).as_u8vec3();
+			let cell = node.get_child_cell(contents_pos);
+			match cell.0 {
+				0 => return None,
+				1 => return Some(cell.1),
+				2 => {
+					current_node_index += GridTreeCell::raw_as_node(cell.1) as u32;
+					current_relative_pos %= node.child_size();
+				},
+				_ => unsafe { unreachable_unchecked() }
+			}
 		}
 	}
 	pub fn contains_key(&self, pos: &I16Vec3) -> bool {
@@ -144,296 +257,258 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 		}
 		return true;
 	}
-	// Assumes childern are dead. Returns any mapping update.
-	pub fn remove_node(&mut self, node_index: u32) -> Option<(u32, u32)> {
-		if node_index as usize + 1 == self.nodes.len() {
-			self.nodes.pop();
-			return None;
-		}
-		let end = self.nodes.pop().unwrap();
-		for cell in end.contents {
-			match cell {
-				ChildCell::Node { node: child_index } => {
-					*self.nodes[child_index as usize].parent.as_mut().unwrap() = node_index;
-				},
-				_ => { }
-			}
-		}
-		if let Some(parent_index) = end.parent {
-			if (parent_index as usize) < self.nodes.len() {
-				let end_pos = end.pos;
-				let parent = &mut self.nodes[parent_index as usize];
-				let relitive_pos = get_relitive_child_pos(&end_pos, &parent.pos, parent.scale);
-				parent.contents[get_child_index(relitive_pos) as usize] = ChildCell::Node { node: node_index };
-			}
-		}
-		self.nodes[node_index as usize] = end;
-		if (self.root as usize) == self.nodes.len() {
-			self.root = node_index;
-		}
-		return Some((self.nodes.len() as u32, node_index));
-	}
-	// assumes the split cell is of type data
-	pub fn split(&mut self, node_index: u32, pos: U8Vec3) -> u32 {
-		let node = self.get_node(node_index);
-		assert!(node.scale != 1); // cant split cells of size 1
-		let node_pos = node.pos;
-		let node_scale = node.scale;
-		let child_index = self.add_node(Some(node_index), node_pos + (pos.as_u16vec3() * node_scale).as_i16vec3(), node_scale / SIZE as u16);
-		let cell = self.get_node_mut(node_index).get_child_cell_mut(pos);
-		let cell_data = *match cell {
-			ChildCell::Data { data } => { data },
-			_ => unreachable!(),
-		};
-		*cell = ChildCell::Node { node: child_index };
-		let child_node = self.get_node_mut(child_index);
-		child_node.child_count = 8;
-		child_node.contents = [ChildCell::Data { data: cell_data }; SIZE_USIZE_CUBED];
-		child_index
-	}
-	pub fn try_merge(&mut self, node_index: u32, value: T, ignored_index: u8) -> bool {
-		let node = self.get_node(node_index);
-		if node.child_count < 7 {
-			return false;
-		}
-		for child_index in 0..SIZE_CUBED {
-			if child_index == ignored_index { continue; }
-			match node.contents[child_index as usize] {
-				ChildCell::Data { data } => if data != value { return false },
-				_ => return false,
-			}
-		}
-		let child_pos = node.pos;
-		if let Some(mut parent_index) = node.parent {
-			if let Some((pre, post)) = self.remove_node(node_index) {
-				if parent_index == pre {
-					parent_index = post;
-				}
-			}
-			let parent = self.get_node_mut(parent_index);
-			let local_child_pos = get_relitive_child_pos(&child_pos, &parent.pos, parent.scale);
-			if self.try_merge(parent_index, value, get_child_index(local_child_pos)) {
-				return true;
-			}
-			*self.get_node_mut(parent_index).get_child_cell_mut(local_child_pos) = ChildCell::Data { data: value };
-			return true;
-		}
-		return false;
-	}
-	pub fn insert(&mut self, pos: I16Vec3, t: T) -> Option<T> {
-		let root = self.get_node(self.root);
-		let mut root_world_pos = root.pos;
-		let mut root_scale = root.scale;
-		let mut root_relative_pos = pos - root_world_pos;
-		let mut root_size = root_scale * SIZE as u16;
-		let mut upos = root_relative_pos.as_u16vec3();
-		while root_relative_pos.is_negative_bitmask() != 0 || upos.x >= root_size || upos.y >= root_size || upos.z >= root_size {
-			let old_root = self.root;
-			let new_root_pos = SIZE / 2 - (root_relative_pos.is_negative_bitmask() == 0) as u8;
-			root_world_pos = root_world_pos - I16Vec3::splat((root_size * new_root_pos as u16) as i16);
-			self.root = self.add_node(None, root_world_pos, root_scale * SIZE as u16);
-			self.get_node_mut(old_root).parent = Some(self.root);
-			let new_root_node = self.get_node_mut(self.root);
-			new_root_node.child_count += 1;
-			*new_root_node.get_child_cell_mut(U8Vec3::splat(new_root_pos)) = ChildCell::Node { node: old_root };
-			root_relative_pos = pos - root_world_pos;
-			upos = root_relative_pos.as_u16vec3();
-			root_scale = root_size;
-			root_size *= SIZE as u16;
-		}
-		let mut index = self.root;
+
+	fn make_sure_root_covers_pos(&mut self, pos: &I16Vec3) {
 		loop {
-			let node = self.get_node(index);
-			let node_size = node.scale;
-			let local_pos = (upos / node_size).as_u8vec3();
-			if node_size == 1 {
-				let local_pos_index = get_child_index(local_pos);
-				let cell = &node.contents[local_pos_index as usize];
-				match cell {
-					ChildCell::None => {
-						if self.try_merge(index, t, local_pos_index) {
-							return None;
-						}
-						let node = self.get_node_mut(index);
-						let cell = &mut node.contents[local_pos_index as usize];
-						*cell = ChildCell::Data { data: t };
-						node.child_count += 1;
-						self.item_count += 1;
-						return None;
-					},
-					ChildCell::Node { node: _ } => unreachable!(),
-					ChildCell::Data { data } => {
-						let held_data = data.clone();
-						if self.try_merge(index, t, local_pos_index) {
-							return Some(held_data);
-						}
-						let node = self.get_node_mut(index);
-						node.contents[local_pos_index as usize] = ChildCell::Data { data: t };
-						return Some(held_data);
-					},
-				}
+			let root_relative_pos = pos - self.root_pos;
+			let root = &self.nodes[0];
+			if 	root_relative_pos.is_negative_bitmask() != 0 ||
+				root_relative_pos.x >= root.size() as i16 ||
+				root_relative_pos.y >= root.size() as i16 ||
+				root_relative_pos.z >= root.size() as i16
+			{
+				let contents_pos_of_old_root = U8Vec3::new(
+					if root_relative_pos.x < 0 { SIZE - 1 } else { 0 },
+					if root_relative_pos.y < 0 { SIZE - 1 } else { 0 },
+					if root_relative_pos.z < 0 { SIZE - 1 } else { 0 },
+				);
+				self.make_new_root(contents_pos_of_old_root);
+			} else {
+				break;
 			}
-			upos %= node_size;
-			let node_pos = node.pos;
-			let node = self.get_node_mut(index);
-			let cell = node.get_child_cell_mut(local_pos);
-			match cell {
-				ChildCell::None => {
-					unsafe {
-						let ptr = cell as *mut ChildCell<T>;
-						node.child_count += 1;
-						*ptr = ChildCell::Node { node: self.get_next_added_node_index() };
-					};
-					index = self.add_node(Some(index), node_pos + (node_size * local_pos.as_u16vec3()).as_i16vec3(), node_size / SIZE as u16);
-				},
-				ChildCell::Node { node: child_node } => {
-					index = *child_node;
-				}
-				ChildCell::Data { data: _ } => {
-					index = self.split(index, local_pos);
-				}
-			};
 		}
 	}
-	pub fn remove(&mut self, pos: &I16Vec3) -> Option<T> {
-		let root = self.get_node(self.root);
-		let root_relative_pos = pos - root.pos;
-		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
-		let root_size = root.world_size();
-		let mut upos = root_relative_pos.as_u16vec3();
-		if upos.x >= root_size || upos.y >= root_size || upos.z >= root_size { return None; }
-		let mut index = self.root;
+	// parent depth must be more than 0 and at pos in parent there must be a data/none cell containing current_value_raw
+	fn set_voxel_in_non_node_cell(&mut self, parent_node_index: u32, current_cell: GridTreeCell, cell_to_set: GridTreeCell, pos: &U16Vec3) {
+		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
+		let parent = &mut self.nodes[parent_node_index as usize];
+		if current_cell.value_type() == 0 {
+			parent.used_cell_count += 1;
+		}
+		let child_size = parent.child_size();
+		let relative_pos = (pos / child_size).as_u8vec3();
+		assert!(next_node_offset != 0);
+		parent.set_child_cell_to_node(relative_pos, next_node_offset);
+		let parent_depth = parent.depth;
+		self.nodes.push(GridTreeNode {
+			contents: [current_cell; SIZE_USIZE_CUBED],
+			parent_offset: next_node_offset,
+			depth : parent_depth - 1,
+			used_cell_count: if current_cell.value_type() == 0 { 0 } else { SIZE_CUBED },
+		});
+		if parent_depth == 1 {
+			let node = &mut self.nodes[(parent_node_index + next_node_offset as u32) as usize];
+			if cell_to_set.value_type() == 0 {
+				node.used_cell_count -= 1;
+			} else if current_cell.value_type() == 0 {
+				node.used_cell_count += 1;
+			}
+			node.set_child_cell((pos % child_size).as_u8vec3(), cell_to_set);
+		} else {
+			self.set_voxel_in_non_node_cell(parent_node_index + next_node_offset as u32, current_cell, cell_to_set, &(pos % child_size));
+		}
+	}
+	// cell_to_merge cant be NODE. pos_in_node is any pos
+	fn try_merge(&mut self, node_index: u32, data: u16, cell_index_stack: &[u8]) {
+		let node = &mut self.nodes[node_index as usize];
+		if let Some(parent_offset) = node.get_parent_offset() { // if it dont have a parent it cant be merged
+			if node.used_cell_count != SIZE_CUBED {
+				return;
+			}
+			for cell_index in 0..SIZE_CUBED {
+				let cell = node.contents[cell_index as usize];
+				if cell != GridTreeCell::from_data(data) { return; }
+			}
+			self.remove_node(node_index);
+			let parent_index = node_index - parent_offset as u32;
+			self.nodes[parent_index as usize].contents[cell_index_stack[cell_index_stack.len() - 1] as usize] = GridTreeCell::from_data(data);
+			self.try_merge(parent_index, data, &cell_index_stack[0..(cell_index_stack.len() - 1)]);
+		}
+	}
+	fn try_merge_empty(&mut self, node_index: u32, cell_index_stack: &[u8]) {
+		let node = &mut self.nodes[node_index as usize];
+		if let Some(parent_offset) = node.get_parent_offset() { // if it dont have a parent it cant be merged
+			if node.used_cell_count != 0 {
+				return;
+			}
+			self.remove_node(node_index);
+			let parent_index = node_index - parent_offset as u32;
+			let parent_node = &mut self.nodes[parent_index as usize];
+			parent_node.used_cell_count -= 1;
+			parent_node.set_child_cell_to_none_from_index(cell_index_stack[cell_index_stack.len() - 1]);
+			self.try_merge_empty(parent_index, &cell_index_stack[0..(cell_index_stack.len() - 1)]);
+		}
+	}
+	// Assumes childern are dead. // Does nothing (leaks the memory)
+	pub fn remove_node(&mut self, _node_index: u32) {
+
+	}
+
+	pub fn insert(&mut self, pos: &I16Vec3, data: u16) -> Option<u16> {
+		self.make_sure_root_covers_pos(pos);
+		let mut current_node_index: u32 = 0;
+		let mut current_relative_pos = (pos - self.root_pos).as_u16vec3();
+		let mut cell_index_stack = [0; MAX_TREE_DEPTH_USIZE];
+		let mut cell_index_stack_size = 0;
 		loop {
-			let node = self.get_node_mut(index);
-			let node_size = node.scale;
-			let local_pos = (upos / node_size).as_u8vec3();
-			upos %= node_size;
-			let child_count = node.child_count;
-			let cell = node.get_child_cell_mut(local_pos);
-			match *cell {
-				ChildCell::None => { return None; },
-				ChildCell::Node { node: child_node } => {
-					index = child_node;
-				},
-				ChildCell::Data { data: removed_data } => {
-					if node_size != 1 {
-						index = self.split(index, local_pos);
+			let node = &mut self.nodes[current_node_index as usize];
+			let contents_pos = (current_relative_pos / node.child_size()).as_u8vec3();
+			let contents_index = get_child_contents_index(contents_pos);
+			cell_index_stack[cell_index_stack_size] = contents_index;
+			cell_index_stack_size += 1;
+			let cell = node.get_child_cell_type_and_raw_from_index(contents_index);
+			match cell.0 {
+				0 => {
+					if node.depth == 0 {
+						node.used_cell_count += 1;
+						node.set_child_cell_to_data(contents_pos, data);
+						self.try_merge(current_node_index, data, &cell_index_stack[0..cell_index_stack_size]);
 					} else {
-						if child_count == 1 {
-							let mut node = node;
-							loop {
-								if let Some(mut parent) = node.parent {
-									if let Some((pre, post)) = self.remove_node(index) {
-										if parent == pre {
-											parent = post;
-										}
-									}
-									node = self.get_node_mut(parent);
-									index = parent;
-									if node.child_count != 1 {
-										break;
-									}
-								} else {
-									break;
-								}
-							}
-							assert!((pos - node.pos).is_negative_bitmask() == 0);
-							let local_pos = ((pos - node.pos).as_u16vec3() / node.scale).as_u8vec3();
-							*node.get_child_cell_mut(local_pos) = ChildCell::None;
-							node.child_count -= 1;
-							self.item_count -= 1;
-							return Some(removed_data);
-						} else {
-							let out = match replace(cell, ChildCell::None) {
-								ChildCell::Data { data } => data,
-								_ => unreachable!()
-							};
-							node.child_count -= 1;
-							self.item_count -= 1;
-							return Some(out);
-						}
+						self.set_voxel_in_non_node_cell(current_node_index, GridTreeCell::from_raw(cell.1), GridTreeCell::from_data(data), &current_relative_pos);
 					}
+					self.item_count += 1;
+					return None;
 				},
-			};
+				1 => {
+					if GridTreeCell::raw_as_data(cell.1) == data {
+						return Some(GridTreeCell::raw_as_data(cell.1));
+					}
+					if node.depth == 0 {
+						node.set_child_cell_to_data(contents_pos, data);
+						self.try_merge(current_node_index, data, &cell_index_stack[0..cell_index_stack_size]);
+					} else {
+						self.set_voxel_in_non_node_cell(current_node_index, GridTreeCell::from_raw(cell.1), GridTreeCell::from_data(data), &current_relative_pos);
+					}
+					return Some(GridTreeCell::raw_as_data(cell.1));
+				},
+				2 => {
+					current_node_index += GridTreeCell::raw_as_node(cell.1) as u32;
+					current_relative_pos %= node.child_size();
+				},
+				_ => unsafe { unreachable_unchecked() }
+			}
 		}
 	}
+
+	pub fn remove(&mut self, pos: &I16Vec3) -> Option<u16> {
+		let root_relative_pos = pos - self.root_pos;
+		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
+		let root_relative_pos = root_relative_pos.as_u16vec3();
+		let root = &self.nodes[0];
+		if root_relative_pos.x >= root.size() || root_relative_pos.y >= root.size() || root_relative_pos.z >= root.size() { return None; }
+		let mut current_node_index: u32 = 0;
+		let mut current_relative_pos = root_relative_pos;
+		let mut cell_index_stack = [0; MAX_TREE_DEPTH_USIZE];
+		let mut cell_index_stack_size = 0;
+		loop {
+			let node = &mut self.nodes[current_node_index as usize];
+			let contents_pos = (current_relative_pos / node.child_size()).as_u8vec3();
+			let contents_index = get_child_contents_index(contents_pos);
+			cell_index_stack[cell_index_stack_size] = contents_index;
+			cell_index_stack_size += 1;
+			let cell = node.get_child_cell_type_and_raw_from_index(contents_index);
+			match cell.0 {
+				0 => return None,
+				1 => {
+					if node.depth == 0 {
+						node.set_child_cell_to_none(contents_pos);
+						node.used_cell_count -= 1;
+						self.try_merge_empty(current_node_index, &cell_index_stack[0..cell_index_stack_size]);
+					} else {
+						self.set_voxel_in_non_node_cell(current_node_index, GridTreeCell::from_raw(cell.1), GridTreeCell::NONE, &current_relative_pos);
+					}
+					self.item_count -= 1;
+					return Some(cell.1);
+				},
+				2 => {
+					current_node_index += GridTreeCell::raw_as_node(cell.1) as u32;
+					current_relative_pos %= node.child_size();
+				},
+				_ => unsafe { unreachable_unchecked() }
+			}
+		}
+	}
+
 	pub fn len(&self) -> u64 { return self.item_count; }
 	pub fn is_empty(&self) -> bool { return self.item_count == 0; }
-	pub fn iter<'a>(&'a self) -> GridTreeIterator<'a, T> {
-		GridTreeIterator::<'a>::new(self)
-	}
+	pub fn iter(&self) -> GridTreeIterator<'_> { GridTreeIterator::new(self) }
+
 	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(I16Vec3, I8Vec3, f32)> {
 		let max_length = max_length.unwrap_or(f32::MAX);
 		let origin = pose.translation;
 		let dir = pose.rotation * Vec3::Z;
 		let inv_dir = Vec3::ONE / dir;
-		let dir_sign = I16Vec3::new(
-			(dir.x >= 0.0) as i16,
-			(dir.y >= 0.0) as i16,
-			(dir.z >= 0.0) as i16,
-		);
 
-		let root = self.get_node(self.root);
-		let root_min = root.pos.as_vec3();
-		let root_max = root_min + Vec3::splat(root.world_size() as f32);
-
-		let root_entry_distance = {
-			let dist1 = (root_min - origin) * inv_dir;
-			let dist2 = (root_max - origin) * inv_dir;
-			dist1.min(dist2).max_element().max(0.0)
-		};
-		let root_exit_distance = {
-			let dist1 = (root_min - origin) * inv_dir;
-			let dist2 = (root_max - origin) * inv_dir;
-			dist1.max(dist2).min_element()
-		};
-
-		if root_entry_distance > root_exit_distance || root_entry_distance > max_length {
+		if self.nodes.is_empty() {
 			return None;
 		}
 
-		self.dda_node(self.root, origin, inv_dir, dir_sign, root_entry_distance, max_length)
+		let root = &self.nodes[0];
+		let root_min = self.root_pos.as_vec3();
+		let root_max = root_min + Vec3::splat(root.size() as f32);
+
+		let t1 = (root_min - origin) * inv_dir;
+		let t2 = (root_max - origin) * inv_dir;
+		let entry_t = t1.min(t2).max_element().max(0.0);
+		let exit_t  = t1.max(t2).min_element();
+
+		if entry_t > exit_t || entry_t > max_length {
+			return None;
+		}
+
+		let dir_sign = I8Vec3::new(
+			(dir.x >= 0.0) as i8,
+			(dir.y >= 0.0) as i8,
+			(dir.z >= 0.0) as i8,
+		);
+
+		self.raycast_node(0, self.root_pos, origin, inv_dir, dir_sign, entry_t, max_length)
 	}
 
-	fn dda_node(
+	fn raycast_node(
 		&self,
-		node_idx: u32,
+		node_index: u32,
+		node_origin: I16Vec3,
 		origin: Vec3,
 		inv_dir: Vec3,
-		dir_sign: I16Vec3,
-		entry_distance: f32,
-		max_distance: f32,
+		dir_sign: I8Vec3,
+		entry_t: f32,
+		max_t: f32,
 	) -> Option<(I16Vec3, I8Vec3, f32)> {
-		let node = &self.nodes[node_idx as usize];
-		let cell_size = node.scale as f32;
-		let node_pos = node.pos.as_vec3();
-		let step = dir_sign * 2 - I16Vec3::ONE;
+		let node = &self.nodes[node_index as usize];
+		let child_size = node.child_size() as f32;
+		let node_origin_f = node_origin.as_vec3();
 
-		let entry_world_pos = (origin + inv_dir.recip() * entry_distance).clamp(
-			node_pos,
-			node_pos + Vec3::splat(node.world_size() as f32 - f32::EPSILON * cell_size),
-		);
-		let mut cell = ((entry_world_pos - node_pos) / cell_size)
+		// +1 or -1 per axis
+		let step = dir_sign.as_i16vec3() * 2 - I16Vec3::ONE;
+
+		// Entry point in world space (no clamp — let cell coords handle bounds)
+		let entry_world = origin + (Vec3::ONE / inv_dir) * entry_t;
+
+		// Starting cell, clamped to valid range
+		let mut cell = ((entry_world - node_origin_f) / child_size)
 			.floor()
 			.as_i16vec3()
 			.clamp(I16Vec3::ZERO, I16Vec3::splat(SIZE as i16 - 1));
 
-		// Distance along the ray to the exit face of the starting cell, per axis
-		let cell_exit_face_pos = node_pos + (cell + dir_sign).as_vec3() * cell_size;
-		let mut axis_exit_distances = (cell_exit_face_pos - origin) * inv_dir;
-		let axis_step_distances = (Vec3::splat(cell_size) * inv_dir).abs();
+		// t at the exit face of the starting cell, per axis
+		let exit_face_world =
+			node_origin_f + (cell + dir_sign.as_i16vec3()).as_vec3() * child_size;
+		let mut axis_t = (exit_face_world - origin) * inv_dir;
+		let dt = (Vec3::splat(child_size) * inv_dir).abs();
 
-		let mut current_distance = entry_distance;
-
-		// Determine entry face normal axis from which axis the ray entered on
-		let axis_entry_distances = axis_exit_distances - axis_step_distances;
-		let mut hit_normal_axis = if axis_entry_distances.x > axis_entry_distances.y && axis_entry_distances.x > axis_entry_distances.z {
-			0
-		} else if axis_entry_distances.y > axis_entry_distances.z {
+		// Determine which face the ray entered on — the axis most recently crossed
+		// (highest axis_t - dt value). This gives the correct normal for the first cell.
+		let entry_axis_t = axis_t - dt;
+		let mut hit_axis = if entry_axis_t.x >= entry_axis_t.y && entry_axis_t.x >= entry_axis_t.z {
+			0usize
+		} else if entry_axis_t.y >= entry_axis_t.z {
 			1
 		} else {
 			2
 		};
+
+		let mut t = entry_t;
 
 		loop {
 			if cell.x < 0 || cell.x >= SIZE as i16
@@ -443,245 +518,131 @@ impl<T: Copy + Clone + PartialEq + Debug> GridTree<T> {
 				return None;
 			}
 
-			let cell_exit_distance = axis_exit_distances.min_element().min(max_distance);
-			let idx = get_child_index(cell.as_u8vec3());
+			let contents_pos = cell.as_u8vec3();
+			let contents_index = get_child_contents_index(contents_pos);
+			let child_cell = node.contents[contents_index as usize];
 
-			match &node.contents[idx as usize] {
-				ChildCell::None => {}
-				ChildCell::Data { data: _ } => {
-					if current_distance <= max_distance {
-						let hit_world_pos = origin + inv_dir.recip() * current_distance;
-						let mut normal = I8Vec3::ZERO;
-						normal[hit_normal_axis] = -(step[hit_normal_axis] as i8);
-						let scale1_pos = (hit_world_pos - normal.as_vec3() * 0.5).floor().as_i16vec3();
-						return Some((scale1_pos, normal, current_distance));
-					} else {
-						return None;
-					}
+			let cell_exit_t = axis_t.min_element().min(max_t);
+
+			match child_cell.value_type() {
+				0 => {}
+				1 => {
+					if t > max_t { return None; }
+					let child_world_origin = node_origin
+						+ (contents_pos.as_u16vec3() * node.child_size()).as_i16vec3();
+					let mut normal = I8Vec3::ZERO;
+					normal[hit_axis] = -(step[hit_axis] as i8);
+					return Some((child_world_origin, normal, t));
 				}
-				ChildCell::Node { node: child_idx } => {
-					if let Some(hit) = self.dda_node(
-						*child_idx,
+				2 => {
+					let child_node_index = node_index + child_cell.value() as u32;
+					let child_world_origin = node_origin
+						+ (contents_pos.as_u16vec3() * node.child_size()).as_i16vec3();
+					if let Some(hit) = self.raycast_node(
+						child_node_index,
+						child_world_origin,
 						origin,
 						inv_dir,
 						dir_sign,
-						current_distance,
-						cell_exit_distance,
+						t,
+						cell_exit_t,
 					) {
 						return Some(hit);
 					}
 				}
+				_ => unsafe { unreachable_unchecked() }
 			}
 
-			if axis_exit_distances.x < axis_exit_distances.y {
-				if axis_exit_distances.x < axis_exit_distances.z {
-					if axis_exit_distances.x > max_distance { return None; }
-					current_distance = axis_exit_distances.x;
-					hit_normal_axis = 0;
-					cell.x += step.x;
-					axis_exit_distances.x += axis_step_distances.x;
-				} else {
-					if axis_exit_distances.z > max_distance { return None; }
-					current_distance = axis_exit_distances.z;
-					hit_normal_axis = 2;
-					cell.z += step.z;
-					axis_exit_distances.z += axis_step_distances.z;
-				}
-			} else if axis_exit_distances.y < axis_exit_distances.z {
-				if axis_exit_distances.y > max_distance { return None; }
-				current_distance = axis_exit_distances.y;
-				hit_normal_axis = 1;
-				cell.y += step.y;
-				axis_exit_distances.y += axis_step_distances.y;
+			// Advance to next cell along smallest-t axis
+			let min_axis = if axis_t.x < axis_t.y {
+				if axis_t.x < axis_t.z { 0 } else { 2 }
 			} else {
-				if axis_exit_distances.z > max_distance { return None; }
-				current_distance = axis_exit_distances.z;
-				hit_normal_axis = 2;
-				cell.z += step.z;
-				axis_exit_distances.z += axis_step_distances.z;
-			}
-		}
-	}
+				if axis_t.y < axis_t.z { 1 } else { 2 }
+			};
 
-	fn node_entry_t(&self, origin: Vec3, inv_dir: Vec3, aabb: &(Vec3, Vec3)) -> f32 {
-		let t1 = (aabb.0 - origin) * inv_dir;
-		let t2 = (aabb.1 - origin) * inv_dir;
-		t1.min(t2).max_element()
-	}
-	pub fn render_debug(&self, pose: &Pose) {
-		let mut stack = vec![self.root];
-		while let Some(idx) = stack.pop() {
-			let node = &self.nodes[idx as usize];
-			let node_size = node.scale * SIZE as u16;
-			debug_draw::rectangular_prism(&(pose * Pose::new(node.pos.as_vec3(), Quat::IDENTITY)), Vec3::splat(node_size as f32), &Vec4::new(1.0, 1.0, 1.0, 0.0075), true);
-			if node.child_count == 0 {
-				continue;
-			} else {
-				for i in 0..SIZE.pow(3) as u8 {
-					match &node.contents[i as usize] {
-						ChildCell::Node { node: child_node } => {
-							stack.push(*child_node);
-						},
-						ChildCell::Data { data: _ } => { },
-						ChildCell::None => { },
-					};
-				}
-			}
-		}
-	}
-	pub fn print_debug_rec(&self, index: u32) {
-		if self.nodes.len() <= index as usize {
-			println!("out of range node as {}!", index);
-			return;
-		}
-		let node = &self.nodes[index as usize];
-		if node.scale == 1 {
-			return;
-		}
-		for _ in 0..(20 - ((node.scale) as f32).log2() as u32) {
-			print!(" ");
-		}
-		let mut any = false;
-		println!("{} [", index);
-		for child in node.contents {
-			match child {
-				ChildCell::None => { },
-				ChildCell::Node { node } => {
-					any = true;
-					self.print_debug_rec(node);
-				},
-				ChildCell::Data { data: _ } => { },
-			}
-		}
-		if any {
-			for _ in 0..(20 - ((node.scale) as f32).log2() as u32) {
-				print!(" ");
-			}
-			println!("]");
-		}
-	}
-	pub fn print_debug(&self) {
-		self.print_debug_rec(self.root);
-	}
-}
-
-pub struct GridTreeIterator<'a, T: Copy + Clone + PartialEq + Debug> {
-	tree: &'a GridTree<T>,
-	current_node: u32,
-	current_index: u8,
-}
-
-impl<'a, T: Copy + Clone + PartialEq + Debug> GridTreeIterator<'a, T> {
-	pub fn new(tree: &'a GridTree<T>) -> Self {
-		Self {
-			tree: tree,
-			current_node: tree.root,
-			current_index: 0,
+			if axis_t[min_axis] > max_t { return None; }
+			t = axis_t[min_axis];
+			hit_axis = min_axis;
+			cell[min_axis] += step[min_axis];
+			axis_t[min_axis] += dt[min_axis];
 		}
 	}
 }
 
-impl<'a, T: Copy + Clone + PartialEq + Debug> Iterator for GridTreeIterator<'a, T> {
-	type Item = (I16Vec3, u16, &'a T);
-
-	fn next(&mut self) -> Option<Self::Item> {
-		let mut node: &GridTreeNode<T> = self.tree.get_node(self.current_node);
-		loop {
-			if node.child_count == 0 {
-				if node.parent.is_none() { return None; }
-				let pos = node.pos;
-				self.current_node = node.parent.unwrap();
-				node = self.tree.get_node(self.current_node);
-				self.current_index = get_child_index(((pos - node.pos).as_u16vec3() / node.scale).as_u8vec3()) + 1;
-			} else {
-				for i in self.current_index..SIZE.pow(3) {
-					match &node.contents[i as usize] {
-						ChildCell::Node { node: child_node } => {
-							self.current_index = 0;
-							self.current_node = *child_node;
-							node = self.tree.get_node(self.current_node);
-							break;
-						},
-						ChildCell::Data { data } => {
-							self.current_index = i + 1;
-							return Some((
-								node.get_child_cell_world_pos(i),
-								node.scale,
-								data
-							));
-						},
-						ChildCell::None => { },
-					};
-				}
-				if self.current_index != 0 {
-					if node.parent.is_none() { return None; }
-					let pos = node.pos;
-					self.current_node = node.parent.unwrap();
-					node = self.tree.get_node(self.current_node);
-					self.current_index = get_child_index(((pos - node.pos).as_u16vec3() / node.scale).as_u8vec3()) + 1;
-				}
-			}
-		}
-	}
-}
-
-impl<'a, T: Copy + Clone + PartialEq + Debug> IntoIterator for &'a GridTree<T> {
-	type Item = (I16Vec3, u16, &'a T);
-	type IntoIter = GridTreeIterator<'a, T>;
+impl<'a> IntoIterator for &'a GridTree {
+	type Item = (I16Vec3, u16, u16);
+	type IntoIter = GridTreeIterator<'a>;
 
 	fn into_iter(self) -> Self::IntoIter {
 		self.iter()
 	}
 }
 
-struct DDAState {
-	pos: I16Vec3,
-	step: I16Vec3,
-	length_max: Vec3,
-	t_delta: Vec3,
-	t: f32,
+pub struct GridTreeIterator<'a> {
+	tree: &'a GridTree,
+	stack: Vec<(u32, u8, I16Vec3)>,
 }
 
-impl DDAState {
-	fn new(start: Vec3, dir: Vec3, entry_t: f32) -> Self {
-		let entry_point = start + dir * entry_t.max(0.0);
-		let pos = entry_point.floor().as_i16vec3();
-		let step = I16Vec3::new(
-			if dir.x >= 0.0 { 1 } else { -1 },
-			if dir.y >= 0.0 { 1 } else { -1 },
-			if dir.z >= 0.0 { 1 } else { -1 },
-		);
-		let next_boundary = Vec3::new(
-			if dir.x >= 0.0 { (pos.x + 1) as f32 } else { pos.x as f32 },
-			if dir.y >= 0.0 { (pos.y + 1) as f32 } else { pos.y as f32 },
-			if dir.z >= 0.0 { (pos.z + 1) as f32 } else { pos.z as f32 },
-		);
-		let t_delta = (Vec3::ONE / dir).abs();
-		let length_max = (next_boundary - start) / dir;
-		Self { pos, step, length_max, t_delta, t: entry_t.max(0.0) }
+impl<'a> GridTreeIterator<'a> {
+	pub fn new(tree: &'a GridTree) -> Self {
+		if tree.nodes.is_empty() {
+			return Self { tree, stack: vec![] };
+		}
+		Self {
+			tree,
+			stack: vec![(0, 0, tree.root_pos)],
+		}
 	}
+}
 
-	// Advance to next cell, stepping `scale` units on the chosen axis
-	fn advance(&mut self, scale: i16) {
-		let s = scale as f32;
-		if self.length_max.x < self.length_max.y {
-			if self.length_max.x < self.length_max.z {
-				self.t = self.length_max.x;
-				self.pos.x += self.step.x * scale;
-				self.length_max.x += self.t_delta.x * s;
-			} else {
-				self.t = self.length_max.z;
-				self.pos.z += self.step.z * scale;
-				self.length_max.z += self.t_delta.z * s;
+impl<'a> Iterator for GridTreeIterator<'a> {
+	type Item = (I16Vec3, u16, u16);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		loop {
+			let (node_index, start_child, node_origin) = self.stack.last_mut()?;
+			let node_index = *node_index;
+			let node_origin = *node_origin;
+
+			let node = &self.tree.nodes[node_index as usize];
+			let child_size = node.child_size(); // size of one cell in this node
+
+			// Scan forward from where we left off
+			let scan_start = *start_child;
+			let mut found = false;
+
+			for i in scan_start..SIZE_CUBED {
+				let cell = node.contents[i as usize];
+				let contents_pos = get_child_contents_pos(i);
+				let child_world_origin = node_origin
+					+ (contents_pos.as_u16vec3() * child_size).as_i16vec3();
+
+				match cell.value_type() {
+					0 => { /* NONE – skip */ }
+					1 => {
+						// DATA leaf – yield it and resume after this cell next time
+						*self.stack.last_mut().unwrap() =
+							(node_index, i + 1, node_origin);
+						return Some((child_world_origin, child_size, cell.value()));
+					}
+					2 => {
+						// NODE – push child onto stack, restart inner loop from there
+						let child_node_index = node_index + cell.value() as u32;
+						// Record that we should resume from i+1 when we pop back
+						*self.stack.last_mut().unwrap() =
+							(node_index, i + 1, node_origin);
+						self.stack.push((child_node_index, 0, child_world_origin));
+						found = true;
+						break;
+					}
+					_ => unsafe { unreachable_unchecked() }
+				}
 			}
-		} else if self.length_max.y < self.length_max.z {
-			self.t = self.length_max.y;
-			self.pos.y += self.step.y * scale;
-			self.length_max.y += self.t_delta.y * s;
-		} else {
-			self.t = self.length_max.z;
-			self.pos.z += self.step.z * scale;
-			self.length_max.z += self.t_delta.z * s;
+
+			if !found {
+				// Exhausted this node – pop it
+				self.stack.pop();
+			}
 		}
 	}
 }
