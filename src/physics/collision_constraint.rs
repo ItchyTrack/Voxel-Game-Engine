@@ -6,7 +6,7 @@ use super::{physics_constraint::{PhysicsConstraint, GAMMA}, solver::Solver, coll
 
 pub struct CollisionConstraint {
 	pub collision: collision::Collision,
-	friction: f32,
+	pub friction: f32,
 	basis: Mat3,
 	c0: Vec3,
 	pub penalty: Vec3,

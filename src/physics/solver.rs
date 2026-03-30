@@ -4,7 +4,7 @@ use std::{collections::HashMap};
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use crate::{math::{Mat6, Vec6}, pose::Pose};
+use crate::{collision_audio::CollisionAudioEvent, math::{Mat6, Vec6}, pose::Pose};
 
 use super::{physics_body, collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
 
@@ -31,7 +31,7 @@ impl Solver {
 		Vec6::from_vec3(state_a.translation - state_b.translation, Self::sub_quat(&state_a.rotation, &state_b.rotation))
 	}
 
-	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, mut constraints: Vec<((u32, u32), &mut BallJointConstraint)>, dt: f32, bvh: &BVH<(u32, u32, IVec3)>) {
+	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, mut constraints: Vec<((u32, u32), &mut BallJointConstraint)>, dt: f32, bvh: &BVH<(u32, u32, IVec3)>) -> Vec<CollisionAudioEvent> {
 		let _zone = span!("Solve Collisions");
 		constraints.iter_mut().for_each(|((physics_body_index_1, physics_body_index_2), constraint)| {
 			if let Some(physics_body_1) = physics_bodies.get(*physics_body_index_1 as usize) {
@@ -71,6 +71,12 @@ impl Solver {
 				collision_constraint
 			}
 		).collect();
+		let initial_collision_relative_velocities: Vec<Vec3> = collision_constraints.iter().map(|collision_constraint| {
+			let collision = &collision_constraint.collision;
+			let velocity_1 = physics_bodies[collision.part1.body_index as usize].point_velocity(&collision.part1.collision);
+			let velocity_2 = physics_bodies[collision.part2.body_index as usize].point_velocity(&collision.part2.collision);
+			velocity_1 - velocity_2
+		}).collect();
 		self.collisions_kl_map.clear();
 		let y_all: Vec<Pose> = physics_bodies.iter().map(|physics_body| {
 			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose; }
@@ -160,6 +166,34 @@ impl Solver {
 			physics_bodies[index].pose.rotation = x_guess[index].rotation;
 			physics_bodies[index].pose.translation = x_guess[index].translation - physics_bodies[index].get_global_rotated_center_of_mass();
 		}
+		let final_collision_relative_velocities: Vec<Vec3> = collision_constraints.iter().map(|collision_constraint| {
+			let collision = &collision_constraint.collision;
+			let velocity_1 = physics_bodies[collision.part1.body_index as usize].point_velocity(&collision.part1.collision);
+			let velocity_2 = physics_bodies[collision.part2.body_index as usize].point_velocity(&collision.part2.collision);
+			velocity_1 - velocity_2
+		}).collect();
+		let mut collision_audio_events = Vec::with_capacity(collision_constraints.len());
+		for (index, collision_constraint) in collision_constraints.iter().enumerate() {
+			let collision = &collision_constraint.collision;
+			let contact_normal = (collision.part2.collision - collision.part1.collision).normalize();
+			let pre_relative_velocity = initial_collision_relative_velocities[index];
+			let post_relative_velocity = final_collision_relative_velocities[index];
+			let contact_position = (collision.part1.collision + collision.part2.collision) * 0.5;
+			if !contact_normal.is_finite() || !pre_relative_velocity.is_finite() || !post_relative_velocity.is_finite() || !contact_position.is_finite() {
+				continue;
+			}
+
+			collision_audio_events.push(CollisionAudioEvent {
+				body1_id: physics_bodies[collision.part1.body_index as usize].id(),
+				body2_id: physics_bodies[collision.part2.body_index as usize].id(),
+				contact_position,
+				contact_normal,
+				pre_relative_velocity,
+				post_relative_velocity,
+				friction_coefficient: collision_constraint.friction,
+			});
+		}
+
 		// save K and L
 		for collision_constraint in collision_constraints {
 			let collision = collision_constraint.collision;
@@ -175,6 +209,7 @@ impl Solver {
 				)
 			}, (collision_constraint.penalty, collision_constraint.lambda));
 		}
+		collision_audio_events
 	}
 }
 

@@ -4,6 +4,8 @@ use rtrb::{Consumer, Producer, RingBuffer};
 
 use glam::Vec3;
 
+use crate::collision_audio::CollisionAudioEvent;
+
 use super::instructions::AudioInstruction;
 use super::mixer::build_output_stream_typed;
 
@@ -87,6 +89,31 @@ impl AudioEngine {
 
 	pub fn set_listener(&mut self, listener: ListenerState) {
 		self.push_instruction(AudioInstruction::SetListener(listener));
+	}
+
+	pub fn submit_collision_events(&mut self, events: &Vec<CollisionAudioEvent>) {
+		let mut max_vel_change: f32 = 0.0;
+		for event in events {
+			let relative_velocity_change = event.pre_relative_velocity.length() - event.post_relative_velocity.length();
+			max_vel_change = max_vel_change.max(relative_velocity_change);
+			if relative_velocity_change <= 3.0 {
+				continue;
+			}
+			// push sine waves manually
+			self.push_instruction(
+				AudioInstruction::SpawnVoice(
+					SpawnVoiceInstruction {
+						position: event.contact_position,
+						frequency_hz: 80.0 + relative_velocity_change * 0.4,
+						gain: 0.002 + relative_velocity_change * 0.0008,
+						max_volume_distance: 1.0,
+						distance_falloff: DEFAULT_DISTANCE_FALLOFF,
+						duration_seconds: 0.1 + relative_velocity_change * 0.01,
+						decay_rate: (40.0 - relative_velocity_change * 0.3).max(10.0),
+					}
+				)
+			);
+		}
 	}
 
 	fn push_instruction(&mut self, instruction: AudioInstruction) {

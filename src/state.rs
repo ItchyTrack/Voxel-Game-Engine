@@ -131,7 +131,10 @@ impl State {
 		let time_step = 1.0 / 120.0;
 		let current_time = Instant::now();
 		while self.leaky_bucket >= time_step {
-			self.physics_engine.update(time_step);
+			let collision_events = self.physics_engine.update(time_step);
+			if !collision_events.is_empty() {
+				self.audio_engine.submit_collision_events(&collision_events);
+			}
 			self.leaky_bucket -= time_step;
 			let elapsed = current_time.elapsed().as_secs_f32();
 			if elapsed > 1.0 / 60.0 {
@@ -606,14 +609,16 @@ impl State {
 	}
 
 	pub fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
-		// for physics_body in self.physics_engine.physics_bodies() {
+		for physics_body in self.physics_engine.physics_bodies() {
 			// for grid in physics_body.grids() {
 			// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
 			// }
-			// if !physics_body.is_static {
+			if !physics_body.is_static {
+				let aabb = physics_body.aabb().unwrap();
+				debug_draw::aabb(aabb.0, aabb.1, &Vec4::new(1.0, 0.0, 0.0, 1.0));
 			// 	physics_body.render_debug_inertia_box();
-			// }
-		// }
+			}
+		}
 		if let Some(player_camera) = self.ecs.get_component::<camera::Camera>(self.player_id) {
 			// let mut rendering_meshes: Vec<(PackedBufferGroupId, Pose)> = vec![];
 			// {

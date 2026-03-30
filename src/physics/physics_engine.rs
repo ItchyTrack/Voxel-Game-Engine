@@ -3,7 +3,7 @@ use std::{cell::{Ref, RefCell}, collections::HashMap};
 use glam::{I8Vec3, Vec3, IVec3};
 use tracy_client::span;
 
-use crate::{pose::Pose};
+use crate::{collision_audio::CollisionAudioEvent, pose::Pose};
 
 use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver, ball_joint_constraint::BallJointConstraint};
 
@@ -51,7 +51,8 @@ impl PhysicsEngine {
 		}
 	}
 
-	pub fn update(&mut self, dt: f32) {
+	pub fn update(&mut self, dt: f32) -> Vec<CollisionAudioEvent> {
+		let collision_audio_events = {
 		{
 			let bvh = &get_bvh_macro!(self);
 			let _zone = span!("Collect constraints");
@@ -59,9 +60,11 @@ impl PhysicsEngine {
 				Some(((*self.physics_body_id_to_index.get(id1)?, *self.physics_body_id_to_index.get(id2)?), constraint))
 			}).collect();
 			drop(_zone);
-			self.solver.solve(&mut self.physics_bodies, constraints, dt, bvh);
+			self.solver.solve(&mut self.physics_bodies, constraints, dt, bvh)
 		}
+		};
 		*self.bvh.borrow_mut() = None;
+		collision_audio_events
 	}
 
 	pub fn bvh(&self) -> Ref<'_, BVH<(u32, u32, IVec3)>> {

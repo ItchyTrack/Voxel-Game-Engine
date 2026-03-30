@@ -13,6 +13,7 @@ mod world_gen;
 mod grid_tree;
 mod debug_draw;
 mod entity_component_system;
+mod collision_audio;
 mod gpu_objects {
 	pub mod gpu_bvh;
 	pub mod gpu_grid_tree;
