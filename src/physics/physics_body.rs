@@ -489,4 +489,9 @@ impl PhysicsBody {
 	pub fn grid_to_world_vec(&self, grid_index: u32, pos: &Vec3) -> Vec3 { self.local_to_world_vec(&self.grids[grid_index as usize].local_to_body_vec(pos)) }
 	pub fn world_to_grid_rot(&self, grid_index: u32, rot: &Quat) -> Quat { self.grids[grid_index as usize].body_to_local_rot(&self.world_to_local_rot(rot)) }
 	pub fn grid_to_world_rot(&self, grid_index: u32, rot: &Quat) -> Quat { self.local_to_world_rot(&self.grids[grid_index as usize].local_to_body_rot(rot)) }
+
+	pub fn point_velocity(&self, pos: &Vec3) -> Vec3 {
+		let offset_from_center_of_mass = pos - self.get_global_center_of_mass();
+		self.velocity + self.angular_velocity.cross(offset_from_center_of_mass)
+	}
 }
