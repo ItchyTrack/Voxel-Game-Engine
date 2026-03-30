@@ -119,6 +119,7 @@ impl ApplicationHandler<State> for App {
 				state.handle_key(event_loop, code, key_state.is_pressed())
 			}
 			WindowEvent::MouseInput { state: button_state, .. } if button_state.is_pressed() => {
+				state.audio_engine.resume();
 				state.set_mouse_captured(true);
 			}
 			_ => {}

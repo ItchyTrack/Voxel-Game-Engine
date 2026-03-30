@@ -11,16 +11,23 @@ use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabM
 use crate::{entity_component_system, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
+use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
 use crate::voxels::Voxel;
 use crate::debug_draw;
+
+const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
+const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
 
 pub struct State {
 	pub renderer: Renderer,
 	pub mouse_captured: bool,
+	pub audio_engine: AudioEngine,
 	pub physics_engine: PhysicsEngine,
 	pub ecs: entity_component_system::EntityComponentSystem,
 	pub player_id: u32,
 	pub leaky_bucket: f32,
+	pub place_sound_cooldown: f32,
+	pub break_sound_cooldown: f32,
 }
 
 impl State {
@@ -51,11 +58,28 @@ impl State {
 
 	pub fn update(&mut self, dt: f32) {
 		let _zone = span!("State Update");
+		self.place_sound_cooldown = (self.place_sound_cooldown - dt).max(0.0);
+		self.break_sound_cooldown = (self.break_sound_cooldown - dt).max(0.0);
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
 			CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);
+
+		if let Some(camera) = self.ecs.get_component::<Camera>(self.player_id) {
+			let (forward, right, _) = camera.forward_right_up();
+			self.audio_engine.set_listener(ListenerState {
+				position: camera.position,
+				forward,
+				right,
+			});
+			if let Some(player_input) = self.ecs.get_component::<PlayerInput>(self.player_id) {
+				if player_input.key(KeyCode::KeyM).just_pressed {
+					self.audio_engine.play_sound(SoundEffect::DebugBeep, camera.position + forward * 20.0);
+				}
+			}
+		}
+
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
-			let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
+			let ray_start = camera.pose();
 			let started_holding = object_pickup.is_holding();
 			if let Some((body_index, grid_index, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
 				let physics_body = self.physics_engine.physics_body_by_index(body_index).unwrap();
@@ -63,13 +87,25 @@ impl State {
 				let globle_hit_normal = physics_body.pose.rotation * grid.pose.rotation * hit_normal.as_vec3();
 				let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
 				let globle_hit_pos_snap = physics_body.pose * grid.pose * hit_pos.as_vec3();
+				let place_voxel_pos = hit_pos + hit_normal.as_ivec3();
+				let break_voxel_pos = hit_pos;
+				let place_sound_pos = physics_body.pose * grid.pose * (place_voxel_pos.as_vec3() + Vec3::splat(0.5));
+				let break_sound_pos = physics_body.pose * grid.pose * (break_voxel_pos.as_vec3() + Vec3::splat(0.5));
 				debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
 				debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid.pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
 				if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().add_voxel(hit_pos + hit_normal.as_ivec3(), Voxel{ color: [100, 100, 100, 1], mass: 100 });
+					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().add_voxel(place_voxel_pos, Voxel{ color: [100, 100, 100, 1], mass: 100 });
+					if self.place_sound_cooldown <= 0.0 {
+						self.audio_engine.play_sound(SoundEffect::BlockPlace, place_sound_pos);
+						self.place_sound_cooldown = BLOCK_PLACE_SOUND_INTERVAL_SECONDS;
+					}
 				}
 				if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().remove_voxel(&(hit_pos));
+					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().remove_voxel(&break_voxel_pos);
+					if self.break_sound_cooldown <= 0.0 {
+						self.audio_engine.play_sound(SoundEffect::BlockBreak, break_sound_pos);
+						self.break_sound_cooldown = BLOCK_BREAK_SOUND_INTERVAL_SECONDS;
+					}
 				}
 				if player_input.key(KeyCode::KeyR).just_pressed {
 					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().apply_impulse(&globle_hit_pos, &(ray_start.rotation * Vec3::Z * 1600000.0));
@@ -88,8 +124,7 @@ impl State {
 		});
 		self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
 			if object_pickup.is_holding() {
-				let camera_pos = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
-				object_pickup.hold_at_pos(&(camera_pos.translation + camera_pos.rotation * Vec3::Z * 40.0), &mut self.physics_engine);
+				object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), &mut self.physics_engine);
 			}
 		});
 		self.leaky_bucket += dt;
@@ -560,10 +595,13 @@ impl State {
 		Ok(Self {
 			renderer,
 			mouse_captured: false,
+			audio_engine: AudioEngine::new(),
 			physics_engine,
 			ecs,
 			player_id,
 			leaky_bucket: 0.0,
+			place_sound_cooldown: 0.0,
+			break_sound_cooldown: 0.0,
 		})
 	}
 
