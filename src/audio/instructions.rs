@@ -11,7 +11,7 @@ pub enum SoundEffect {
 pub struct ListenerState {
 	pub position: Vec3,
 	pub forward: Vec3,
-	pub up: Vec3,
+	pub right: Vec3,
 }
 
 impl Default for ListenerState {
@@ -19,7 +19,7 @@ impl Default for ListenerState {
 		Self {
 			position: Vec3::ZERO,
 			forward: Vec3::Z,
-			up: Vec3::Y
+			right: Vec3::X
 		}
 	}
 }

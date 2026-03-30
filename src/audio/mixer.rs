@@ -105,15 +105,8 @@ impl ListenerState {
 			return (source_gain, source_gain);
 		}
 
-		let forward = self.forward.normalize_or_zero();
-		let up = self.up.normalize_or_zero();
-		let mut right = forward.cross(up).normalize_or_zero();
-		if right == Vec3::ZERO {
-			right = Vec3::X;
-		}
-
 		let direction = offset / distance;
-		let pan = spatial_pan(direction, right, distance, max_volume_distance);
+		let pan = spatial_pan(direction, self.right, distance, max_volume_distance);
 		let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
 		let attenuation = attenuated_gain(source_gain, distance, max_volume_distance, distance_falloff);
 

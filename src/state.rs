@@ -63,32 +63,23 @@ impl State {
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
 			CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);
-		let listener_state = self.ecs.get_component::<Camera>(self.player_id).map(|camera| {
-			let listener_rotation = Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch);
-			let forward = listener_rotation * Vec3::Z;
-			let up = listener_rotation * Vec3::Y;
-			ListenerState {
+
+		if let Some(camera) = self.ecs.get_component::<Camera>(self.player_id) {
+			let (forward, right, _) = camera.forward_right_up();
+			self.audio_engine.set_listener(ListenerState {
 				position: camera.position,
 				forward,
-				up,
+				right,
+			});
+			if let Some(player_input) = self.ecs.get_component::<PlayerInput>(self.player_id) {
+				if player_input.key(KeyCode::KeyM).just_pressed {
+					self.audio_engine.play_sound(SoundEffect::DebugBeep, camera.position + forward * 20.0);
+				}
 			}
-		});
-		let debug_sound = self.ecs.get_component::<PlayerInput>(self.player_id).and_then(|player_input| {
-			if !player_input.key(KeyCode::KeyM).just_pressed {
-				return None;
-			}
+		}
 
-			let listener_state = listener_state?;
-			Some(listener_state.position + listener_state.forward * 20.0)
-		});
-		if let Some(listener_state) = listener_state {
-			self.audio_engine.set_listener(listener_state);
-		}
-		if let Some(debug_sound_pos) = debug_sound {
-			self.audio_engine.play_sound(SoundEffect::DebugBeep, debug_sound_pos);
-		}
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
-			let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
+			let ray_start = camera.pose();
 			let started_holding = object_pickup.is_holding();
 			if let Some((body_index, grid_index, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
 				let physics_body = self.physics_engine.physics_body_by_index(body_index).unwrap();
@@ -133,8 +124,7 @@ impl State {
 		});
 		self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
 			if object_pickup.is_holding() {
-				let camera_pos = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
-				object_pickup.hold_at_pos(&(camera_pos.translation + camera_pos.rotation * Vec3::Z * 40.0), &mut self.physics_engine);
+				object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), &mut self.physics_engine);
 			}
 		});
 		self.leaky_bucket += dt;
