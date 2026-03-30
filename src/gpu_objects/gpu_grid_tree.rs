@@ -1,96 +1,64 @@
-// use wgpu::{Device, util::DeviceExt};
+use std::collections::HashMap;
 
-use crate::grid_tree;
-
+use crate::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GpuGridTeeNode {
-	child_count: u16,
-	parent: u16, // last bit is 1 if its none
-	pos_x: u16,
-	pos_y: u16,
-	pos_z: u16,
-	scale: u16,
-	contents: [u32; grid_tree::SIZE_USIZE_CUBED], // if last bit is 1 then it points to a child else a id in the pallet
+pub struct GpuGridTreeNode {
+    parent_offset: u16,
+    used_cell_count: u8,
+    depth: u8,
+    // Encoding per cell (u16):
+    // If value == 1<<16-1: NONE, Else if last bit is 0: DATA, Else last bit is 1: NODE.
+	// NODE value != 1<<15-1 because then NONE)
+	// Same as GridTree
+    contents: [u16; grid_tree::SIZE_USIZE_CUBED],
 }
 
-pub struct GpuGrid {
-	pub buffer: wgpu::Buffer,
-	pub bind_group: wgpu::BindGroup,
-	pub bind_group_layout: wgpu::BindGroupLayout,
+pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette) -> Vec<u8> {
+	let (nodes, root_pos) = grid_tree.get_internals();
+
+	let mut gpu_nodes: Vec<GpuGridTreeNode> = Vec::with_capacity(nodes.len());
+
+	let mut palette_vec = vec![];
+	let mut palette_map = HashMap::new();
+	for (id, voxel) in &palette.palette {
+		palette_map.insert(id, palette_vec.len() as u16);
+		palette_vec.push(voxel.color); // [u8; 4]
+	}
+
+	for node in nodes {
+		let mut contents = [0u16; grid_tree::SIZE_USIZE_CUBED];
+		for (i, cell) in node.contents.iter().enumerate() {
+			match cell.value_type() {
+				1 => contents[i] = palette_map[&cell.value()],
+				_ => contents[i] = cell.value,
+			}
+		}
+		gpu_nodes.push(GpuGridTreeNode {
+			parent_offset: node.parent_offset,
+			used_cell_count: node.used_cell_count,
+			depth: node.depth,
+			contents,
+		});
+	}
+
+	let root_pos_bytes: [u8; 8] = bytemuck::cast([
+		root_pos.x,
+		root_pos.y,
+		root_pos.z,
+		0i16,
+	]);
+
+	let palette_offset: [u8; 4] = bytemuck::cast([palette_vec.len() as u32]);
+	let palette_bytes = bytemuck::cast_vec(palette_vec);
+
+	let node_bytes = bytemuck::cast_slice(&gpu_nodes);
+
+	let mut buffer_data = Vec::with_capacity(root_pos_bytes.len() + palette_offset.len() + palette_bytes.len() + node_bytes.len());
+	buffer_data.extend_from_slice(&root_pos_bytes);
+	buffer_data.extend_from_slice(&palette_offset);
+	buffer_data.extend_from_slice(&palette_bytes);
+	buffer_data.extend_from_slice(node_bytes);
+	buffer_data
 }
-
-// impl GpuGrid {
-// 	pub fn from_bvh(device: &Device, grid_tree: &grid_tree::GridTree<u32>) -> Self {
-// 		let (nodes, _items) = grid_tree.get_internals();
-// 		let mut data: Vec<u8> = Vec::with_capacity(nodes.len() * size_of::<GpuGridTeeNode>()/* + items.len() * size_of::<u16>()*/);
-// 		for node in nodes {
-// 			match node.sub_nodes {
-// 				grid_tree::ChildCell::Data { sub1, sub2 } => {
-// 					data.extend_from_slice(bytemuck::cast_slice(&[GpuGridTeeNode {
-// 						min_corner: node.min_corner.to_array(),
-// 						max_corner: node.max_corner.to_array(),
-// 						data_1: sub1,
-// 						data_2: sub2,
-// 						is_leaf: 0,
-// 					}]));
-// 				},
-// 				grid_tree::ChildCell::Node { start, count } => {
-// 					data.extend_from_slice(bytemuck::cast_slice(&[GpuGridTeeNode {
-// 						min_corner: node.min_corner.to_array(),
-// 						max_corner: node.max_corner.to_array(),
-// 						data_1: start,
-// 						data_2: count,
-// 						is_leaf: 1,
-// 					}]));
-// 				},
-// 				grid_tree::ChildCell::None: {
-
-// 				}
-// 			}
-// 		}
-// 		// for item in items {
-// 		// 	data.extend_from_slice(bytemuck::cast_slice(&[0]));
-// 		// }
-// 		let bind_group_layout = Self::bind_group_layout(device);
-// 		let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-// 			label: Some("bvh_buffer"),
-// 			contents: &data,
-// 			usage: wgpu::BufferUsages::STORAGE,
-// 		});
-// 		let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-// 			layout: &bind_group_layout,
-// 			entries: &[wgpu::BindGroupEntry {
-// 				binding: 0,
-// 				resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-// 					buffer: &buffer,
-// 					offset: 0,
-// 					size: None,
-// 				}),
-// 			}],
-// 			label: Some("bvh_bind_group"),
-// 		});
-// 		Self {
-// 			buffer,
-// 			bind_group,
-// 			bind_group_layout,
-// 		}
-// 	}
-
-// 	pub fn bind_group_layout(device: &Device) -> wgpu::BindGroupLayout {
-// 		device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-// 			entries: &[wgpu::BindGroupLayoutEntry {
-// 				binding: 0,
-// 				visibility: wgpu::ShaderStages::FRAGMENT,
-// 				ty: wgpu::BindingType::Buffer {
-// 					ty: wgpu::BufferBindingType::Storage { read_only: true },
-// 					has_dynamic_offset: false,
-// 					min_binding_size: None,
-// 				},
-// 				count: None,
-// 			}],
-// 			label: Some("bvh_bind_group_layout"),
-// 		})
-// 	}
-// }

@@ -2,7 +2,7 @@
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
-use std::{f32, sync::Arc};
+use std::{collections::HashMap, f32, sync::Arc};
 
 use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
@@ -21,6 +21,7 @@ pub struct State {
 	pub ecs: entity_component_system::EntityComponentSystem,
 	pub player_id: u32,
 	pub leaky_bucket: f32,
+	pub raycast_pose: Option<Pose>,
 }
 
 impl State {
@@ -55,7 +56,18 @@ impl State {
 			CameraController::update_camera(camera_controller, camera, player_input, dt)
 		);
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
-			let ray_start = Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
+			let ray_start = if self.raycast_pose.is_none() {
+				Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch))
+			} else {
+				self.raycast_pose.unwrap()
+			};
+			if player_input.key(KeyCode::KeyH).just_pressed {
+				if self.raycast_pose.is_none() {
+					self.raycast_pose = Some(Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch)));
+				} else {
+					self.raycast_pose = None;
+				}
+			}
 			let started_holding = object_pickup.is_holding();
 			if let Some((body_index, grid_index, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
 				let physics_body = self.physics_engine.physics_body_by_index(body_index).unwrap();
@@ -126,7 +138,7 @@ impl State {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
 								IVec3::new(x, y, z),
-								voxels::Voxel { color: [x as u8, y as u8, z as u8, 1], mass: 100 }
+								voxels::Voxel { color: [grid_id as u8, grid_id as u8, grid_id as u8, 255], mass: 100 }
 							);
 						}
 					}
@@ -244,7 +256,7 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		match load_binary("Church_Of_St_Sophia.vox").await {
+		match load_binary("sponza.vox").await {
 			Ok(bytes) => {
 				match dot_vox::load_bytes(&bytes) {
 					Ok(dot_vox_data) => {
@@ -394,6 +406,16 @@ impl State {
 		// 	physics_body.pose.translation.y += 2.0;
 		// }
 		// ------------------------------ Ball ------------------------------
+
+		// {
+		// 	let r = 6;
+		// 	let physics_body_id = physics_engine.add_physics_body();
+		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 	physics_body.pose.translation.y += (0 as f32) * (r as f32) * 2.0 + 7.0 + 40.0;
+		// 	physics_body.pose.translation.z += (0 as f32) * (r as f32) * 2.0 + 3.0 as f32;
+		// 	physics_body.pose.translation.x += (0 as f32) * (r as f32) * 2.0;
+		// 	State::make_ball(physics_body, r);
+		// }
 		for x in -1..2 {
 			for y in -1..0 {
 				for z in -1..2 {
@@ -564,6 +586,7 @@ impl State {
 			ecs,
 			player_id,
 			leaky_bucket: 0.0,
+			raycast_pose: None,
 		})
 	}
 
@@ -577,16 +600,18 @@ impl State {
 			// }
 		// }
 		if let Some(player_camera) = self.ecs.get_component::<camera::Camera>(self.player_id) {
-			// let mut rendering_meshes: Vec<(PackedBufferGroupId, Pose)> = vec![];
-			// {
-			// 	let _zone = span!("Collect Meshes");
-			// 	let view_frustum = player_camera.frustum();
-			// 	for physics_body in self.physics_engine.physics_bodies() {
-			// 		rendering_meshes.extend(physics_body.update_render_mesh(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_mesh_buffer, &view_frustum));
-			// 	}
-			// }
+			let mut gpu_grid_tree_id_to_id_poses: HashMap<(u32, u32, IVec3), (u32, Pose)> = HashMap::new();
+			{
+				let _zone = span!("Collect Meshes");
+				let view_frustum = player_camera.frustum();
+				for (physics_body_index, physics_body) in self.physics_engine.physics_bodies().iter().enumerate() {
+					for (key, value) in physics_body.update_gpu_grid_tree(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_64_tree_dynamic_buffer, &view_frustum) {
+						gpu_grid_tree_id_to_id_poses.insert((physics_body_index as u32, key.0, key.1), value);
+					}
+				}
+			}
 			let bvh = self.physics_engine.bvh();
-			return self.renderer.render(&player_camera, &(*bvh));
+			return self.renderer.render(&player_camera, &(*bvh), &gpu_grid_tree_id_to_id_poses);
 		} else {
 			println!("Error: could not find player camera!");
 			return Ok(());

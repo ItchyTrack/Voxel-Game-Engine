@@ -13,7 +13,7 @@ pub struct Voxel {
 
 #[derive(Clone, Debug)]
 pub struct VoxelPalette {
-	palette: BiHashMap<u16, Voxel>,
+	pub palette: BiHashMap<u16, Voxel>,
 	next_id: u16,
 }
 
@@ -77,6 +77,7 @@ impl Voxels {
 			self.voxel_palette.get_voxel(self.voxels.get(&pos)?)
 		}
 	pub fn get_voxels(&self) -> &GridTree { &self.voxels }
+	pub fn get_palette(&self) -> &VoxelPalette { &self.voxel_palette }
 
 	pub fn get_bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
 		if self.bounding_box_dirty.get() {

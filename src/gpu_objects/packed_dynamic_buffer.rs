@@ -28,7 +28,7 @@ impl PackedDynamicBuffer {
 		let buffer = device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("PackedBuffer"),
 			size: size as u64,
-			usage: usage | wgpu::BufferUsages::COPY_DST,
+			usage: usage | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
 		});
 		Ok(Self {
@@ -38,6 +38,10 @@ impl PackedDynamicBuffer {
 			alignment: alignment,
 			held_buffers: BTreeMap::new()
 		})
+	}
+
+	pub fn alignment(&self) -> u32 {
+		self.alignment
 	}
 
 	pub fn add_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, data_buffer: &[u8]) -> Result<u32, &'static str> {
@@ -54,7 +58,7 @@ impl PackedDynamicBuffer {
 			let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
 				label: Some("e"),
 			});
-			encoder.copy_buffer_to_buffer(&new_buffer, 0, &self.buffer, 0, self.buffer.size());
+			encoder.copy_buffer_to_buffer(&self.buffer, 0, &new_buffer, 0, self.buffer.size());
 			queue.submit(std::iter::once(encoder.finish()));
 			self.buffer = new_buffer;
 		}
@@ -77,7 +81,7 @@ impl PackedDynamicBuffer {
 					let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
 						label: Some("e"),
 					});
-					encoder.copy_buffer_to_buffer(&new_buffer, 0, &self.buffer, 0, self.buffer.size());
+					encoder.copy_buffer_to_buffer(&self.buffer, 0, &new_buffer, 0, self.buffer.size());
 					queue.submit(std::iter::once(encoder.finish()));
 					placement_location = self.buffer.size() as u32;
 					self.buffer = new_buffer;
