@@ -6,8 +6,7 @@ use crate::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuGridTreeNode {
     parent_offset: u16,
-    used_cell_count: u8,
-    depth: u8,
+    // used_cell_count: u8,
     // Encoding per cell (u16):
     // If value == 1<<16-1: NONE, Else if last bit is 0: DATA, Else last bit is 1: NODE.
 	// NODE value != 1<<15-1 because then NONE)
@@ -37,28 +36,30 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette) -> Vec<u
 		}
 		gpu_nodes.push(GpuGridTreeNode {
 			parent_offset: node.parent_offset,
-			used_cell_count: node.used_cell_count,
-			depth: node.depth,
+			// used_cell_count: node.used_cell_count,
 			contents,
 		});
 	}
 
-	let root_pos_bytes: [u8; 8] = bytemuck::cast([
+	let root_pos_bytes: [u8; 6] = bytemuck::cast([
 		root_pos.x,
 		root_pos.y,
 		root_pos.z,
-		0i16,
 	]);
 
-	let palette_offset: [u8; 4] = bytemuck::cast([palette_vec.len() as u32]);
+	let root_depth: [u8; 1] = bytemuck::cast([nodes[0].depth as u8]);
+	let palette_offset: [u8; 1] = bytemuck::cast([palette_vec.len() as u8]);
 	let palette_bytes = bytemuck::cast_vec(palette_vec);
 
 	let node_bytes = bytemuck::cast_slice(&gpu_nodes);
 
-	let mut buffer_data = Vec::with_capacity(root_pos_bytes.len() + palette_offset.len() + palette_bytes.len() + node_bytes.len());
+	let data_len = root_pos_bytes.len() + root_depth.len() + palette_offset.len() + palette_bytes.len() + node_bytes.len();
+	let mut buffer_data = Vec::with_capacity(data_len.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT as usize));
 	buffer_data.extend_from_slice(&root_pos_bytes);
+	buffer_data.extend_from_slice(&root_depth);
 	buffer_data.extend_from_slice(&palette_offset);
 	buffer_data.extend_from_slice(&palette_bytes);
 	buffer_data.extend_from_slice(node_bytes);
+	buffer_data.resize(data_len.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT as usize), 0);
 	buffer_data
 }

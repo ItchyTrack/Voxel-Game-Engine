@@ -21,11 +21,12 @@
 
 const DDA_LOG_SIZE:          u32 = 2u;
 const DDA_SIZE:              u32 = 4u;
-const DDA_NODE_STRIDE_BYTES: u32 = 132u;
-const DDA_NODE_HEADER_BYTES: u32 = 4u;
+const DDA_NODE_STRIDE_BYTES: u32 = 130u;
+const DDA_NODE_HEADER_BYTES: u32 = 2u;
 const DDA_MAX_STEPS:         u32 = 512u;
-const DDA_ROOT_BYTES:        u32 = 8u;
-const DDA_PALETTE_LEN_BYTES: u32 = 4u;
+const DDA_ROOT_BYTES:        u32 = 6u;
+const DDA_ROOT_DEPTH_BYTES:  u32 = 1u;
+const DDA_PALETTE_LEN_BYTES: u32 = 1u;
 const DDA_COLOR_BYTES:       u32 = 4u; // rgba u8
 
 @group(2) @binding(0) var<storage, read> grid_tree_buf: array<u32>;
@@ -44,8 +45,8 @@ fn dda_u8(byte_off: u32) -> u32 {
 fn dda_node_off(tree_base: u32, node_index: u32) -> u32 {
     return dda_nodes_base(tree_base) + node_index * DDA_NODE_STRIDE_BYTES;
 }
-fn dda_node_depth(tree_base: u32, node_index: u32) -> u32 {
-    return dda_u8(dda_node_off(tree_base, node_index) + 3u);
+fn dda_root_depth(tree_base: u32) -> u32 {
+    return dda_u8(tree_base + DDA_ROOT_BYTES);
 }
 fn dda_node_parent_offset(tree_base: u32, node_index: u32) -> u32 {
     return dda_u16(dda_node_off(tree_base, node_index) + 0u);
@@ -73,17 +74,18 @@ fn dda_read_root_pos(tree_base: u32) -> vec3<i32> {
     return vec3<i32>(root_x, root_y, root_z);
 }
 fn dda_palette_len(tree_base: u32) -> u32 {
-    return dda_u8(tree_base + DDA_ROOT_BYTES);
+    return dda_u8(tree_base + DDA_ROOT_BYTES + DDA_ROOT_DEPTH_BYTES);
 }
 fn dda_nodes_base(tree_base: u32) -> u32 {
     let palette_length = dda_palette_len(tree_base);
     return tree_base
         + DDA_ROOT_BYTES
+		+ DDA_ROOT_DEPTH_BYTES
         + DDA_PALETTE_LEN_BYTES
         + palette_length * DDA_COLOR_BYTES;
 }
 fn dda_palette_color(tree_base: u32, palette_index: u32) -> vec4<f32> {
-    let palette_base_offset = tree_base + DDA_ROOT_BYTES + DDA_PALETTE_LEN_BYTES;
+    let palette_base_offset = tree_base + DDA_ROOT_BYTES + DDA_ROOT_DEPTH_BYTES + DDA_PALETTE_LEN_BYTES;
     let byte_offset = palette_base_offset + palette_index * DDA_COLOR_BYTES;
     let channel_r = f32(dda_u8(byte_offset + 0u)) / 255.0;
     let channel_g = f32(dda_u8(byte_offset + 1u)) / 255.0;
@@ -120,7 +122,7 @@ fn dda_raycast(
     // Rust: let root_max = root_min + Vec3::splat(root.size() as f32);
     let root_pos_i32  = dda_read_root_pos(tree_base);
     let root_pos      = vec3<f32>(root_pos_i32);
-    let root_depth    = dda_node_depth(tree_base, 0u);
+    let root_depth    = dda_root_depth(tree_base);
     let root_size_u32 = dda_node_size(root_depth);
     let root_size     = f32(root_size_u32);
     let root_min      = root_pos;
@@ -195,12 +197,12 @@ fn dda_raycast(
     var last_distance = distance_to_aabb;
     if max_length < last_distance { return no_hit; }
 
+	var current_depth = root_depth;
     // ── Main loop ─────────────────────────────────────────────────────────────
     for (var _iteration: u32 = 0u; _iteration < DDA_MAX_STEPS; _iteration++) {
         // Rust: let node = &self.nodes[current_node_index as usize];
-        let node_depth    = dda_node_depth(tree_base, current_node_index);
-        let node_size     = dda_node_size(node_depth);
-        let node_child_sz = dda_child_size(node_depth);
+        let node_size     = dda_node_size(current_depth);
+        let node_child_sz = dda_child_size(current_depth);
 
         // Rust: let contents_pos = (current_relative_pos / node.child_size()).as_u8vec3();
         // Rust uses current_relative_pos which is root_relative_grid_pos % node.size().
@@ -216,6 +218,7 @@ fn dda_raycast(
         if cell_value_type == 2u {
             // NODE → Rust: current_node_index += cell.1 as u32
             current_node_index += cell_value_data;
+			current_depth -= 1;
 
         } else if cell_value_type == 1u {
             // DATA → Rust: return Some((pos, -step[last_step_axis] * I8Vec3::AXES[last_step_axis], last_distance))
@@ -283,14 +286,13 @@ fn dda_raycast(
 			if new_pos_signed < 0 || u32(new_pos_signed) >= root_size_u32 { return no_hit; }
 
 			// walk-up
-			var node_depth = dda_node_depth(tree_base, current_node_index);
 			loop {
-				let sz = dda_node_size(node_depth);
+				let sz = dda_node_size(current_depth);
 				if root_relative_grid_pos[axis] / sz == u32(new_pos_signed) / sz { break; }
 				let walk_up_parent_offset = dda_node_parent_offset(tree_base, current_node_index);
 				if walk_up_parent_offset == 0u { break; }
 				current_node_index -= walk_up_parent_offset;
-				node_depth += 1;
+				current_depth += 1;
 			}
 
 			root_relative_grid_pos[axis] = u32(new_pos_signed);
