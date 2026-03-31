@@ -138,7 +138,7 @@ impl State {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
 								IVec3::new(x, y, z),
-								voxels::Voxel { color: [grid_id as u8, grid_id as u8, grid_id as u8, 255], mass: 100 }
+								voxels::Voxel { color: [x as u8, y as u8, z as u8, 1], mass: 100 }
 							);
 						}
 					}
@@ -155,7 +155,7 @@ impl State {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
 								IVec3::new(x, y, z),
-								voxels::Voxel { color: [x as u8, y as u8, z as u8, 1], mass: 100 }
+								voxels::Voxel { color: [x as u8, y as u8, z as u8, 255], mass: 100 }
 							);
 						}
 					}

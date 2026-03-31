@@ -485,7 +485,7 @@ impl GridTree {
 		let origin = pose.translation;
 		let dir = pose.rotation * Vec3::Z;
 
-		debug_draw::line(debug_pose * (origin), debug_pose * (origin + dir * 10.0), &Vec4::new(0.0, 0.0, 0.0, 1.0));
+		// debug_draw::line(debug_pose * (origin), debug_pose * (origin + dir * 30.0), &Vec4::new(0.0, 0.0, 0.0, 1.0));
 
 		let root = &self.nodes[0];
 		let root_min = self.root_pos.as_vec3();
@@ -497,7 +497,7 @@ impl GridTree {
 			None => return None,
 		};
 		let post_aabb_origin_pre_shift = origin + dir * distance_to_aabb;
-		let post_aabb_origin = (post_aabb_origin_pre_shift)
+		let post_aabb_origin = post_aabb_origin_pre_shift
 			.min(self.root_pos.as_vec3() + Vec3::splat(((root.size()) as f32) - 0.00001))
 			.max(self.root_pos.as_vec3());
 		let post_aabb_origin = post_aabb_origin.move_towards(post_aabb_origin.floor() + 0.5, 0.001);
@@ -508,36 +508,60 @@ impl GridTree {
 			if step.x > 0 { root_relative_post_aabb_origin.x.ceil() } else { root_relative_post_aabb_origin.x.floor() } - root_relative_post_aabb_origin.x,
 			if step.y > 0 { root_relative_post_aabb_origin.y.ceil() } else { root_relative_post_aabb_origin.y.floor() } - root_relative_post_aabb_origin.y,
 			if step.z > 0 { root_relative_post_aabb_origin.z.ceil() } else { root_relative_post_aabb_origin.z.floor() } - root_relative_post_aabb_origin.z,
-		) - delta;
-		debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.025, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.025, 0.0) + dir * axis_distances.x), &Vec4::new(1.0, 0.2, 0.2, 1.0));
-		debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.05, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.05, 0.0) + dir * axis_distances.y), &Vec4::new(0.2, 1.0, 0.2, 1.0));
-		debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.075, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.075, 0.0) + dir * axis_distances.z), &Vec4::new(0.2, 0.2, 1.0, 1.0));
-		debug_draw::point(debug_pose * (root_relative_post_aabb_origin + self.root_pos.as_vec3()), &Vec4::W, 1.0);
+		);
+		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.025, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.025, 0.0) + dir * axis_distances.x), &Vec4::new(1.0, 0.2, 0.2, 1.0));
+		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.05, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.05, 0.0) + dir * axis_distances.y), &Vec4::new(0.2, 1.0, 0.2, 1.0));
+		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.075, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.075, 0.0) + dir * axis_distances.z), &Vec4::new(0.2, 0.2, 1.0, 1.0));
+		// debug_draw::point(debug_pose * (root_relative_post_aabb_origin + self.root_pos.as_vec3()), &Vec4::W, 1.0);
 		let mut root_relative_grid_pos = root_relative_post_aabb_origin.as_u16vec3();
 		let mut last_step_axis = (post_aabb_origin_pre_shift - post_aabb_origin).abs().max_position() as u8;
 		let mut current_node_index = 0u32;
 		let mut last_distance = distance_to_aabb;
 		if max_length < last_distance { return None; }
 		loop {
-			// debug_draw::point(debug_pose * ((root_relative_grid_pos.as_i16vec3() + self.root_pos).as_vec3() + 0.5), &Vec4::ONE, 1.0);
-			debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()
-			).as_vec3())), Vec3::ONE, &Vec4::ONE, false);
 			let mut current_node = &self.nodes[current_node_index as usize];
+			// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::ONE, false);
 			let node_relative_grid_pos = root_relative_grid_pos % current_node.size();
-			debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((
-				self.root_pos + root_relative_grid_pos.as_i16vec3() - node_relative_grid_pos.as_i16vec3()
-			).as_vec3())), Vec3::splat(current_node.size() as f32), &Vec4::new(0.0, 0.0, 1.0, 1.0), false);
+			// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((
+			// 	self.root_pos + root_relative_grid_pos.as_i16vec3() - node_relative_grid_pos.as_i16vec3()
+			// ).as_vec3())), Vec3::splat(current_node.size() as f32), &Vec4::new(0.0, 0.0, 1.0, 1.0), false);
 			let contents_pos = (node_relative_grid_pos / current_node.child_size()).as_u8vec3();
 			let cell = current_node.get_child_cell(contents_pos);
 			match cell.0 {
 				0 => { // NONE
-					let node_cell_relative_grid_pos = node_relative_grid_pos % current_node.child_size();
-					let step_amount = I16Vec3::splat(if step.x > 0 { current_node.child_size() as i16 } else { -1 }) - node_cell_relative_grid_pos.as_i16vec3();
-					match (axis_distances + delta * step_amount.as_vec3()).min_position() {
+					if current_node.child_size() != 1 {
+						let node_cell_relative_grid_pos = node_relative_grid_pos % current_node.child_size();
+						let mut step_amount = U16Vec3::select(
+							step.cmpgt(I8Vec3::ZERO),
+							U16Vec3::splat(current_node.child_size() - 1) - node_cell_relative_grid_pos,
+							node_cell_relative_grid_pos
+						);
+						// step to edge of cell. step_amount is 0 if child_size is 0
+						let distance_to_edge_of_cell = axis_distances + step_amount.as_vec3() * delta;
+						match distance_to_edge_of_cell.min_position() {
+							0 => {
+								step_amount.y = ((distance_to_edge_of_cell.x - axis_distances.y + delta.y) / delta.y).abs() as u16;
+								step_amount.z = ((distance_to_edge_of_cell.x - axis_distances.z + delta.z) / delta.z).abs() as u16;
+							},
+							1 => {
+								step_amount.x = ((distance_to_edge_of_cell.y - axis_distances.x + delta.x) / delta.x).abs() as u16;
+								step_amount.z = ((distance_to_edge_of_cell.y - axis_distances.z + delta.z) / delta.z).abs() as u16;
+							},
+							2 => {
+								step_amount.x = ((distance_to_edge_of_cell.z - axis_distances.x + delta.x) / delta.x).abs() as u16;
+								step_amount.y = ((distance_to_edge_of_cell.z - axis_distances.y + delta.y) / delta.y).abs() as u16;
+							},
+							_ => unsafe { unreachable_unchecked(); }
+						}
+						axis_distances += delta * step_amount.as_vec3();
+						root_relative_grid_pos = (root_relative_grid_pos.as_i16vec3() + step_amount.as_i16vec3() * step.as_i16vec3()).as_u16vec3();
+						// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::W, false);
+						// println!("{root_relative_grid_pos}");
+					}
+					match axis_distances.min_position() {
 						0 => {
-							last_distance = distance_to_aabb + axis_distances.x;
-							if max_length < last_distance { return None; }
-							let root_relative_grid_pos_x = root_relative_grid_pos.x as i16 + step_amount.x;
+							if max_length < axis_distances.x { return None; }
+							let root_relative_grid_pos_x = root_relative_grid_pos.x as i16 + step.x as i16;
 							if root_relative_grid_pos_x < 0 || root_relative_grid_pos_x >= root.size() as i16 { return None; }
 							let root_relative_grid_pos_x = root_relative_grid_pos_x as u16;
 							loop {
@@ -548,13 +572,13 @@ impl GridTree {
 								current_node = &self.nodes[current_node_index as usize];
 							}
 							root_relative_grid_pos.x = root_relative_grid_pos_x;
-							axis_distances.x += delta.x * step_amount.x.abs() as f32;
+							last_distance = axis_distances.x;
+							axis_distances.x += delta.x;
 							last_step_axis = 0;
 						},
 						1 => {
-							last_distance = distance_to_aabb + axis_distances.y;
-							if max_length < last_distance { return None; }
-							let root_relative_grid_pos_y = root_relative_grid_pos.y as i16 + step_amount.y;
+							if max_length < axis_distances.y { return None; }
+							let root_relative_grid_pos_y = root_relative_grid_pos.y as i16 + step.y as i16;
 							if root_relative_grid_pos_y < 0 || root_relative_grid_pos_y >= root.size() as i16 { return None; }
 							let root_relative_grid_pos_y = root_relative_grid_pos_y as u16;
 							loop {
@@ -565,13 +589,13 @@ impl GridTree {
 								current_node = &self.nodes[current_node_index as usize];
 							}
 							root_relative_grid_pos.y = root_relative_grid_pos_y;
-							axis_distances.y += delta.y * step_amount.y.abs() as f32;
+							last_distance = axis_distances.y;
+							axis_distances.y += delta.y;
 							last_step_axis = 1;
 						},
 						2 => {
-							last_distance = distance_to_aabb + axis_distances.z;
-							if max_length < last_distance { return None; }
-							let root_relative_grid_pos_z = root_relative_grid_pos.z as i16 + step_amount.z;
+							if max_length < axis_distances.z { return None; }
+							let root_relative_grid_pos_z = root_relative_grid_pos.z as i16 + step.z as i16;
 							if root_relative_grid_pos_z < 0 || root_relative_grid_pos_z >= root.size() as i16 { return None; }
 							let root_relative_grid_pos_z = root_relative_grid_pos_z as u16;
 							loop {
@@ -582,7 +606,8 @@ impl GridTree {
 								current_node = &self.nodes[current_node_index as usize];
 							}
 							root_relative_grid_pos.z = root_relative_grid_pos_z;
-							axis_distances.z += delta.z * step_amount.z.abs() as f32;
+							last_distance = axis_distances.z;
+							axis_distances.z += delta.z;
 							last_step_axis = 2;
 						},
 						_ => unsafe { unreachable_unchecked(); }
