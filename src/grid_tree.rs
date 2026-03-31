@@ -4,6 +4,7 @@ use std::u16;
 
 use glam::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3};
 
+use crate::pose::Pose;
 
 pub const LOG_SIZE: u8 = 2;
 pub const SIZE: u8 = 1u8 << LOG_SIZE;
