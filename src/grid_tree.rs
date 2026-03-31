@@ -2,9 +2,8 @@ use std::fmt::Debug;
 use std::hint::unreachable_unchecked;
 use std::u16;
 
-use glam::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3, Vec4};
+use glam::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3};
 
-use crate::{debug_draw, pose::Pose};
 
 pub const LOG_SIZE: u8 = 2;
 pub const SIZE: u8 = 1u8 << LOG_SIZE;
@@ -264,10 +263,52 @@ impl GridTree {
 			self.root_pos = *pos;
 			return;
 		}
+		let root_relative_pos = pos - self.root_pos;
+		if root_relative_pos.is_negative_bitmask() != 0 ||
+			root_relative_pos.x >= first_root.size() as i16 ||
+			root_relative_pos.y >= first_root.size() as i16 ||
+			root_relative_pos.z >= first_root.size() as i16
+		{
+			let mut min_pos = U8Vec3::MAX;
+			let mut max_pos = U8Vec3::MIN;
+			for contents_index in 0..SIZE_CUBED {
+				if first_root.get_child_cell_from_index(contents_index).0 != 0 {
+					let contents_pos = get_child_contents_pos(contents_index);
+					min_pos = min_pos.min(contents_pos);
+					max_pos = max_pos.max(contents_pos);
+				}
+			}
+			if max_pos != U8Vec3::splat(SIZE - 1) && min_pos != U8Vec3::ZERO {
+				let root_relative_contents_pos = root_relative_pos.div_euclid(I16Vec3::splat(first_root.child_size() as i16));
+				let root_shift_amount = I16Vec3::new(
+					if root_relative_contents_pos.x > 0 { (root_relative_contents_pos.x + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.x.max(1 - SIZE as i16) },
+					if root_relative_contents_pos.y > 0 { (root_relative_contents_pos.y + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.y.max(1 - SIZE as i16) },
+					if root_relative_contents_pos.z > 0 { (root_relative_contents_pos.z + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.z.max(1 - SIZE as i16) },
+				).clamp((SIZE - 1 - max_pos).as_i16vec3(), min_pos.as_i16vec3());
+				if root_shift_amount != I16Vec3::ZERO {
+					let mut shifted_root_contents = [GridTreeCell::NONE; SIZE_USIZE_CUBED];
+					for x in min_pos.x..=max_pos.x {
+						for y in min_pos.y..=max_pos.y {
+							for z in min_pos.z..=max_pos.z {
+								let contents_pos = U8Vec3::new(x, y, z);
+								let (cell_type, cell_raw) = first_root.get_child_cell_type_and_raw(contents_pos);
+								if cell_type != 0 {
+									shifted_root_contents[get_child_contents_index((contents_pos.as_i16vec3() - root_shift_amount).as_u8vec3()) as usize] = GridTreeCell::from_raw(cell_raw);
+								}
+							}
+						}
+					}
+					self.root_pos += root_shift_amount * first_root.child_size() as i16;
+					self.nodes[0].contents = shifted_root_contents;
+				}
+			}
+		} else {
+			return;
+		}
 		loop {
 			let root_relative_pos = pos - self.root_pos;
 			let root = &self.nodes[0];
-			if 	root_relative_pos.is_negative_bitmask() != 0 ||
+			if root_relative_pos.is_negative_bitmask() != 0 ||
 				root_relative_pos.x >= root.size() as i16 ||
 				root_relative_pos.y >= root.size() as i16 ||
 				root_relative_pos.z >= root.size() as i16
@@ -479,7 +520,7 @@ impl GridTree {
 		Some(tmin)
 	}
 
-	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>, debug_pose: &Pose) -> Option<(I16Vec3, I8Vec3, f32)> {
+	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(I16Vec3, I8Vec3, f32)> {
 		let max_length = max_length.unwrap_or(f32::MAX);
 
 		let origin = pose.translation;
