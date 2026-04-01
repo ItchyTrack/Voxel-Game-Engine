@@ -69,11 +69,11 @@ pub struct GridTreeNode {
 	pub used_cell_count: u8,
 }
 
-fn get_child_contents_index(contents_pos: U8Vec3) -> u8 {
+pub fn get_child_contents_index(contents_pos: U8Vec3) -> u8 {
 	contents_pos.x + contents_pos.y * SIZE + contents_pos.z * SIZE * SIZE
 }
 
-fn get_child_contents_pos(contents_index: u8) -> U8Vec3 {
+pub fn get_child_contents_pos(contents_index: u8) -> U8Vec3 {
 	U8Vec3::new(contents_index % SIZE, (contents_index / SIZE) % SIZE, contents_index / (SIZE * SIZE))
 }
 
@@ -109,13 +109,13 @@ impl GridTreeNode {
 			None => self.parent_offset = 0,
 		}
 	}
-	fn size(node_depth: u8) -> u16 {
+	pub fn size(node_depth: u8) -> u16 {
 		1 << (LOG_SIZE * (node_depth + 1))
 	}
-	fn child_size(node_depth: u8) -> u16 {
+	pub fn child_size(node_depth: u8) -> u16 {
 		1 << (LOG_SIZE * node_depth)
 	}
-	fn parent_size(node_depth: u8) -> u16 {
+	pub fn parent_size(node_depth: u8) -> u16 {
 		1 << (LOG_SIZE * (node_depth + 2))
 	}
 	fn child_relative_pos(&self, node_depth: u8, child_contents_pos: U8Vec3) -> U16Vec3 {

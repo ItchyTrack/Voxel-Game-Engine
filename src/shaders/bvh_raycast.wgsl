@@ -92,13 +92,23 @@ fn heap_pop(h: ptr<function, BVHHeap>) -> BVHStackEntry {
 
 // ── AABB slab test ───────────────────────────────────────────────────────────
 
-fn ray_aabb(rp: vec3<f32>, inv_rd: vec3<f32>, mn: vec3<f32>, mx: vec3<f32>) -> f32 {
-    let t1   = (mn - rp) * inv_rd;
-    let t2   = (mx - rp) * inv_rd;
+fn ray_aabb(rp: vec3<f32>, inv_rd: vec3<f32>, mn: vec3<f32>, mx: vec3<f32>) -> vec2<f32> {
+    let t1 = (mn - rp) * inv_rd;
+    let t2 = (mx - rp) * inv_rd;
+
     let tmin = max(max(min(t1.x, t2.x), min(t1.y, t2.y)), min(t1.z, t2.z));
     let tmax = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
-    if tmax < 0.0 || tmin > tmax { return -1.0; }
-    return max(tmin, 0.0);
+
+    // No intersection
+    if tmax < 0.0 || tmin > tmax {
+        return vec2<f32>(-1.0, -1.0);
+    }
+
+    // Clamp entry to 0 to avoid "behind ray origin"
+    let entry = max(tmin, 0.0);
+    let exit  = tmax;
+
+    return vec2<f32>(entry, exit); // entry and exit distances along the ray
 }
 
 // ── Iterator ─────────────────────────────────────────────────────────────────
@@ -116,9 +126,10 @@ struct BVHIter {
 }
 
 struct BVHHit {
-    bvh_item_idx: u32,
-    dist:         f32,
-    valid:        bool,
+    bvh_item_idx:       u32,
+    dist:               f32,
+    aabb_internal_dist: f32, // distance from entrace to exit of the aabb
+    valid:              bool,
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
@@ -139,8 +150,8 @@ fn bvh_iter_new(ray_pos: vec3<f32>, ray_dir: vec3<f32>) -> BVHIter {
         vec3<f32>(bvh[0].min_x, bvh[0].min_y, bvh[0].min_z),
         vec3<f32>(bvh[0].max_x, bvh[0].max_y, bvh[0].max_z));
 
-    if r0 >= 0.0 {
-        heap_push(&it.heap, 0u, r0);
+    if r0.x >= 0.0 {  // entry distance >= 0
+        heap_push(&it.heap, 0u, r0.x);
     }
 
     return it;
@@ -153,6 +164,7 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
     miss.valid = false;
     miss.bvh_item_idx = 0u;
     miss.dist = 0.0;
+    miss.aabb_internal_dist = 0.0;
 
     let rp  = (*it).ray_pos;
     let inv = (*it).inv_dir;
@@ -169,15 +181,17 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
             let item = bvh_items[base + i];
             let sz   = unpack4xU8(item.aabb_size);
             let imn  = vec3<f32>(item.min_x, item.min_y, item.min_z);
-            let imx  = imn + vec3<f32>(f32(sz.x), f32(sz.y), f32(sz.z));
+            let size = vec3<f32>(f32(sz.x), f32(sz.y), f32(sz.z));
+            let imx  = imn + size;
 
             let d = ray_aabb(rp, inv, imn, imx);
 
-            if d >= 0.0 && d < max_dist {
+            if d.x >= 0.0 && d.x < max_dist {  // entry
                 var hit: BVHHit;
-                hit.valid        = true;
-                hit.bvh_item_idx = base + i;
-                hit.dist         = d;
+                hit.valid              = true;
+                hit.bvh_item_idx       = base + i;
+                hit.dist               = d.x;               // entry
+                hit.aabb_internal_dist = d.y - d.x;         // exit - entry
                 return hit;
             }
         }
@@ -204,20 +218,22 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
                 let item = bvh_items[base + i];
                 let sz   = unpack4xU8(item.aabb_size);
                 let imn  = vec3<f32>(item.min_x, item.min_y, item.min_z);
-                let imx  = imn + vec3<f32>(f32(sz.x), f32(sz.y), f32(sz.z));
+                let size = vec3<f32>(f32(sz.x), f32(sz.y), f32(sz.z));
+                let imx  = imn + size;
 
                 let d = ray_aabb(rp, inv, imn, imx);
                 i += 1u;
 
-                if d >= 0.0 && d < max_dist {
+                if d.x >= 0.0 && d.x < max_dist {
                     (*it).leaf_items_base  = base;
                     (*it).leaf_items_count = count;
                     (*it).leaf_item_i      = i;
 
                     var hit: BVHHit;
-                    hit.valid        = true;
-                    hit.bvh_item_idx = base + (i - 1u);
-                    hit.dist         = d;
+                    hit.valid              = true;
+                    hit.bvh_item_idx       = base + (i - 1u);
+                    hit.dist               = d.x;             // entry
+                    hit.aabb_internal_dist = d.y - d.x;       // exit - entry
                     return hit;
                 }
             }
@@ -234,12 +250,12 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
                 vec3<f32>(n2.min_x, n2.min_y, n2.min_z),
                 vec3<f32>(n2.max_x, n2.max_y, n2.max_z));
 
-            if e1 >= 0.0 && e1 < max_dist {
-                heap_push(&(*it).heap, d1, e1);
+            if e1.x >= 0.0 && e1.x < max_dist {
+                heap_push(&(*it).heap, d1, e1.x);
             }
 
-            if e2 >= 0.0 && e2 < max_dist {
-                heap_push(&(*it).heap, d2, e2);
+            if e2.x >= 0.0 && e2.x < max_dist {
+                heap_push(&(*it).heap, d2, e2.x);
             }
         }
     }

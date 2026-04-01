@@ -8,7 +8,7 @@ use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
+use crate::{entity_component_system, physics::bvh::BVH, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
@@ -291,7 +291,7 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		match load_binary("sponza.vox").await {
+		match load_binary("Church_Of_St_Sophia.vox").await {
 			Ok(bytes) => {
 				match dot_vox::load_bytes(&bytes) {
 					Ok(dot_vox_data) => {
@@ -648,8 +648,21 @@ impl State {
 					}
 				}
 			}
-			let bvh = self.physics_engine.bvh();
-			return self.renderer.render(&player_camera, &(*bvh), &gpu_grid_tree_id_to_id_poses);
+			let bvh = {
+				let mut bounds = vec![];
+				{
+					let _zone = span!("Collect aabb for rendering");
+					for ((body_index, grid_index, sub_grid_pos), _)  in gpu_grid_tree_id_to_id_poses.iter() {
+						let physics_body = &self.physics_engine.physics_body_by_index(*body_index).unwrap();
+						if let Some(bound) = physics_body.sub_grid_aabb(*grid_index, sub_grid_pos) {
+							bounds.push(((*body_index as u32, *grid_index as u32, *sub_grid_pos), bound));
+						}
+					}
+				}
+				BVH::new(bounds)
+			};
+			// let bvh = self.physics_engine.bvh();
+			return self.renderer.render(&player_camera, &bvh, &gpu_grid_tree_id_to_id_poses);
 		} else {
 			println!("Error: could not find player camera!");
 			return Ok(());

@@ -21,8 +21,9 @@
 
 const DDA_LOG_SIZE:          u32 = 2u;
 const DDA_SIZE:              u32 = 4u;
-const DDA_NODE_STRIDE_BYTES: u32 = 130u;
-const DDA_NODE_HEADER_BYTES: u32 = 2u;
+const DDA_HALF_UNIT_BYTES: u32 = 65;
+const DDA_NONLEAF_HEADER_BYTES: u32 = 2u;
+const DDA_LEAF_HEADER_BYTES: u32 = 1u;
 const DDA_MAX_STEPS:         u32 = 512u;
 const DDA_ROOT_BYTES:        u32 = 6u;
 const DDA_ROOT_DEPTH_BYTES:  u32 = 1u;
@@ -42,20 +43,42 @@ fn dda_u8(byte_off: u32) -> u32 {
 
 // ── Node accessors ────────────────────────────────────────────────────────────
 
-fn dda_node_off(tree_base: u32, node_index: u32) -> u32 {
-    return dda_nodes_base(tree_base) + node_index * DDA_NODE_STRIDE_BYTES;
+fn dda_node_byte_off(tree_base: u32, half_index: u32) -> u32 {
+    return dda_nodes_base(tree_base) + half_index * DDA_HALF_UNIT_BYTES;
 }
 fn dda_root_depth(tree_base: u32) -> u32 {
     return dda_u8(tree_base + DDA_ROOT_BYTES);
 }
-fn dda_node_parent_offset(tree_base: u32, node_index: u32) -> u32 {
-    return dda_u16(dda_node_off(tree_base, node_index) + 0u);
+fn dda_nonleaf_cell_raw(tree_base: u32, half_index: u32, contents_index: u32) -> u32 {
+    // u16 at: node_base + 2 (header) + contents_index * 2
+    return dda_u16(
+        dda_node_byte_off(tree_base, half_index)
+        + DDA_NONLEAF_HEADER_BYTES
+        + contents_index * 2u
+    );
+}
+
+fn dda_leaf_cell_raw(tree_base: u32, half_index: u32, contents_index: u32) -> u32 {
+    // u8  at: node_base + 1 (header) + contents_index
+    // Normalise 0xFF → 0xFFFF so dda_cell_type() still works unchanged.
+    let raw = dda_u8(
+        dda_node_byte_off(tree_base, half_index)
+        + DDA_LEAF_HEADER_BYTES
+        + contents_index
+    );
+    if raw == 0xFFu { return 0xFFFFu; }
+    return raw; // DATA, bit15 == 0 — cell_type will return 1
+}
+
+fn dda_nonleaf_parent_offset(tree_base: u32, half_index: u32) -> u32 {
+    return dda_u16(dda_node_byte_off(tree_base, half_index));
+}
+
+fn dda_leaf_parent_offset(tree_base: u32, half_index: u32) -> u32 {
+    return dda_u8(dda_node_byte_off(tree_base, half_index));
 }
 fn dda_node_size(depth: u32)  -> u32 { return 1u << (DDA_LOG_SIZE * (depth + 1u)); }
 fn dda_child_size(depth: u32) -> u32 { return 1u << (DDA_LOG_SIZE * depth); }
-fn dda_cell_raw(tree_base: u32, node_index: u32, contents_index: u32) -> u32 {
-    return dda_u16(dda_node_off(tree_base, node_index) + DDA_NODE_HEADER_BYTES + contents_index * 2u);
-}
 fn dda_cell_type(raw_value: u32) -> u32 {
     if raw_value == 0xFFFFu { return 0u; }
     return 1u + (raw_value >> 15u);
@@ -210,7 +233,11 @@ fn dda_raycast(
         let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
         let contents_pos         = current_relative_pos / vec3<u32>(node_child_sz);
         let contents_index       = get_child_contents_index(contents_pos);
-        let raw_cell             = dda_cell_raw(tree_base, current_node_index, contents_index);
+		let raw_cell = select(
+			dda_nonleaf_cell_raw(tree_base, current_node_index, contents_index),
+			dda_leaf_cell_raw   (tree_base, current_node_index, contents_index),
+			current_depth == 0u,
+		);
         let cell_value_type      = dda_cell_type(raw_cell);
         let cell_value_data      = dda_cell_value(raw_cell);
 
@@ -289,7 +316,11 @@ fn dda_raycast(
 			loop {
 				let sz = dda_node_size(current_depth);
 				if root_relative_grid_pos[axis] / sz == u32(new_pos_signed) / sz { break; }
-				let walk_up_parent_offset = dda_node_parent_offset(tree_base, current_node_index);
+				let walk_up_parent_offset = select(
+					dda_nonleaf_parent_offset(tree_base, current_node_index),
+					dda_leaf_parent_offset   (tree_base, current_node_index),
+					current_depth == 0u,
+				);
 				if walk_up_parent_offset == 0u { break; }
 				current_node_index -= walk_up_parent_offset;
 				current_depth += 1;

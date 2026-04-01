@@ -33,14 +33,14 @@ impl SubGrid {
 
 	// pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
 
-	pub fn update_gpu_grid_tree(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer, _view_frustum: &camera::ViewFrustum, pose: Pose) -> Option<(u32, Pose)> {
-		// let aabb = self.voxels.get_bounding_box()?;
-		// let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
-		// let radius = aabb.0.distance(aabb.1) / 2.0;
-		// let center = (aabb.0 + aabb.1) / 2.0;
-		// let in_view = view_frustum.compare_sphere(center, radius);
+	pub fn update_gpu_grid_tree(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer, view_frustum: &camera::ViewFrustum, pose: Pose) -> Option<(u32, Pose)> {
+		let aabb = self.voxels.get_bounding_box()?;
+		let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
+		let radius = aabb.0.distance(aabb.1) / 2.0;
+		let center = (aabb.0 + aabb.1) / 2.0;
+		let in_view = view_frustum.compare_sphere(center, radius);
 		let gpu_grid_tree_id_val = self.gpu_grid_tree_id.get();
-		// if in_view {
+		if in_view {
 			if let Some(id) = gpu_grid_tree_id_val {
 				if self.reupload_gpu_grid.get() {
 					let _zone = span!("Recreate GPU grid tree");
@@ -57,17 +57,17 @@ impl SubGrid {
 							},
 						}
 					});
-					// if in_view {
+					if in_view {
 						return Some((packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?)?.offset(), pose));
-					// } else {
-					// 	return None;
-					// }
+					} else {
+						return None;
+					}
 				}
-				// if in_view {
+				if in_view {
 					return Some((packed_64_tree_dynamic_buffer.get_held_buffer(id)?.offset(), pose));
-				// } else {
-				// 	return None;
-				// }
+				} else {
+					return None;
+				}
 			}
 			let _zone = span!("Create GPU grid tree");
 			self.gpu_grid_tree_id.set({
@@ -83,20 +83,20 @@ impl SubGrid {
 					},
 				}
 			});
-			// if in_view {
+			if in_view {
 				Some((packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?)?.offset(), pose))
-			// } else {
-			// 	None
-			// }
-		// } else {
-		// 	if let Some(id) = gpu_grid_tree_id_val {
-		// 		self.gpu_grid_tree_id.set(None);
-		// 		if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(id) {
-		// 			println!("{}", err);
-		// 		}
-		// 	}
-		// 	None
-		// }
+			} else {
+				None
+			}
+		} else {
+			if let Some(id) = gpu_grid_tree_id_val {
+				self.gpu_grid_tree_id.set(None);
+				if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(id) {
+					println!("{}", err);
+				}
+			}
+			None
+		}
 	}
 }
 

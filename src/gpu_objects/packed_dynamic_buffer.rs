@@ -49,6 +49,9 @@ impl PackedDynamicBuffer {
 			return Err("Buffer size can't be 0.");
 		}
 		if data_buffer.len() as u32 > self.buffer.size() as u32 - self.held_bytes_alignment {
+			if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > device.limits().max_storage_buffer_binding_size {
+				return Err("Buffer max size hit!");
+			}
 			let new_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 				label: Some("PackedBuffer"),
 				size: self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64),
@@ -72,6 +75,9 @@ impl PackedDynamicBuffer {
 				placement_location = held_buffer.offset + held_buffer.size.next_multiple_of(self.alignment as u32);
 				assert!(placement_location.is_multiple_of(self.alignment as u32));
 				if (placement_location + data_buffer.len() as u32) > (self.buffer.size() as u32) {
+					if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > device.limits().max_storage_buffer_binding_size {
+				return Err("Buffer max size hit!");
+			}
 					let new_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 						label: Some("PackedBuffer"),
 						size: self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64),

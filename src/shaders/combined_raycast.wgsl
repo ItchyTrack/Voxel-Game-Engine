@@ -35,7 +35,6 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
 
 	var iter = bvh_iter_new(ray_pos, ray_dir);
 
-
     loop {
 		let candidate = bvh_iter_next(&iter, best.total_dist);
 		if (!candidate.valid) { break; }
@@ -57,7 +56,7 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
         let local_dir = quat_inv_rotate(pose_quat, ray_dir);
 
         // Remaining distance budget after reaching BVH hit
-        let remaining = best.total_dist - bvh_dist;
+        let remaining = min(best.total_dist - bvh_dist, candidate.aabb_internal_dist);
 
         let dda = dda_raycast(local_pos, local_dir, remaining, item.item_index);
 

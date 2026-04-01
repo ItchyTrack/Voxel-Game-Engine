@@ -64,7 +64,7 @@ impl GpuBvh {
 			contents: &bvh_data,
 			usage: wgpu::BufferUsages::STORAGE,
 		});
-		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<u16>());
+		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
 		for item in items {
 			if let Some((id, pose)) = gpu_grid_tree_id_to_id_poses.get(&item.0) {
 				item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
@@ -76,7 +76,8 @@ impl GpuBvh {
 					quat: pose.rotation.to_array(),
 				}));
 			} else {
-				panic!("all bvh items were not found!");
+				println!("BVH item not found. Inserting 0 node into gpu bvh!");
+				item_data.resize(item_data.len() + size_of::<GpuBVHItem>(), 0);
 			}
 		}
 		let items_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
