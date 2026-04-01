@@ -140,7 +140,7 @@ impl State {
 			}
 		});
 		self.leaky_bucket += dt;
-		let time_step = 1.0 / 120.0;
+		let time_step = 1.0 / 60.0;
 		let current_time = Instant::now();
 		while self.leaky_bucket >= time_step {
 			self.physics_engine.update(time_step);
@@ -643,7 +643,7 @@ impl State {
 				let _zone = span!("Collect Meshes");
 				let view_frustum = player_camera.frustum();
 				for (physics_body_index, physics_body) in self.physics_engine.physics_bodies().iter().enumerate() {
-					for (key, value) in physics_body.update_gpu_grid_tree(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_64_tree_dynamic_buffer, &view_frustum) {
+					for (key, value) in physics_body.update_gpu_grid_tree(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_64_tree_dynamic_buffer, &view_frustum, player_camera.pose()) {
 						gpu_grid_tree_id_to_id_poses.insert((physics_body_index as u32, key.0, key.1), value);
 					}
 				}

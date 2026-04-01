@@ -9,7 +9,7 @@ use super::inertia_tensor::InertiaTensor;
 pub struct SubGrid {
 	voxels: voxels::Voxels,
 	reupload_gpu_grid: Cell<bool>,
-	gpu_grid_tree_id: Cell<Option<u32>>,
+	gpu_grid_tree_id: Cell<Option<(u32, f32)>>, // id lod it was taken at
 }
 
 impl SubGrid {
@@ -33,23 +33,23 @@ impl SubGrid {
 
 	// pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
 
-	pub fn update_gpu_grid_tree(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer, view_frustum: &camera::ViewFrustum, pose: Pose) -> Option<(u32, Pose)> {
-		let aabb = self.voxels.get_bounding_box()?;
-		let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
-		let radius = aabb.0.distance(aabb.1) / 2.0;
-		let center = (aabb.0 + aabb.1) / 2.0;
-		let in_view = view_frustum.compare_sphere(center, radius);
+	pub fn update_gpu_grid_tree(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer, _view_frustum: &camera::ViewFrustum, lod_level: f32, pose: Pose) -> Option<(u32, Pose)> {
+		// let aabb = self.voxels.get_bounding_box()?;
+		// let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
+		// let radius = aabb.0.distance(aabb.1) / 2.0;
+		// let center = (aabb.0 + aabb.1) / 2.0;
+		// let in_view = view_frustum.compare_sphere(center, radius);
 		let gpu_grid_tree_id_val = self.gpu_grid_tree_id.get();
-		if in_view {
-			if let Some(id) = gpu_grid_tree_id_val {
-				if self.reupload_gpu_grid.get() {
+		// if in_view {
+			if let Some((id, old_lod_level)) = gpu_grid_tree_id_val {
+				if self.reupload_gpu_grid.get() || lod_level != old_lod_level && (lod_level == 0.0 || (old_lod_level - lod_level).abs() > 0.2) {
 					let _zone = span!("Recreate GPU grid tree");
 					self.gpu_grid_tree_id.set({
-						let buffer = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette());
+						let buffer = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
 						match packed_64_tree_dynamic_buffer.replace_buffer(device, queue, id, &buffer) {
 							Ok(gpu_grid_tree_id) => {
 								self.reupload_gpu_grid.set(false);
-								Some(gpu_grid_tree_id)
+								Some((gpu_grid_tree_id, lod_level))
 							},
 							Err(err) => {
 								println!("{}", err);
@@ -57,25 +57,25 @@ impl SubGrid {
 							},
 						}
 					});
-					if in_view {
-						return Some((packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?)?.offset(), pose));
-					} else {
-						return None;
-					}
+					// if in_view {
+						return Some((packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.0)?.offset(), pose));
+					// } else {
+					// 	return None;
+					// }
 				}
-				if in_view {
+				// if in_view {
 					return Some((packed_64_tree_dynamic_buffer.get_held_buffer(id)?.offset(), pose));
-				} else {
-					return None;
-				}
+				// } else {
+				// 	return None;
+				// }
 			}
 			let _zone = span!("Create GPU grid tree");
 			self.gpu_grid_tree_id.set({
-				let buffer = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette());
+				let buffer = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
 				match packed_64_tree_dynamic_buffer.add_buffer(device, queue, &buffer) {
 					Ok(gpu_grid_tree_id) => {
 						self.reupload_gpu_grid.set(false);
-						Some(gpu_grid_tree_id)
+						Some((gpu_grid_tree_id, lod_level))
 					},
 					Err(err) => {
 						println!("{}", err);
@@ -83,20 +83,20 @@ impl SubGrid {
 					},
 				}
 			});
-			if in_view {
-				Some((packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?)?.offset(), pose))
-			} else {
-				None
-			}
-		} else {
-			if let Some(id) = gpu_grid_tree_id_val {
-				self.gpu_grid_tree_id.set(None);
-				if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(id) {
-					println!("{}", err);
-				}
-			}
-			None
-		}
+		// 	if in_view {
+				Some((packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.0)?.offset(), pose))
+		// 	} else {
+		// 		None
+		// 	}
+		// } else {
+		// 	if let Some((id, _)) = gpu_grid_tree_id_val {
+		// 		self.gpu_grid_tree_id.set(None);
+		// 		if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(id) {
+		// 			println!("{}", err);
+		// 		}
+		// 	}
+		// 	None
+		// }
 	}
 }
 
@@ -175,9 +175,11 @@ impl PhysicsBodyGrid {
 		queue: &wgpu::Queue,
 		packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
 		view_frustum: &camera::ViewFrustum,
+		camera_pose: Pose,
 		pose: &Pose
 	) -> Vec<(IVec3, (u32, Pose))> {
-		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)|
+		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)| {
+			let grid_pose = pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(sub_grid_pos).as_vec3());
 			Some((
 				*sub_grid_pos,
 				(sub_grid.update_gpu_grid_tree(
@@ -185,9 +187,10 @@ impl PhysicsBodyGrid {
 					queue,
 					packed_64_tree_dynamic_buffer,
 					view_frustum,
-					pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(sub_grid_pos).as_vec3())
+					f32::max(camera_pose.translation.distance(grid_pose.translation) - 700.0, 0.0) / 800.0,
+					grid_pose
 				)?)
-			))
+			))}
 		).collect()
 	}
 
@@ -352,11 +355,12 @@ impl PhysicsBody {
 		device: &wgpu::Device,
 		queue: &wgpu::Queue,
 		packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
-		view_frustum: &camera::ViewFrustum
+		view_frustum: &camera::ViewFrustum,
+		camera_pose: Pose,
 	) -> Vec<((u32, IVec3), (u32, Pose))> {
 		let mut gpu_grid_tree_id_to_id_poses = vec![];
 		for (grid_index, grid) in self.grids.iter().enumerate() {
-			for (sub_grid_pos, (packed_buffer_group_id, mesh_pose)) in grid.update_gpu_grid_tree(device, queue, packed_64_tree_dynamic_buffer, view_frustum, &self.pose) {
+			for (sub_grid_pos, (packed_buffer_group_id, mesh_pose)) in grid.update_gpu_grid_tree(device, queue, packed_64_tree_dynamic_buffer, view_frustum, camera_pose, &self.pose) {
 				gpu_grid_tree_id_to_id_poses.push(((grid_index as u32, sub_grid_pos), (packed_buffer_group_id, mesh_pose)));
 			}
 		}

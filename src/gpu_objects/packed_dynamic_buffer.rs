@@ -123,18 +123,18 @@ impl PackedDynamicBuffer {
 	// If the new buffer does not fit the old buffer will still be removed
 	pub fn replace_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
-			if held_buffer.size >= buffer.len() as u32 {
-				self.held_bytes -= held_buffer.size;
-				self.held_bytes += buffer.len() as u32;
-				self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
-				self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
-				held_buffer.size = buffer.len() as u32;
-				queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
-				Ok(id)
-			} else {
+			// if held_buffer.size >= buffer.len() as u32 {
+			// 	self.held_bytes -= held_buffer.size;
+			// 	self.held_bytes += buffer.len() as u32;
+			// 	self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
+			// 	self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
+			// 	held_buffer.size = buffer.len() as u32;
+			// 	queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
+			// 	Ok(id)
+			// } else {
 				self.remove_buffer(id)?;
 				self.add_buffer(device, queue, buffer)
-			}
+			// }
 		} else {
 			Err("Could not find id.")
 		}
