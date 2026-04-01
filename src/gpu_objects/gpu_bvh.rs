@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use glam::IVec3;
 use wgpu::{Device, util::DeviceExt};
 
-use crate::physics::bvh;
+use crate::{physics::bvh, pose::Pose};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -17,9 +19,11 @@ struct GpuBVHNode {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuBVHItem {
 	min_corner: [f32; 3],
-	max_corner: [f32; 3],
+	aabb_size: [u8; 3],
+	_padding: u8,
 	item_index: u32,
-	padding: u32
+	pos: [f32; 3],
+	quat: [f32; 4]
 }
 
 pub struct GpuBvh {
@@ -30,7 +34,7 @@ pub struct GpuBvh {
 }
 
 impl GpuBvh {
-	pub fn from_bvh(device: &Device, bvh: &bvh::BVH<(u32, u32, IVec3)>) -> Self {
+	pub fn from_bvh(device: &Device, bvh: &bvh::BVH<(u32, u32, IVec3)>, gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, Pose)>) -> Self {
 		let (nodes, items) = bvh.get_internals();
 		let mut bvh_data: Vec<u8> = Vec::with_capacity(nodes.len() * size_of::<GpuBVHNode>());
 		for node in nodes {
@@ -60,22 +64,21 @@ impl GpuBvh {
 			contents: &bvh_data,
 			usage: wgpu::BufferUsages::STORAGE,
 		});
-		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<u16>());
+		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
 		for item in items {
-			item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
-				min_corner: item.1.0.to_array(),
-				max_corner: item.1.1.to_array(),
-				item_index: {
-					let mut index = item.0.0;
-					index = index ^ (item.0.1 + 0x9e3779b9 + (index << 6) + (index >> 2));
-					index = index ^ (item.0.2.x as u32 + 0x9e3779b9 + (index << 6) + (index >> 2));
-					index = index ^ (item.0.2.y as u32 + 0x9e3779b9 + (index << 6) + (index >> 2));
-					index = index ^ (item.0.2.z as u32 + 0x9e3779b9 + (index << 6) + (index >> 2));
-					index
-				},
-				// item_index: item.0.0 as u32 + (item.0.1 as u32) << 8 + item.0.2.x << 16 + item.0.2.y << 16 + item.0.2.z << 16,
-				padding: 0,
-			}));
+			if let Some((id, pose)) = gpu_grid_tree_id_to_id_poses.get(&item.0) {
+				item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
+					min_corner: item.1.0.to_array(),
+					aabb_size: (item.1.1 - item.1.0).ceil().as_u8vec3().to_array(),
+					_padding: 0,
+					item_index: *id,
+					pos: pose.translation.to_array(),
+					quat: pose.rotation.to_array(),
+				}));
+			} else {
+				println!("BVH item not found. Inserting 0 node into gpu bvh!");
+				item_data.resize(item_data.len() + size_of::<GpuBVHItem>(), 0);
+			}
 		}
 		let items_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("bvh_buffer"),

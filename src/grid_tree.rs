@@ -7,74 +7,73 @@ use glam::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3};
 use crate::pose::Pose;
 
 pub const LOG_SIZE: u8 = 2;
-pub const SIZE: u8 = 2_u8.pow(LOG_SIZE as u32);
+pub const SIZE: u8 = 1u8 << LOG_SIZE;
 pub const SIZE_CUBED: u8 = SIZE * SIZE * SIZE;
 pub const SIZE_USIZE: usize = SIZE as usize;
 pub const SIZE_USIZE_CUBED: usize = SIZE_USIZE * SIZE_USIZE * SIZE_USIZE;
 
-pub const MAX_TREE_DEPTH: u8 = 4; // it is lower than this but im being safe
+pub const MAX_TREE_DEPTH: u8 = 10; // it is lower than this but im being safe
 pub const MAX_TREE_DEPTH_USIZE: usize = MAX_TREE_DEPTH as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct GridTreeCell {
+pub struct GridTreeCell {
 	// If value == 1<<16-1: NONE, Else if last bit is 0: DATA, Else last bit is 1: NODE.
 	// NODE value != 1<<15-1 because then NONE
-	value: u16,
+	pub value: u16,
 }
 
 impl GridTreeCell {
 	const LAST_BIT_INDEX: u8 = u16::BITS as u8 - 1;
 	pub const NONE: GridTreeCell = GridTreeCell{ value: u16::MAX };
 	// You can only use the first 15 bits
-	fn from_data(data: u16) -> Self {
+	pub fn from_data(data: u16) -> Self {
 		Self {
 			value: data,
 		}
 	}
 	// You can only use the first 15 bits and cant be 15 ones
-	fn from_node_offset(node_index: u16) -> Self {
+	pub fn from_node_offset(node_index: u16) -> Self {
 		Self {
 			value: node_index | 1 << Self::LAST_BIT_INDEX,
 		}
 	}
-	fn from_raw(value: u16) -> Self {
+	pub fn from_raw(value: u16) -> Self {
 		Self {
 			value: value,
 		}
 	}
 	// 0: NONE, 1: DATA, 2: NODE
-	fn value_type(&self) -> u8 {
+	pub fn value_type(&self) -> u8 {
 		if self.value == u16::MAX { return 0; }
 		1 + (self.value >> Self::LAST_BIT_INDEX) as u8
 	}
 	// Undefined output if NONE
-	fn value(&self) -> u16 {
+	pub fn value(&self) -> u16 {
 		self.value & ((1 << Self::LAST_BIT_INDEX) - 1)
 	}
-	fn value_raw(&self) -> u16 {
+	pub fn value_raw(&self) -> u16 {
 		self.value
 	}
-	fn raw_as_data(raw_value: u16) -> u16 {
+	pub fn raw_as_data(raw_value: u16) -> u16 {
 		raw_value
 	}
-	fn raw_as_node(raw_value: u16) -> u16 {
+	pub fn raw_as_node(raw_value: u16) -> u16 {
 		raw_value & ((1 << Self::LAST_BIT_INDEX) - 1)
 	}
 }
 
 #[derive(Debug)]
-struct GridTreeNode {
+pub struct GridTreeNode {
 	pub contents: [GridTreeCell; SIZE_USIZE_CUBED],
 	pub parent_offset: u16, // if parent_index == 0 then no parent
-	pub depth: u8, // 0 is the bottom
 	pub used_cell_count: u8,
 }
 
-fn get_child_contents_index(contents_pos: U8Vec3) -> u8 {
+pub fn get_child_contents_index(contents_pos: U8Vec3) -> u8 {
 	contents_pos.x + contents_pos.y * SIZE + contents_pos.z * SIZE * SIZE
 }
 
-fn get_child_contents_pos(contents_index: u8) -> U8Vec3 {
+pub fn get_child_contents_pos(contents_index: u8) -> U8Vec3 {
 	U8Vec3::new(contents_index % SIZE, (contents_index / SIZE) % SIZE, contents_index / (SIZE * SIZE))
 }
 
@@ -87,19 +86,13 @@ fn get_child_contents_pos(contents_index: u8) -> U8Vec3 {
 // }
 
 impl GridTreeNode {
-	fn new_root(depth: u8) -> Self {
-		Self {
-			contents: [GridTreeCell::NONE; SIZE_USIZE_CUBED],
-			parent_offset: 0,
-			depth: depth,
-			used_cell_count: 0,
-		}
+	fn new_root() -> Self {
+		Self::new(0)
 	}
-	fn new(parent_offset: u16, depth: u8) -> Self {
+	fn new(parent_offset: u16) -> Self {
 		Self {
 			contents: [GridTreeCell::NONE; SIZE_USIZE_CUBED],
 			parent_offset: parent_offset,
-			depth: depth,
 			used_cell_count: 0,
 		}
 	}
@@ -116,20 +109,20 @@ impl GridTreeNode {
 			None => self.parent_offset = 0,
 		}
 	}
-	fn size(&self) -> u16 {
-		1 << (LOG_SIZE * (self.depth + 1))
+	pub fn size(node_depth: u8) -> u16 {
+		1 << (LOG_SIZE * (node_depth + 1))
 	}
-	fn child_size(&self) -> u16 {
-		1 << (LOG_SIZE * self.depth)
+	pub fn child_size(node_depth: u8) -> u16 {
+		1 << (LOG_SIZE * node_depth)
 	}
-	fn parent_size(&self) -> u16 {
-		1 << (LOG_SIZE * (self.depth + 2))
+	pub fn parent_size(node_depth: u8) -> u16 {
+		1 << (LOG_SIZE * (node_depth + 2))
 	}
-	fn child_relative_pos(&self, child_contents_pos: U8Vec3) -> U16Vec3 {
-		self.child_size() * child_contents_pos.as_u16vec3()
+	fn child_relative_pos(&self, node_depth: u8, child_contents_pos: U8Vec3) -> U16Vec3 {
+		Self::child_size(node_depth) * child_contents_pos.as_u16vec3()
 	}
-	fn parent_relative_pos(&self, this_contents_pos: U8Vec3) -> U16Vec3 {
-		self.size() * this_contents_pos.as_u16vec3()
+	fn parent_relative_pos(&self, node_depth: u8, this_contents_pos: U8Vec3) -> U16Vec3 {
+		Self::size(node_depth) * this_contents_pos.as_u16vec3()
 	}
 	// (type, value)
 	fn get_child_cell_from_index(&self, contents_index: u8) -> (u8, u16) {
@@ -183,14 +176,16 @@ impl GridTreeNode {
 pub struct GridTree {
 	nodes: Vec<GridTreeNode>, // root at 0
 	root_pos: I16Vec3,
+	root_depth: u8,
 	item_count: u64,
 }
 
 impl GridTree {
 	pub fn new() -> Self {
 		Self {
-			nodes: vec![GridTreeNode::new_root(0)],
+			nodes: vec![GridTreeNode::new_root()],
 			root_pos: I16Vec3::ZERO,
+			root_depth: 0,
 			item_count: 0,
 		}
 	}
@@ -199,15 +194,14 @@ impl GridTree {
 		let parent = &mut self.nodes[parent_index as usize];
 		assert!(next_node_offset != 0);
 		parent.set_child_cell_to_node(contents_pos, next_node_offset);
-		let parent_depth = parent.depth;
-		self.nodes.push(GridTreeNode::new(next_node_offset, parent_depth));
+		self.nodes.push(GridTreeNode::new(next_node_offset));
 		next_node_offset
 	}
 	fn make_new_root(&mut self, contents_pos_of_old_root: U8Vec3) {
 		let old_root = &mut self.nodes[0];
 		old_root.set_parent_offset(Some(1));
-		self.root_pos -= (old_root.size() * contents_pos_of_old_root.as_u16vec3()).as_i16vec3();
-		let new_root_depth = old_root.depth + 1;
+		self.root_pos -= (GridTreeNode::size(self.root_depth) * contents_pos_of_old_root.as_u16vec3()).as_i16vec3();
+		self.root_depth += 1;
 		self.nodes.insert(0, GridTreeNode {
 			contents: {
 				let mut contents = [GridTreeCell::NONE; SIZE_USIZE_CUBED];
@@ -215,7 +209,6 @@ impl GridTree {
 				contents
 			},
 			parent_offset: 0,
-			depth: new_root_depth,
 			used_cell_count: 1,
 		});
 	}
@@ -223,20 +216,23 @@ impl GridTree {
 		let root_relative_pos = pos - self.root_pos;
 		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
 		let root_relative_pos = root_relative_pos.as_u16vec3();
-		let root = &self.nodes[0];
-		if root_relative_pos.x >= root.size() || root_relative_pos.y >= root.size() || root_relative_pos.z >= root.size() { return None; }
+		if root_relative_pos.x >= GridTreeNode::size(self.root_depth) ||
+		   root_relative_pos.y >= GridTreeNode::size(self.root_depth) ||
+		   root_relative_pos.z >= GridTreeNode::size(self.root_depth) { return None; }
 		let mut current_node_index: u32 = 0;
 		let mut current_relative_pos = root_relative_pos;
+		let mut current_depth = self.root_depth;
 		loop {
 			let node = &self.nodes[current_node_index as usize];
-			let contents_pos = (current_relative_pos / node.child_size()).as_u8vec3();
+			let contents_pos = (current_relative_pos / GridTreeNode::child_size(current_depth)).as_u8vec3();
 			let cell = node.get_child_cell(contents_pos);
 			match cell.0 {
 				0 => return None,
 				1 => return Some(cell.1),
 				2 => {
+					current_relative_pos %= GridTreeNode::child_size(current_depth);
 					current_node_index += GridTreeCell::raw_as_node(cell.1) as u32;
-					current_relative_pos %= node.child_size();
+					current_depth -= 1;
 				},
 				_ => unsafe { unreachable_unchecked() }
 			}
@@ -259,13 +255,59 @@ impl GridTree {
 	}
 
 	fn make_sure_root_covers_pos(&mut self, pos: &I16Vec3) {
+		let first_root = &self.nodes[0];
+		if first_root.used_cell_count == 0 {
+			self.root_pos = *pos;
+			return;
+		}
+		let root_relative_pos = pos - self.root_pos;
+		if root_relative_pos.is_negative_bitmask() != 0 ||
+			root_relative_pos.x >= GridTreeNode::size(self.root_depth) as i16 ||
+			root_relative_pos.y >= GridTreeNode::size(self.root_depth) as i16 ||
+			root_relative_pos.z >= GridTreeNode::size(self.root_depth) as i16
+		{
+			let mut min_pos = U8Vec3::MAX;
+			let mut max_pos = U8Vec3::MIN;
+			for contents_index in 0..SIZE_CUBED {
+				if first_root.get_child_cell_from_index(contents_index).0 != 0 {
+					let contents_pos = get_child_contents_pos(contents_index);
+					min_pos = min_pos.min(contents_pos);
+					max_pos = max_pos.max(contents_pos);
+				}
+			}
+			if max_pos != U8Vec3::splat(SIZE - 1) && min_pos != U8Vec3::ZERO {
+				let root_relative_contents_pos = root_relative_pos.div_euclid(I16Vec3::splat(GridTreeNode::child_size(self.root_depth) as i16));
+				let root_shift_amount = I16Vec3::new(
+					if root_relative_contents_pos.x > 0 { (root_relative_contents_pos.x + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.x.max(1 - SIZE as i16) },
+					if root_relative_contents_pos.y > 0 { (root_relative_contents_pos.y + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.y.max(1 - SIZE as i16) },
+					if root_relative_contents_pos.z > 0 { (root_relative_contents_pos.z + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.z.max(1 - SIZE as i16) },
+				).clamp((SIZE - 1 - max_pos).as_i16vec3(), min_pos.as_i16vec3());
+				if root_shift_amount != I16Vec3::ZERO {
+					let mut shifted_root_contents = [GridTreeCell::NONE; SIZE_USIZE_CUBED];
+					for x in min_pos.x..=max_pos.x {
+						for y in min_pos.y..=max_pos.y {
+							for z in min_pos.z..=max_pos.z {
+								let contents_pos = U8Vec3::new(x, y, z);
+								let (cell_type, cell_raw) = first_root.get_child_cell_type_and_raw(contents_pos);
+								if cell_type != 0 {
+									shifted_root_contents[get_child_contents_index((contents_pos.as_i16vec3() - root_shift_amount).as_u8vec3()) as usize] = GridTreeCell::from_raw(cell_raw);
+								}
+							}
+						}
+					}
+					self.root_pos += root_shift_amount * GridTreeNode::child_size(self.root_depth) as i16;
+					self.nodes[0].contents = shifted_root_contents;
+				}
+			}
+		} else {
+			return;
+		}
 		loop {
 			let root_relative_pos = pos - self.root_pos;
-			let root = &self.nodes[0];
-			if 	root_relative_pos.is_negative_bitmask() != 0 ||
-				root_relative_pos.x >= root.size() as i16 ||
-				root_relative_pos.y >= root.size() as i16 ||
-				root_relative_pos.z >= root.size() as i16
+			if root_relative_pos.is_negative_bitmask() != 0 ||
+				root_relative_pos.x >= GridTreeNode::size(self.root_depth) as i16 ||
+				root_relative_pos.y >= GridTreeNode::size(self.root_depth) as i16 ||
+				root_relative_pos.z >= GridTreeNode::size(self.root_depth) as i16
 			{
 				let contents_pos_of_old_root = U8Vec3::new(
 					if root_relative_pos.x < 0 { SIZE - 1 } else { 0 },
@@ -278,36 +320,54 @@ impl GridTree {
 			}
 		}
 	}
-	// parent depth must be more than 0 and at pos in parent there must be a data/none cell containing current_value_raw
-	fn set_voxel_in_non_node_cell(&mut self, parent_node_index: u32, current_cell: GridTreeCell, cell_to_set: GridTreeCell, pos: &U16Vec3) {
+	// parent depth must be more than 0 and at pos in parent there must be a data cell containing current_cell and current_cell != cell_to_set
+	fn set_voxel_in_data_cell(&mut self, parent_node_index: u32, parent_depth: u8, current_cell: GridTreeCell, cell_to_set: GridTreeCell, pos: &U16Vec3) {
 		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
 		let parent = &mut self.nodes[parent_node_index as usize];
-		if current_cell.value_type() == 0 {
-			parent.used_cell_count += 1;
-		}
-		let child_size = parent.child_size();
+		let child_size = GridTreeNode::child_size(parent_depth);
 		let relative_pos = (pos / child_size).as_u8vec3();
 		assert!(next_node_offset != 0);
 		parent.set_child_cell_to_node(relative_pos, next_node_offset);
-		let parent_depth = parent.depth;
 		self.nodes.push(GridTreeNode {
 			contents: [current_cell; SIZE_USIZE_CUBED],
 			parent_offset: next_node_offset,
-			depth : parent_depth - 1,
-			used_cell_count: if current_cell.value_type() == 0 { 0 } else { SIZE_CUBED },
+			used_cell_count: SIZE_CUBED,
 		});
 		if parent_depth == 1 {
 			let node = &mut self.nodes[(parent_node_index + next_node_offset as u32) as usize];
 			if cell_to_set.value_type() == 0 {
 				node.used_cell_count -= 1;
-			} else if current_cell.value_type() == 0 {
-				node.used_cell_count += 1;
 			}
-			node.set_child_cell((pos % child_size).as_u8vec3(), cell_to_set);
+			node.set_child_cell((pos % SIZE as u16).as_u8vec3(), cell_to_set);
 		} else {
-			self.set_voxel_in_non_node_cell(parent_node_index + next_node_offset as u32, current_cell, cell_to_set, &(pos % child_size));
+			self.set_voxel_in_data_cell(parent_node_index + next_node_offset as u32, parent_depth - 1, current_cell, cell_to_set, &(pos % child_size));
 		}
 	}
+	// parent depth must be more than 0 and at pos in parent there must be a none cell and cell_to_set must be type 1
+	fn set_voxel_in_none_cell(&mut self, parent_node_index: u32, parent_depth: u8, cell_to_set: GridTreeCell, pos: &U16Vec3) {
+		assert!(cell_to_set.value_type() == 1);
+		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
+		let parent = &mut self.nodes[parent_node_index as usize];
+		parent.used_cell_count += 1;
+		let child_size = GridTreeNode::child_size(parent_depth);
+		let contents_pos = (pos / child_size).as_u8vec3();
+		assert!(next_node_offset != 0);
+		parent.set_child_cell_to_node(contents_pos, next_node_offset);
+		self.nodes.push(GridTreeNode {
+			contents: [GridTreeCell::NONE; SIZE_USIZE_CUBED],
+			parent_offset: next_node_offset,
+			used_cell_count: 1,
+		});
+		if parent_depth == 1 {
+			let node = &mut self.nodes[(parent_node_index + next_node_offset as u32) as usize];
+			node.set_child_cell((pos % SIZE as u16).as_u8vec3(), cell_to_set);
+		} else {
+			self.set_voxel_in_none_cell(parent_node_index + next_node_offset as u32, parent_depth - 1, cell_to_set, &(pos % child_size));
+		}
+	}
+	pub fn get_internals(&self) -> (&Vec<GridTreeNode>, I16Vec3, u8) {
+        (&self.nodes, self.root_pos, self.root_depth)
+    }
 	// cell_to_merge cant be NODE. pos_in_node is any pos
 	fn try_merge(&mut self, node_index: u32, data: u16, cell_index_stack: &[u8]) {
 		let node = &mut self.nodes[node_index as usize];
@@ -350,21 +410,21 @@ impl GridTree {
 		let mut current_relative_pos = (pos - self.root_pos).as_u16vec3();
 		let mut cell_index_stack = [0; MAX_TREE_DEPTH_USIZE];
 		let mut cell_index_stack_size = 0;
+		let mut current_depth = self.root_depth;
 		loop {
 			let node = &mut self.nodes[current_node_index as usize];
-			let contents_pos = (current_relative_pos / node.child_size()).as_u8vec3();
+			let contents_pos = (current_relative_pos / GridTreeNode::child_size(current_depth)).as_u8vec3();
 			let contents_index = get_child_contents_index(contents_pos);
 			cell_index_stack[cell_index_stack_size] = contents_index;
-			cell_index_stack_size += 1;
 			let cell = node.get_child_cell_type_and_raw_from_index(contents_index);
 			match cell.0 {
 				0 => {
-					if node.depth == 0 {
+					if current_depth == 0 {
 						node.used_cell_count += 1;
 						node.set_child_cell_to_data(contents_pos, data);
 						self.try_merge(current_node_index, data, &cell_index_stack[0..cell_index_stack_size]);
 					} else {
-						self.set_voxel_in_non_node_cell(current_node_index, GridTreeCell::from_raw(cell.1), GridTreeCell::from_data(data), &current_relative_pos);
+						self.set_voxel_in_none_cell(current_node_index, current_depth, GridTreeCell::from_data(data), &current_relative_pos);
 					}
 					self.item_count += 1;
 					return None;
@@ -373,20 +433,22 @@ impl GridTree {
 					if GridTreeCell::raw_as_data(cell.1) == data {
 						return Some(GridTreeCell::raw_as_data(cell.1));
 					}
-					if node.depth == 0 {
+					if current_depth == 0 {
 						node.set_child_cell_to_data(contents_pos, data);
 						self.try_merge(current_node_index, data, &cell_index_stack[0..cell_index_stack_size]);
 					} else {
-						self.set_voxel_in_non_node_cell(current_node_index, GridTreeCell::from_raw(cell.1), GridTreeCell::from_data(data), &current_relative_pos);
+						self.set_voxel_in_data_cell(current_node_index, current_depth, GridTreeCell::from_raw(cell.1), GridTreeCell::from_data(data), &current_relative_pos);
 					}
 					return Some(GridTreeCell::raw_as_data(cell.1));
 				},
 				2 => {
+					current_relative_pos %= GridTreeNode::child_size(current_depth);
 					current_node_index += GridTreeCell::raw_as_node(cell.1) as u32;
-					current_relative_pos %= node.child_size();
+					current_depth -= 1;
 				},
 				_ => unsafe { unreachable_unchecked() }
 			}
+			cell_index_stack_size += 1;
 		}
 	}
 
@@ -394,38 +456,41 @@ impl GridTree {
 		let root_relative_pos = pos - self.root_pos;
 		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
 		let root_relative_pos = root_relative_pos.as_u16vec3();
-		let root = &self.nodes[0];
-		if root_relative_pos.x >= root.size() || root_relative_pos.y >= root.size() || root_relative_pos.z >= root.size() { return None; }
+		if root_relative_pos.x >= GridTreeNode::size(self.root_depth) ||
+		   root_relative_pos.y >= GridTreeNode::size(self.root_depth) ||
+		   root_relative_pos.z >= GridTreeNode::size(self.root_depth) { return None; }
 		let mut current_node_index: u32 = 0;
+		let mut current_depth = self.root_depth;
 		let mut current_relative_pos = root_relative_pos;
 		let mut cell_index_stack = [0; MAX_TREE_DEPTH_USIZE];
 		let mut cell_index_stack_size = 0;
 		loop {
 			let node = &mut self.nodes[current_node_index as usize];
-			let contents_pos = (current_relative_pos / node.child_size()).as_u8vec3();
+			let contents_pos = (current_relative_pos / GridTreeNode::child_size(current_depth)).as_u8vec3();
 			let contents_index = get_child_contents_index(contents_pos);
 			cell_index_stack[cell_index_stack_size] = contents_index;
-			cell_index_stack_size += 1;
 			let cell = node.get_child_cell_type_and_raw_from_index(contents_index);
 			match cell.0 {
 				0 => return None,
 				1 => {
-					if node.depth == 0 {
+					if current_depth == 0 {
 						node.set_child_cell_to_none(contents_pos);
 						node.used_cell_count -= 1;
 						self.try_merge_empty(current_node_index, &cell_index_stack[0..cell_index_stack_size]);
 					} else {
-						self.set_voxel_in_non_node_cell(current_node_index, GridTreeCell::from_raw(cell.1), GridTreeCell::NONE, &current_relative_pos);
+						self.set_voxel_in_data_cell(current_node_index, current_depth, GridTreeCell::from_raw(cell.1), GridTreeCell::NONE, &current_relative_pos);
 					}
 					self.item_count -= 1;
 					return Some(cell.1);
 				},
 				2 => {
+					current_relative_pos %= GridTreeNode::child_size(current_depth);
 					current_node_index += GridTreeCell::raw_as_node(cell.1) as u32;
-					current_relative_pos %= node.child_size();
+					current_depth -= 1;
 				},
 				_ => unsafe { unreachable_unchecked() }
 			}
+			cell_index_stack_size += 1;
 		}
 	}
 
@@ -433,138 +498,175 @@ impl GridTree {
 	pub fn is_empty(&self) -> bool { return self.item_count == 0; }
 	pub fn iter(&self) -> GridTreeIterator<'_> { GridTreeIterator::new(self) }
 
-	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(I16Vec3, I8Vec3, f32)> {
-		let max_length = max_length.unwrap_or(f32::MAX);
-		let origin = pose.translation;
-		let dir = pose.rotation * Vec3::Z;
-		let inv_dir = Vec3::ONE / dir;
+	fn ray_aabb_intersection(start: &Vec3, direction: &Vec3, aabb: &(Vec3, Vec3)) -> Option<f32> {
+		let (min, max) = aabb;
 
-		if self.nodes.is_empty() {
-			return None;
+		if start.cmpge(*min).all() && start.cmple(*max).all() {
+			return Some(0.0);
 		}
 
-		let root = &self.nodes[0];
-		let root_min = self.root_pos.as_vec3();
-		let root_max = root_min + Vec3::splat(root.size() as f32);
+		let inv = Vec3::ONE / *direction;
+		let t1 = (*min - *start) * inv;
+		let t2 = (*max - *start) * inv;
 
-		let t1 = (root_min - origin) * inv_dir;
-		let t2 = (root_max - origin) * inv_dir;
-		let entry_t = t1.min(t2).max_element().max(0.0);
-		let exit_t  = t1.max(t2).min_element();
+		let tmin = t1.min(t2).max_element();
+		let tmax = t1.max(t2).min_element();
 
-		if entry_t > exit_t || entry_t > max_length {
-			return None;
-		}
+		if tmax < 0.0 || tmin > tmax { return None; }
 
-		let dir_sign = I8Vec3::new(
-			(dir.x >= 0.0) as i8,
-			(dir.y >= 0.0) as i8,
-			(dir.z >= 0.0) as i8,
-		);
-
-		self.raycast_node(0, self.root_pos, origin, inv_dir, dir_sign, entry_t, max_length)
+		Some(tmin)
 	}
 
-	fn raycast_node(
-		&self,
-		node_index: u32,
-		node_origin: I16Vec3,
-		origin: Vec3,
-		inv_dir: Vec3,
-		dir_sign: I8Vec3,
-		entry_t: f32,
-		max_t: f32,
-	) -> Option<(I16Vec3, I8Vec3, f32)> {
-		let node = &self.nodes[node_index as usize];
-		let child_size = node.child_size() as f32;
-		let node_origin_f = node_origin.as_vec3();
+	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>/*, debug_pose: &Pose*/) -> Option<(I16Vec3, I8Vec3, f32)> {
+		let max_length = max_length.unwrap_or(f32::MAX);
 
-		// +1 or -1 per axis
-		let step = dir_sign.as_i16vec3() * 2 - I16Vec3::ONE;
+		let origin = pose.translation;
+		let dir = pose.rotation * Vec3::Z;
 
-		// Entry point in world space (no clamp — let cell coords handle bounds)
-		let entry_world = origin + (Vec3::ONE / inv_dir) * entry_t;
+		// debug_draw::line(debug_pose * (origin), debug_pose * (origin + dir * 30.0), &Vec4::new(0.0, 0.0, 0.0, 1.0));
 
-		// Starting cell, clamped to valid range
-		let mut cell = ((entry_world - node_origin_f) / child_size)
-			.floor()
-			.as_i16vec3()
-			.clamp(I16Vec3::ZERO, I16Vec3::splat(SIZE as i16 - 1));
+		let root_min = self.root_pos.as_vec3();
+		let root_max = root_min + Vec3::splat(GridTreeNode::size(self.root_depth) as f32);
 
-		// t at the exit face of the starting cell, per axis
-		let exit_face_world =
-			node_origin_f + (cell + dir_sign.as_i16vec3()).as_vec3() * child_size;
-		let mut axis_t = (exit_face_world - origin) * inv_dir;
-		let dt = (Vec3::splat(child_size) * inv_dir).abs();
-
-		// Determine which face the ray entered on — the axis most recently crossed
-		// (highest axis_t - dt value). This gives the correct normal for the first cell.
-		let entry_axis_t = axis_t - dt;
-		let mut hit_axis = if entry_axis_t.x >= entry_axis_t.y && entry_axis_t.x >= entry_axis_t.z {
-			0usize
-		} else if entry_axis_t.y >= entry_axis_t.z {
-			1
-		} else {
-			2
+		// Ray vs root AABB
+		let distance_to_aabb = match Self::ray_aabb_intersection(&origin, &dir, &(root_min, root_max)) {
+			Some(dis) => dis,
+			None => return None,
 		};
-
-		let mut t = entry_t;
-
+		let post_aabb_origin_pre_shift = origin + dir * distance_to_aabb;
+		let post_aabb_origin = post_aabb_origin_pre_shift
+			.min(self.root_pos.as_vec3() + Vec3::splat(((GridTreeNode::size(self.root_depth)) as f32) - 0.00001))
+			.max(self.root_pos.as_vec3());
+		let post_aabb_origin = post_aabb_origin.move_towards(post_aabb_origin.floor() + 0.5, 0.001);
+		let root_relative_post_aabb_origin = post_aabb_origin - self.root_pos.as_vec3();
+		let delta = dir.recip().abs();
+		let step = dir.signum().as_i8vec3();
+		let mut axis_distances = dir.recip() * Vec3::new(
+			if step.x > 0 { root_relative_post_aabb_origin.x.ceil() } else { root_relative_post_aabb_origin.x.floor() } - root_relative_post_aabb_origin.x,
+			if step.y > 0 { root_relative_post_aabb_origin.y.ceil() } else { root_relative_post_aabb_origin.y.floor() } - root_relative_post_aabb_origin.y,
+			if step.z > 0 { root_relative_post_aabb_origin.z.ceil() } else { root_relative_post_aabb_origin.z.floor() } - root_relative_post_aabb_origin.z,
+		) + distance_to_aabb;
+		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.025, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.025, 0.0) + dir * axis_distances.x), &Vec4::new(1.0, 0.2, 0.2, 1.0));
+		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.05, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.05, 0.0) + dir * axis_distances.y), &Vec4::new(0.2, 1.0, 0.2, 1.0));
+		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.075, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.075, 0.0) + dir * axis_distances.z), &Vec4::new(0.2, 0.2, 1.0, 1.0));
+		// debug_draw::point(debug_pose * (root_relative_post_aabb_origin + self.root_pos.as_vec3()), &Vec4::W, 1.0);
+		let mut root_relative_grid_pos = root_relative_post_aabb_origin.as_u16vec3();
+		let mut last_step_axis = (post_aabb_origin_pre_shift - post_aabb_origin).abs().max_position() as u8;
+		let mut current_node_index = 0u32;
+		let mut current_depth = self.root_depth;
+		let mut last_distance = distance_to_aabb;
+		if max_length < last_distance { return None; }
 		loop {
-			if cell.x < 0 || cell.x >= SIZE as i16
-			|| cell.y < 0 || cell.y >= SIZE as i16
-			|| cell.z < 0 || cell.z >= SIZE as i16
-			{
-				return None;
-			}
-
-			let contents_pos = cell.as_u8vec3();
-			let contents_index = get_child_contents_index(contents_pos);
-			let child_cell = node.contents[contents_index as usize];
-
-			let cell_exit_t = axis_t.min_element().min(max_t);
-
-			match child_cell.value_type() {
-				0 => {}
-				1 => {
-					if t > max_t { return None; }
-					let child_world_origin = node_origin
-						+ (contents_pos.as_u16vec3() * node.child_size()).as_i16vec3();
-					let mut normal = I8Vec3::ZERO;
-					normal[hit_axis] = -(step[hit_axis] as i8);
-					return Some((child_world_origin, normal, t));
-				}
-				2 => {
-					let child_node_index = node_index + child_cell.value() as u32;
-					let child_world_origin = node_origin
-						+ (contents_pos.as_u16vec3() * node.child_size()).as_i16vec3();
-					if let Some(hit) = self.raycast_node(
-						child_node_index,
-						child_world_origin,
-						origin,
-						inv_dir,
-						dir_sign,
-						t,
-						cell_exit_t,
-					) {
-						return Some(hit);
+			let mut current_node = &self.nodes[current_node_index as usize];
+			// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::ONE, false);
+			let node_relative_grid_pos = root_relative_grid_pos % GridTreeNode::size(current_depth);
+			// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((
+			// 	self.root_pos + root_relative_grid_pos.as_i16vec3() - node_relative_grid_pos.as_i16vec3()
+			// ).as_vec3())), Vec3::splat(current_node.size() as f32), &Vec4::new(0.0, 0.0, 1.0, 1.0), false);
+			let contents_pos = (node_relative_grid_pos / GridTreeNode::child_size(current_depth)).as_u8vec3();
+			let cell = current_node.get_child_cell(contents_pos);
+			match cell.0 {
+				0 => { // NONE
+					if GridTreeNode::child_size(current_depth) != 1 {
+						let node_cell_relative_grid_pos = node_relative_grid_pos % GridTreeNode::child_size(current_depth);
+						let mut step_amount = U16Vec3::select(
+							step.cmpgt(I8Vec3::ZERO),
+							U16Vec3::splat(GridTreeNode::child_size(current_depth) - 1) - node_cell_relative_grid_pos,
+							node_cell_relative_grid_pos
+						);
+						// step to edge of cell. step_amount is 0 if child_size is 0
+						let distance_to_edge_of_cell = axis_distances + step_amount.as_vec3() * delta;
+						match distance_to_edge_of_cell.min_position() {
+							0 => {
+								step_amount.y = ((distance_to_edge_of_cell.x - axis_distances.y + delta.y) / delta.y).abs() as u16;
+								step_amount.z = ((distance_to_edge_of_cell.x - axis_distances.z + delta.z) / delta.z).abs() as u16;
+							},
+							1 => {
+								step_amount.x = ((distance_to_edge_of_cell.y - axis_distances.x + delta.x) / delta.x).abs() as u16;
+								step_amount.z = ((distance_to_edge_of_cell.y - axis_distances.z + delta.z) / delta.z).abs() as u16;
+							},
+							2 => {
+								step_amount.x = ((distance_to_edge_of_cell.z - axis_distances.x + delta.x) / delta.x).abs() as u16;
+								step_amount.y = ((distance_to_edge_of_cell.z - axis_distances.y + delta.y) / delta.y).abs() as u16;
+							},
+							_ => unsafe { unreachable_unchecked(); }
+						}
+						axis_distances += delta * step_amount.as_vec3();
+						root_relative_grid_pos = (root_relative_grid_pos.as_i16vec3() + step_amount.as_i16vec3() * step.as_i16vec3()).as_u16vec3();
+						// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::W, false);
+						// println!("{root_relative_grid_pos}");
 					}
+					match axis_distances.min_position() {
+						0 => {
+							if max_length < axis_distances.x { return None; }
+							let root_relative_grid_pos_x = root_relative_grid_pos.x as i16 + step.x as i16;
+							if root_relative_grid_pos_x < 0 || root_relative_grid_pos_x >= GridTreeNode::size(self.root_depth) as i16 { return None; }
+							let root_relative_grid_pos_x = root_relative_grid_pos_x as u16;
+							loop {
+								if root_relative_grid_pos.x / GridTreeNode::size(current_depth) == root_relative_grid_pos_x / GridTreeNode::size(current_depth) {
+									break;
+								}
+								current_depth += 1;
+								current_node_index -= current_node.get_parent_offset().unwrap() as u32;
+								current_node = &self.nodes[current_node_index as usize];
+							}
+							root_relative_grid_pos.x = root_relative_grid_pos_x;
+							last_distance = axis_distances.x;
+							axis_distances.x += delta.x;
+							last_step_axis = 0;
+						},
+						1 => {
+							if max_length < axis_distances.y { return None; }
+							let root_relative_grid_pos_y = root_relative_grid_pos.y as i16 + step.y as i16;
+							if root_relative_grid_pos_y < 0 || root_relative_grid_pos_y >= GridTreeNode::size(self.root_depth) as i16 { return None; }
+							let root_relative_grid_pos_y = root_relative_grid_pos_y as u16;
+							loop {
+								if root_relative_grid_pos.y / GridTreeNode::size(current_depth) == root_relative_grid_pos_y / GridTreeNode::size(current_depth) {
+									break;
+								}
+								current_depth += 1;
+								current_node_index -= current_node.get_parent_offset().unwrap() as u32;
+								current_node = &self.nodes[current_node_index as usize];
+							}
+							root_relative_grid_pos.y = root_relative_grid_pos_y;
+							last_distance = axis_distances.y;
+							axis_distances.y += delta.y;
+							last_step_axis = 1;
+						},
+						2 => {
+							if max_length < axis_distances.z { return None; }
+							let root_relative_grid_pos_z = root_relative_grid_pos.z as i16 + step.z as i16;
+							if root_relative_grid_pos_z < 0 || root_relative_grid_pos_z >= GridTreeNode::size(self.root_depth) as i16 { return None; }
+							let root_relative_grid_pos_z = root_relative_grid_pos_z as u16;
+							loop {
+								if root_relative_grid_pos.z / GridTreeNode::size(current_depth) == root_relative_grid_pos_z / GridTreeNode::size(current_depth) {
+									break;
+								}
+								current_depth += 1;
+								current_node_index -= current_node.get_parent_offset().unwrap() as u32;
+								current_node = &self.nodes[current_node_index as usize];
+							}
+							root_relative_grid_pos.z = root_relative_grid_pos_z;
+							last_distance = axis_distances.z;
+							axis_distances.z += delta.z;
+							last_step_axis = 2;
+						},
+						_ => unsafe { unreachable_unchecked(); }
+					}
+				},
+				1 => { // DATA
+					return Some((
+						root_relative_grid_pos.as_i16vec3() + self.root_pos,
+						-step.to_array()[last_step_axis as usize] * I8Vec3::AXES[last_step_axis as usize],
+						last_distance
+					));
+				},
+				2 => { // NODE
+					current_depth -= 1;
+					current_node_index += cell.1 as u32;
 				}
-				_ => unsafe { unreachable_unchecked() }
+				_ => unsafe { unreachable_unchecked(); }
 			}
-
-			// Advance to next cell along smallest-t axis
-			let min_axis = if axis_t.x < axis_t.y {
-				if axis_t.x < axis_t.z { 0 } else { 2 }
-			} else {
-				if axis_t.y < axis_t.z { 1 } else { 2 }
-			};
-
-			if axis_t[min_axis] > max_t { return None; }
-			t = axis_t[min_axis];
-			hit_axis = min_axis;
-			cell[min_axis] += step[min_axis];
-			axis_t[min_axis] += dt[min_axis];
 		}
 	}
 }
@@ -580,17 +682,20 @@ impl<'a> IntoIterator for &'a GridTree {
 
 pub struct GridTreeIterator<'a> {
 	tree: &'a GridTree,
-	stack: Vec<(u32, u8, I16Vec3)>,
+	stack: Vec<(u32, u8, u8, I16Vec3)>,
 }
 
 impl<'a> GridTreeIterator<'a> {
 	pub fn new(tree: &'a GridTree) -> Self {
 		if tree.nodes.is_empty() {
-			return Self { tree, stack: vec![] };
+			return Self {
+				tree,
+				stack: vec![]
+			};
 		}
 		Self {
 			tree,
-			stack: vec![(0, 0, tree.root_pos)],
+			stack: vec![(0, 0, tree.root_depth, tree.root_pos)],
 		}
 	}
 }
@@ -600,12 +705,13 @@ impl<'a> Iterator for GridTreeIterator<'a> {
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
-			let (node_index, start_child, node_origin) = self.stack.last_mut()?;
+			let (node_index, start_child, node_depth, node_origin) = self.stack.last_mut()?;
 			let node_index = *node_index;
 			let node_origin = *node_origin;
+			let node_depth = *node_depth;
 
 			let node = &self.tree.nodes[node_index as usize];
-			let child_size = node.child_size(); // size of one cell in this node
+			let child_size = GridTreeNode::child_size(node_depth); // size of one cell in this node
 
 			// Scan forward from where we left off
 			let scan_start = *start_child;
@@ -614,24 +720,21 @@ impl<'a> Iterator for GridTreeIterator<'a> {
 			for i in scan_start..SIZE_CUBED {
 				let cell = node.contents[i as usize];
 				let contents_pos = get_child_contents_pos(i);
-				let child_world_origin = node_origin
-					+ (contents_pos.as_u16vec3() * child_size).as_i16vec3();
+				let child_world_origin = node_origin + (contents_pos.as_u16vec3() * child_size).as_i16vec3();
 
 				match cell.value_type() {
 					0 => { /* NONE – skip */ }
 					1 => {
 						// DATA leaf – yield it and resume after this cell next time
-						*self.stack.last_mut().unwrap() =
-							(node_index, i + 1, node_origin);
+						*self.stack.last_mut().unwrap() = (node_index, i + 1, node_depth, node_origin);
 						return Some((child_world_origin, child_size, cell.value()));
 					}
 					2 => {
 						// NODE – push child onto stack, restart inner loop from there
 						let child_node_index = node_index + cell.value() as u32;
 						// Record that we should resume from i+1 when we pop back
-						*self.stack.last_mut().unwrap() =
-							(node_index, i + 1, node_origin);
-						self.stack.push((child_node_index, 0, child_world_origin));
+						*self.stack.last_mut().unwrap() = (node_index, i + 1, node_depth, node_origin);
+						self.stack.push((child_node_index, 0, node_depth - 1, child_world_origin));
 						found = true;
 						break;
 					}

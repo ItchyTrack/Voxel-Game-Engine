@@ -1,30 +1,31 @@
 use std::{cell::Cell, collections::HashMap};
 
 use glam::{I16Vec3, I64Vec3, IVec3, Quat, Vec3};
-use crate::{pose::Pose, voxels};
+use tracy_client::span;
+use crate::{gpu_objects::{gpu_grid_tree, packed_dynamic_buffer::PackedDynamicBuffer}, player::camera, pose::Pose, voxels};
 
 use super::inertia_tensor::InertiaTensor;
 
 pub struct SubGrid {
 	voxels: voxels::Voxels,
-	rebuild_mesh: Cell<bool>,
-	// mesh_id: Cell<Option<PackedBufferGroupId>>,
+	reupload_gpu_grid: Cell<bool>,
+	gpu_grid_tree_id: Cell<Option<(u32, f32)>>, // id lod it was taken at
 }
 
 impl SubGrid {
 	pub fn new() -> Self {
 		Self {
 			voxels: voxels::Voxels::new(),
-			rebuild_mesh: Cell::new(false),
-			// mesh_id: Cell::new(None),
+			reupload_gpu_grid: Cell::new(false),
+			gpu_grid_tree_id: Cell::new(None),
 		}
 	}
 	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: voxels::Voxel) -> Option<voxels::Voxel> {
-		self.rebuild_mesh.set(true);
+		self.reupload_gpu_grid.set(true);
 		self.voxels.add_voxel(pos, voxel)
 	}
 	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<voxels::Voxel> {
-		self.rebuild_mesh.set(true);
+		self.reupload_gpu_grid.set(true);
 		self.voxels.remove_voxel(pos)
 	}
 	pub fn get_voxel(&self, pos: I16Vec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
@@ -32,71 +33,71 @@ impl SubGrid {
 
 	// pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
 
-	// pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, view_frustum: &camera::ViewFrustum, pose: Pose) -> Option<(PackedBufferGroupId, Pose)> {
-	// 	let aabb = self.voxels.get_bounding_box()?;
-	// 	let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
-	// 	let radius = aabb.0.distance(aabb.1) / 2.0;
-	// 	let center = (aabb.0 + aabb.1) / 2.0;
-	// 	let in_view = view_frustum.compare_sphere(center, radius);
-	// 	// if in_view {
-	// 		let mesh_id_val = self.mesh_id.get();
-	// 		if let Some(id) = mesh_id_val {
-	// 			if self.rebuild_mesh.get() {
-	// 				let _zone = span!("Recreate Mesh");
-	// 				self.rebuild_mesh.set(false);
-	// 				self.mesh_id.set(match self.voxels.get_mesh_buffers() {
-	// 					Some(vertices) => {
-	// 						let out = packed_mesh_buffer.replace_buffer(device, queue, id, &vertices);
-	// 						if let Err(err) = out {
-	// 							println!("{}", err);
-	// 							None
-	// 						} else {
-	// 							Some(out.unwrap())
-	// 						}
-	// 					},
-	// 					None => None,
-	// 				});
-	// 				if in_view {
-	// 					return Some((self.mesh_id.get()?, pose));
-	// 				} else {
-	// 					return None;
-	// 				}
-	// 			}
-	// 			if in_view {
-	// 				return Some((id, pose));
-	// 			} else {
-	// 				return None;
-	// 			}
-	// 		}
-	// 		let _zone = span!("Create Mesh");
-	// 		self.rebuild_mesh.set(false);
-	// 		self.mesh_id.set(match self.voxels.get_mesh_buffers() {
-	// 			Some(vertices) => {
-	// 				let out = packed_mesh_buffer.add_mesh(device, queue, &vertices);
-	// 				if let Err(err) = out {
-	// 					println!("{}", err);
-	// 					None
-	// 				} else {
-	// 					Some(out.unwrap())
-	// 				}
-	// 			},
-	// 			None => None,
-	// 		});
-	// 		if in_view {
-	// 			Some((self.mesh_id.get()?, pose))
-	// 		} else {
-	// 			None
-	// 		}
-	// 	// } else {
-	// 	// 	if let Some(id) = mesh_id_val {
-	// 	// 		self.mesh_id.set(None);
-	// 	// 		if let Err(err) = packed_mesh_buffer.remove_buffer(id) {
-	// 	// 			println!("{}", err);
-	// 	// 		}
-	// 	// 	}
-	// 	// 	None
-	// 	// }
-	// }
+	pub fn update_gpu_grid_tree(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer, _view_frustum: &camera::ViewFrustum, lod_level: f32, pose: Pose) -> Option<(u32, Pose)> {
+		// let aabb = self.voxels.get_bounding_box()?;
+		// let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
+		// let radius = aabb.0.distance(aabb.1) / 2.0;
+		// let center = (aabb.0 + aabb.1) / 2.0;
+		// let in_view = view_frustum.compare_sphere(center, radius);
+		let gpu_grid_tree_id_val = self.gpu_grid_tree_id.get();
+		// if in_view {
+			if let Some((id, old_lod_level)) = gpu_grid_tree_id_val {
+				if self.reupload_gpu_grid.get() || lod_level != old_lod_level && (lod_level == 0.0 || (old_lod_level - lod_level).abs() > 0.2) {
+					let _zone = span!("Recreate GPU grid tree");
+					self.gpu_grid_tree_id.set({
+						let buffer = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
+						match packed_64_tree_dynamic_buffer.replace_buffer(device, queue, id, &buffer) {
+							Ok(gpu_grid_tree_id) => {
+								self.reupload_gpu_grid.set(false);
+								Some((gpu_grid_tree_id, lod_level))
+							},
+							Err(err) => {
+								println!("{}", err);
+								return None;
+							},
+						}
+					});
+					// if in_view {
+						return Some((packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.0)?.offset(), pose));
+					// } else {
+					// 	return None;
+					// }
+				}
+				// if in_view {
+					return Some((packed_64_tree_dynamic_buffer.get_held_buffer(id)?.offset(), pose));
+				// } else {
+				// 	return None;
+				// }
+			}
+			let _zone = span!("Create GPU grid tree");
+			self.gpu_grid_tree_id.set({
+				let buffer = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
+				match packed_64_tree_dynamic_buffer.add_buffer(device, queue, &buffer) {
+					Ok(gpu_grid_tree_id) => {
+						self.reupload_gpu_grid.set(false);
+						Some((gpu_grid_tree_id, lod_level))
+					},
+					Err(err) => {
+						println!("{}", err);
+						return None;
+					},
+				}
+			});
+		// 	if in_view {
+				Some((packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.0)?.offset(), pose))
+		// 	} else {
+		// 		None
+		// 	}
+		// } else {
+		// 	if let Some((id, _)) = gpu_grid_tree_id_val {
+		// 		self.gpu_grid_tree_id.set(None);
+		// 		if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(id) {
+		// 			println!("{}", err);
+		// 		}
+		// 	}
+		// 	None
+		// }
+	}
 }
 
 pub struct PhysicsBodyGrid {
@@ -168,11 +169,30 @@ impl PhysicsBodyGrid {
 
 	pub fn mass(&self) -> f32 { self.mass as f32 }
 
-	// pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, view_frustum: &camera::ViewFrustum, pose: &Pose) -> Vec<(PackedBufferGroupId, Pose)> {
-	// 	self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)|
-	// 		Some(sub_grid.update_render_mesh(device, queue, packed_mesh_buffer, view_frustum, pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(sub_grid_pos).as_vec3()))?)
-	// 	).collect()
-	// }
+	pub fn update_gpu_grid_tree(
+		&self,
+		device: &wgpu::Device,
+		queue: &wgpu::Queue,
+		packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
+		view_frustum: &camera::ViewFrustum,
+		camera_pose: Pose,
+		pose: &Pose
+	) -> Vec<(IVec3, (u32, Pose))> {
+		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)| {
+			let grid_pose = pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(sub_grid_pos).as_vec3());
+			Some((
+				*sub_grid_pos,
+				(sub_grid.update_gpu_grid_tree(
+					device,
+					queue,
+					packed_64_tree_dynamic_buffer,
+					view_frustum,
+					f32::max(camera_pose.translation.distance(grid_pose.translation) - 700.0, 0.0) / 800.0,
+					grid_pose
+				)?)
+			))}
+		).collect()
+	}
 
 	pub fn add_voxel(&mut self, pos: IVec3, voxel: voxels::Voxel) {
 		self.mass += voxel.mass as u64;
@@ -330,15 +350,22 @@ impl PhysicsBody {
 		inertia_tensor_at_zero.get_rotated(self.pose.rotation.as_dquat())
 	}
 
-	// pub fn update_render_mesh(&self, device: &wgpu::Device, queue: &wgpu::Queue, packed_mesh_buffer: &mut PackedMeshBuffer, view_frustum: &camera::ViewFrustum) -> Vec<(PackedBufferGroupId, Pose)> {
-	// 	let mut meshes = vec![];
-	// 	for grid in self.grids.iter() {
-	// 		for (packed_buffer_group_id, mesh_pose) in grid.update_render_mesh(device, queue, packed_mesh_buffer, view_frustum, &self.pose) {
-	// 			meshes.push((packed_buffer_group_id, mesh_pose));
-	// 		}
-	// 	}
-	// 	meshes
-	// }
+	pub fn update_gpu_grid_tree(
+		&self,
+		device: &wgpu::Device,
+		queue: &wgpu::Queue,
+		packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
+		view_frustum: &camera::ViewFrustum,
+		camera_pose: Pose,
+	) -> Vec<((u32, IVec3), (u32, Pose))> {
+		let mut gpu_grid_tree_id_to_id_poses = vec![];
+		for (grid_index, grid) in self.grids.iter().enumerate() {
+			for (sub_grid_pos, (packed_buffer_group_id, mesh_pose)) in grid.update_gpu_grid_tree(device, queue, packed_64_tree_dynamic_buffer, view_frustum, camera_pose, &self.pose) {
+				gpu_grid_tree_id_to_id_poses.push(((grid_index as u32, sub_grid_pos), (packed_buffer_group_id, mesh_pose)));
+			}
+		}
+		gpu_grid_tree_id_to_id_poses
+	}
 
 	pub fn add_grid(&mut self, grid_pose: Pose) -> u32 {
 		self.grids_id_to_index.insert(self.next_grid_id, self.grids.len() as u32);

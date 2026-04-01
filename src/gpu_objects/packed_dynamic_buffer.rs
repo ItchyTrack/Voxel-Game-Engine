@@ -28,7 +28,7 @@ impl PackedDynamicBuffer {
 		let buffer = device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("PackedBuffer"),
 			size: size as u64,
-			usage: usage | wgpu::BufferUsages::COPY_DST,
+			usage: usage | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
 		});
 		Ok(Self {
@@ -40,11 +40,18 @@ impl PackedDynamicBuffer {
 		})
 	}
 
+	pub fn alignment(&self) -> u32 {
+		self.alignment
+	}
+
 	pub fn add_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, data_buffer: &[u8]) -> Result<u32, &'static str> {
 		if data_buffer.len() == 0 {
 			return Err("Buffer size can't be 0.");
 		}
 		if data_buffer.len() as u32 > self.buffer.size() as u32 - self.held_bytes_alignment {
+			if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > device.limits().max_storage_buffer_binding_size {
+				return Err("Buffer max size hit!");
+			}
 			let new_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 				label: Some("PackedBuffer"),
 				size: self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64),
@@ -54,7 +61,7 @@ impl PackedDynamicBuffer {
 			let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
 				label: Some("e"),
 			});
-			encoder.copy_buffer_to_buffer(&new_buffer, 0, &self.buffer, 0, self.buffer.size());
+			encoder.copy_buffer_to_buffer(&self.buffer, 0, &new_buffer, 0, self.buffer.size());
 			queue.submit(std::iter::once(encoder.finish()));
 			self.buffer = new_buffer;
 		}
@@ -68,6 +75,9 @@ impl PackedDynamicBuffer {
 				placement_location = held_buffer.offset + held_buffer.size.next_multiple_of(self.alignment as u32);
 				assert!(placement_location.is_multiple_of(self.alignment as u32));
 				if (placement_location + data_buffer.len() as u32) > (self.buffer.size() as u32) {
+					if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > device.limits().max_storage_buffer_binding_size {
+				return Err("Buffer max size hit!");
+			}
 					let new_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 						label: Some("PackedBuffer"),
 						size: self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64),
@@ -77,7 +87,7 @@ impl PackedDynamicBuffer {
 					let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
 						label: Some("e"),
 					});
-					encoder.copy_buffer_to_buffer(&new_buffer, 0, &self.buffer, 0, self.buffer.size());
+					encoder.copy_buffer_to_buffer(&self.buffer, 0, &new_buffer, 0, self.buffer.size());
 					queue.submit(std::iter::once(encoder.finish()));
 					placement_location = self.buffer.size() as u32;
 					self.buffer = new_buffer;
@@ -113,18 +123,18 @@ impl PackedDynamicBuffer {
 	// If the new buffer does not fit the old buffer will still be removed
 	pub fn replace_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
-			if held_buffer.size >= buffer.len() as u32 {
-				self.held_bytes -= held_buffer.size;
-				self.held_bytes += buffer.len() as u32;
-				self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
-				self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
-				held_buffer.size = buffer.len() as u32;
-				queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
-				Ok(id)
-			} else {
+			// if held_buffer.size >= buffer.len() as u32 {
+			// 	self.held_bytes -= held_buffer.size;
+			// 	self.held_bytes += buffer.len() as u32;
+			// 	self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
+			// 	self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
+			// 	held_buffer.size = buffer.len() as u32;
+			// 	queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
+			// 	Ok(id)
+			// } else {
 				self.remove_buffer(id)?;
 				self.add_buffer(device, queue, buffer)
-			}
+			// }
 		} else {
 			Err("Could not find id.")
 		}
