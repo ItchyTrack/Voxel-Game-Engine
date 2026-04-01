@@ -15,7 +15,7 @@ pub struct GpuGridTreeNode {
 }
 
 pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette) -> Vec<u8> {
-	let (nodes, root_pos) = grid_tree.get_internals();
+	let (nodes, root_pos, root_depth) = grid_tree.get_internals();
 
 	let mut gpu_nodes: Vec<GpuGridTreeNode> = Vec::with_capacity(nodes.len());
 
@@ -47,8 +47,8 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette) -> Vec<u
 		root_pos.z,
 	]);
 
-	let root_depth: [u8; 1] = bytemuck::cast([nodes[0].depth as u8]);
-	let palette_offset: [u8; 1] = bytemuck::cast([palette_vec.len() as u8]);
+	let root_depth: [u8; 1] = [root_depth];
+	let palette_offset: [u8; 1] = [palette_vec.len() as u8];
 	let palette_bytes = bytemuck::cast_vec(palette_vec);
 
 	let node_bytes = bytemuck::cast_slice(&gpu_nodes);
