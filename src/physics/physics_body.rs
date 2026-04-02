@@ -189,7 +189,7 @@ impl PhysicsBodyGrid {
 					queue,
 					packed_64_tree_dynamic_buffer,
 					view_frustum,
-					f32::max(camera_pose.translation.distance(grid_pose.translation) - 900.0, 0.0) / 1000.0,
+					f32::max(camera_pose.translation.distance(grid_pose.translation) - 800.0, 0.0) / 1000.0,
 					grid_pose
 				)?)
 			))}
