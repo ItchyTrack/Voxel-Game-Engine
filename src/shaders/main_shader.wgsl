@@ -53,9 +53,9 @@ fn voxel_color(value: u32) -> vec3<f32> {
 fn shade(base_color: vec3<f32>, world_normal: vec3<f32>/*, hit_sky: bool*/) -> vec3<f32> {
 	let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
     // Simple directional + ambient.
-    let ndotl     = max(dot(world_normal, light_dir), 0.0);
+    let ndotl = max(dot(world_normal, light_dir), 0.0);
 	// using hit sky
-	// let ndotl = select(0, 0.7, hit_sky);
+	// let shadow = select(0, ndotl, hit_sky);
     let ambient = 0.25;
     return base_color * (ambient + (1.0 - ambient) * ndotl);
 }
@@ -90,5 +90,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let item_index = bvh_items[hit.bvh_item_idx].item_index;   // grid tree offset
 	let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
     let color = shade(base_color, hit.world_normal/*, !sky_hit.hit*/);
+
     return vec4<f32>(color, 1.0);
+
+	// debug
+    // return vec4<f32>(f32(hit.dda_iter_count) / 200.0, f32(hit.dda_iter_count) / 200.0, f32(hit.dda_iter_count) / 200.0, 1.0);
 }

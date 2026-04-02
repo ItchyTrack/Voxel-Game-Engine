@@ -124,6 +124,7 @@ struct DDAHit {
     value:  u32,
     normal: vec3<f32>,
     dist:   f32,
+	iter_count:  u32,
 }
 
 // ── Grid-tree DDA raycast ─────────────────────────────────────────────────────
@@ -139,6 +140,7 @@ fn dda_raycast(
 ) -> DDAHit {
     var no_hit: DDAHit;
     no_hit.hit = false;
+	no_hit.iter_count = 0;
 
     // Rust: let root = &self.nodes[0];
     // Rust: let root_min = self.root_pos.as_vec3();
@@ -221,6 +223,9 @@ fn dda_raycast(
     if max_length < last_distance { return no_hit; }
 
 	var current_depth = root_depth;
+
+	var iter_count = 0u;
+
     // ── Main loop ─────────────────────────────────────────────────────────────
     for (var _iteration: u32 = 0u; _iteration < DDA_MAX_STEPS; _iteration++) {
         // Rust: let node = &self.nodes[current_node_index as usize];
@@ -246,6 +251,7 @@ fn dda_raycast(
             // NODE → Rust: current_node_index += cell.1 as u32
             current_node_index += cell_value_data;
 			current_depth -= 1;
+			// iter_count+=1;
 
         } else if cell_value_type == 1u {
             // DATA → Rust: return Some((pos, -step[last_step_axis] * I8Vec3::AXES[last_step_axis], last_distance))
@@ -256,9 +262,11 @@ fn dda_raycast(
             hit_result.value  = cell_value_data;
             hit_result.normal = normal_vec;
             hit_result.dist   = last_distance;
+            hit_result.iter_count   = iter_count;
             return hit_result;
 
         } else {
+			iter_count+=1;
             // NONE → hierarchical DDA step.
 
             // Rust (only when node.depth != 0, i.e. child_size != 1):
@@ -276,30 +284,30 @@ fn dda_raycast(
             // The pre-step brings us to the boundary of the empty cell; the single-voxel step
             // crosses into the next cell. The Rust code does them in two separate blocks.
 
-            // if node_child_sz != 1u {
-            //     // Rust: let node_cell_relative_grid_pos = node_relative_grid_pos % current_node.child_size();
-            //     let node_cell_relative_grid_pos = current_relative_pos & vec3<u32>(node_child_sz - 1u);
-            //     let cell_step_amount = vec3<u32>(
-            //         select(node_cell_relative_grid_pos.x, node_child_sz - node_cell_relative_grid_pos.x - 1, step.x > 0),
-            //         select(node_cell_relative_grid_pos.y, node_child_sz - node_cell_relative_grid_pos.y - 1, step.y > 0),
-            //         select(node_cell_relative_grid_pos.z, node_child_sz - node_cell_relative_grid_pos.z - 1, step.z > 0),
-            //     );
+            if node_child_sz != 1u {
+                // Rust: let node_cell_relative_grid_pos = node_relative_grid_pos % current_node.child_size();
+                let node_cell_relative_grid_pos = current_relative_pos & vec3<u32>(node_child_sz - 1u);
+                let cell_step_amount = vec3<u32>(
+                    select(node_cell_relative_grid_pos.x, node_child_sz - node_cell_relative_grid_pos.x - 1, step.x > 0),
+                    select(node_cell_relative_grid_pos.y, node_child_sz - node_cell_relative_grid_pos.y - 1, step.y > 0),
+                    select(node_cell_relative_grid_pos.z, node_child_sz - node_cell_relative_grid_pos.z - 1, step.z > 0),
+                );
 
-            //     // Rust: match (axis_distances + step_amount.abs().as_vec3() * delta).min_position()
-            //     let axis_distances_at_cell_edge = axis_distances + delta * vec3<f32>(cell_step_amount);
-            //     var dis_to_edge = min(min(axis_distances_at_cell_edge.x, axis_distances_at_cell_edge.y), axis_distances_at_cell_edge.z);
-			// 	var adjusted_step_amount = vec3<u32>(abs((vec3<f32>(dis_to_edge, dis_to_edge, dis_to_edge) - axis_distances + delta) / delta));
+                // Rust: match (axis_distances + step_amount.abs().as_vec3() * delta).min_position()
+                let axis_distances_at_cell_edge = axis_distances + delta * vec3<f32>(cell_step_amount);
+                var dis_to_edge = min(min(axis_distances_at_cell_edge.x, axis_distances_at_cell_edge.y), axis_distances_at_cell_edge.z);
+				var adjusted_step_amount = vec3<u32>(abs((vec3<f32>(dis_to_edge, dis_to_edge, dis_to_edge) - axis_distances + delta) / delta));
 
-            //     if      axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.y &&
-            //             axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.z { adjusted_step_amount.x = cell_step_amount.x; }
-            //     else if axis_distances_at_cell_edge.y <= axis_distances_at_cell_edge.z { adjusted_step_amount.y = cell_step_amount.y; }
-            //     else                                                                   { adjusted_step_amount.z = cell_step_amount.z; }
+                if      axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.y &&
+                        axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.z { adjusted_step_amount.x = cell_step_amount.x; }
+                else if axis_distances_at_cell_edge.y <= axis_distances_at_cell_edge.z { adjusted_step_amount.y = cell_step_amount.y; }
+                else                                                                   { adjusted_step_amount.z = cell_step_amount.z; }
 
-            //     // Rust: axis_distances += delta * step_amount.abs().as_vec3();
-            //     // Rust: root_relative_grid_pos = (root_relative_grid_pos.as_i16vec3() + step_amount).as_u16vec3();
-            //     axis_distances += delta * vec3<f32>(adjusted_step_amount);
-            //     root_relative_grid_pos = vec3<u32>(vec3<i32>(root_relative_grid_pos) + vec3<i32>(adjusted_step_amount) * step);
-            // }
+                // Rust: axis_distances += delta * step_amount.abs().as_vec3();
+                // Rust: root_relative_grid_pos = (root_relative_grid_pos.as_i16vec3() + step_amount).as_u16vec3();
+                axis_distances += delta * vec3<f32>(adjusted_step_amount);
+                root_relative_grid_pos = vec3<u32>(vec3<i32>(root_relative_grid_pos) + vec3<i32>(adjusted_step_amount) * step);
+            }
 			// Pick axis with smallest axis_distance
 			let lt_xy = axis_distances.x <= axis_distances.y;
 			let lt_xz = axis_distances.x <= axis_distances.z;
@@ -307,10 +315,10 @@ fn dda_raycast(
 			let axis  = select(select(2u, 1u, lt_yz), 0u, lt_xy && lt_xz);
 
 			let ad = axis_distances[axis];
-			if max_length < ad { return no_hit; }
+			if max_length < ad { no_hit.iter_count = iter_count; return no_hit; }
 
 			let new_pos_signed = i32(root_relative_grid_pos[axis]) + step[axis];
-			if new_pos_signed < 0 || u32(new_pos_signed) >= root_size_u32 { return no_hit; }
+			if new_pos_signed < 0 || u32(new_pos_signed) >= root_size_u32 { no_hit.iter_count = iter_count; return no_hit; }
 
 			// walk-up
 			loop {
@@ -324,6 +332,7 @@ fn dda_raycast(
 				if walk_up_parent_offset == 0u { break; }
 				current_node_index -= walk_up_parent_offset;
 				current_depth += 1;
+				// iter_count+=1;
 			}
 
 			root_relative_grid_pos[axis] = u32(new_pos_signed);
@@ -332,6 +341,6 @@ fn dda_raycast(
 			last_step_axis = axis;
         }
     }
-
+	no_hit.iter_count = iter_count;
     return no_hit;
 }
