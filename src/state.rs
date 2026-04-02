@@ -138,15 +138,15 @@ impl State {
 				}
 			}
 		});
-		self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
-			if object_pickup.is_holding() {
-				object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), &mut self.physics_engine);
-			}
-		});
 		self.leaky_bucket += dt;
 		let time_step = 1.0 / 60.0;
 		let current_time = Instant::now();
 		while self.leaky_bucket >= time_step {
+			self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
+				if object_pickup.is_holding() {
+					object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), &mut self.physics_engine);
+				}
+			});
 			self.physics_engine.update(time_step);
 			self.leaky_bucket -= time_step;
 			let elapsed = current_time.elapsed().as_secs_f32();
