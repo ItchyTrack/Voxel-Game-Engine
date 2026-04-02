@@ -42,7 +42,7 @@ impl SubGrid {
 		let gpu_grid_tree_id_val = self.gpu_grid_tree_id.get();
 		// if in_view {
 			if let Some((id, old_lod_level)) = gpu_grid_tree_id_val {
-				if self.reupload_gpu_grid.get() || lod_level != old_lod_level && (lod_level == 0.0 || (old_lod_level - lod_level).abs() > 0.2) {
+				if self.reupload_gpu_grid.get() || lod_level != old_lod_level && (lod_level == 0.0 || (old_lod_level - lod_level).abs() > 0.25) {
 					let _zone = span!("Recreate GPU grid tree");
 					self.gpu_grid_tree_id.set({
 						let buffer = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
@@ -109,7 +109,7 @@ pub struct PhysicsBodyGrid {
 	id: u32,
 }
 
-const SUB_GRID_SIZE: u16 = 32;
+const SUB_GRID_SIZE: u16 = 64;
 
 impl PhysicsBodyGrid {
 	pub fn new(grid_id: u32, pose: &Pose) -> Self {
@@ -187,7 +187,7 @@ impl PhysicsBodyGrid {
 					queue,
 					packed_64_tree_dynamic_buffer,
 					view_frustum,
-					f32::max(camera_pose.translation.distance(grid_pose.translation) - 700.0, 0.0) / 800.0,
+					f32::max(camera_pose.translation.distance(grid_pose.translation) - 800.0, 0.0) / 1000.0,
 					grid_pose
 				)?)
 			))}

@@ -25,6 +25,7 @@ struct RaycastHit {
     voxel_value:  u32,
     world_normal: vec3<f32>,
     total_dist:   f32,
+	dda_iter_count:   u32,
 }
 
 // ── Combined BVH + DDA raycast ────────────────────────────────────────────────
@@ -32,12 +33,14 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
     var best: RaycastHit;
     best.hit        = false;
     best.total_dist = max_dist;
+	best.dda_iter_count = 0u;
 
 	var iter = bvh_iter_new(ray_pos, ray_dir);
 
     loop {
 		let candidate = bvh_iter_next(&iter, best.total_dist);
 		if (!candidate.valid) { break; }
+
         let bvh_dist = candidate.dist;
 
         // Early-out: candidates are sorted front-to-back
@@ -59,6 +62,8 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
         let remaining = min(best.total_dist - bvh_dist, candidate.aabb_internal_dist);
 
         let dda = dda_raycast(local_pos, local_dir, remaining, item.item_index);
+
+		best.dda_iter_count += dda.iter_count;
 
         if dda.hit {
             let total = bvh_dist + dda.dist;
