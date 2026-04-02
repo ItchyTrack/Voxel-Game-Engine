@@ -53,6 +53,7 @@ impl SubGrid {
 							},
 							Err(err) => {
 								println!("{}", err);
+								self.gpu_grid_tree_id.set(None);
 								return None;
 							},
 						}
@@ -79,6 +80,7 @@ impl SubGrid {
 					},
 					Err(err) => {
 						println!("{}", err);
+						self.gpu_grid_tree_id.set(None);
 						return None;
 					},
 				}
@@ -187,7 +189,7 @@ impl PhysicsBodyGrid {
 					queue,
 					packed_64_tree_dynamic_buffer,
 					view_frustum,
-					f32::max(camera_pose.translation.distance(grid_pose.translation) - 800.0, 0.0) / 1000.0,
+					f32::max(camera_pose.translation.distance(grid_pose.translation) - 900.0, 0.0) / 1000.0,
 					grid_pose
 				)?)
 			))}
@@ -490,17 +492,6 @@ impl PhysicsBody {
 
 	pub fn render_debug_inertia_box(&self) {
 		self.rotational_inertia().render_debug_box(self.mass(), self.get_global_center_of_mass());
-	}
-
-	pub fn apply_central_impulse(&mut self, impluse: &Vec3) {
-		self.velocity += impluse / self.mass();
-	}
-	pub fn apply_rotational_impulse(&mut self, rotational_impluse: &Vec3) {
-		self.angular_velocity += self.rotational_inertia().mat.as_mat3().inverse() * rotational_impluse;
-	}
-	pub fn apply_impulse(&mut self, impluse_pos: &Vec3, impluse: &Vec3) {
-		self.velocity += impluse / self.mass();
-		self.angular_velocity += self.rotational_inertia().mat.as_mat3().inverse() * (impluse_pos - self.get_global_center_of_mass()).cross(*impluse);
 	}
 
 	pub fn world_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }

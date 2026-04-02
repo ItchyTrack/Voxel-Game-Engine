@@ -9,6 +9,20 @@ use crate::{math::{Mat6, Vec6}, pose::Pose};
 use super::{physics_body, collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
 
 type CollisionKlMapKey = (u32, u32, IVec3, collision::CubeFeature, u32, u32, IVec3, collision::CubeFeature);
+
+pub enum Impulse {
+	Impulse {
+		impluse: Vec3,
+		impluse_pos: Vec3,
+	},
+	CentralImpulse {
+		central_impluse: Vec3,
+	},
+	RotationalImpulse {
+		rotational_impluse: Vec3,
+	},
+}
+
 pub struct Solver {
 	collisions_kl_map: HashMap<CollisionKlMapKey, (Vec3, Vec3)>,
 }
@@ -31,7 +45,14 @@ impl Solver {
 		Vec6::from_vec3(state_a.translation - state_b.translation, Self::sub_quat(&state_a.rotation, &state_b.rotation))
 	}
 
-	pub fn solve(&mut self, physics_bodies: &mut Vec<physics_body::PhysicsBody>, mut constraints: Vec<((u32, u32), &mut BallJointConstraint)>, dt: f32, bvh: &BVH<(u32, u32, IVec3)>) {
+	pub fn solve(
+		&mut self,
+		physics_bodies: &mut Vec<physics_body::PhysicsBody>,
+		mut constraints: Vec<((u32, u32), &mut BallJointConstraint)>,
+		impulses: &HashMap<u32, Vec<Impulse>>,
+		dt: f32,
+		bvh: &BVH<(u32, u32, IVec3)>
+	) {
 		let _zone = span!("Solve Collisions");
 		constraints.iter_mut().for_each(|((physics_body_index_1, physics_body_index_2), constraint)| {
 			if let Some(physics_body_1) = physics_bodies.get(*physics_body_index_1 as usize) {
@@ -74,9 +95,32 @@ impl Solver {
 		self.collisions_kl_map.clear();
 		let y_all: Vec<Pose> = physics_bodies.iter().map(|physics_body| {
 			if physics_body.is_static || physics_body.mass() < f32::EPSILON { return Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose; }
+			let mut velocity = physics_body.velocity;
+			let mut angular_velocity = physics_body.angular_velocity;
+			{
+				let body_mass = physics_body.mass();
+				let body_rotational_inertia_inverse = physics_body.rotational_inertia().mat.as_mat3().inverse();
+				let body_global_center_of_mass = physics_body.get_global_center_of_mass();
+				if let Some(body_impulses) = impulses.get(&physics_body.id()) {
+					for impulse in body_impulses {
+						match impulse {
+							Impulse::Impulse { impluse, impluse_pos } => {
+								velocity += impluse / body_mass;
+								angular_velocity += body_rotational_inertia_inverse * (impluse_pos - body_global_center_of_mass).cross(*impluse);
+							},
+							Impulse::CentralImpulse { central_impluse } => {
+								velocity += central_impluse / body_mass;
+							},
+							Impulse::RotationalImpulse { rotational_impluse } => {
+								angular_velocity += body_rotational_inertia_inverse * rotational_impluse;
+							},
+						}
+					}
+				}
+			}
 			let gravity = -300.0;
-			let pos = physics_body.pose.translation + physics_body.velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_global_rotated_center_of_mass();
-			let orientation = (Quat::from_scaled_axis(physics_body.angular_velocity * dt) * physics_body.pose.rotation).normalize();
+			let pos = physics_body.pose.translation + velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_global_rotated_center_of_mass();
+			let orientation = (Quat::from_scaled_axis(angular_velocity * dt) * physics_body.pose.rotation).normalize();
 			Pose::new(pos, orientation)
 		}).collect();
 		let mut x_guess = y_all.clone();
