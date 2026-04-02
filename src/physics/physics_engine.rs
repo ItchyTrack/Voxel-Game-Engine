@@ -3,7 +3,7 @@ use std::{cell::{Ref, RefCell}, collections::HashMap};
 use glam::{I8Vec3, Vec3, IVec3};
 use tracy_client::span;
 
-use crate::{collision_audio::CollisionAudioEvent, pose::Pose};
+use crate::{collision_audio::CollisionAudioEvent, physics::solver::Impulse, pose::Pose};
 
 use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver, ball_joint_constraint::BallJointConstraint};
 
@@ -11,6 +11,7 @@ pub struct PhysicsEngine {
 	physics_bodies: Vec<PhysicsBody>,
 	physics_body_id_to_index: HashMap<u32, u32>,
 	constraints: HashMap<(u32, u32), BallJointConstraint>,
+	impulses: HashMap<u32, Vec<Impulse>>,
 	next_body_id: u32,
 	solver: Solver,
 	bvh: RefCell<Option<BVH<(u32, u32, IVec3)>>>,
@@ -45,6 +46,7 @@ impl PhysicsEngine {
 			physics_bodies: vec![],
 			physics_body_id_to_index: HashMap::new(),
 			constraints: HashMap::new(),
+			impulses: HashMap::new(),
 			next_body_id: 0,
 			solver: Solver::new(),
 			bvh: RefCell::new(None),
@@ -52,7 +54,12 @@ impl PhysicsEngine {
 	}
 
 	pub fn update(&mut self, dt: f32) -> Vec<CollisionAudioEvent> {
-		let collision_audio_events = {
+		{
+			let _zone = span!("Clean up");
+			for physics_body in &mut self.physics_bodies {
+				let _destroy_body = physics_body.clean_up();
+			}
+		}
 		{
 			let bvh = &get_bvh_macro!(self);
 			let _zone = span!("Collect constraints");
@@ -60,7 +67,9 @@ impl PhysicsEngine {
 				Some(((*self.physics_body_id_to_index.get(id1)?, *self.physics_body_id_to_index.get(id2)?), constraint))
 			}).collect();
 			drop(_zone);
-			self.solver.solve(&mut self.physics_bodies, constraints, dt, bvh)
+			let collision_audio_events = self.solver.solve(&mut self.physics_bodies, constraints, &self.impulses, dt, bvh);
+			self.impulses.clear();
+			collision_audio_events
 		}
 		};
 		*self.bvh.borrow_mut() = None;
@@ -110,6 +119,16 @@ impl PhysicsEngine {
 
 	pub fn physics_bodies(&self) -> &[PhysicsBody] {
 		&self.physics_bodies
+	}
+
+	pub fn apply_central_impulse(&mut self, physics_body_id: u32, impluse: &Vec3) {
+		self.impulses.entry(physics_body_id).or_default().push(Impulse::CentralImpulse { central_impluse: *impluse });
+	}
+	pub fn apply_rotational_impulse(&mut self, physics_body_id: u32, rotational_impluse: &Vec3) {
+		self.impulses.entry(physics_body_id).or_default().push(Impulse::RotationalImpulse { rotational_impluse: *rotational_impluse });
+	}
+	pub fn apply_impulse(&mut self, physics_body_id: u32, impluse_pos: &Vec3, impluse: &Vec3) {
+		self.impulses.entry(physics_body_id).or_default().push(Impulse::Impulse { impluse: *impluse, impluse_pos: *impluse_pos });
 	}
 
 	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose) {

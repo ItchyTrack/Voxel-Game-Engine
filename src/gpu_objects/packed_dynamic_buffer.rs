@@ -31,6 +31,14 @@ impl PackedDynamicBuffer {
 			usage: usage | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
 		});
+		tracy_client::plot!(
+			"Used Bytes",
+			0 as f64
+		);
+		tracy_client::plot!(
+			"Used Bytes With Alignment",
+			0 as f64
+		);
 		Ok(Self {
 			buffer,
 			held_bytes: 0,
@@ -96,6 +104,14 @@ impl PackedDynamicBuffer {
 					self.held_bytes_alignment += (data_buffer.len() as u32).next_multiple_of(self.alignment as u32);
 					let id = placement_location / self.alignment as u32;
 					self.held_buffers.insert(id, HeldBuffer { offset: placement_location, size: data_buffer.len() as u32 });
+					tracy_client::plot!(
+						"Used Bytes",
+						self.held_bytes as f64
+					);
+					tracy_client::plot!(
+						"Used Bytes With Alignment",
+						self.held_bytes_alignment as f64
+					);
 					return Ok(id);
 				}
 			} else {
@@ -107,6 +123,14 @@ impl PackedDynamicBuffer {
 		self.held_bytes_alignment += (data_buffer.len() as u32).next_multiple_of(self.alignment as u32);
 		let id = placement_location / self.alignment as u32;
 		self.held_buffers.insert(id, HeldBuffer { offset: placement_location, size: data_buffer.len() as u32 });
+		tracy_client::plot!(
+			"Used Bytes",
+			self.held_bytes as f64
+		);
+		tracy_client::plot!(
+			"Used Bytes With Alignment",
+			self.held_bytes_alignment as f64
+		);
 		Ok(id)
 	}
 
@@ -114,6 +138,14 @@ impl PackedDynamicBuffer {
 		if let Some(held_buffer) = self.held_buffers.remove(&id) {
 			self.held_bytes -= held_buffer.size;
 			self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
+			tracy_client::plot!(
+				"Used Bytes",
+				self.held_bytes as f64
+			);
+			tracy_client::plot!(
+				"Used Bytes With Alignment",
+				self.held_bytes_alignment as f64
+			);
 			Ok(())
 		} else {
 			Err("Could not find id.")
@@ -123,18 +155,26 @@ impl PackedDynamicBuffer {
 	// If the new buffer does not fit the old buffer will still be removed
 	pub fn replace_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
-			// if held_buffer.size >= buffer.len() as u32 {
-			// 	self.held_bytes -= held_buffer.size;
-			// 	self.held_bytes += buffer.len() as u32;
-			// 	self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
-			// 	self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
-			// 	held_buffer.size = buffer.len() as u32;
-			// 	queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
-			// 	Ok(id)
-			// } else {
+			if held_buffer.size == buffer.len() as u32 {
+				self.held_bytes -= held_buffer.size;
+				self.held_bytes += buffer.len() as u32;
+				self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
+				self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
+				held_buffer.size = buffer.len() as u32;
+				queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
+				tracy_client::plot!(
+					"Used Bytes",
+					self.held_bytes as f64
+				);
+				tracy_client::plot!(
+					"Used Bytes With Alignment",
+					self.held_bytes_alignment as f64
+				);
+				Ok(id)
+			} else {
 				self.remove_buffer(id)?;
 				self.add_buffer(device, queue, buffer)
-			// }
+			}
 		} else {
 			Err("Could not find id.")
 		}

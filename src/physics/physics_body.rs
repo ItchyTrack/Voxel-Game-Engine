@@ -53,6 +53,7 @@ impl SubGrid {
 							},
 							Err(err) => {
 								println!("{}", err);
+								self.gpu_grid_tree_id.set(None);
 								return None;
 							},
 						}
@@ -79,6 +80,7 @@ impl SubGrid {
 					},
 					Err(err) => {
 						println!("{}", err);
+						self.gpu_grid_tree_id.set(None);
 						return None;
 					},
 				}
@@ -97,6 +99,11 @@ impl SubGrid {
 		// 	}
 		// 	None
 		// }
+	}
+
+	// return true is this should be deleted
+	pub fn clean_up(&mut self) -> bool {
+		self.get_voxels().get_voxels().is_empty()
 	}
 }
 
@@ -192,6 +199,23 @@ impl PhysicsBodyGrid {
 				)?)
 			))}
 		).collect()
+	}
+
+	// return true is this should be deleted
+	pub fn clean_up(&mut self) -> bool {
+		let mut sub_grids_to_remove = vec![];
+		for (id, sub_grid) in &mut self.sub_grids {
+			if sub_grid.clean_up() {
+				sub_grids_to_remove.push(*id);
+			}
+		}
+		if sub_grids_to_remove.len() == self.sub_grids.len() {
+			return true;
+		}
+		for id in sub_grids_to_remove {
+			self.sub_grids.remove(&id);
+		}
+		return false;
 	}
 
 	pub fn add_voxel(&mut self, pos: IVec3, voxel: voxels::Voxel) {
@@ -367,6 +391,19 @@ impl PhysicsBody {
 		gpu_grid_tree_id_to_id_poses
 	}
 
+	// return true is this should be deleted
+	pub fn clean_up(&mut self) -> bool {
+		let mut index = 0u32;
+		while index < self.grids.len() as u32 {
+			if self.grids[index as usize].clean_up() {
+				self.remove_grid_by_index(index);
+			} else {
+				index += 1;
+			}
+		}
+		return false;
+	}
+
 	pub fn add_grid(&mut self, grid_pose: Pose) -> u32 {
 		self.grids_id_to_index.insert(self.next_grid_id, self.grids.len() as u32);
 		self.grids.push(PhysicsBodyGrid::new(self.next_grid_id, &grid_pose));
@@ -379,6 +416,14 @@ impl PhysicsBody {
 			Some(i) => i,
 			None => return,
 		};
+		self.grids.swap_remove(index as usize);
+		if index != self.grids.len() as u32 {
+			let other_id = self.grids[index as usize].id();
+			self.grids_id_to_index.insert(other_id, index);
+		}
+	}
+
+	pub fn remove_grid_by_index(&mut self, index: u32) {
 		self.grids.swap_remove(index as usize);
 		if index != self.grids.len() as u32 {
 			let other_id = self.grids[index as usize].id();
@@ -490,17 +535,6 @@ impl PhysicsBody {
 
 	pub fn render_debug_inertia_box(&self) {
 		self.rotational_inertia().render_debug_box(self.mass(), self.get_global_center_of_mass());
-	}
-
-	pub fn apply_central_impulse(&mut self, impluse: &Vec3) {
-		self.velocity += impluse / self.mass();
-	}
-	pub fn apply_rotational_impulse(&mut self, rotational_impluse: &Vec3) {
-		self.angular_velocity += self.rotational_inertia().mat.as_mat3().inverse() * rotational_impluse;
-	}
-	pub fn apply_impulse(&mut self, impluse_pos: &Vec3, impluse: &Vec3) {
-		self.velocity += impluse / self.mass();
-		self.angular_velocity += self.rotational_inertia().mat.as_mat3().inverse() * (impluse_pos - self.get_global_center_of_mass()).cross(*impluse);
 	}
 
 	pub fn world_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }

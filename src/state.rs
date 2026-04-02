@@ -120,7 +120,11 @@ impl State {
 					}
 				}
 				if player_input.key(KeyCode::KeyR).just_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().apply_impulse(&globle_hit_pos, &(ray_start.rotation * Vec3::Z * 1600000.0));
+					self.physics_engine.apply_impulse(
+						self.physics_engine.physics_body_by_index(body_index).unwrap().id(),
+						&globle_hit_pos,
+						&(ray_start.rotation * Vec3::Z * 1600000.0)
+					);
 				}
 				if player_input.key(KeyCode::KeyF).just_pressed {
 					if !started_holding {
