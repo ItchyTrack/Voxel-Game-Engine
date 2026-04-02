@@ -57,7 +57,7 @@ impl PhysicsEngine {
 		{
 			let _zone = span!("Clean up");
 			for physics_body in &mut self.physics_bodies {
-				let destroy_body = physics_body.clean_up();
+				let _destroy_body = physics_body.clean_up();
 			}
 		}
 		{
