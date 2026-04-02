@@ -41,6 +41,13 @@ pub struct Renderer {
 #[cfg(target_arch = "wasm32")]
 const MAX_SCREEN_SIZE: u32 = 2048;
 
+#[cfg(target_arch = "wasm32")]
+const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::BROWSER_WEBGPU;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::DX12;
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "windows")))]
+const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::PRIMARY;
+
 impl Renderer {
 	pub fn resize(&mut self, width: u32, height: u32) {
 		if width > 0 && height > 0 {
@@ -85,10 +92,7 @@ impl Renderer {
 		// The instance is a handle to our GPU
 		// BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
 		let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-			#[cfg(not(target_arch = "wasm32"))]
-			backends: wgpu::Backends::PRIMARY,
-			#[cfg(target_arch = "wasm32")]
-			backends: wgpu::Backends::BROWSER_WEBGPU,
+			backends: INSTANCE_BACKENDS,
 			..wgpu::InstanceDescriptor::new_without_display_handle()
 		});
 
