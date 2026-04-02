@@ -15,13 +15,17 @@ pub fn synthesize_collision_audio(
 		return;
 	}
 
+    let exciter_frequency = 200.0;
+    let half_period = 0.5 / exciter_frequency;
+    let energy = relative_velocity_change * relative_velocity_change;
+
 	emit_voice(SpawnVoiceInstruction {
 		position: event.contact_position,
-		frequency_hz: 80.0 + relative_velocity_change * 0.4,
-		gain: 0.002 + relative_velocity_change * 0.0008,
+		frequency_hz: exciter_frequency,
+		gain: energy / 100000.0,
 		max_volume_distance: COLLISION_MAX_VOLUME_DISTANCE,
 		distance_falloff: COLLISION_DISTANCE_FALLOFF,
-		duration_seconds: 0.1 + relative_velocity_change * 0.01,
-		decay_rate: (40.0 - relative_velocity_change * 0.3).max(10.0),
+		duration_seconds: half_period,
+		decay_rate: half_period.recip(),
 	});
 }
