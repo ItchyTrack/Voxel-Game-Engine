@@ -60,7 +60,7 @@ impl PhysicsEngine {
 				let _destroy_body = physics_body.clean_up();
 			}
 		}
-		{
+		let collision_audio_events = {
 			let bvh = &get_bvh_macro!(self);
 			let _zone = span!("Collect constraints");
 			let constraints = self.constraints.iter_mut().filter_map(|((id1, id2), constraint)| {
@@ -70,7 +70,6 @@ impl PhysicsEngine {
 			let collision_audio_events = self.solver.solve(&mut self.physics_bodies, constraints, &self.impulses, dt, bvh);
 			self.impulses.clear();
 			collision_audio_events
-		}
 		};
 		*self.bvh.borrow_mut() = None;
 		collision_audio_events
