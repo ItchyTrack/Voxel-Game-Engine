@@ -55,6 +55,12 @@ impl PhysicsEngine {
 
 	pub fn update(&mut self, dt: f32) {
 		{
+			let _zone = span!("Clean up");
+			for physics_body in &mut self.physics_bodies {
+				let destroy_body = physics_body.clean_up();
+			}
+		}
+		{
 			let bvh = &get_bvh_macro!(self);
 			let _zone = span!("Collect constraints");
 			let constraints = self.constraints.iter_mut().filter_map(|((id1, id2), constraint)| {
