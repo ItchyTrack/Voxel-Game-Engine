@@ -77,8 +77,8 @@ impl PhysicsEngine {
 			drop(_zone);
 			self.solver.solve(&mut self.physics_bodies, constraints, &self.impulses, dt, bvh);
 			self.impulses.clear();
-			*self.bvh.borrow_mut() = None;
 		}
+		*self.bvh.borrow_mut() = None;
 	}
 
 	pub fn bvh(&self) -> Ref<'_, BVH<(u32, u32, IVec3)>> {
