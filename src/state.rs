@@ -128,7 +128,10 @@ impl State {
 				}
 				if player_input.key(KeyCode::KeyF).just_pressed {
 					if !started_holding {
-						object_pickup.set(self.physics_engine.physics_body_by_index(body_index).unwrap().id());
+						let body = self.physics_engine.physics_body_by_index(body_index).unwrap();
+						if !body.is_static {
+							object_pickup.set(body.id());
+						}
 					}
 				}
 			}
