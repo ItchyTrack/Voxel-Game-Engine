@@ -51,7 +51,8 @@ struct BVHHeap {
     size: u32,
 }
 
-fn heap_push(h: ptr<function, BVHHeap>, node_idx: u32, dist: f32) {
+fn heap_push(iter: ptr<function, BVHIter>, node_idx: u32, dist: f32) {
+    let h = &(*iter).heap;
     var i = (*h).size;
     if i >= BVH_STACK_SIZE { return; }
 
@@ -71,7 +72,8 @@ fn heap_push(h: ptr<function, BVHHeap>, node_idx: u32, dist: f32) {
     (*h).data[i].dist     = dist;
 }
 
-fn heap_pop(h: ptr<function, BVHHeap>) -> BVHStackEntry {
+fn heap_pop(iter: ptr<function, BVHIter>) -> BVHStackEntry {
+    let h = &(*iter).heap;
     let result = (*h).data[0];
     (*h).size -= 1u;
 
@@ -149,7 +151,7 @@ fn bvh_iter_new(ray_pos: vec3<f32>, ray_dir: vec3<f32>) -> BVHIter {
         vec3<f32>(bvh[0].max_x, bvh[0].max_y, bvh[0].max_z));
 
     if r0.x >= 0.0 {
-        heap_push(&it.heap, 0u, r0.x);
+        heap_push(&it, 0u, r0.x);
     }
 
     return it;
@@ -181,7 +183,7 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
     let inv = (*it).inv_dir;
 
     while (*it).heap.size > 0u {
-        let entry = heap_pop(&(*it).heap);
+        let entry = heap_pop(it);
 
         // Prune: this entry is already beyond the current best hit.
         if entry.dist >= max_dist { continue; }
@@ -227,7 +229,7 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
                 let d    = ray_aabb(rp, inv, imn, imx);
 
                 if d.x >= 0.0 && d.x < max_dist {
-                    heap_push(&(*it).heap, ITEM_FLAG | (base + i), d.x);
+                    heap_push(it, ITEM_FLAG | (base + i), d.x);
                 }
             }
 
@@ -245,10 +247,10 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
                 vec3<f32>(n2.max_x, n2.max_y, n2.max_z));
 
             if e1.x >= 0.0 && e1.x < max_dist {
-                heap_push(&(*it).heap, d1, e1.x);
+                heap_push(it, d1, e1.x);
             }
             if e2.x >= 0.0 && e2.x < max_dist {
-                heap_push(&(*it).heap, d2, e2.x);
+                heap_push(it, d2, e2.x);
             }
         }
     }
