@@ -124,11 +124,11 @@ impl Solver {
 			Pose::new(pos, orientation)
 		}).collect();
 		let mut x_guess = y_all.clone();
-		let iterations = 30;
+		let iterations = 50;
 		let total_iterations = iterations + 1; // because post stabilize
 		for iteration in 0..total_iterations {
 			let _zone = span!("Solve Iteration");
-			let alpha = (iteration < iterations) as i32 as f32 * 0.995;
+			let alpha = (iteration < iterations) as i32 as f32 * 0.999;
 			for index in 0..physics_bodies.len() {
 				let physics_body = &physics_bodies[index];
 				if physics_body.is_static { continue; }
