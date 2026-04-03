@@ -95,7 +95,7 @@ impl State {
 			let started_holding = object_pickup.is_holding();
 			if let Some((body_index, grid_index, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
 				let physics_body = self.physics_engine.physics_body_by_index(body_index).unwrap();
-				let grid = physics_body.grid(grid_index).unwrap();
+				let grid = physics_body.grid_by_index(grid_index).unwrap();
 				let globle_hit_normal = physics_body.pose.rotation * grid.pose.rotation * hit_normal.as_vec3();
 				let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
 				let globle_hit_pos_snap = physics_body.pose * grid.pose * hit_pos.as_vec3();
@@ -295,7 +295,7 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		match load_binary("Church_Of_St_Sophia.vox").await {
+		match load_binary("sponza.vox").await {
 			Ok(bytes) => {
 				match dot_vox::load_bytes(&bytes) {
 					Ok(dot_vox_data) => {
@@ -658,7 +658,7 @@ impl State {
 					let _zone = span!("Collect aabb for rendering");
 					for ((body_index, grid_index, sub_grid_pos), _)  in gpu_grid_tree_id_to_id_poses.iter() {
 						let physics_body = &self.physics_engine.physics_body_by_index(*body_index).unwrap();
-						if let Some(bound) = physics_body.sub_grid_aabb(*grid_index, sub_grid_pos) {
+						if let Some(bound) = physics_body.sub_grid_aabb_by_index(*grid_index, sub_grid_pos) {
 							bounds.push(((*body_index as u32, *grid_index as u32, *sub_grid_pos), bound));
 						}
 					}

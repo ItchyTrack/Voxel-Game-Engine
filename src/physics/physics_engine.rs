@@ -5,7 +5,7 @@ use tracy_client::span;
 
 use crate::{physics::solver::Impulse, pose::Pose};
 
-use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver, ball_joint_constraint::BallJointConstraint};
+use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver, ball_joint_constraint::BallJointConstraint, voxel_tracker::VoxelTracker};
 
 pub struct PhysicsEngine {
 	physics_bodies: Vec<PhysicsBody>,
@@ -15,6 +15,7 @@ pub struct PhysicsEngine {
 	next_body_id: u32,
 	solver: Solver,
 	bvh: RefCell<Option<BVH<(u32, u32, IVec3)>>>,
+	voxel_tracker: VoxelTracker,
 }
 
 macro_rules! get_bvh_macro {
@@ -27,7 +28,7 @@ macro_rules! get_bvh_macro {
 					let physics_body = &$self.physics_bodies[body_index];
 					for grid_index in 0..physics_body.grids().len() as u32 {
 						for (sub_grid_pos, _) in physics_body.grid_by_index(grid_index).unwrap().get_sub_grids() {
-							if let Some(bound) = physics_body.sub_grid_aabb(grid_index, sub_grid_pos) {
+							if let Some(bound) = physics_body.sub_grid_aabb_by_index(grid_index, sub_grid_pos) {
 								bounds.push(((body_index as u32, grid_index as u32, *sub_grid_pos), bound));
 							}
 						}
@@ -50,15 +51,22 @@ impl PhysicsEngine {
 			next_body_id: 0,
 			solver: Solver::new(),
 			bvh: RefCell::new(None),
+			voxel_tracker: VoxelTracker::new(),
 		}
 	}
 
 	pub fn update(&mut self, dt: f32) {
 		{
 			let _zone = span!("Clean up");
-			for physics_body in &mut self.physics_bodies {
-				let _destroy_body = physics_body.clean_up();
+			let mut index = 0u32;
+			while index < self.physics_bodies.len() as u32 {
+				if self.physics_bodies[index as usize].clean_up() {
+					self.remove_physics_body_by_index(index);
+				} else {
+					index += 1;
+				}
 			}
+			*self.bvh.borrow_mut() = None; // have to clear afer cleanup
 		}
 		{
 			let bvh = &get_bvh_macro!(self);
@@ -69,8 +77,8 @@ impl PhysicsEngine {
 			drop(_zone);
 			self.solver.solve(&mut self.physics_bodies, constraints, &self.impulses, dt, bvh);
 			self.impulses.clear();
+			*self.bvh.borrow_mut() = None;
 		}
-		*self.bvh.borrow_mut() = None;
 	}
 
 	pub fn bvh(&self) -> Ref<'_, BVH<(u32, u32, IVec3)>> {
@@ -93,6 +101,14 @@ impl PhysicsEngine {
 		if index != self.physics_bodies.len() as u32 {
 			let other_id = self.physics_bodies[index as usize].id();
 			self.physics_body_id_to_index.insert(other_id, index);
+		}
+		self.constraints.retain(|&(k1, k2), _| {
+			k1 != physics_body_id && k2 != physics_body_id
+		});
+	}
+	pub fn remove_physics_body_by_index(&mut self, index: u32) {
+		if let Some(physics_body) = self.physics_bodies.get(index as usize) {
+			self.remove_physics_body(physics_body.id());
 		}
 	}
 
@@ -174,7 +190,7 @@ impl PhysicsEngine {
 					let physics_body = &self.physics_bodies[body_index];
 					for grid_index in 0..physics_body.grids().len() as u32 {
 						for (sub_grid_pos, _) in physics_body.grid_by_index(grid_index).unwrap().get_sub_grids() {
-							if let Some(bound) = physics_body.sub_grid_aabb(grid_index, sub_grid_pos) {
+							if let Some(bound) = physics_body.sub_grid_aabb_by_index(grid_index, sub_grid_pos) {
 								bounds.push(((body_index as u32, grid_index as u32, *sub_grid_pos), bound));
 							}
 						}

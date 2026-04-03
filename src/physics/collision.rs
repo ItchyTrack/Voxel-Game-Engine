@@ -54,14 +54,14 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, bvh: &BVH
 		let physics_body_a = &physics_bodies[body_index_a];
 		if physics_body_a.is_static { continue; }
 		for grid_index_a in 0..physics_body_a.grids().len() {
-			let grid_a = physics_body_a.grid(grid_index_a as u32).unwrap();
+			let grid_a = physics_body_a.grid_by_index(grid_index_a as u32).unwrap();
 			for (sub_grid_pos_a, sub_grid_a) in grid_a.get_sub_grids() {
-				if let Some(bound) = physics_body_a.sub_grid_aabb(grid_index_a as u32, sub_grid_pos_a) {
+				if let Some(bound) = physics_body_a.sub_grid_aabb_by_index(grid_index_a as u32, sub_grid_pos_a) {
 					let sub_grid_grid_pos_a = grid_a.sub_grid_pos_to_grid_pos(sub_grid_pos_a);
 					for (body_index_b, grid_index_b, sub_grid_pos_b) in bvh.get_collisions(&bound) {
 						let physics_body_b = &physics_bodies[body_index_b as usize];
 						if !physics_body_b.is_static && (body_index_a as u32) <= body_index_b { continue; }
-						let grid_b = physics_body_b.grid(grid_index_b as u32).unwrap();
+						let grid_b = physics_body_b.grid_by_index(grid_index_b as u32).unwrap();
 						let sub_grid_b = grid_b.get_sub_grid_from_sub_grid_pos(&sub_grid_pos_b).unwrap();
 						let sub_grid_grid_pos_b = grid_b.sub_grid_pos_to_grid_pos(&sub_grid_pos_b);
 						let no_swap = sub_grid_a.get_voxels().get_voxels().len() < sub_grid_b.get_voxels().get_voxels().len();

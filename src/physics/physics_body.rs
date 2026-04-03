@@ -401,7 +401,7 @@ impl PhysicsBody {
 				index += 1;
 			}
 		}
-		return false;
+		return self.grids.is_empty();
 	}
 
 	pub fn add_grid(&mut self, grid_pose: Pose) -> u32 {
@@ -424,6 +424,9 @@ impl PhysicsBody {
 	}
 
 	pub fn remove_grid_by_index(&mut self, index: u32) {
+		if let Some(grid) = self.grids.get(index as usize) {
+			self.grids_id_to_index.remove(&grid.id());
+		} else { return; }
 		self.grids.swap_remove(index as usize);
 		if index != self.grids.len() as u32 {
 			let other_id = self.grids[index as usize].id();
@@ -509,7 +512,7 @@ impl PhysicsBody {
 		Some((aabb_min, aabb_max))
 	}
 
-	pub fn sub_grid_aabb(&self, grid_index: u32, sub_grid_pos: &IVec3) -> Option<(Vec3, Vec3)> {
+	pub fn sub_grid_aabb_by_index(&self, grid_index: u32, sub_grid_pos: &IVec3) -> Option<(Vec3, Vec3)> {
 		let grid = self.grids.get(grid_index as usize)?;
 		let sub_grid = grid.get_sub_grid_from_sub_grid_pos(sub_grid_pos)?;
 		let (min, max) = sub_grid.get_voxels().get_bounding_box()?;
