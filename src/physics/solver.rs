@@ -124,7 +124,7 @@ impl Solver {
 			Pose::new(pos, orientation)
 		}).collect();
 		let mut x_guess = y_all.clone();
-		let iterations = 50;
+		let iterations = 30;
 		let total_iterations = iterations + 1; // because post stabilize
 		for iteration in 0..total_iterations {
 			let _zone = span!("Solve Iteration");
