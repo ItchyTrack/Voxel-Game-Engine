@@ -50,14 +50,14 @@ fn voxel_color(value: u32) -> vec3<f32> {
     }
 }
 
-fn shade(base_color: vec3<f32>, world_normal: vec3<f32>/*, hit_sky: bool*/) -> vec3<f32> {
+fn shade(base_color: vec3<f32>, world_normal: vec3<f32>, hit_sky: bool) -> vec3<f32> {
 	let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
     // Simple directional + ambient.
     let ndotl = max(dot(world_normal, light_dir), 0.0);
 	// using hit sky
-	// let shadow = select(0, ndotl, hit_sky);
+	let shadow = select(0, ndotl, hit_sky);
     let ambient = 0.25;
-    return base_color * (ambient + (1.0 - ambient) * ndotl);
+    return base_color * (ambient + (1.0 - ambient) * shadow);
 }
 
 // ── Fragment ──────────────────────────────────────────────────────────────────
@@ -76,20 +76,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Full two-pass raycast: BVH broad phase → DDA precise voxel test.
     let hit = full_raycast(ray_start, ray_dir, 1e38);
 
+	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
+
     if !hit.hit {
         // Sky / background.
-        let t  = ray_dir.y * 0.5 + 0.5;
+        let t = ray_dir.y * 0.5 + 0.5;
         let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
-        return vec4<f32>(bg, 1.0);
+        let sun = max(dot(ray_dir, sun_dir), 0.0);
+        let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
+        let sky_color = bg + sun_color;
+        return vec4<f32>(sky_color, 1.0);
     }
 
-	// let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
-	// let hit_pos = ray_start + (hit.total_dist - 0.01) * ray_dir;
-	// let sky_hit = full_raycast(hit_pos, light_dir, 1e38);
+	let hit_pos = ray_start + (hit.total_dist - 0.01) * ray_dir;
+	let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
 
 	let item_index = bvh_items[hit.bvh_item_idx].item_index;   // grid tree offset
 	let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
-    let color = shade(base_color, hit.world_normal/*, !sky_hit.hit*/);
+    let color = shade(base_color, hit.world_normal, !sky_hit.hit);
 
     return vec4<f32>(color, 1.0);
 
