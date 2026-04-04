@@ -43,9 +43,11 @@ const MAX_SCREEN_SIZE: u32 = 2048;
 
 #[cfg(target_arch = "wasm32")]
 const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::BROWSER_WEBGPU;
-#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
-const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::DX12;
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "windows")))]
+// #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+// const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::DX12;
+// #[cfg(all(not(target_arch = "wasm32"), not(target_os = "windows")))]
+// const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::PRIMARY;
+#[cfg(not(target_arch = "wasm32"))]
 const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::PRIMARY;
 
 impl Renderer {
