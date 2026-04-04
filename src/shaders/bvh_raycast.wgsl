@@ -1,21 +1,8 @@
-// bvh_raycast_strict.wgsl
-// Strict front-to-back BVH traversal using a fixed-size min-heap.
-//
-// FIX: Leaf items are now pushed into the heap (flagged with ITEM_FLAG) rather
-// than being iterated immediately.  This gives a single globally-sorted stream
-// of candidates, so bvh_iter_next always returns the closest un-tested item
-// across every leaf that has been opened so far.  The leaf-resume fields
-// (leaf_items_base / leaf_items_count / leaf_item_i) are gone.
-//
-// Bindings (group 1):
-//   @binding(0)  bvh        : array<BVHNode>
-//   @binding(1)  bvh_items  : array<BVHItem>
-
 struct BVHNode {
     min_x: f32, min_y: f32, min_z: f32,
     max_x: f32, max_y: f32, max_z: f32,
-    data_1_and_2: u32, // (u16 | u16)
-    is_leaf: u32,
+    data_1_and_2: u32, // u16, u16
+    is_leaf_and_parent: u32, // u16, u16
 }
 
 struct BVHItem {
@@ -29,22 +16,14 @@ struct BVHItem {
 @group(1) @binding(0) var<storage, read> bvh:       array<BVHNode>;
 @group(1) @binding(1) var<storage, read> bvh_items: array<BVHItem>;
 
-// ── Constants ────────────────────────────────────────────────────────────────
 
-const BVH_STACK_SIZE: u32 = 64u;
-
-// High bit set → heap entry is a leaf item index, not a BVH node index.
-// Safe as long as neither array exceeds 2 billion entries.
+const BVH_STACK_SIZE: u32 = 32u;
 const ITEM_FLAG: u32 = 0x80000000u;
-
-// ── Stack entry (used by heap) ───────────────────────────────────────────────
 
 struct BVHStackEntry {
     node_idx: u32,  // BVH node index  OR  (ITEM_FLAG | bvh_items index)
     dist:     f32,
 }
-
-// ── Min-heap (strict ordering) ───────────────────────────────────────────────
 
 struct BVHHeap {
     data: array<BVHStackEntry, BVH_STACK_SIZE>,
@@ -100,8 +79,6 @@ fn heap_pop(h: ptr<function, BVHHeap>) -> BVHStackEntry {
     return result;
 }
 
-// ── AABB slab test ───────────────────────────────────────────────────────────
-
 fn ray_aabb(rp: vec3<f32>, inv_rd: vec3<f32>, mn: vec3<f32>, mx: vec3<f32>) -> vec2<f32> {
     let t1 = (mn - rp) * inv_rd;
     let t2 = (mx - rp) * inv_rd;
@@ -119,13 +96,11 @@ fn ray_aabb(rp: vec3<f32>, inv_rd: vec3<f32>, mn: vec3<f32>, mx: vec3<f32>) -> v
     return vec2<f32>(entry, exit);
 }
 
-// ── Iterator ─────────────────────────────────────────────────────────────────
 
 struct BVHIter {
     ray_pos: vec3<f32>,
     inv_dir: vec3<f32>,
     heap:    BVHHeap,
-    // Leaf resume state removed — items now live in the heap directly.
 }
 
 struct BVHHit {
@@ -134,8 +109,6 @@ struct BVHHit {
     aabb_internal_dist: f32,
     valid:              bool,
 }
-
-// ── Init ─────────────────────────────────────────────────────────────────────
 
 fn bvh_iter_new(ray_pos: vec3<f32>, ray_dir: vec3<f32>) -> BVHIter {
     var it: BVHIter;
@@ -155,21 +128,6 @@ fn bvh_iter_new(ray_pos: vec3<f32>, ray_dir: vec3<f32>) -> BVHIter {
     return it;
 }
 
-// ── Next (STRICT ORDER) ──────────────────────────────────────────────────────
-//
-// Each call pops the globally closest entry from the heap.
-//
-//  • If it is a BVH internal node → test its two children, push hits.
-//  • If it is a BVH leaf node     → test each item AABB, push hits as
-//                                   (ITEM_FLAG | item_index).
-//  • If it is a flagged item      → re-run ray_aabb to recover exit distance
-//                                   and return the hit to the caller.
-//
-// Because all three kinds of entry share the same min-heap, the returned
-// items are strictly ordered by AABB entry distance across the entire BVH.
-// The caller's max_dist tightens as real DDA hits are found, which prunes
-// everything still in the heap that is now beyond the best hit.
-
 fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
     var miss: BVHHit;
     miss.valid        = false;
@@ -183,10 +141,8 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
     while (*it).heap.size > 0u {
         let entry = heap_pop(&(*it).heap);
 
-        // Prune: this entry is already beyond the current best hit.
         if entry.dist >= max_dist { continue; }
 
-        // ── Flagged item ───────────────────────────────────────────────────
         if (entry.node_idx & ITEM_FLAG) != 0u {
             let item_idx = entry.node_idx & 0x7FFFFFFFu;
             let item     = bvh_items[item_idx];
@@ -194,10 +150,8 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
             let imn      = vec3<f32>(item.min_x, item.min_y, item.min_z);
             let imx      = imn + vec3<f32>(f32(sz.x), f32(sz.y), f32(sz.z));
 
-            // Re-run slab test to get the exit distance (cheap; entry is known).
             let d = ray_aabb(rp, inv, imn, imx);
 
-            // Guard against floating-point drift: entry should still be valid.
             if d.x >= 0.0 && d.x < max_dist {
                 var hit: BVHHit;
                 hit.valid              = true;
@@ -209,13 +163,11 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
             continue;
         }
 
-        // ── BVH node ───────────────────────────────────────────────────────
         let nd = bvh[entry.node_idx];
         let d1 = nd.data_1_and_2 & 0xFFFFu;
         let d2 = (nd.data_1_and_2 >> 16u) & 0xFFFFu;
 
-        if nd.is_leaf != 0u {
-            // ── Leaf: push each item AABB into the heap ────────────────────
+        if (nd.is_leaf_and_parent & 1u) != 0u {
             let base  = d1;
             let count = d2;
 
@@ -232,7 +184,6 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
             }
 
         } else {
-            // ── Internal: push child nodes ─────────────────────────────────
             let n1 = bvh[d1];
             let n2 = bvh[d2];
 
