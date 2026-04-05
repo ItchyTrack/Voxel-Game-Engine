@@ -51,8 +51,8 @@ fn dda_palette_color(tree_base: u32, palette_index: u32) -> vec4<f32> {
 	);
 }
 
-fn dda_node_byte_off(tree_base: u32, slot_index: u32) -> u32 {
-	return dda_nodes_base(tree_base) + slot_index * DDA_SLOT_BYTES;
+fn dda_node_byte_off(nodes_base: u32, slot_index: u32) -> u32 {
+	return nodes_base + slot_index * DDA_SLOT_BYTES;
 }
 fn dda_bitmap_lo(node_byte_off: u32) -> u32 {
 	return dda_u64_lo(node_byte_off);
@@ -198,7 +198,8 @@ fn dda_raycast(
 
 	var current_depth = root_depth;
 
-	var node_byte_off = dda_nodes_base(tree_base);
+	let nodes_base = dda_nodes_base(tree_base);
+	var node_byte_off = nodes_base;
 	var bitmap_low = dda_bitmap_lo(node_byte_off);
 	var bitmap_high = dda_bitmap_hi(node_byte_off);
 
@@ -247,7 +248,7 @@ fn dda_raycast(
 				var new_node_size = node_size;
 				loop {
 					if current_depth == root_depth { return no_hit; }
-					node_byte_off = dda_node_byte_off(tree_base, current_node_index);
+					node_byte_off = dda_node_byte_off(nodes_base, current_node_index);
 					let walk_up_offset = select(
 						dda_nonleaf_parent_offset(node_byte_off),
 						dda_leaf_parent_offset(node_byte_off),
@@ -258,7 +259,7 @@ fn dda_raycast(
 					new_node_size = new_node_size << DDA_LOG_SIZE;
 					if root_relative_grid_pos[last_step_axis] / new_node_size == u32(new_pos_signed) / new_node_size { break; }
 				}
-				node_byte_off = dda_node_byte_off(tree_base, current_node_index);
+				node_byte_off = dda_node_byte_off(nodes_base, current_node_index);
 				bitmap_low 	= dda_bitmap_lo(node_byte_off);
 				bitmap_high = dda_bitmap_hi(node_byte_off);
 			}
@@ -281,7 +282,7 @@ fn dda_raycast(
 				// NODE: descend
 				current_node_index += cell_value_data;
 				current_depth      -= 1u;
-				node_byte_off 		= dda_node_byte_off(tree_base, current_node_index);
+				node_byte_off 		= dda_node_byte_off(nodes_base, current_node_index);
 				bitmap_low        	= dda_bitmap_lo(node_byte_off);
 				bitmap_high        	= dda_bitmap_hi(node_byte_off);
 			}
