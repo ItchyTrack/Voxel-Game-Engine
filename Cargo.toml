@@ -5,6 +5,7 @@ edition = "2024"
 
 [profile.release]
 strip = true
+# debug = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -12,6 +13,10 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = []
 tracy = ["tracy-client/enable"]
+gpu_profiling = []
+
+[package.metadata.patch]
+crates = ["wgpu-hal"]
 
 [dependencies]
 anyhow = "1.0"
@@ -57,6 +62,10 @@ web-time = "1.1.0"
 anyhow = "1.0"
 fs_extra = "1.2"
 glob = "0.3"
+patch-crate = "0.1"
+
+[patch.crates-io]
+wgpu-hal = { path = "./target/patch/wgpu-hal-29.0.0" }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
