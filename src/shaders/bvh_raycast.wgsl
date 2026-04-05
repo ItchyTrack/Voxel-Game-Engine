@@ -60,9 +60,20 @@ fn bvh_advance(it: ptr<function, BVHIter>, max_dist: f32) {
     loop {
 		let state_stack_index = (*it).state_stack_index;
 		let state = ((*it).state_stack >> state_stack_index) & 3;
+		if (state == 3) {
+			if (state_stack_index == 0) {
+				(*it).state_stack_index = 0xFFFFFFFFu;
+				return;
+			}
+			(*it).state_stack &= ~(3u << state_stack_index);
+            (*it).state_stack_index = state_stack_index - 2u;
+			let node = bvh[(*it).current];
+            (*it).current = (node.is_leaf_and_parent >> 16u) & 0xFFFFu;
+			continue;
+		}
 		let node = bvh[(*it).current];
 		let is_leaf = (node.is_leaf_and_parent & 1u) != 0u;
-		if (state == 3 || is_leaf) {
+		if (is_leaf) {
 			if (state_stack_index == 0) {
 				(*it).state_stack_index = 0xFFFFFFFFu;
 				return;
