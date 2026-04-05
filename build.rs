@@ -5,9 +5,6 @@ use std::env;
 
 fn main() -> Result<()> {
     println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rerun-if-changed=patches");
-    patch_crate::run()?;
-
     println!("cargo:rerun-if-changed=res/*");
 
     let out_dir = env::var("OUT_DIR")?;
