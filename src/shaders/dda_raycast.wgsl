@@ -254,6 +254,8 @@ fn dda_raycast(
 
 			// Walk up until the new position shares a node with the current one.
 			if root_relative_grid_pos[last_step_axis] / node_size != u32(new_pos_signed) / node_size {
+				// current_depth = root_depth; // I want to try this instead of walking up but it does not work????
+				// current_node_index = 0;
 				var new_node_size = node_size;
 				loop {
 					if current_depth == root_depth { return no_hit; }
