@@ -49,6 +49,10 @@ const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::BROWSER_WEBGPU;
 // const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::PRIMARY;
 #[cfg(not(target_arch = "wasm32"))]
 const INSTANCE_BACKENDS: wgpu::Backends = wgpu::Backends::PRIMARY;
+#[cfg(feature = "gpu_profiling")]
+const INSTANCE_FLAGS: wgpu::InstanceFlags = wgpu::InstanceFlags::DEBUG;
+#[cfg(not(feature = "gpu_profiling"))]
+const INSTANCE_FLAGS: wgpu::InstanceFlags = wgpu::InstanceFlags::empty();
 
 impl Renderer {
 	pub fn resize(&mut self, width: u32, height: u32) {
@@ -95,6 +99,7 @@ impl Renderer {
 		// BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
 		let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
 			backends: INSTANCE_BACKENDS,
+			flags: INSTANCE_FLAGS,
 			..wgpu::InstanceDescriptor::new_without_display_handle()
 		});
 

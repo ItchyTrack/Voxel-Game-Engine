@@ -4,6 +4,10 @@ use fs_extra::dir::CopyOptions;
 use std::env;
 
 fn main() -> Result<()> {
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=patches");
+    patch_crate::run()?;
+
     // This tells Cargo to rerun this script if something in /res/ changes.
     println!("cargo:rerun-if-changed=res/*");
 
