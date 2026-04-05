@@ -15,13 +15,13 @@ fn dda_u8(byte_off: u32) -> u32 {
 fn dda_u16(byte_off: u32) -> u32 {
 	let word_idx = byte_off / 4u;
 	let shift    = (byte_off % 4u) * 8u;
-	let lo       = grid_tree_buf[word_idx] >> shift;
+	let low       = grid_tree_buf[word_idx] >> shift;
 	if shift <= 16u {
-		return lo & 0xFFFFu;
+		return low & 0xFFFFu;
 	}
 	// shift == 24: high byte lives in the next word
-	let hi = grid_tree_buf[word_idx + 1u] << (32u - shift);
-	return (lo | hi) & 0xFFFFu;
+	let high = grid_tree_buf[word_idx + 1u] << (32u - shift);
+	return (low | high) & 0xFFFFu;
 }
 
 fn dda_u64_lo(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u]; }
@@ -62,11 +62,11 @@ fn dda_palette_color(tree_base: u32, palette_index: u32) -> vec4<f32> {
 fn dda_node_byte_off(tree_base: u32, slot_index: u32) -> u32 {
 	return dda_nodes_base(tree_base) + slot_index * DDA_SLOT_BYTES;
 }
-fn dda_bitmap_lo(tree_base: u32, slot_index: u32) -> u32 {
-	return dda_u64_lo(dda_node_byte_off(tree_base, slot_index));
+fn dda_bitmap_lo(node_byte_off: u32) -> u32 {
+	return dda_u64_lo(node_byte_off);
 }
-fn dda_bitmap_hi(tree_base: u32, slot_index: u32) -> u32 {
-	return dda_u64_hi(dda_node_byte_off(tree_base, slot_index));
+fn dda_bitmap_hi(node_byte_off: u32) -> u32 {
+	return dda_u64_hi(node_byte_off);
 }
 fn dda_bitmap_has(lo: u32, hi: u32, cell_index: u32) -> bool {
 	if cell_index < 32u {
@@ -83,19 +83,19 @@ fn dda_data_index(low: u32, high: u32, cell_index: u32) -> u32 {
 		return countOneBits(low & mask);
 	}
 }
-fn dda_nonleaf_data(tree_base: u32, slot_index: u32, data_idx: u32) -> u32 {
-	let byte_off = dda_node_byte_off(tree_base, slot_index) + 10u + data_idx * 2u;
+fn dda_nonleaf_data(node_byte_off: u32, data_idx: u32) -> u32 {
+	let byte_off = node_byte_off + 10u + data_idx * 2u;
 	return dda_u16(byte_off);
 }
-fn dda_leaf_data(tree_base: u32, slot_index: u32, data_idx: u32) -> u32 {
-	let byte_off = dda_node_byte_off(tree_base, slot_index) + 9u + data_idx;
+fn dda_leaf_data(node_byte_off: u32, data_idx: u32) -> u32 {
+	let byte_off = node_byte_off + 9u + data_idx;
 	return dda_u8(byte_off);
 }
-fn dda_nonleaf_parent_offset(tree_base: u32, slot_index: u32) -> u32 {
-	return dda_u16(dda_node_byte_off(tree_base, slot_index) + 8u);
+fn dda_nonleaf_parent_offset(node_byte_off: u32) -> u32 {
+	return dda_u16(node_byte_off + 8u);
 }
-fn dda_leaf_parent_offset(tree_base: u32, slot_index: u32) -> u32 {
-	return dda_u8(dda_node_byte_off(tree_base, slot_index) + 8u);
+fn dda_leaf_parent_offset(node_byte_off: u32) -> u32 {
+	return dda_u8(node_byte_off + 8u);
 }
 
 fn dda_node_size(depth: u32) -> u32 { return 1u << (DDA_LOG_SIZE * (depth + 1u)); }
@@ -111,18 +111,17 @@ fn get_child_contents_index(contents_pos: vec3<u32>) -> u32 {
 }
 
 fn dda_read_cell(
-	tree_base:  u32,
-	slot_index: u32,
-	cell_index: u32,
-	is_leaf:    bool,
-	bitmap_lo:  u32,
-	bitmap_hi:  u32,
+	node_byte_off:	u32,
+	cell_index: 	u32,
+	is_leaf:    	bool,
+	bitmap_lo:  	u32,
+	bitmap_hi:  	u32,
 ) -> u32 {
-	let di = dda_data_index(bitmap_lo, bitmap_hi, cell_index);
+	let data_idx = dda_data_index(bitmap_lo, bitmap_hi, cell_index);
 	if is_leaf {
-		return dda_leaf_data(tree_base, slot_index, di);
+		return dda_leaf_data(node_byte_off, data_idx);
 	} else {
-		return dda_nonleaf_data(tree_base, slot_index, di);
+		return dda_nonleaf_data(node_byte_off, data_idx);
 	}
 }
 
@@ -207,8 +206,9 @@ fn dda_raycast(
 
 	var current_depth = root_depth;
 
-	var bitmap_low = dda_bitmap_lo(tree_base, current_node_index);
-	var bitmap_high = dda_bitmap_hi(tree_base, current_node_index);
+	var node_byte_off = dda_nodes_base(tree_base);
+	var bitmap_low = dda_bitmap_lo(node_byte_off);
+	var bitmap_high = dda_bitmap_hi(node_byte_off);
 
 	loop {
 		var node_size:  u32  	 	= dda_node_size(current_depth);
@@ -255,9 +255,10 @@ fn dda_raycast(
 				var new_node_size = node_size;
 				loop {
 					if current_depth == root_depth { return no_hit; }
+					node_byte_off = dda_node_byte_off(tree_base, current_node_index);
 					let walk_up_offset = select(
-						dda_nonleaf_parent_offset(tree_base, current_node_index),
-						dda_leaf_parent_offset(tree_base, current_node_index),
+						dda_nonleaf_parent_offset(node_byte_off),
+						dda_leaf_parent_offset(node_byte_off),
 						current_depth == 0u,
 					);
 					current_node_index -= walk_up_offset;
@@ -265,16 +266,15 @@ fn dda_raycast(
 					new_node_size = new_node_size << DDA_LOG_SIZE;
 					if root_relative_grid_pos[last_step_axis] / new_node_size == u32(new_pos_signed) / new_node_size { break; }
 				}
-				bitmap_low 	= dda_bitmap_lo(tree_base, current_node_index);
-				bitmap_high = dda_bitmap_hi(tree_base, current_node_index);
+				node_byte_off = dda_node_byte_off(tree_base, current_node_index);
+				bitmap_low 	= dda_bitmap_lo(node_byte_off);
+				bitmap_high = dda_bitmap_hi(node_byte_off);
 			}
 			root_relative_grid_pos[last_step_axis] = u32(new_pos_signed);
-
 		} else {
-			let raw_cell        = dda_read_cell(tree_base, current_node_index, cell_index, current_depth == 0, bitmap_low, bitmap_high);
+			let raw_cell        = dda_read_cell(node_byte_off, cell_index, current_depth == 0, bitmap_low, bitmap_high);
 			let cell_value_type = dda_cell_type(raw_cell);
 			let cell_value_data = dda_cell_value(raw_cell);
-
 			if cell_value_type == 0u {
 				// DATA: hit
 				var normal_vec = vec3<f32>(0.0);
@@ -289,8 +289,9 @@ fn dda_raycast(
 				// NODE: descend
 				current_node_index += cell_value_data;
 				current_depth      -= 1u;
-				bitmap_low        	= dda_bitmap_lo(tree_base, current_node_index);
-				bitmap_high        	= dda_bitmap_hi(tree_base, current_node_index);
+				node_byte_off 		= dda_node_byte_off(tree_base, current_node_index);
+				bitmap_low        	= dda_bitmap_lo(node_byte_off);
+				bitmap_high        	= dda_bitmap_hi(node_byte_off);
 			}
 		}
 	}
