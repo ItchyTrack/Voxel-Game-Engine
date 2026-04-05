@@ -29,7 +29,8 @@ struct BVHHeap {
     size: u32,
 };
 
-fn heap_push(h: ptr<function, BVHHeap>, node_idx: u32, dist: f32) {
+fn heap_push(iter: ptr<function, BVHIter>, node_idx: u32, dist: f32) {
+    let h = &(*iter).heap;
     if (*h).size >= BVH_STACK_SIZE { return; }
 
     var i = (*h).size;
@@ -48,7 +49,8 @@ fn heap_push(h: ptr<function, BVHHeap>, node_idx: u32, dist: f32) {
     (*h).data[i] = BVHStackEntry(node_idx, dist);
 }
 
-fn heap_pop(h: ptr<function, BVHHeap>) -> BVHStackEntry {
+fn heap_pop(iter: ptr<function, BVHIter>) -> BVHStackEntry {
+    let h = &(*iter).heap;
     let root = (*h).data[0];
     (*h).size -= 1u;
 
@@ -123,7 +125,7 @@ fn bvh_iter_new(ray_pos: vec3<f32>, ray_dir: vec3<f32>) -> BVHIter {
         vec3<f32>(root.max_x, root.max_y, root.max_z));
 
     if r0.x < 1e38 {
-        heap_push(&it.heap, 0u, r0.x);
+        heap_push(&it, 0u, r0.x);
     }
 
     return it;
@@ -139,7 +141,7 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
     loop {
         if (*it).heap.size == 0u { break; }
 
-        let entry = heap_pop(&(*it).heap);
+        let entry = heap_pop(it);
 
         let limit = max_dist;
 
@@ -190,7 +192,7 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
                 let d = ray_aabb(rp, inv, mn, mx);
 
                 if d.x < limit {
-                    heap_push(&(*it).heap, ITEM_FLAG | idx, d.x);
+                    heap_push(it, ITEM_FLAG | idx, d.x);
                 }
             }
 
@@ -207,8 +209,8 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
                 vec3<f32>(bvh[c2].min_x, bvh[c2].min_y, bvh[c2].min_z),
                 vec3<f32>(bvh[c2].max_x, bvh[c2].max_y, bvh[c2].max_z));
 
-            if r1.x < limit { heap_push(&(*it).heap, c1, r1.x); }
-            if r2.x < limit { heap_push(&(*it).heap, c2, r2.x); }
+            if r1.x < limit { heap_push(it, c1, r1.x); }
+            if r2.x < limit { heap_push(it, c2, r2.x); }
         }
     }
 
