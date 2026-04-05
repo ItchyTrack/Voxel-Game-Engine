@@ -75,17 +75,13 @@ fn dda_bitmap_has(lo: u32, hi: u32, cell_index: u32) -> bool {
 		return (hi & (1u << (cell_index - 32u))) != 0u;
 	}
 }
-fn dda_data_index(lo: u32, hi: u32, cell_index: u32) -> u32 {
-	var count = 0u;
+fn dda_data_index(low: u32, high: u32, cell_index: u32) -> u32 {
+	let mask = (1u << (cell_index & 31u)) - 1u;
 	if cell_index >= 32u {
-		count += countOneBits(lo);
-		let mask_hi = (1u << (cell_index - 32u)) - 1u;
-		count += countOneBits(hi & mask_hi);
+		return countOneBits(low) + countOneBits(high & mask);
 	} else {
-		let mask_lo = (1u << cell_index) - 1u;
-		count += countOneBits(lo & mask_lo);
+		return countOneBits(low & mask);
 	}
-	return count;
 }
 fn dda_nonleaf_data(tree_base: u32, slot_index: u32, data_idx: u32) -> u32 {
 	let byte_off = dda_node_byte_off(tree_base, slot_index) + 10u + data_idx * 2u;
