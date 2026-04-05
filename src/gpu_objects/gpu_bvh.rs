@@ -42,7 +42,7 @@ impl GpuBvh {
     ) -> Self {
         let (nodes, items) = bvh.get_internals();
 
-        // ── Pass 1: build nodes, parent = 0xFFFF (unknown) ───────────────
+        //  Pass 1: build nodes, parent = 0xFFFF (unknown)
         let mut gpu_nodes: Vec<GpuBVHNode> = nodes.iter().map(|node| {
             match node.sub_nodes {
                 bvh::BVHInternal::SubNodes { sub1, sub2 } => GpuBVHNode {
@@ -64,7 +64,7 @@ impl GpuBvh {
             }
         }).collect();
 
-        // ── Pass 2: stamp each internal node's index into its children ────
+        //  Pass 2: stamp each internal node's index into its children
         for i in 0..gpu_nodes.len() {
             if gpu_nodes[i].is_leaf == 0 {
                 let d1 = gpu_nodes[i].data_1 as usize;

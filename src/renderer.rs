@@ -8,7 +8,6 @@ use wgpu::util::DeviceExt;
 use winit::{window::Window};
 
 use crate::gpu_objects::gpu_bvh;
-use crate::gpu_objects::gpu_grid_tree;
 use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
 use crate::physics::bvh;
 use crate::player::camera;
@@ -361,7 +360,7 @@ impl Renderer {
 		let debug_line_pipeline = make_debug_pipeline("Debug Line Pipeline", wgpu::PrimitiveTopology::LineList);
 		let debug_tri_pipeline = make_debug_pipeline("Debug Tri Pipeline", wgpu::PrimitiveTopology::TriangleList);
 
-		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(&device, size_of::<gpu_grid_tree::GpuGridTreeNode>() as u32, wgpu::BufferUsages::STORAGE);
+		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(&device, 16, wgpu::BufferUsages::STORAGE);
 		if let Err(err) = packed_64_tree_dynamic_buffer {
 			println!("{}", err);
 			return Err(anyhow::Error::msg(err));

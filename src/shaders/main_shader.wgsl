@@ -8,7 +8,7 @@
 //   1 : BVH (nodes + items)   — defined in bvh_raycast.wgsl
 //   2 : grid tree buffer      — defined in dda_raycast.wgsl
 
-// ── Vertex ────────────────────────────────────────────────────────────────────
+//  Vertex
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -23,7 +23,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     return out;
 }
 
-// ── Camera uniform ────────────────────────────────────────────────────────────
+//  Camera uniform
 
 struct CameraUniform {
     // Column-major 4x4.  [3].xyz is the camera world position.
@@ -34,7 +34,7 @@ struct CameraUniform {
 }
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 
-// ── Simple lighting / shading helpers ────────────────────────────────────────
+//  Simple lighting / shading helpers
 
 fn voxel_color(value: u32) -> vec3<f32> {
     // Hue-cycle by voxel data value — replace with palette lookup as needed.
@@ -60,7 +60,28 @@ fn shade(base_color: vec3<f32>, world_normal: vec3<f32>, hit_sky: bool) -> vec3<
     return base_color * (ambient + (1.0 - ambient) * shadow);
 }
 
-// ── Fragment ──────────────────────────────────────────────────────────────────
+//  Fragment
+
+fn hash_u32(x: u32) -> u32 {
+    var h = x;
+    h ^= h >> 16u;
+    h *= 0x7feb352du;
+    h ^= h >> 15u;
+    h *= 0x846ca68bu;
+    h ^= h >> 16u;
+    return h;
+}
+
+fn id_to_color(id: u32) -> vec3<f32> {
+    let h = hash_u32(id);
+
+    // Split hash into RGB channels
+    let r = f32((h >>  0u) & 0xFFu) / 255.0;
+    let g = f32((h >>  8u) & 0xFFu) / 255.0;
+    let b = f32((h >> 16u) & 0xFFu) / 255.0;
+
+    return vec3<f32>(r, g, b);
+}
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -72,6 +93,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         1.0,
         0.0,
     )).xyz);
+
+	// var iter = bvh_iter_new(ray_start, ray_dir);
+	// bvh_iter_next(&iter, 1e38);
+	// let candidate = bvh_iter_next(&iter, 1e38);
+	// if (!candidate.valid) {
+	// 	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
+	// 	let t = ray_dir.y * 0.5 + 0.5;
+    //     let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
+    //     let sun = max(dot(ray_dir, sun_dir), 0.0);
+    //     let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
+    //     let sky_color = bg + sun_color;
+    //     return vec4<f32>(sky_color, 1.0);
+	// }
+
+    // return vec4<f32>(id_to_color(bvh_items[candidate.bvh_item_idx].item_index), 1.0);
 
     // Full two-pass raycast: BVH broad phase -> DDA precise voxel test.
     let hit = full_raycast(ray_start, ray_dir, 1e38);
@@ -93,7 +129,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 	let item_index = bvh_items[hit.bvh_item_idx].item_index;   // grid tree offset
 	let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
-    let color = shade(base_color, hit.world_normal, !sky_hit.hit);
+    let color = shade(base_color, hit.world_normal, sky_hit);
 
     return vec4<f32>(color, 1.0);
 }

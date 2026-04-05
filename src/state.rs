@@ -298,7 +298,7 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		match load_binary("sponza.vox").await {
+		match load_binary("Church_Of_St_Sophia.vox").await {
 			Ok(bytes) => {
 				match dot_vox::load_bytes(&bytes) {
 					Ok(dot_vox_data) => {

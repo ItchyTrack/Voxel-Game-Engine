@@ -1,6 +1,5 @@
 use std::{cmp::Ordering, collections::BinaryHeap, fmt::Debug};
 
-use itertools::partition;
 use glam::{Vec3, Vec4};
 
 use tracy_client::span;
@@ -26,63 +25,249 @@ pub struct BVHNode {
 	pub sub_nodes: BVHInternal,
 }
 
+//  SAH binning constants
+//
+// SAH (Surface Area Heuristic) produces significantly better trees than a
+// plain spatial median split. The heuristic estimates the expected cost of
+// a split by weighting each side's AABB surface area against the number of
+// primitives it contains — cheaper splits produce shallower, more balanced
+// trees with less overlap between sibling AABBs.
+//
+// BIN_COUNT controls the quality/build-time tradeoff. 8–16 bins is the
+// standard range; 8 is fast and still much better than median split.
+const BIN_COUNT: usize = 8;
+
+// Cost of intersecting a ray with an AABB relative to a primitive test.
+// Standard value is 1.0 for AABB and 1.0–2.0 for the primitive. Using 1.0
+// for both is common and gives good results in practice.
+const TRAVERSAL_COST: f32 = 1.0;
+const INTERSECT_COST: f32 = 1.0;
+
+fn surface_area(min_corner: Vec3, max_corner: Vec3) -> f32 {
+	let extent = (max_corner - min_corner).max(Vec3::ZERO);
+	2.0 * (extent.x * extent.y + extent.y * extent.z + extent.z * extent.x)
+}
+
+struct Bin {
+	min_corner:     Vec3,
+	max_corner:     Vec3,
+	primitive_count: u32,
+}
+
+impl Bin {
+	fn empty() -> Self {
+		Bin {
+			min_corner:      Vec3::splat(f32::INFINITY),
+			max_corner:      Vec3::splat(f32::NEG_INFINITY),
+			primitive_count: 0,
+		}
+	}
+
+	fn extend(&mut self, item_min: Vec3, item_max: Vec3) {
+		self.min_corner      = self.min_corner.min(item_min);
+		self.max_corner      = self.max_corner.max(item_max);
+		self.primitive_count += 1;
+	}
+}
+
 impl BVHNode {
 	fn build_range<Index>(items: &mut [(Index, (Vec3, Vec3))], nodes: &mut Vec<BVHNode>, start: u16, end: u16) -> Self {
 		assert!(end > start);
 		let slice = &mut items[start as usize..end as usize];
 
-		let mut center_min = slice[0].1.0 + slice[0].1.1;
-		let mut center_max = slice[0].1.0 + slice[0].1.1;
-		let mut min = slice[0].1.0;
-		let mut max = slice[0].1.1;
-		let mut avg = Vec3::ZERO;
+		// Compute the bounding box of all primitives and of their centroids.
+		let mut bounds_min = slice[0].1.0;
+		let mut bounds_max = slice[0].1.1;
+		let mut centroid_min = (slice[0].1.0 + slice[0].1.1) * 0.5;
+		let mut centroid_max = centroid_min;
 
-		for v in slice.iter() {
-			center_min = center_min.min(v.1.0 + v.1.1);
-			center_max = center_max.max(v.1.0 + v.1.1);
-			min = min.min(v.1.0);
-			max = max.max(v.1.1);
-			avg += v.1.0 + v.1.1;
+		for item in slice.iter() {
+			bounds_min   = bounds_min.min(item.1.0);
+			bounds_max   = bounds_max.max(item.1.1);
+			let centroid = (item.1.0 + item.1.1) * 0.5;
+			centroid_min = centroid_min.min(centroid);
+			centroid_max = centroid_max.max(centroid);
 		}
 
 		let count = slice.len() as u16;
 
-		if count <= 8 || min == max || center_min == center_max {
+		// Leaf conditions: too few primitives, or all centroids are coincident
+		// (splitting would not separate anything).
+		if count <= 8 || centroid_min == centroid_max {
 			return Self {
-				min_corner: min,
-				max_corner: max,
-				sub_nodes: BVHInternal::Leaf { start, count },
+				min_corner: bounds_min,
+				max_corner: bounds_max,
+				sub_nodes:  BVHInternal::Leaf { start, count },
 			};
 		}
 
-		avg /= count as f32;
+		//  SAH binning split
+		//
+		// For each axis, distribute primitives into BIN_COUNT uniform bins
+		// along that axis using centroid position. Then sweep left-to-right
+		// and right-to-left to find the split plane that minimises:
+		//
+		//   SAH cost = TRAVERSAL_COST
+		//            + (left_count  * surface_area(left_bounds))  / parent_sa * INTERSECT_COST
+		//            + (right_count * surface_area(right_bounds)) / parent_sa * INTERSECT_COST
+		//
+		// This is evaluated at every bin boundary on every axis. The globally
+		// cheapest split wins.
 
-		let axis = (center_max - center_min).max_position();
-		let split_value = avg[axis];
+		let parent_surface_area = surface_area(bounds_min, bounds_max);
+		let no_split_cost = count as f32 * INTERSECT_COST;
 
-		let split_index = partition(slice.iter_mut(), |a| (a.1.0 + a.1.1)[axis] < split_value) as u16;
-		assert!(split_index != 0 && split_index != end - start);
-		// slice.select_nth_unstable_by(mid as usize, |a, b| (a.1.0 + a.1.1)[axis].partial_cmp(&(b.1.0 + b.1.1)[axis]).unwrap());
+		let mut best_cost  = f32::INFINITY;
+		let mut best_axis  = 0usize;
+		let mut best_bin   = 0usize;
+
+		for axis in 0..3 {
+			let axis_extent = centroid_max[axis] - centroid_min[axis];
+			if axis_extent <= 0.0 { continue; }
+
+			let mut bins = [(); BIN_COUNT].map(|_| Bin::empty());
+
+			// Place each primitive into a bin by centroid position.
+			for item in slice.iter() {
+				let centroid   = (item.1.0 + item.1.1) * 0.5;
+				let normalized = (centroid[axis] - centroid_min[axis]) / axis_extent;
+				let bin_index  = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
+				bins[bin_index].extend(item.1.0, item.1.1);
+			}
+
+			// Left-to-right prefix: accumulate bounds and counts.
+			let mut left_min    = [Vec3::splat(f32::INFINITY);       BIN_COUNT];
+			let mut left_max    = [Vec3::splat(f32::NEG_INFINITY);   BIN_COUNT];
+			let mut left_counts = [0u32; BIN_COUNT];
+			{
+				let mut running_min   = Vec3::splat(f32::INFINITY);
+				let mut running_max   = Vec3::splat(f32::NEG_INFINITY);
+				let mut running_count = 0u32;
+				for bin_index in 0..BIN_COUNT {
+					let bin = &bins[bin_index];
+					if bin.primitive_count > 0 {
+						running_min   = running_min.min(bin.min_corner);
+						running_max   = running_max.max(bin.max_corner);
+						running_count += bin.primitive_count;
+					}
+					left_min[bin_index]    = running_min;
+					left_max[bin_index]    = running_max;
+					left_counts[bin_index] = running_count;
+				}
+			}
+
+			// Right-to-left prefix: accumulate bounds and counts.
+			let mut right_min    = [Vec3::splat(f32::INFINITY);      BIN_COUNT];
+			let mut right_max    = [Vec3::splat(f32::NEG_INFINITY);  BIN_COUNT];
+			let mut right_counts = [0u32; BIN_COUNT];
+			{
+				let mut running_min   = Vec3::splat(f32::INFINITY);
+				let mut running_max   = Vec3::splat(f32::NEG_INFINITY);
+				let mut running_count = 0u32;
+				for bin_index in (0..BIN_COUNT).rev() {
+					let bin = &bins[bin_index];
+					if bin.primitive_count > 0 {
+						running_min   = running_min.min(bin.min_corner);
+						running_max   = running_max.max(bin.max_corner);
+						running_count += bin.primitive_count;
+					}
+					right_min[bin_index]    = running_min;
+					right_max[bin_index]    = running_max;
+					right_counts[bin_index] = running_count;
+				}
+			}
+
+			// Evaluate SAH at each split plane (between bin i and bin i+1).
+			for split_bin in 0..(BIN_COUNT - 1) {
+				let left_count  = left_counts[split_bin];
+				let right_count = right_counts[split_bin + 1];
+				if left_count == 0 || right_count == 0 { continue; }
+
+				let left_sa  = surface_area(left_min[split_bin],      left_max[split_bin]);
+				let right_sa = surface_area(right_min[split_bin + 1], right_max[split_bin + 1]);
+
+				let cost = TRAVERSAL_COST
+					+ (left_count  as f32 * left_sa  / parent_surface_area) * INTERSECT_COST
+					+ (right_count as f32 * right_sa / parent_surface_area) * INTERSECT_COST;
+
+				if cost < best_cost {
+					best_cost = cost;
+					best_axis = axis;
+					best_bin  = split_bin;
+				}
+			}
+		}
+
+		// If no split is cheaper than just making a leaf, make a leaf.
+		if best_cost >= no_split_cost {
+			return Self {
+				min_corner: bounds_min,
+				max_corner: bounds_max,
+				sub_nodes:  BVHInternal::Leaf { start, count },
+			};
+		}
+
+		//  Partition slice by the winning split
+		//
+		// Using std::slice::partition_point after sorting by centroid is not
+		// stable vs a partition, but we only care about which side each item
+		// falls on, not internal ordering. We do an in-place partition by
+		// swapping: walk from both ends and swap items that are on the wrong
+		// side.
+
+		let axis_extent  = centroid_max[best_axis] - centroid_min[best_axis];
+
+		let split_index = {
+			let mut left  = 0usize;
+			let mut right = slice.len() - 1;
+
+			loop {
+				while left <= right {
+					let centroid   = (slice[left].1.0 + slice[left].1.1) * 0.5;
+					let normalized = (centroid[best_axis] - centroid_min[best_axis]) / axis_extent;
+					let bin_index  = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
+					if bin_index <= best_bin { left += 1; } else { break; }
+				}
+				while right > left {
+					let centroid   = (slice[right].1.0 + slice[right].1.1) * 0.5;
+					let normalized = (centroid[best_axis] - centroid_min[best_axis]) / axis_extent;
+					let bin_index  = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
+					if bin_index > best_bin { if right == 0 { break; } right -= 1; } else { break; }
+				}
+				if left >= right { break; }
+				slice.swap(left, right);
+				left  += 1;
+				if right > 0 { right -= 1; }
+			}
+
+			// left is now the first index belonging to the right partition.
+			// Guard against degenerate cases where SAH said to split but
+			// floating-point binning pushed everything to one side anyway.
+			left.max(1).min(slice.len() - 1) as u16
+		};
+
 		nodes.push(BVHNode {
 			min_corner: Vec3::ZERO,
 			max_corner: Vec3::ZERO,
-			sub_nodes: BVHInternal::Leaf { start: 0, count: 0 },
+			sub_nodes:  BVHInternal::Leaf { start: 0, count: 0 },
 		});
-		let sub1 = nodes.len() - 1;
-		nodes[sub1] = Self::build_range(items, nodes, start, start + split_index);
+		let sub1_index = nodes.len() - 1;
+		nodes[sub1_index] = Self::build_range(items, nodes, start, start + split_index);
+
 		nodes.push(BVHNode {
 			min_corner: Vec3::ZERO,
 			max_corner: Vec3::ZERO,
-			sub_nodes: BVHInternal::Leaf { start: 0, count: 0 },
+			sub_nodes:  BVHInternal::Leaf { start: 0, count: 0 },
 		});
-		let sub2 = nodes.len() - 1;
-		nodes[sub2] = Self::build_range(items, nodes, start + split_index, end);
+		let sub2_index = nodes.len() - 1;
+		nodes[sub2_index] = Self::build_range(items, nodes, start + split_index, end);
+
 		Self {
-			min_corner: min,
-			max_corner: max,
-			sub_nodes: BVHInternal::SubNodes {
-				sub1: sub1 as u16,
-				sub2: sub2 as u16,
+			min_corner: bounds_min,
+			max_corner: bounds_max,
+			sub_nodes:  BVHInternal::SubNodes {
+				sub1: sub1_index as u16,
+				sub2: sub2_index as u16,
 			},
 		}
 	}
@@ -97,29 +282,30 @@ pub struct BVH<Index: Copy + Debug + PartialEq> {
 impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 	pub fn new(mut items: Vec<(Index, (Vec3, Vec3))>) -> Self {
 		let _zone = span!("BVH creation");
-		let items_len = items.len() as u16;
+		let item_count = items.len() as u16;
 		let mut nodes: Vec<BVHNode> = vec![];
 		nodes.push(BVHNode {
 			min_corner: Vec3::ZERO,
 			max_corner: Vec3::ZERO,
-			sub_nodes: BVHInternal::Leaf { start: 0, count: 0 },
+			sub_nodes:  BVHInternal::Leaf { start: 0, count: 0 },
 		});
-		if items_len != 0 { nodes[0] = BVHNode::build_range(&mut items, &mut nodes, 0, items_len); }
-		BVH {
-			nodes,
-			items,
+		if item_count != 0 {
+			nodes[0] = BVHNode::build_range(&mut items, &mut nodes, 0, item_count);
 		}
+		BVH { nodes, items }
 	}
-	fn intersects(a: &(Vec3, Vec3), b: &(Vec3, Vec3)) -> bool {
-		a.0.cmple(b.1).all() && a.1.cmpge(b.0).all()
+
+	fn intersects(aabb_a: &(Vec3, Vec3), aabb_b: &(Vec3, Vec3)) -> bool {
+		aabb_a.0.cmple(aabb_b.1).all() && aabb_a.1.cmpge(aabb_b.0).all()
 	}
+
 	pub fn get_collisions(&self, bounds: &(Vec3, Vec3)) -> Vec<Index> {
 		let _zone = span!("BVH get collisions");
 		let mut out: Vec<Index> = vec![];
-		let mut stack = vec![0];
+		let mut stack = vec![0u16];
 
-		while let Some(idx) = stack.pop() {
-			let node = &self.nodes[idx as usize];
+		while let Some(node_index) = stack.pop() {
+			let node = &self.nodes[node_index as usize];
 
 			if !Self::intersects(bounds, &(node.min_corner, node.max_corner)) { continue; }
 
@@ -129,15 +315,20 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 					stack.push(sub2);
 				}
 				BVHInternal::Leaf { start, count } => {
-					out.extend(self.items[start as usize..(start + count) as usize].iter().filter_map(|item|
-						if Self::intersects(bounds, &item.1) { Some(item.0) } else { None }
-					));
+					out.extend(
+						self.items[start as usize..(start + count) as usize]
+							.iter()
+							.filter_map(|item|
+								if Self::intersects(bounds, &item.1) { Some(item.0) } else { None }
+							)
+					);
 				}
 			}
 		}
 
 		out
 	}
+
 	fn ray_aabb_intersection(start: &Vec3, direction: &Vec3, aabb: &(Vec3, Vec3)) -> Option<f32> {
 		let (min, max) = aabb;
 

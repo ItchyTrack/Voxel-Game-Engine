@@ -182,7 +182,7 @@ impl PhysicsBodyGrid {
 		queue: &wgpu::Queue,
 		packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
 		view_frustum: &camera::ViewFrustum,
-		camera_pose: Pose,
+		_camera_pose: Pose,
 		pose: &Pose
 	) -> Vec<(IVec3, (u32, Pose))> {
 		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)| {
@@ -194,7 +194,7 @@ impl PhysicsBodyGrid {
 					queue,
 					packed_64_tree_dynamic_buffer,
 					view_frustum,
-					f32::max(camera_pose.translation.distance(grid_pose.translation) - 800.0, 0.0) / 1000.0,
+					0.0, // f32::max(camera_pose.translation.distance(grid_pose.translation) - 400.0, 0.0) / 500.0,
 					grid_pose
 				)?)
 			))}
