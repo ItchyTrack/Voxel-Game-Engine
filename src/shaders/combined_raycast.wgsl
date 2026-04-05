@@ -1,11 +1,4 @@
-// combined_raycast.wgsl
-// Depends on: bvh_raycast.wgsl, dda_raycast.wgsl (included before this).
-//
-// Each BVHItem carries the grid's global world-space pose (pos + quat).
-// The ray transform into local voxel space is a single pose inversion:
-//   local = q_inv * (world - pos)
-
-// ── Quaternion helpers ────────────────────────────────────────────────────────
+// Quaternion
 
 fn quat_inv_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
     let t = 2.0 * cross(q.xyz, v);
@@ -17,23 +10,18 @@ fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
     return v + q.w * t + cross(q.xyz, t);
 }
 
-// ── Full raycast result ───────────────────────────────────────────────────────
-
 struct RaycastHit {
     hit:          bool,
     bvh_item_idx: u32,
     voxel_value:  u32,
     world_normal: vec3<f32>,
     total_dist:   f32,
-	dda_iter_count:   u32,
 }
 
-// ── Combined BVH + DDA raycast ────────────────────────────────────────────────
 fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> RaycastHit {
     var best: RaycastHit;
-    best.hit        = false;
+    best.hit = false;
     best.total_dist = max_dist;
-	best.dda_iter_count = 0u;
 
 	var iter = bvh_iter_new(ray_pos, ray_dir);
 
@@ -62,8 +50,6 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
         let remaining = min(best.total_dist - bvh_dist, candidate.aabb_internal_dist);
 
         let dda = dda_raycast(local_pos, local_dir, remaining, item.item_index);
-
-		best.dda_iter_count += dda.iter_count;
 
         if dda.hit {
             let total = bvh_dist + dda.dist;

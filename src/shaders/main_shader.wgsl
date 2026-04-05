@@ -73,7 +73,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         0.0,
     )).xyz);
 
-    // Full two-pass raycast: BVH broad phase → DDA precise voxel test.
+    // Full two-pass raycast: BVH broad phase -> DDA precise voxel test.
     let hit = full_raycast(ray_start, ray_dir, 1e38);
 
 	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
@@ -96,7 +96,4 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = shade(base_color, hit.world_normal, !sky_hit.hit);
 
     return vec4<f32>(color, 1.0);
-
-	// debug
-    // return vec4<f32>(f32(hit.dda_iter_count) / 200.0, f32(hit.dda_iter_count) / 200.0, f32(hit.dda_iter_count) / 200.0, 1.0);
 }
