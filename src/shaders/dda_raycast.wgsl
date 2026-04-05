@@ -13,15 +13,7 @@ fn dda_u8(byte_off: u32) -> u32 {
 }
 
 fn dda_u16(byte_off: u32) -> u32 {
-	let word_idx = byte_off / 4u;
-	let shift    = (byte_off % 4u) * 8u;
-	let low       = grid_tree_buf[word_idx] >> shift;
-	if shift <= 16u {
-		return low & 0xFFFFu;
-	}
-	// shift == 24: high byte lives in the next word
-	let high = grid_tree_buf[word_idx + 1u] << (32u - shift);
-	return (low | high) & 0xFFFFu;
+	return (grid_tree_buf[byte_off / 4u] >> ((byte_off % 4u) * 8u)) & 0xFFFFu;
 }
 
 fn dda_u64_lo(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u]; }
