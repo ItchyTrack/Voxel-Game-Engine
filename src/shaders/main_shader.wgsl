@@ -1,9 +1,4 @@
 // main_shader.wgsl
-// Vertex + fragment entry points.
-// In production, prepend (or #include) bvh_raycast.wgsl, dda_raycast.wgsl,
-// and combined_raycast.wgsl before this file.
-//
-// Groups:
 //   0 : camera uniform
 //   1 : BVH (nodes + items)   — defined in bvh_raycast.wgsl
 //   2 : grid tree buffer      — defined in dda_raycast.wgsl
@@ -26,16 +21,12 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 //  Camera uniform
 
 struct CameraUniform {
-    // Column-major 4x4.  [3].xyz is the camera world position.
-    // Upper-left 3x3 is the camera-to-world rotation.
     camera_transform: mat4x4<f32>,
-    // tan(fov/2) per axis, used to reconstruct view-space ray directions.
     camera_view_size: vec2<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 
-//  Simple lighting / shading helpers
-
+// Helpers
 fn voxel_color(value: u32) -> vec3<f32> {
     // Hue-cycle by voxel data value — replace with palette lookup as needed.
     let h = f32(value % 17u) / 17.0 * 6.0;
@@ -60,8 +51,6 @@ fn shade(base_color: vec3<f32>, world_normal: vec3<f32>, light_visible: bool) ->
     return base_color * (ambient + (1.0 - ambient) * shadow);
 }
 
-//  Fragment
-
 fn hash_u32(x: u32) -> u32 {
     var h = x;
     h ^= h >> 16u;
@@ -83,6 +72,7 @@ fn id_to_color(id: u32) -> vec3<f32> {
     return vec3<f32>(r, g, b);
 }
 
+//  Fragment
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Reconstruct world-space ray from the screen position.

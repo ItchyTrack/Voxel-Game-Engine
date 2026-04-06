@@ -18,23 +18,23 @@ impl WorldGenerator {
 		for x in lower.x..higher.x {
 			for z in lower.y..higher.y {
 				let noise0 = self.noise.get([
-					(x as i32) as f64 * 0.005,
-					(z as i32) as f64 * 0.005
+					(x as i32) as f64 * 0.0005,
+					(z as i32) as f64 * 0.0005
 				]);
 				let noise1 = self.noise.get([
-					(x as i32) as f64 * 0.03,
-					(z as i32) as f64 * 0.03
+					(x as i32) as f64 * 0.003,
+					(z as i32) as f64 * 0.003
 				]);
 				let noise = self.noise.get([
-					(x as i32) as f64 * 0.04,
-					(z as i32) as f64 * 0.04
+					(x as i32) as f64 * 0.004,
+					(z as i32) as f64 * 0.004
 				]);
 				let noise2 = self.noise.get([
-					(x as i32) as f64 * 0.06,
-					(z as i32) as f64 * 0.06
+					(x as i32) as f64 * 0.006,
+					(z as i32) as f64 * 0.006
 				]);
 
-				let height = ((noise0 + 1.0) * 20.0 + (noise1 + 1.0) * 5.0 + (noise2 + 1.0) * 3.0) as u16;
+				let height = ((noise0 + 1.0) * 50.0 + (noise1 + 1.0) * 10.0 + (noise2 + 1.0) * 10.0) as u16;
 				for y in 0..height {
 					if height - y > noise.round() as u16 + 4 {
 						voxels.add_voxel(IVec3::new(x as i32, y as i32, z as i32), Voxel { color: [40, 40, 40, 255], mass: 10 });
