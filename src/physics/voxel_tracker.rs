@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use glam::IVec3;
 
 pub struct TrackedVoxel {
-	body_id: u32,
-	grid_id: u32,
-	voxel: IVec3,
+	pub body_id: u32,
+	pub grid_id: u32,
+	pub voxel: IVec3,
 }
 
 pub struct VoxelTracker {

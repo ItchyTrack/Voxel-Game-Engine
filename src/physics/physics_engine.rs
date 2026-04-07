@@ -201,4 +201,15 @@ impl PhysicsEngine {
 		}
 		Ref::map(self.bvh.borrow(), |bvh| { bvh.as_ref().unwrap() })
 	}
+
+	pub fn start_tracking(&mut self, body_id: u32, grid_id: u32, voxel: IVec3) -> u64 {
+		self.voxel_tracker.start_tracking(body_id, grid_id, voxel)
+	}
+	pub fn stop_tracking(&mut self, tracked_voxel_id: u64) {
+		self.voxel_tracker.stop_tracking(tracked_voxel_id);
+	}
+	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<(u32, u32, IVec3)> {
+		let tracked_voxel = self.voxel_tracker.get_tracked_voxel(tracked_voxel_id)?;
+		Some((tracked_voxel.body_id, tracked_voxel.grid_id, tracked_voxel.voxel))
+	}
 }
