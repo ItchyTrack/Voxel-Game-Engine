@@ -39,17 +39,17 @@ impl SubGrid {
 		queue: &wgpu::Queue,
 		packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
 		packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
-		view_frustum: &camera::ViewFrustum,
+		_view_frustum: &camera::ViewFrustum,
 		lod_level: f32,
 		pose: Pose
 	) -> Option<(u32, u32, Pose)> {
-		let aabb = self.voxels.get_bounding_box()?;
-		let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
-		let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
-		let center = (aabb.0 + aabb.1) / 2.0;
-		let in_view = view_frustum.compare_sphere(center, radius);
+		// let aabb = self.voxels.get_bounding_box()?;
+		// let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
+		// let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
+		// let center = (aabb.0 + aabb.1) / 2.0;
+		// let in_view = view_frustum.compare_sphere(center, radius);
+		// let lod_level = if in_view { lod_level } else { lod_level + 1.1 };
 		let gpu_grid_tree_id_val = self.gpu_grid_tree_id.get();
-		let lod_level = if in_view { lod_level } else { lod_level + 1.1 };
 		if let Some((grid_id, voxel_id, old_lod_level)) = gpu_grid_tree_id_val {
 			if self.reupload_gpu_grid.get() || lod_level != old_lod_level && (lod_level == 0.0 || (old_lod_level - lod_level).abs() > 0.25) {
 				let _zone = span!("Recreate GPU grid tree");
