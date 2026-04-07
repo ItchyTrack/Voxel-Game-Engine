@@ -45,113 +45,113 @@ impl SubGrid {
 	) -> Option<(u32, u32, Pose)> {
 		let aabb = self.voxels.get_bounding_box()?;
 		let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
-		let radius = aabb.0.distance(aabb.1) / 2.0;
+		let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
 		let center = (aabb.0 + aabb.1) / 2.0;
 		let in_view = view_frustum.compare_sphere(center, radius);
 		let gpu_grid_tree_id_val = self.gpu_grid_tree_id.get();
-		if in_view {
-			if let Some((grid_id, voxel_id, old_lod_level)) = gpu_grid_tree_id_val {
-				if self.reupload_gpu_grid.get() || lod_level != old_lod_level && (lod_level == 0.0 || (old_lod_level - lod_level).abs() > 0.25) {
-					let _zone = span!("Recreate GPU grid tree");
-					self.gpu_grid_tree_id.set({
-						let (tree_buffer, voxel_buffer) = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
-						match packed_64_tree_dynamic_buffer.replace_buffer(device, queue, grid_id, &tree_buffer) {
-							Ok(gpu_grid_tree_id) => {
-								match packed_voxel_data_dynamic_buffer.replace_buffer(device, queue, voxel_id, &voxel_buffer) {
-									Ok(gpu_voxel_data_id) => {
-										self.reupload_gpu_grid.set(false);
-										tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
-										tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-										Some((gpu_grid_tree_id, gpu_voxel_data_id, lod_level))
-									},
-									Err(err) => {
+		let lod_level = if in_view { lod_level } else { lod_level + 1.1 };
+		if let Some((grid_id, voxel_id, old_lod_level)) = gpu_grid_tree_id_val {
+			if self.reupload_gpu_grid.get() || lod_level != old_lod_level && (lod_level == 0.0 || (old_lod_level - lod_level).abs() > 0.25) {
+				let _zone = span!("Recreate GPU grid tree");
+				self.gpu_grid_tree_id.set({
+					let (tree_buffer, voxel_buffer) = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
+					match packed_64_tree_dynamic_buffer.replace_buffer(device, queue, grid_id, &tree_buffer) {
+						Ok(gpu_grid_tree_id) => {
+							match packed_voxel_data_dynamic_buffer.replace_buffer(device, queue, voxel_id, &voxel_buffer) {
+								Ok(gpu_voxel_data_id) => {
+									self.reupload_gpu_grid.set(false);
+									tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
+									tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+									Some((gpu_grid_tree_id, gpu_voxel_data_id, lod_level))
+								},
+								Err(err) => {
+									println!("{}", err);
+									if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(gpu_grid_tree_id) {
 										println!("{}", err);
-										if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(gpu_grid_tree_id) {
-											println!("{}", err);
-										}
-										self.gpu_grid_tree_id.set(None);
-										tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
-										tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-										return None;
-									},
-								}
-							},
-							Err(err) => {
+									}
+									self.gpu_grid_tree_id.set(None);
+									tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
+									tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+									return None;
+								},
+							}
+						},
+						Err(err) => {
+							println!("{}", err);
+							if let Err(err) = packed_voxel_data_dynamic_buffer.remove_buffer(voxel_id) {
 								println!("{}", err);
-								if let Err(err) = packed_voxel_data_dynamic_buffer.remove_buffer(voxel_id) {
-									println!("{}", err);
-								}
-								self.gpu_grid_tree_id.set(None);
-								tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
-								tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-								return None;
-							},
-						}
-					});
-					return Some((
-						packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.0)?.offset(),
-						packed_voxel_data_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.1)?.offset(),
-						pose * Pose::from_translation(self.voxels.get_voxels().get_internals().1.as_vec3()
-					)));
-				}
+							}
+							self.gpu_grid_tree_id.set(None);
+							tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
+							tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+							return None;
+						},
+					}
+				});
 				return Some((
-					packed_64_tree_dynamic_buffer.get_held_buffer(grid_id)?.offset(),
-					packed_voxel_data_dynamic_buffer.get_held_buffer(voxel_id)?.offset(),
-					pose * Pose::from_translation(self.voxels.get_voxels().get_internals().1.as_vec3())
-				));
+					packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.0)?.offset(),
+					packed_voxel_data_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.1)?.offset(),
+					pose * Pose::from_translation(self.voxels.get_voxels().get_internals().1.as_vec3()
+				)));
 			}
-			let _zone = span!("Create GPU grid tree");
-			self.gpu_grid_tree_id.set({
-				let (tree_buffer, voxel_buffer) = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
-				match packed_64_tree_dynamic_buffer.add_buffer(device, queue, &tree_buffer) {
-					Ok(gpu_grid_tree_id) => {
-						match packed_voxel_data_dynamic_buffer.add_buffer(device, queue, &voxel_buffer) {
-							Ok(gpu_voxel_data_id) => {
-								self.reupload_gpu_grid.set(false);
-								tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
-								tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-								Some((gpu_grid_tree_id, gpu_voxel_data_id, lod_level))
-							},
-							Err(err) => {
-								println!("{}", err);
-								if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(gpu_grid_tree_id) {
-									println!("{}", err);
-								}
-								self.gpu_grid_tree_id.set(None);
-								tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
-								tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-								return None;
-							},
-						}
-					},
-					Err(err) => {
-						println!("{}", err);
-						self.gpu_grid_tree_id.set(None);
-						tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
-						tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-						return None;
-					},
-				}
-			});
-			Some((
-				packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.0)?.offset(),
-				packed_voxel_data_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.1)?.offset(),
-				pose * Pose::from_translation(self.voxels.get_voxels().get_internals().1.as_vec3()
-			)))
-		} else {
-			if let Some((grid_id, voxel_id, _)) = gpu_grid_tree_id_val {
-				self.gpu_grid_tree_id.set(None);
-				if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(grid_id) {
-					println!("{}", err);
-				}
-				if let Err(err) = packed_voxel_data_dynamic_buffer.remove_buffer(voxel_id) {
-					println!("{}", err);
-				}
-				tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
-				tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-			}
-			None
+			return Some((
+				packed_64_tree_dynamic_buffer.get_held_buffer(grid_id)?.offset(),
+				packed_voxel_data_dynamic_buffer.get_held_buffer(voxel_id)?.offset(),
+				pose * Pose::from_translation(self.voxels.get_voxels().get_internals().1.as_vec3())
+			));
 		}
+		let _zone = span!("Create GPU grid tree");
+		self.gpu_grid_tree_id.set({
+			let (tree_buffer, voxel_buffer) = gpu_grid_tree::make_gpu_grid_tree(self.voxels.get_voxels(), self.voxels.get_palette(), lod_level);
+			match packed_64_tree_dynamic_buffer.add_buffer(device, queue, &tree_buffer) {
+				Ok(gpu_grid_tree_id) => {
+					match packed_voxel_data_dynamic_buffer.add_buffer(device, queue, &voxel_buffer) {
+						Ok(gpu_voxel_data_id) => {
+							self.reupload_gpu_grid.set(false);
+							tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
+							tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+							Some((gpu_grid_tree_id, gpu_voxel_data_id, lod_level))
+						},
+						Err(err) => {
+							println!("{}", err);
+							if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(gpu_grid_tree_id) {
+								println!("{}", err);
+							}
+							self.gpu_grid_tree_id.set(None);
+							tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
+							tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+							return None;
+						},
+					}
+				},
+				Err(err) => {
+					println!("{}", err);
+					self.gpu_grid_tree_id.set(None);
+					tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
+					tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+					return None;
+				},
+			}
+		});
+		Some((
+			packed_64_tree_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.0)?.offset(),
+			packed_voxel_data_dynamic_buffer.get_held_buffer(self.gpu_grid_tree_id.get()?.1)?.offset(),
+			pose * Pose::from_translation(self.voxels.get_voxels().get_internals().1.as_vec3()
+		)))
+		// } else {
+		// 	if let Some((grid_id, voxel_id, _)) = gpu_grid_tree_id_val {
+		// 		self.gpu_grid_tree_id.set(None);
+		// 		if let Err(err) = packed_64_tree_dynamic_buffer.remove_buffer(grid_id) {
+		// 			println!("{}", err);
+		// 		}
+		// 		if let Err(err) = packed_voxel_data_dynamic_buffer.remove_buffer(voxel_id) {
+		// 			println!("{}", err);
+		// 		}
+		// 		tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
+		// 		tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+		// 	}
+		// 	None
+		// }
 	}
 
 	// return true is this should be deleted
