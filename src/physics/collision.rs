@@ -324,14 +324,14 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, bvh: &BVH
 	// 		},
 	// 	}
 	// }
-	tracy_client::plot!(
-		"collisions checked",
-		unsafe { CHECK_COUNTER }.into()
-	);
-	tracy_client::plot!(
-		"collisions",
-		collisions.len() as f64
-	);
+	// tracy_client::plot!(
+	// 	"collisions checked",
+	// 	unsafe { CHECK_COUNTER }.into()
+	// );
+	// tracy_client::plot!(
+	// 	"collisions",
+	// 	collisions.len() as f64
+	// );
 	collisions
 }
 

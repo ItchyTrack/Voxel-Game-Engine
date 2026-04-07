@@ -25,7 +25,7 @@ pub struct BVHNode {
 	pub sub_nodes: BVHInternal,
 }
 
-//  SAH binning constants
+// SAH binning constants
 //
 // SAH (Surface Area Heuristic) produces significantly better trees than a
 // plain spatial median split. The heuristic estimates the expected cost of
@@ -101,15 +101,15 @@ impl BVHNode {
 			};
 		}
 
-		//  SAH binning split
+		// SAH binning split
 		//
 		// For each axis, distribute primitives into BIN_COUNT uniform bins
 		// along that axis using centroid position. Then sweep left-to-right
 		// and right-to-left to find the split plane that minimises:
 		//
-		//   SAH cost = TRAVERSAL_COST
-		//            + (left_count  * surface_area(left_bounds))  / parent_sa * INTERSECT_COST
-		//            + (right_count * surface_area(right_bounds)) / parent_sa * INTERSECT_COST
+		// SAH cost = TRAVERSAL_COST
+		//          + (left_count  * surface_area(left_bounds))  / parent_sa * INTERSECT_COST
+		//          + (right_count * surface_area(right_bounds)) / parent_sa * INTERSECT_COST
 		//
 		// This is evaluated at every bin boundary on every axis. The globally
 		// cheapest split wins.
@@ -207,7 +207,7 @@ impl BVHNode {
 			};
 		}
 
-		//  Partition slice by the winning split
+		// Partition slice by the winning split
 		//
 		// Using std::slice::partition_point after sorting by centroid is not
 		// stable vs a partition, but we only care about which side each item

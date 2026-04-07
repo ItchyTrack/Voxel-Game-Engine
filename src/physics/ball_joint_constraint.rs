@@ -120,9 +120,9 @@ impl PhysicsConstraint for BallJointConstraint {
         // Diagonal approximation for higher order terms
         // float3 r = body == bodyA ? rotate(bodyA->positionAng, rA) : -rotate(bodyB->positionAng, rB);
         // float3x3 H =
-        //     geometricStiffnessBallSocket(0, r) * F[0] +
-        //     geometricStiffnessBallSocket(1, r) * F[1] +
-        //     geometricStiffnessBallSocket(2, r) * F[2];
+        //   geometricStiffnessBallSocket(0, r) * F[0] +
+        //   geometricStiffnessBallSocket(1, r) * F[1] +
+        //   geometricStiffnessBallSocket(2, r) * F[2];
         // lhsAng += diagonalize(H);
 
 	}

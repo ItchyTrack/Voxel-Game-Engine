@@ -1,9 +1,10 @@
 // main_shader.wgsl
-//   0 : camera uniform
-//   1 : BVH (nodes + items)   — defined in bvh_raycast.wgsl
-//   2 : grid tree buffer      — defined in dda_raycast.wgsl
+// 0 : camera uniform
+// 1 : BVH (nodes + items)   — defined in bvh_raycast.wgsl
+// 2 : grid tree buffer      — defined in dda_raycast.wgsl
+// 2 : voxel data buffer     — defined in voxel_reader.wgsl
 
-//  Vertex
+// Vertex
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -18,7 +19,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     return out;
 }
 
-//  Camera uniform
+// Camera uniform
 
 struct CameraUniform {
     camera_transform: mat4x4<f32>,
@@ -72,7 +73,7 @@ fn id_to_color(id: u32) -> vec3<f32> {
     return vec3<f32>(r, g, b);
 }
 
-//  Fragment
+// Fragment
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Reconstruct world-space ray from the screen position.
@@ -90,11 +91,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	// if (!candidate.valid) {
 	// 	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
 	// 	let t = ray_dir.y * 0.5 + 0.5;
-    //     let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
-    //     let sun = max(dot(ray_dir, sun_dir), 0.0);
-    //     let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
-    //     let sky_color = bg + sun_color;
-    //     return vec4<f32>(sky_color, 1.0);
+    //   let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
+    //   let sun = max(dot(ray_dir, sun_dir), 0.0);
+    //   let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
+    //   let sky_color = bg + sun_color;
+    //   return vec4<f32>(sky_color, 1.0);
 	// }
 
     // return vec4<f32>(id_to_color(bvh_items[candidate.bvh_item_idx].item_index), 1.0);
@@ -117,9 +118,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let hit_pos = ray_start + (hit.total_dist - 0.01) * ray_dir;
 	let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
     let light_visible = !sky_hit.hit;
+	let item_index_2 = bvh_items[hit.bvh_item_idx].item_index_2;   // grid tree offset
 
-	let item_index = bvh_items[hit.bvh_item_idx].item_index;   // grid tree offset
-	let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
+	// let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
+	let base_color = voxel_reader_palette_color(item_index_2, hit.voxel_data_index, hit.voxel_index).xyz;
     let color = shade(base_color, hit.world_normal, light_visible);
 
     return vec4<f32>(color, 1.0);

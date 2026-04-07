@@ -21,6 +21,7 @@ pub struct Renderer {
 	pub config: wgpu::SurfaceConfiguration,
 	pub is_surface_configured: bool,
 	pub packed_64_tree_dynamic_buffer: PackedDynamicBuffer,
+	pub packed_voxel_data_dynamic_buffer: PackedDynamicBuffer,
 	pub window: Arc<Window>,
 	// pub render_pipeline: wgpu::RenderPipeline,
 	// pub depth_texture: texture::Texture,
@@ -132,8 +133,7 @@ impl Renderer {
 				power_preference: wgpu::PowerPreference::default(),
 				compatible_surface: Some(&surface),
 				force_fallback_adapter: false,
-			})
-			.await?;
+			}).await?;
 
 		let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
 				label: None,
@@ -179,11 +179,21 @@ impl Renderer {
 					min_binding_size: None,
 				},
 				count: None,
+			},wgpu::BindGroupLayoutEntry {
+				binding: 1,
+				visibility: wgpu::ShaderStages::FRAGMENT,
+				ty: wgpu::BindingType::Buffer {
+					ty: wgpu::BufferBindingType::Storage { read_only: true },
+					has_dynamic_offset: false,
+					min_binding_size: None,
+				},
+				count: None,
 			}],
-			label: Some("bvh_bind_group_layout"),
+			label: Some("gtree_bind_group_layout"),
 		});
 		let shader_src = concat!(
 			include_str!("shaders/bvh_raycast.wgsl"),
+			include_str!("shaders/voxel_reader.wgsl"),
 			include_str!("shaders/dda_raycast.wgsl"),
 			include_str!("shaders/combined_raycast.wgsl"),
 			include_str!("shaders/main_shader.wgsl"),
@@ -360,8 +370,13 @@ impl Renderer {
 		let debug_line_pipeline = make_debug_pipeline("Debug Line Pipeline", wgpu::PrimitiveTopology::LineList);
 		let debug_tri_pipeline = make_debug_pipeline("Debug Tri Pipeline", wgpu::PrimitiveTopology::TriangleList);
 
-		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(&device, 16, wgpu::BufferUsages::STORAGE);
+		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(&device, 12, wgpu::BufferUsages::STORAGE);
 		if let Err(err) = packed_64_tree_dynamic_buffer {
+			println!("{}", err);
+			return Err(anyhow::Error::msg(err));
+		}
+		let packed_voxel_data_dynamic_buffer = PackedDynamicBuffer::new(&device, 4, wgpu::BufferUsages::STORAGE);
+		if let Err(err) = packed_voxel_data_dynamic_buffer {
 			println!("{}", err);
 			return Err(anyhow::Error::msg(err));
 		}
@@ -387,15 +402,26 @@ impl Renderer {
 			debug_line_pipeline,
 			debug_tri_pipeline,
 			packed_64_tree_dynamic_buffer: packed_64_tree_dynamic_buffer.unwrap(),
+			packed_voxel_data_dynamic_buffer: packed_voxel_data_dynamic_buffer.unwrap(),
 		})
 	}
 
-	pub fn render(&mut self, camera: &camera::Camera, bvh: &bvh::BVH<(u32, u32, IVec3)>, gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
+	pub fn render(&mut self, camera: &camera::Camera, bvh: &bvh::BVH<(u32, u32, IVec3)>, gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, u32, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
-
+		tracy_client::plot!("64 tree bytes", self.packed_64_tree_dynamic_buffer.held_bytes() as f64);
+		tracy_client::plot!("voxel data bytes", self.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
 		let tree_bind_group_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[wgpu::BindGroupLayoutEntry {
 				binding: 0,
+				visibility: wgpu::ShaderStages::FRAGMENT,
+				ty: wgpu::BindingType::Buffer {
+					ty: wgpu::BufferBindingType::Storage { read_only: true },
+					has_dynamic_offset: false,
+					min_binding_size: None,
+				},
+				count: None,
+			},wgpu::BindGroupLayoutEntry {
+				binding: 1,
 				visibility: wgpu::ShaderStages::FRAGMENT,
 				ty: wgpu::BindingType::Buffer {
 					ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -415,6 +441,13 @@ impl Renderer {
 					offset: 0,
 					size: None,
 				}),
+			},wgpu::BindGroupEntry {
+				binding: 1,
+				resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+					buffer: &self.packed_voxel_data_dynamic_buffer.get_buffer(),
+					offset: 0,
+					size: None,
+				}),
 			}],
 			label: Some("tree_bind_group"),
 		});
@@ -422,6 +455,7 @@ impl Renderer {
 		if !self.is_surface_configured { return Ok(()); }
 		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&camera.build_view_projection_matrix())]));
 		self.queue.write_buffer(&self.camera_transform_buffer, 0, bytemuck::cast_slice(&[camera::CameraUniform::from_camera(camera)]));
+		let gpu_bvh = gpu_bvh::GpuBvh::from_bvh(&self.device, bvh, gpu_grid_tree_id_to_id_poses);
 
 		let output = {
 			let _zone = span!("Finish Last Render");
@@ -464,7 +498,6 @@ impl Renderer {
 
 			// self.packed_mesh_buffer.render(&self.device, &self.queue, &mut render_pass, &self.camera_bind_group, &meshes);
 			render_pass.set_bind_group(0, &self.camera_transform_bind_group, &[]);
-			let gpu_bvh = gpu_bvh::GpuBvh::from_bvh(&self.device, bvh, gpu_grid_tree_id_to_id_poses);
 			render_pass.set_bind_group(1, &gpu_bvh.bind_group, &[]);
 			render_pass.set_bind_group(2, &tree_bind_group, &[]);
 			render_pass.set_pipeline(&self.ray_marching_pipeline);

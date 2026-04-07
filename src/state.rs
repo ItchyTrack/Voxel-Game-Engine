@@ -306,6 +306,8 @@ impl State {
 						let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
 						physics_body.pose.translation.y -= 350.0;
 						physics_body.is_static = true;
+						let grid_id = physics_body.add_grid(Pose::ZERO);
+						let grid = physics_body.grid_mut(grid_id).unwrap();
 						let mut stack = vec![(0, Pose::ZERO, IVec3::new(1, 1, -1))];
 						while let Some((scene_id, pose, flip)) = stack.pop() {
 							match &dot_vox_data.scenes[scene_id as usize] {
@@ -330,14 +332,16 @@ impl State {
 										if let Some(model) = dot_vox_data.models.get(shape_model.model_id as usize) {
 											let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
 											let half = (size / 2.0).floor();
-											let grid_id = physics_body.add_grid(pose * Pose::from_translation(-half * flip.as_vec3()));
-											let grid = physics_body.grid_mut(grid_id).unwrap();
 											for voxel in &model.voxels {
-												grid.add_voxel(IVec3::new(
-													voxel.x as i32,
-													voxel.z as i32,
-													voxel.y as i32,
-												) * flip + flip.min(IVec3::ZERO), voxels::Voxel {
+												grid.add_voxel((
+													pose * Pose::from_translation(-half * flip.as_vec3()) * (
+														IVec3::new(
+															voxel.x as i32,
+															voxel.z as i32,
+															voxel.y as i32,
+														) * flip + flip.min(IVec3::ZERO)
+													).as_vec3()
+												).as_ivec3(), voxels::Voxel {
 													color: [
 														dot_vox_data.palette[voxel.i as usize].r,
 														dot_vox_data.palette[voxel.i as usize].g,
@@ -468,26 +472,26 @@ impl State {
 		// 	physics_body.pose.translation.x += (0 as f32) * (r as f32) * 2.0;
 		// 	State::make_ball(physics_body, r);
 		// }
-		for x in -1..2 {
-			for y in -1..0 {
-				for z in -1..2 {
-					let r = 6;
-					let physics_body_id = physics_engine.add_physics_body();
-					let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-					physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 40.0;
-					physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
-					physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
-					State::make_ball(physics_body, r);
-				}
-			}
-		}
+		// for x in -1..2 {
+		// 	for y in -1..0 {
+		// 		for z in -1..2 {
+		// 			let r = 6;
+		// 			let physics_body_id = physics_engine.add_physics_body();
+		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 75.0;
+		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + y as f32;
+		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
+		// 			State::make_ball(physics_body, r);
+		// 		}
+		// 	}
+		// }
 		{
 			let r = 5;
 			let physics_body_id_main = physics_engine.add_physics_body();
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_main).unwrap();
 				physics_body.pose.translation.x += 0.0;
-				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.y += 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, 2);
 			}
@@ -495,7 +499,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_1).unwrap();
 				physics_body.pose.translation.x += 0.0;
-				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.y += 80.0;
 				physics_body.pose.translation.z += 50.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
@@ -503,7 +507,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_2).unwrap();
 				physics_body.pose.translation.x += 0.0;
-				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.y += 80.0;
 				physics_body.pose.translation.z += 30.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
@@ -511,7 +515,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_3).unwrap();
 				physics_body.pose.translation.x += 10.0;
-				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.y += 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
@@ -519,7 +523,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_4).unwrap();
 				physics_body.pose.translation.x += -10.0;
-				physics_body.pose.translation.y += 50.0;
+				physics_body.pose.translation.y += 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
@@ -655,12 +659,18 @@ impl State {
 			// }
 		// }
 		if let Some(player_camera) = self.ecs.get_component::<camera::Camera>(self.player_id) {
-			let mut gpu_grid_tree_id_to_id_poses: HashMap<(u32, u32, IVec3), (u32, Pose)> = HashMap::new();
+			let mut gpu_grid_tree_id_to_id_poses: HashMap<(u32, u32, IVec3), (u32, u32, Pose)> = HashMap::new();
 			{
-				let _zone = span!("Collect Meshes");
+				let _zone = span!("Collect Voxels");
 				let view_frustum = player_camera.frustum();
 				for (physics_body_index, physics_body) in self.physics_engine.physics_bodies().iter().enumerate() {
-					for (key, value) in physics_body.update_gpu_grid_tree(&self.renderer.device, &self.renderer.queue, &mut self.renderer.packed_64_tree_dynamic_buffer, &view_frustum, player_camera.pose()) {
+					for (key, value) in physics_body.update_gpu_grid_tree(
+						&self.renderer.device,
+						&self.renderer.queue,
+						&mut self.renderer.packed_64_tree_dynamic_buffer,
+						&mut self.renderer.packed_voxel_data_dynamic_buffer,
+						&view_frustum, player_camera.pose()
+					) {
 						gpu_grid_tree_id_to_id_poses.insert((physics_body_index as u32, key.0, key.1), value);
 					}
 				}
@@ -678,7 +688,6 @@ impl State {
 				}
 				BVH::new(bounds)
 			};
-			// let bvh = self.physics_engine.bvh();
 			return self.renderer.render(&player_camera, &bvh, &gpu_grid_tree_id_to_id_poses);
 		} else {
 			println!("Error: could not find player camera!");

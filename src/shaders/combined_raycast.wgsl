@@ -13,7 +13,8 @@ fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 struct RaycastHit {
     hit:          bool,
     bvh_item_idx: u32,
-    voxel_value:  u32,
+    voxel_data_index: u32,
+    voxel_index:   u32,
     world_normal: vec3<f32>,
     total_dist:   f32,
 }
@@ -44,7 +45,8 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
             if total < best.total_dist {
                 best.hit          = true;
                 best.bvh_item_idx = candidate.bvh_item_idx;
-                best.voxel_value  = dda.value;
+                best.voxel_data_index   = dda.voxel_data_index;
+                best.voxel_index   = dda.voxel_index;
                 best.total_dist   = total;
                 best.world_normal = quat_rotate(pose_quat, dda.normal);
             }

@@ -23,6 +23,7 @@ struct GpuBVHItem {
     aabb_size:  [u8; 3],
     _padding:   u8,
     item_index: u32,
+    item_index_2: u32,
     pos:        [f32; 3],
     quat:       [f32; 4],
 }
@@ -38,11 +39,11 @@ impl GpuBvh {
     pub fn from_bvh(
         device: &Device,
         bvh: &bvh::BVH<(u32, u32, IVec3)>,
-        gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, Pose)>,
+        gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, u32, Pose)>,
     ) -> Self {
         let (nodes, items) = bvh.get_internals();
 
-        //  Pass 1: build nodes, parent = 0xFFFF (unknown)
+        // Pass 1: build nodes, parent = 0xFFFF (unknown)
         let mut gpu_nodes: Vec<GpuBVHNode> = nodes.iter().map(|node| {
             match node.sub_nodes {
                 bvh::BVHInternal::SubNodes { sub1, sub2 } => GpuBVHNode {
@@ -64,7 +65,7 @@ impl GpuBvh {
             }
         }).collect();
 
-        //  Pass 2: stamp each internal node's index into its children
+        // Pass 2: stamp each internal node's index into its children
         for i in 0..gpu_nodes.len() {
             if gpu_nodes[i].is_leaf == 0 {
                 let d1 = gpu_nodes[i].data_1 as usize;
@@ -81,15 +82,15 @@ impl GpuBvh {
             usage:    wgpu::BufferUsages::STORAGE,
         });
 
-        let mut item_data: Vec<u8> =
-            Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
+        let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
         for item in items {
-            if let Some((id, pose)) = gpu_grid_tree_id_to_id_poses.get(&item.0) {
+            if let Some((tree_offset, voxels_offset, pose)) = gpu_grid_tree_id_to_id_poses.get(&item.0) {
                 item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
                     min_corner: item.1.0.to_array(),
                     aabb_size:  (item.1.1 - item.1.0).ceil().as_u8vec3().to_array(),
                     _padding:   0,
-                    item_index: *id,
+                    item_index: *tree_offset,
+                    item_index_2: *voxels_offset,
                     pos:        pose.translation.to_array(),
                     quat:       pose.rotation.to_array(),
                 }));
@@ -98,6 +99,8 @@ impl GpuBvh {
                 item_data.resize(item_data.len() + size_of::<GpuBVHItem>(), 0);
             }
         }
+
+		if item_data.is_empty() { item_data.extend_from_slice(&[0; size_of::<GpuBVHItem>()]); }
 
         let items_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label:    Some("bvh_items_buffer"),
