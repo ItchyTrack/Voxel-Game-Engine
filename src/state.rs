@@ -8,7 +8,7 @@ use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, physics::bvh::BVH, player::camera, pose::Pose, renderer::Renderer, resources::load_binary, voxels};
+use crate::{entity_component_system, physics::bvh::BVH, player::{camera, orientator::Orientator}, pose::Pose, renderer::Renderer, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
@@ -79,6 +79,9 @@ impl State {
 			}
 		}
 
+		self.ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
+			orientator.hold_at_orientation(&Quat::IDENTITY, &mut self.physics_engine);
+		});
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
 			let ray_start = if self.raycast_pose.is_none() {
 				Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch))
@@ -298,7 +301,7 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		match load_binary("Church_Of_St_Sophia.vox").await {
+		match crate::resources::load_binary("Church_Of_St_Sophia.vox").await {
 			Ok(bytes) => {
 				match dot_vox::load_bytes(&bytes) {
 					Ok(dot_vox_data) => {
@@ -624,13 +627,35 @@ impl State {
 		// 	physics_body.pose.translation.x = 4.0;
 		// }
 
+		// standing block
+		{
+			let physics_body_id = physics_engine.add_physics_body();
+			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+			let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+			let grid = physics_body.grid_mut(grid_id).unwrap();
+			for x in -1..2 {
+				for y in 0..30 {
+					for z in -1..2 {
+						grid.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 });
+					}
+				}
+			}
+			grid.add_voxel(IVec3::new(0, 30, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
+			physics_body.pose.translation.y = 100.0;
+			let standing_entity_id = ecs.add_entity();
+			let mut orientator = Orientator::new();
+			orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 30, 0)));
+			ecs.add_component_to_entity(standing_entity_id, orientator);
+		}
+
+		// terrain
 		// {
 		// 	let physics_body_id = physics_engine.add_physics_body();
 		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-		// 	let world_generator = WorldGenerator::new(2);
+		// 	let world_generator = crate::world_gen::WorldGenerator::new(2);
 		// 	let grid_id = physics_body.add_grid(Pose::ZERO);
 		// 	let grid = physics_body.grid_mut(grid_id).unwrap();
-		// 	world_generator.gererate_area(IVec2::new(-512, -512), IVec2::new(512, 512), grid);
+		// 	world_generator.gererate_area(glam::IVec2::new(-256, -256), glam::IVec2::new(256, 256), grid);
 		// 	physics_body.is_static = true;
 		// 	physics_body.pose.translation.y = -10.0;
 		// }
