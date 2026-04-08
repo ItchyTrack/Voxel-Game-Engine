@@ -124,5 +124,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let base_color = voxel_reader_palette_color(item_index_2, hit.voxel_data_index, hit.voxel_index).xyz;
     let color = shade(base_color, hit.world_normal, light_visible);
 
+	// return vec4<f32>(f32(hit.dda_steps) / 500.0, f32(hit.dda_steps) / 500.0, f32(hit.dda_steps) / 500.0, 1.0);
+
     return vec4<f32>(color, 1.0);
 }

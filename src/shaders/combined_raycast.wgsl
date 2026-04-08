@@ -17,12 +17,14 @@ struct RaycastHit {
     voxel_index:   u32,
     world_normal: vec3<f32>,
     total_dist:   f32,
+	dda_steps: u32,
 }
 
 fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> RaycastHit {
     var best: RaycastHit;
     best.hit = false;
     best.total_dist = max_dist;
+	best.dda_steps = 0;
 
     var iter = bvh_iter_new(ray_pos, ray_dir);
 
@@ -39,7 +41,7 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
         let local_dir   = quat_inv_rotate(pose_quat, ray_dir);
         let remaining   = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
         let dda         = dda_raycast(local_pos, local_dir, remaining, item.item_index);
-
+		best.dda_steps += dda.steps;
         if dda.hit {
             let total = candidate.dist + dda.dist;
             if total < best.total_dist {

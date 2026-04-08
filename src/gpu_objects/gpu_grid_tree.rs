@@ -181,11 +181,9 @@ fn build_bitmap(node: &grid_tree::GridTreeNode) -> u64 {
 	bitmap
 }
 
-// Main entry point
-
 pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_level: f32) -> (Vec<u8>, Vec<u8>) {
 	let (nodes, _, root_depth) = grid_tree.get_internals();
-	assert!(!nodes.is_empty(), "make_gpu_grid_tree: tree must have at least a root node");
+	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
 
 	// Palette
 	let mut palette_vec: Vec<[u8; 4]> = Vec::new();
@@ -226,6 +224,127 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 			}
 		}
 	}
+
+	// Find separating plane
+	//
+	// Exhaustively search all 2^20 encoded planes (16^3 normals × 256 m values).
+	// For a fixed normal the optimal m is always the tightest one that still
+	// contains every solid voxel, so we only need to iterate 16^3 = 4096 normals.
+	//
+	// Encoding (written into the 3 pad bytes that follow root_depth):
+	//   nx, ny, nz : 4-bit each  –  actual = encoded − 7.5
+	//   m          : 8-bit       –  actual = encoded / 32.0 − 3.984375
+	//
+	// Solid halfspace:  dot(n, pos − root_centre) ≤ m_actual · root_size
+	// (matches the shader's `nearest_plane_distance_ish_signed ≥ 0` branch)
+
+	const TREE_LOG_SIZE: u32 = 2;
+	let root_size_f = (1u32 << (TREE_LOG_SIZE * (root_depth as u32 + 1))) as f32;
+	let root_half   = root_size_f / 2.0;
+
+	// ── collect per-leaf-cell (dot-product components, solid) ─────────────────
+	// We defer the actual dot product to the normal loop so we only store
+	// the three offset positions once.
+	struct TaggedCell { ox: f32, oy: f32, oz: f32, solid: bool }
+	let mut tagged_cells: Vec<TaggedCell> = Vec::new();
+	{
+		let mut stk: Vec<(u32, u8, [u32; 3])> = vec![(0u32, root_depth, [0u32; 3])];
+		while let Some((cpu_idx, depth, node_origin)) = stk.pop() {
+			let node_size = 1u32 << (TREE_LOG_SIZE * (depth as u32 + 1));
+			let cell_size = node_size >> TREE_LOG_SIZE;
+			let node      = &nodes[cpu_idx as usize];
+
+			for (i, cell) in node.contents.iter().enumerate() {
+				let cx = (i % grid_tree::SIZE_USIZE) as u32;
+				let cy = ((i / grid_tree::SIZE_USIZE) % grid_tree::SIZE_USIZE) as u32;
+				let cz = (i / (grid_tree::SIZE_USIZE * grid_tree::SIZE_USIZE)) as u32;
+				// position relative to root centre
+				let ox = node_origin[0] as f32 + cx as f32 * cell_size as f32 + cell_size as f32 * 0.5 - root_half;
+				let oy = node_origin[1] as f32 + cy as f32 * cell_size as f32 + cell_size as f32 * 0.5 - root_half;
+				let oz = node_origin[2] as f32 + cz as f32 * cell_size as f32 + cell_size as f32 * 0.5 - root_half;
+				let solid = match cell.value_type() {
+					0 => false,
+					1 => true,
+					2 => {
+						let child_cpu = cpu_idx + cell.value() as u32;
+						if collapse_rep[child_cpu as usize].is_some() {
+							true
+						} else {
+							stk.push((child_cpu, depth - 1, [
+								node_origin[0] + cx * cell_size,
+								node_origin[1] + cy * cell_size,
+								node_origin[2] + cz * cell_size,
+							]));
+							continue;
+						}
+					}
+					_ => unreachable!(),
+				};
+				tagged_cells.push(TaggedCell { ox, oy, oz, solid });
+			}
+		}
+	}
+
+	// Pre-split into solid / empty slices to avoid branching in the hot loop.
+	let solid_cells: Vec<(f32, f32, f32)> = tagged_cells.iter()
+		.filter(|c| c.solid)
+		.map(|c| (c.ox, c.oy, c.oz))
+		.collect();
+	let empty_cells: Vec<(f32, f32, f32)> = tagged_cells.iter()
+		.filter(|c| !c.solid)
+		.map(|c| (c.ox, c.oy, c.oz))
+		.collect();
+
+	let total_none = empty_cells.len();
+
+	let best_plane = (if solid_cells.is_empty() {
+		None
+	} else {
+		// ── sweep all 4096 normals ────────────────────────────────────────────
+		let mut best: Option<(usize, u8, u8, u8, u8)> = None; // (wrong_none, nxe, nye, nze, me)
+
+		for nxe in 0u8..=15 {
+			let nx = nxe as f32 - 7.5;
+			for nye in 0u8..=15 {
+				let ny = nye as f32 - 7.5;
+				for nze in 0u8..=15 {
+					// Skip the zero normal – it encodes no plane.
+					if nxe == 7 && nye == 7 && nze == 7 { continue; }
+
+					let nz = nze as f32 - 7.5;
+
+					// Tightest threshold that still covers every solid voxel.
+					let max_solid_dot = solid_cells.iter()
+						.map(|&(ox, oy, oz)| nx * ox + ny * oy + nz * oz)
+						.fold(f32::NEG_INFINITY, f32::max);
+
+					// Map threshold to the 8-bit m encoding; skip if out of range.
+					let actual_m = max_solid_dot / root_size_f;
+					let m_enc_f  = (actual_m + 3.984375) * 32.0;
+					if !(0.0..=255.0).contains(&m_enc_f) { continue; }
+
+					// Count empty cells incorrectly classified as solid.
+					let wrong_none = empty_cells.iter()
+						.filter(|&&(ox, oy, oz)| nx * ox + ny * oy + nz * oz <= max_solid_dot)
+						.count();
+
+					let candidate = (wrong_none, nxe, nye, nze, m_enc_f.round() as u8);
+					if best.map_or(true, |(prev_wrong, ..)| wrong_none < prev_wrong) {
+						best = Some(candidate);
+					}
+				}
+			}
+		}
+
+		best.and_then(|(wrong_none, nxe, nye, nze, me)| {
+			// Only emit a plane when it strictly reduces the empty-side waste.
+			if wrong_none < total_none {
+				Some((nxe, nye, nze, me))
+			} else {
+				None
+			}
+		})
+	});
 
 	// Pass 2: Assign slot indices and voxel buffer offsets
 	let mut slot_indices:  Vec<u32> = vec![0; gpu_order.len()];
@@ -391,7 +510,11 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 	let tree_padded_len = tree_raw_len.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT as usize);
 	let mut tree_buffer = Vec::with_capacity(tree_padded_len);
 	tree_buffer.push(root_depth);
-	tree_buffer.extend_from_slice(&[0u8; 3]);
+	if let Some((x, y, z, m)) = best_plane {
+		tree_buffer.extend_from_slice(&(x as u32 + ((y as u32) << 4) + ((z as u32) << 8) + ((m as u32) << 12)).to_le_bytes()[0..3]);
+	} else {
+		tree_buffer.extend_from_slice(&[0u8; 3]);
+	}
 	tree_buffer.extend_from_slice(&tree_bytes);
 	tree_buffer.resize(tree_padded_len, 0);
 
