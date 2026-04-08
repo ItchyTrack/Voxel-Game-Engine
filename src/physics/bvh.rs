@@ -30,7 +30,7 @@ pub struct BVHNode {
 // SAH (Surface Area Heuristic) produces significantly better trees than a
 // plain spatial median split. The heuristic estimates the expected cost of
 // a split by weighting each side's AABB surface area against the number of
-// primitives it contains — cheaper splits produce shallower, more balanced
+// primitives it contains - cheaper splits produce shallower, more balanced
 // trees with less overlap between sibling AABBs.
 //
 // BIN_COUNT controls the quality/build-time tradeoff. 8–16 bins is the

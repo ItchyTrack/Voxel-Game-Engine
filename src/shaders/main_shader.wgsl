@@ -1,8 +1,8 @@
 // main_shader.wgsl
 // 0 : camera uniform
-// 1 : BVH (nodes + items)   — defined in bvh_raycast.wgsl
-// 2 : grid tree buffer      — defined in dda_raycast.wgsl
-// 2 : voxel data buffer     — defined in voxel_reader.wgsl
+// 1 : BVH (nodes + items)   - defined in bvh_raycast.wgsl
+// 2 : grid tree buffer      - defined in dda_raycast.wgsl
+// 2 : voxel data buffer     - defined in voxel_reader.wgsl
 
 // Vertex
 
@@ -29,7 +29,7 @@ struct CameraUniform {
 
 // Helpers
 fn voxel_color(value: u32) -> vec3<f32> {
-    // Hue-cycle by voxel data value — replace with palette lookup as needed.
+    // Hue-cycle by voxel data value - replace with palette lookup as needed.
     let h = f32(value % 17u) / 17.0 * 6.0;
     let s = u32(h); let f = h - f32(s); let q = 1.0 - f;
     switch s % 6u {

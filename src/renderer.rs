@@ -360,7 +360,7 @@ impl Renderer {
 					unclipped_depth: false,
 					conservative: false,
 				},
-				depth_stencil: None, // overlay — no depth test
+				depth_stencil: None, // overlay - no depth test
 				multisample: wgpu::MultisampleState::default(),
 				multiview_mask: None,
 				cache: None,
