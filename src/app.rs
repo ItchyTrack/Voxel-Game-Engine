@@ -18,6 +18,7 @@ pub struct App {
 	proxy: Option<winit::event_loop::EventLoopProxy<State>>,
 	state: Option<State>,
 	last_update: Instant,
+	dt_avg: f32,
 }
 
 impl App {
@@ -29,6 +30,7 @@ impl App {
 			#[cfg(target_arch = "wasm32")]
 			proxy,
 			last_update: Instant::now(),
+			dt_avg: 0.0,
 		}
 	}
 }
@@ -85,7 +87,18 @@ impl ApplicationHandler<State> for App {
 		self.state = Some(event);
 	}
 
-	fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: winit::window::WindowId, event: WindowEvent) {
+	fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
+		if let Some(state) = &mut self.state {
+			state.renderer.imgui_platform.handle_event::<WindowEvent>(
+				state.renderer.imgui.io_mut(),
+				&state.renderer.window,
+				&winit::event::Event::WindowEvent {
+					window_id,
+					event: event.clone(),
+				},
+			);
+		}
+
 		let state = match &mut self.state {
 			Some(canvas) => canvas,
 			None => return,
@@ -96,8 +109,12 @@ impl ApplicationHandler<State> for App {
 			WindowEvent::Resized(size) => state.resize(size.width, size.height),
 			WindowEvent::RedrawRequested => {
 				let _zone = span!("Redraw Requested");
-				let dt = (Instant::now() - self.last_update).as_secs_f32();
-				self.last_update = Instant::now();
+				let now = Instant::now();
+				let dt = (now - self.last_update).as_secs_f32();
+				self.last_update = now;
+				state.renderer.imgui.io_mut().update_delta_time(std::time::Duration::from_secs_f32(dt));
+				self.dt_avg = (self.dt_avg * 2.0 + dt * 1.0) / 3.0;
+				state.renderer.set_dt_avg(self.dt_avg);
 				state.update(dt);
 				match state.render() {
 					Ok(_) => {}
@@ -116,11 +133,15 @@ impl ApplicationHandler<State> for App {
 				frame_mark();
 			}
 			WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state: key_state, .. }, .. } => {
-				state.handle_key(event_loop, code, key_state.is_pressed())
+				if !state.renderer.imgui.io().want_capture_keyboard {
+					state.handle_key(event_loop, code, key_state.is_pressed())
+				}
 			}
 			WindowEvent::MouseInput { state: button_state, .. } if button_state.is_pressed() => {
-				state.audio_engine.resume();
-				state.set_mouse_captured(true);
+				if !state.renderer.imgui.io().want_capture_mouse {
+					state.audio_engine.resume();
+					state.set_mouse_captured(true);
+				}
 			}
 			_ => {}
 		}
@@ -135,7 +156,7 @@ impl ApplicationHandler<State> for App {
 		match event {
 			DeviceEvent::MouseMotion { delta: (dx, dy) } => {
 				// state.handle_mouse_motion(dx, dy)
-				if state.mouse_captured {
+				if state.mouse_captured && !state.renderer.imgui.io().want_capture_mouse {
 					state.ecs.run_on_single_component_pair_mut::<camera::Camera, camera::CameraController, _>(state.player_id, |_entity_id,player_camera, player_camera_controller|
 						player_camera_controller.handle_mouse_motion(player_camera, dx, dy)
 					);

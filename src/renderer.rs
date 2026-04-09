@@ -23,6 +23,9 @@ pub struct Renderer {
 	pub packed_64_tree_dynamic_buffer: PackedDynamicBuffer,
 	pub packed_voxel_data_dynamic_buffer: PackedDynamicBuffer,
 	pub window: Arc<Window>,
+	pub imgui: imgui::Context,
+	pub imgui_renderer: imgui_wgpu::Renderer,
+	pub imgui_platform: imgui_winit_support::WinitPlatform,
 	// pub render_pipeline: wgpu::RenderPipeline,
 	// pub depth_texture: texture::Texture,
 	pub ray_marching_pipeline: wgpu::RenderPipeline,
@@ -36,6 +39,7 @@ pub struct Renderer {
 	pub crosshair_format: wgpu::TextureFormat,
 	pub debug_line_pipeline: wgpu::RenderPipeline,
 	pub debug_tri_pipeline: wgpu::RenderPipeline,
+	pub dt_avg: f32,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -163,6 +167,20 @@ impl Renderer {
 			view_formats: vec![surface_format],
 			desired_maximum_frame_latency: 2,
 		};
+
+		let mut imgui = imgui::Context::create();
+		let mut imgui_platform = imgui_winit_support::WinitPlatform::new(&mut imgui);
+		imgui_platform.attach_window(
+			imgui.io_mut(),
+			&*window,
+			imgui_winit_support::HiDpiMode::Default,
+		);
+		imgui.set_ini_filename(None);
+		let renderer_config = imgui_wgpu::RendererConfig {
+			texture_format: surface_format, // must match your surface
+			..imgui_wgpu::RendererConfig::new()
+		};
+		let imgui_renderer = imgui_wgpu::Renderer::new(&mut imgui, &device, &queue, renderer_config);
 
 		// let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
@@ -388,6 +406,9 @@ impl Renderer {
 			config,
 			is_surface_configured: false,
 			window,
+			imgui,
+			imgui_renderer,
+			imgui_platform,
 			// render_pipeline,
 			// depth_texture,
 			ray_marching_pipeline,
@@ -403,6 +424,7 @@ impl Renderer {
 			debug_tri_pipeline,
 			packed_64_tree_dynamic_buffer: packed_64_tree_dynamic_buffer.unwrap(),
 			packed_voxel_data_dynamic_buffer: packed_voxel_data_dynamic_buffer.unwrap(),
+			dt_avg: 0.0,
 		})
 	}
 
@@ -580,6 +602,33 @@ impl Renderer {
 			pass.set_bind_group(0, &self.crosshair_bind_group, &[]);
 			pass.draw(0..3, 0..1);
 		}
+		// imgui
+		{
+			let io = self.imgui.io_mut();
+			self.imgui_platform.prepare_frame(io, &*self.window).unwrap();
+			let ui = self.imgui.frame();
+			ui.window("Hello").size([300.0, 100.0], imgui::Condition::FirstUseEver).build(|| {
+					ui.text("Hello world!");
+					ui.text(format!("FPS: {:.2}", 1.0 / self.dt_avg));
+				});
+
+			self.imgui_platform.prepare_render(ui, &*self.window);
+			let draw_data = self.imgui.render();
+			let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+				label: Some("ImGui"),
+				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+					view: &view,
+					resolve_target: None,
+					depth_slice: None,
+					ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+				})],
+				depth_stencil_attachment: None,
+				timestamp_writes: None,
+				occlusion_query_set: None,
+				multiview_mask: None,
+			});
+			self.imgui_renderer.render(draw_data, &self.queue, &self.device, &mut rpass).unwrap();
+		}
 		{
 			let _zone = span!("Submit");
 			self.queue.submit(std::iter::once(encoder.finish()));
@@ -590,5 +639,9 @@ impl Renderer {
 		}
 
 		Ok(())
+	}
+
+	pub fn set_dt_avg(&mut self, dt_avg: f32) {
+		self.dt_avg = dt_avg;
 	}
 }
