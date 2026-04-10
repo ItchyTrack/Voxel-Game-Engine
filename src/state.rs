@@ -301,70 +301,70 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		// match crate::resources::load_binary("Church_Of_St_Sophia.vox").await {
-		// 	Ok(bytes) => {
-		// 		match dot_vox::load_bytes(&bytes) {
-		// 			Ok(dot_vox_data) => {
-		// 				let physics_body_id = physics_engine.add_physics_body();
-		// 				let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-		// 				physics_body.pose.translation.y -= 350.0;
-		// 				physics_body.is_static = true;
-		// 				let grid_id = physics_body.add_grid(Pose::ZERO);
-		// 				let grid = physics_body.grid_mut(grid_id).unwrap();
-		// 				let mut stack = vec![(0, Pose::ZERO, IVec3::new(1, 1, -1))];
-		// 				while let Some((scene_id, pose, flip)) = stack.pop() {
-		// 					match &dot_vox_data.scenes[scene_id as usize] {
-		// 						dot_vox::SceneNode::Transform { attributes: _, frames, child, layer_id: _ } => {
-		// 							if let Some(frame) = frames.first() {
-		// 								let pos = frame.position().unwrap_or(dot_vox::Position{x: 0, y: 0, z: 0});
-		// 								let (rot, flip_vec) = frame.orientation().and_then(|quat| {
-		// 									let (q, v) = quat.to_quat_scale();
-		// 									let q = Quat::from_array(q);
-		// 									Some((Quat::from_xyzw(q.x, q.z, -q.y, q.w), Vec3::from_array(v).as_ivec3()))
-		// 								}).unwrap_or((Quat::IDENTITY, IVec3::ONE));
-		// 								stack.push((*child, Pose::new(pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32), pose.rotation * rot), flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y)));
-		// 							}
-		// 						},
-		// 						dot_vox::SceneNode::Group { attributes: _, children } => {
-		// 							for child in children {
-		// 								stack.push((*child, pose, flip));
-		// 							}
-		// 						},
-		// 						dot_vox::SceneNode::Shape { attributes: _, models } => {
-		// 							for shape_model in models {
-		// 								if let Some(model) = dot_vox_data.models.get(shape_model.model_id as usize) {
-		// 									let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
-		// 									let half = (size / 2.0).floor();
-		// 									for voxel in &model.voxels {
-		// 										grid.add_voxel((
-		// 											pose * Pose::from_translation(-half * flip.as_vec3()) * (
-		// 												IVec3::new(
-		// 													voxel.x as i32,
-		// 													voxel.z as i32,
-		// 													voxel.y as i32,
-		// 												) * flip + flip.min(IVec3::ZERO)
-		// 											).as_vec3()
-		// 										).as_ivec3(), voxels::Voxel {
-		// 											color: [
-		// 												dot_vox_data.palette[voxel.i as usize].r,
-		// 												dot_vox_data.palette[voxel.i as usize].g,
-		// 												dot_vox_data.palette[voxel.i as usize].b,
-		// 												dot_vox_data.palette[voxel.i as usize].a,
-		// 											],
-		// 											mass: 100,
-		// 										});
-		// 									}
-		// 								}
-		// 							}
-		// 						},
-		// 					}
-		// 				}
-		// 			},
-		// 			Err(err) => println!("dot_vox error: {err}"),
-		// 		};
-		// 	},
-		// 	Err(err) => println!("load_string error: {err}"),
-		// }
+		match crate::resources::load_binary("Church_Of_St_Sophia.vox").await {
+			Ok(bytes) => {
+				match dot_vox::load_bytes(&bytes) {
+					Ok(dot_vox_data) => {
+						let physics_body_id = physics_engine.add_physics_body();
+						let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+						physics_body.pose.translation.y -= 350.0;
+						physics_body.is_static = true;
+						let grid_id = physics_body.add_grid(Pose::ZERO);
+						let grid = physics_body.grid_mut(grid_id).unwrap();
+						let mut stack = vec![(0, Pose::ZERO, IVec3::new(1, 1, -1))];
+						while let Some((scene_id, pose, flip)) = stack.pop() {
+							match &dot_vox_data.scenes[scene_id as usize] {
+								dot_vox::SceneNode::Transform { attributes: _, frames, child, layer_id: _ } => {
+									if let Some(frame) = frames.first() {
+										let pos = frame.position().unwrap_or(dot_vox::Position{x: 0, y: 0, z: 0});
+										let (rot, flip_vec) = frame.orientation().and_then(|quat| {
+											let (q, v) = quat.to_quat_scale();
+											let q = Quat::from_array(q);
+											Some((Quat::from_xyzw(q.x, q.z, -q.y, q.w), Vec3::from_array(v).as_ivec3()))
+										}).unwrap_or((Quat::IDENTITY, IVec3::ONE));
+										stack.push((*child, Pose::new(pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32), pose.rotation * rot), flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y)));
+									}
+								},
+								dot_vox::SceneNode::Group { attributes: _, children } => {
+									for child in children {
+										stack.push((*child, pose, flip));
+									}
+								},
+								dot_vox::SceneNode::Shape { attributes: _, models } => {
+									for shape_model in models {
+										if let Some(model) = dot_vox_data.models.get(shape_model.model_id as usize) {
+											let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
+											let half = (size / 2.0).floor();
+											for voxel in &model.voxels {
+												grid.add_voxel((
+													pose * Pose::from_translation(-half * flip.as_vec3()) * (
+														IVec3::new(
+															voxel.x as i32,
+															voxel.z as i32,
+															voxel.y as i32,
+														) * flip + flip.min(IVec3::ZERO)
+													).as_vec3()
+												).as_ivec3(), voxels::Voxel {
+													color: [
+														dot_vox_data.palette[voxel.i as usize].r,
+														dot_vox_data.palette[voxel.i as usize].g,
+														dot_vox_data.palette[voxel.i as usize].b,
+														dot_vox_data.palette[voxel.i as usize].a,
+													],
+													mass: 100,
+												});
+											}
+										}
+									}
+								},
+							}
+						}
+					},
+					Err(err) => println!("dot_vox error: {err}"),
+				};
+			},
+			Err(err) => println!("load_string error: {err}"),
+		}
 
 		// ------------------------------ Static Box ------------------------------
 		// {
@@ -679,16 +679,16 @@ impl State {
 		}
 
 		// terrain
-		{
-			let physics_body_id = physics_engine.add_physics_body();
-			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-			let world_generator = crate::world_gen::WorldGenerator::new(2);
-			let grid_id = physics_body.add_grid(Pose::ZERO);
-			let grid = physics_body.grid_mut(grid_id).unwrap();
-			world_generator.gererate_area(glam::IVec2::new(-256, -256), glam::IVec2::new(256, 256), grid);
-			physics_body.is_static = true;
-			physics_body.pose.translation.y = -10.0;
-		}
+		// {
+		// 	let physics_body_id = physics_engine.add_physics_body();
+		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 	let world_generator = crate::world_gen::WorldGenerator::new(2);
+		// 	let grid_id = physics_body.add_grid(Pose::ZERO);
+		// 	let grid = physics_body.grid_mut(grid_id).unwrap();
+		// 	world_generator.gererate_area(glam::IVec2::new(-256, -256), glam::IVec2::new(256, 256), grid);
+		// 	physics_body.is_static = true;
+		// 	physics_body.pose.translation.y = -10.0;
+		// }
 
 		Ok(Self {
 			renderer,
