@@ -84,8 +84,7 @@ fn compute_lod_collapse(
 			match cell.value_type() {
 				0 => {}
 				1 => {
-					if let Some(&pi) = palette_map.get(&cell.value()) {
-						let c = palette_vec[pi as usize];
+					if let Some(&pi) = palette_map.get(&cell.value()) && let Some(c) = palette_vec.get(pi as usize) {
 						for j in 0..4 { sum_color[j] += c[j] as f64; }
 						n += 1;
 					}

@@ -116,8 +116,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
 	let hit_pos = ray_start + (hit.total_dist - 0.01) * ray_dir;
-	let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
-    let light_visible = sky_hit.normal == 0;
+	// let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
+    let light_visible = true;//sky_hit.normal == 0;
 	let item_index_2 = bvh_items[hit.bvh_item_idx].item_index_2;   // grid tree offset
 
 	// let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
