@@ -21,7 +21,7 @@ pub struct PackedMeshBuffer {
 
 impl PackedMeshBuffer {
 	pub fn new(device: &wgpu::Device, sinlge_buffer_size: u32) -> Result<Self, &'static str> {
-		let mat_bind_group_layout = MatrixUniform::get_dynamic_offset_bind_group_layout(device, 0);
+		let mat_bind_group_layout = MatrixUniform::get_bind_group_layout(device, 0);
 		let mat_buffer = device.create_buffer(&wgpu::BufferDescriptor {
 				label: Some("Matrix Buffer"),
 				size: std::mem::size_of::<MatrixUniform>() as u64,
@@ -38,7 +38,7 @@ impl PackedMeshBuffer {
 						size: Some(std::num::NonZeroU64::new(size_of::<MatrixUniform>() as u64).unwrap()),
 					}),
 				}],
-				label: Some("matrix_bind_group"),
+				label: Some("Matrix Bind Group"),
 			});
 		Ok(Self {
 			packed_buffer: PackedBufferGroup::new(
@@ -112,7 +112,7 @@ impl PackedMeshBuffer {
 							size: Some(std::num::NonZeroU64::new(size_of::<MatrixUniform>() as u64).unwrap()),
 						}),
 					}],
-					label: Some("matrix_bind_group"),
+					label: Some("Matrix Bind Group"),
 				});
 		}
 		let mut to_render = to_render.to_vec();

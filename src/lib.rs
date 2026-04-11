@@ -3,7 +3,7 @@ mod voxels;
 mod resources;
 mod player;
 mod app;
-mod renderer;
+mod render;
 mod physics;
 mod audio;
 mod state;

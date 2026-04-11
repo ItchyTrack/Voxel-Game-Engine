@@ -105,7 +105,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
 
-    if !hit.hit {
+    if hit.normal == 0 {
         // Sky / background.
         let t = ray_dir.y * 0.5 + 0.5;
         let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
@@ -117,12 +117,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 	let hit_pos = ray_start + (hit.total_dist - 0.01) * ray_dir;
 	let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
-    let light_visible = !sky_hit.hit;
+    let light_visible = sky_hit.normal == 0;
 	let item_index_2 = bvh_items[hit.bvh_item_idx].item_index_2;   // grid tree offset
 
 	// let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
 	let base_color = voxel_reader_palette_color(item_index_2, hit.voxel_data_index, hit.voxel_index).xyz;
-    let color = shade(base_color, hit.world_normal, light_visible);
+	var normal_vec = vec3<f32>(0.0);
+	normal_vec[(hit.normal >> 3u) & 0xF] = -f32((hit.normal & (1u << ((hit.normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;
+	let item = bvh_items[hit.bvh_item_idx];
+	let pose_quat = vec4<f32>(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
+    let color = shade(base_color, quat_rotate(pose_quat, normal_vec), light_visible);
 
 	// return vec4<f32>(f32(hit.dda_steps) / 500.0, f32(hit.dda_steps) / 500.0, f32(hit.dda_steps) / 500.0, 1.0);
 

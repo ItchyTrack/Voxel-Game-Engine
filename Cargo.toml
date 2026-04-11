@@ -34,6 +34,9 @@ noise = "0.9.0"
 clone_cell = "0.4.2"
 num = "0.4.3"
 rtrb = "0.3.2"
+imgui = "0.12"
+imgui-wgpu = "0.28"
+imgui-winit-support = "0.13"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"

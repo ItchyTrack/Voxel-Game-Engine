@@ -38,8 +38,8 @@ impl Orientator {
 						let angular_velocity_in_dir = body.angular_velocity.dot(axis);
 						let rotational_impulse = body.rotational_inertia().mat.as_mat3() * (
 							axis * (
-								-angle * 4.0 -
-								angular_velocity_in_dir / 2.0
+								-angle * 10.0 -
+								angular_velocity_in_dir * 2.0
 							) - (body.angular_velocity - axis * angular_velocity_in_dir)
 						);
 						physics_engine.apply_rotational_impulse(body_id, &rotational_impulse);

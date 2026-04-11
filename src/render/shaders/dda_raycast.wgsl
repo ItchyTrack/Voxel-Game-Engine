@@ -87,12 +87,10 @@ fn dda_get_child_contents_index(contents_pos: vec3<u32>) -> u32 {
 }
 
 struct DDAHit {
-	hit:         bool,
+	normal: u32, // if 0 then no hit
 	voxel_data_index: u32,      // slot index of the node containing the hit voxel
-	voxel_index:  u32,      // cell index within that node (use popcount(bitmap & mask) for voxel_buf index)
-	normal:      vec3<f32>,
-	dist:        f32,
-	steps: u32,
+	voxel_index: u32,      // cell index within that node (use popcount(bitmap & mask) for voxel_buf index)
+	dist: f32,
 }
 
 fn dda_raycast(
@@ -102,11 +100,10 @@ fn dda_raycast(
 	tree_base:  u32,
 ) -> DDAHit {
 	let root_size = dda_node_size(dda_root_depth(tree_base));
-	let root_size_f32 = f32(root_size);
 
 	// Origin is expected to be in root-relative space (no root_pos offset).
 	let root_min = vec3<f32>(0.0);
-	let root_max = vec3<f32>(root_size_f32);
+	let root_max = vec3<f32>(f32(root_size));
 
 	let inv_dir = vec3<f32>(1.0) / dir;
 	let t1      = (root_min - origin) * inv_dir;
@@ -115,15 +112,13 @@ fn dda_raycast(
 	let tmax    = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
 	if tmin > tmax || tmax < 0.0 {
 		var no_hit: DDAHit;
-		no_hit.hit = false;
-		no_hit.steps = 0;
+		no_hit.normal = 0u;;
 		return no_hit;
 	}
 	let distance_to_aabb = max(tmin, 0.0);
 	if distance_to_aabb > max_length {
 		var no_hit: DDAHit;
-		no_hit.hit = false;
-		no_hit.steps = 0;
+		no_hit.normal = 0u;;
 		return no_hit;
 	}
 
@@ -154,7 +149,6 @@ fn dda_raycast(
 			if (hit_point.x < 0 || hit_point.x > root_size_f32 + 1 || hit_point.y < 0 || hit_point.y > root_size_f32 + 1 || hit_point.z < 0 || hit_point.z > root_size_f32 + 1) {
 				var no_hit: DDAHit;
 				no_hit.hit = false;
-				no_hit.steps = 0;
 				return no_hit;
 			}
 			starting_distance += plane_dist;
@@ -168,7 +162,7 @@ fn dda_raycast(
 	let post_aabb_origin_clamped   = clamp(
 		post_aabb_origin_pre_shift,
 		root_min,
-		vec3<f32>(root_size_f32 - 0.00001),
+		vec3<f32>(f32(root_size) - 0.00001),
 	);
 	let move_towards_target = floor(post_aabb_origin_clamped) + vec3<f32>(0.5);
 	let move_towards_delta  = move_towards_target - post_aabb_origin_clamped;
@@ -199,8 +193,7 @@ fn dda_raycast(
 
 	if max_length < starting_distance {
 		var no_hit: DDAHit;
-		no_hit.hit = false;
-		no_hit.steps = 0;
+		no_hit.normal = 0u;;
 		return no_hit;
 	}
 
@@ -247,8 +240,7 @@ fn dda_raycast(
 			last_step_axis = select(select(2u, 1u, axis_distances.y <= axis_distances.z), 0u, axis_distances.x <= axis_distances.y && axis_distances.x <= axis_distances.z);
 			if max_length < axis_distances[last_step_axis] {
 				var no_hit: DDAHit;
-				no_hit.hit = false;
-				no_hit.steps = steps;
+				no_hit.normal = 0u;;
 				return no_hit;
 			}
 			axis_distances[last_step_axis] += delta[last_step_axis];
@@ -256,8 +248,7 @@ fn dda_raycast(
 			let new_pos_signed = i32(root_relative_grid_pos[last_step_axis]) + (i32((step & (1u << last_step_axis)) != 0) * 2 - 1);
 			if new_pos_signed < 0 || u32(new_pos_signed) >= root_size {
 				var no_hit: DDAHit;
-				no_hit.hit = false;
-				no_hit.steps = steps;
+				no_hit.normal = 0u;;
 				return no_hit;
 			}
 
@@ -265,8 +256,7 @@ fn dda_raycast(
 				loop {
 					if node_size == root_size {
 						var no_hit: DDAHit;
-						no_hit.hit = false;
-						no_hit.steps = steps;
+						no_hit.normal = 0u;;
 						return no_hit;
 					}
 					node_byte_off -= dda_parent_offset(node_byte_off) * DDA_SLOT_BYTES;
@@ -281,13 +271,10 @@ fn dda_raycast(
 			let data_idx  = dda_data_index(bitmap_low, bitmap_high, cell_index);
 			if node_size == 4u {
 				// Depth-0: every set bitmap bit is a voxel - immediate hit.
-				var normal_vec = vec3<f32>(0.0);
-				normal_vec[last_step_axis] = -f32((step & (1u << last_step_axis)) != 0) * 2.0 + 1.0;
 				var hit_result: DDAHit;
-				hit_result.hit = true;
+				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10); // make normal non 0 and encode the normal in it
 				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
 				hit_result.voxel_index = data_idx;
-				hit_result.normal = normal_vec;
 				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
 				hit_result.steps = steps;
 				return hit_result;
@@ -297,13 +284,10 @@ fn dda_raycast(
 
 			if entry_val == 0u {
 				// DATA: hit
-				var normal_vec = vec3<f32>(0.0);
-				normal_vec[last_step_axis] = -f32((step & (1u << last_step_axis)) != 0) * 2.0 + 1.0;
 				var hit_result: DDAHit;
-				hit_result.hit = true;
+				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10); // make normal non 0 and encode the normal in it
 				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
 				hit_result.voxel_index = data_idx;
-				hit_result.normal = normal_vec;
 				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
 				hit_result.steps = steps;
 				return hit_result;
@@ -317,6 +301,6 @@ fn dda_raycast(
 		}
 	}
 	var no_hit: DDAHit;
-	no_hit.hit = false;
+	no_hit.normal = 0u;;
 	return no_hit;
 }
