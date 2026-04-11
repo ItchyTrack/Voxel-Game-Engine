@@ -89,11 +89,10 @@ fn dda_raycast(
 	tree_base:  u32,
 ) -> DDAHit {
 	let root_size = dda_node_size(dda_root_depth(tree_base));
-	let root_size_f32 = f32(root_size);
 
 	// Origin is expected to be in root-relative space (no root_pos offset).
 	let root_min = vec3<f32>(0.0);
-	let root_max = vec3<f32>(root_size_f32);
+	let root_max = vec3<f32>(f32(root_size));
 
 	let inv_dir = vec3<f32>(1.0) / dir;
 	let t1      = (root_min - origin) * inv_dir;
@@ -118,7 +117,7 @@ fn dda_raycast(
 	let post_aabb_origin_clamped   = clamp(
 		post_aabb_origin_pre_shift,
 		root_min,
-		vec3<f32>(root_size_f32 - 0.00001),
+		vec3<f32>(f32(root_size) - 0.00001),
 	);
 	let move_towards_target = floor(post_aabb_origin_clamped) + vec3<f32>(0.5);
 	let move_towards_delta  = move_towards_target - post_aabb_origin_clamped;
