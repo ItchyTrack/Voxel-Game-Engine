@@ -136,7 +136,7 @@ impl GpuBvh {
 			entries: &[
 				wgpu::BindGroupLayoutEntry {
 					binding:    0,
-					visibility: wgpu::ShaderStages::FRAGMENT,
+					visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
 					ty: wgpu::BindingType::Buffer {
 						ty:                 wgpu::BufferBindingType::Storage { read_only: true },
 						has_dynamic_offset: false,
@@ -146,7 +146,7 @@ impl GpuBvh {
 				},
 				wgpu::BindGroupLayoutEntry {
 					binding:    1,
-					visibility: wgpu::ShaderStages::FRAGMENT,
+					visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
 					ty: wgpu::BindingType::Buffer {
 						ty:                 wgpu::BufferBindingType::Storage { read_only: true },
 						has_dynamic_offset: false,

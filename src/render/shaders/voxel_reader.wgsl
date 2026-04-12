@@ -2,7 +2,7 @@ const VOXELS_HEADER_SIZE: u32 = 1u;
 const VOXELS_NODE_INDEX_STEP: u32 = 4u;
 const VOXELS_COLOR_BYTES: u32 = 4u;
 
-@group(2) @binding(1) var<storage, read> voxel_data_buf: array<u32>;
+@group(2) @binding(0) var<storage, read> voxel_data_buf: array<u32>;
 
 fn voxel_reader_u8(byte_off: u32) -> u32 {
 	return (voxel_data_buf[byte_off / 4u] >> ((byte_off % 4u) * 8u)) & 0xFFu;

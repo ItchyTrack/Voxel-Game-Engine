@@ -82,7 +82,7 @@ impl DebugDrawRenderer {
 				multiview_mask: None,
 			});
 
-			if has_lines {
+			if has_lines && (bytemuck::cast_slice::<_, u8>(&batch.lines).len() as u64) < (device.limits().max_buffer_size) {
 				let line_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 					label: Some("Debug Line VB"),
 					contents: bytemuck::cast_slice(&batch.lines),
@@ -94,7 +94,7 @@ impl DebugDrawRenderer {
 				pass.draw(0..batch.lines.len() as u32, 0..1);
 			}
 
-			if has_tris {
+			if has_tris && (bytemuck::cast_slice::<_, u8>(&batch.triangles).len() as u64) < (device.limits().max_buffer_size) {
 				let tri_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 					label: Some("Debug Tri VB"),
 					contents: bytemuck::cast_slice(&batch.triangles),

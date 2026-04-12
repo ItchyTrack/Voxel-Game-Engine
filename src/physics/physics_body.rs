@@ -39,16 +39,16 @@ impl SubGrid {
 		queue: &wgpu::Queue,
 		packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
 		packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
-		view_frustum: &camera::ViewFrustum,
+		_view_frustum: &camera::ViewFrustum,
 		lod_level: f32,
 		pose: Pose
 	) -> Option<(u32, u32, Pose)> {
-		let aabb = self.voxels.get_bounding_box()?;
-		let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
-		let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
-		let center = (aabb.0 + aabb.1) / 2.0;
-		let in_view = view_frustum.compare_sphere(center, radius);
-		if !in_view { return None; }
+		// let aabb = self.voxels.get_bounding_box()?;
+		// let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
+		// let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
+		// let center = (aabb.0 + aabb.1) / 2.0;
+		// let in_view = view_frustum.compare_sphere(center, radius);
+		// if !in_view { return None; }
 		// let lod_level = if in_view { lod_level } else { lod_level + 1.1 };
 		let gpu_grid_tree_id_val = self.gpu_grid_tree_id.get();
 		if let Some((grid_id, voxel_id, old_lod_level)) = gpu_grid_tree_id_val {
@@ -170,7 +170,7 @@ pub struct PhysicsBodyGrid {
 	id: u32,
 }
 
-const SUB_GRID_SIZE: u16 = 32;
+const SUB_GRID_SIZE: u16 = 64;
 
 impl PhysicsBodyGrid {
 	pub fn new(grid_id: u32, pose: &Pose) -> Self {
@@ -237,7 +237,7 @@ impl PhysicsBodyGrid {
 		packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
 		packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
 		view_frustum: &camera::ViewFrustum,
-		camera_pose: Pose,
+		_camera_pose: Pose,
 		pose: &Pose
 	) -> Vec<(IVec3, (u32, u32, Pose))> {
 		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)| {
@@ -250,7 +250,7 @@ impl PhysicsBodyGrid {
 					packed_64_tree_dynamic_buffer,
 					packed_voxel_data_dynamic_buffer,
 					view_frustum,
-					0.0, //f32::max(camera_pose.translation.distance(grid_pose.translation) - 1000.0, 0.0) / 1000.0,
+					0.0, // f32::max(_camera_pose.translation.distance(grid_pose.translation) - 1000.0, 0.0) / 100.0,
 					grid_pose
 				)?)
 			))}

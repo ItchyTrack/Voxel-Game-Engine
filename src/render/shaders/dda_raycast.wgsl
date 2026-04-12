@@ -31,17 +31,6 @@ fn dda_u64_hi(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u + 1u]; 
 fn dda_root_depth(tree_base: u32) -> u32 {
 	return dda_u8(tree_base); // root_depth is stored in the first byte; 3 bytes of padding follow
 }
-// Points: https://www.desmos.com/3d/nw1iypcxdw
-// Ray VS Plane: https://www.desmos.com/3d/cavpaugzwt
-fn dda_get_plane(tree_base: u32) -> vec4<f32> {
-	let m = (grid_tree_buf[tree_base / 4u] >> 20) & 0xFF;
-	return vec4<f32>(
-		f32((grid_tree_buf[tree_base / 4u] >> 8) & 0xF) - 7.5,
-		f32((grid_tree_buf[tree_base / 4u] >> 12) & 0xF) - 7.5,
-		f32((grid_tree_buf[tree_base / 4u] >> 16) & 0xF) - 7.5,
-		f32(m) / 32.0 - 3.984375
-	);
-}
 fn dda_nodes_base(tree_base: u32) -> u32 {
 	return tree_base + 4u; // 4-byte aligned: 1 byte root_depth + 3 bytes pad
 }
@@ -122,38 +111,48 @@ fn dda_raycast(
 		return no_hit;
 	}
 
-	// Check plane collision
-	// let plane = dda_get_plane(tree_base) * root_size_f32;
-	//
 	var starting_distance = distance_to_aabb;
+
+	// Check plane collision
+	// Points: https://www.desmos.com/3d/nw1iypcxdw
+	// Ray VS Plane: https://www.desmos.com/3d/ucg2d6tqbu
 	let plane_u32 = vec3<u32>(
 		(grid_tree_buf[tree_base / 4u] >> 8) & 0xF,
 		(grid_tree_buf[tree_base / 4u] >> 12) & 0xF,
 		(grid_tree_buf[tree_base / 4u] >> 16) & 0xF
 	);
+	// var do_plane_tests = false;
 	if (plane_u32.x != 0 || plane_u32.y != 0 || plane_u32.z != 0) {
 		let plane = vec3<f32>(plane_u32) - vec3<f32>(7.5, 7.5, 7.5);
 		let m = f32((grid_tree_buf[tree_base / 4u] >> 20) & 0xFF) / 32.0 - 3.984375;
 
-		let root_half_size_f32 = root_size_f32 / 2;
-		let nearest_plane_distance_ish_signed = m * root_size_f32 - dot(plane, origin - vec3<f32>(root_half_size_f32, root_half_size_f32, root_half_size_f32));
-		if (nearest_plane_distance_ish_signed <= 0) {
-			let plane_dist = nearest_plane_distance_ish_signed / dot(plane, dir);
-			if (plane_dist < 0 || plane_dist > max_length) {
-				var no_hit: DDAHit;
-				no_hit.hit = false;
-				no_hit.steps = 0;
-				return no_hit;
-			}
-			let hit_point = origin + dir * plane_dist;
-			if (hit_point.x < 0 || hit_point.x > root_size_f32 + 1 || hit_point.y < 0 || hit_point.y > root_size_f32 + 1 || hit_point.z < 0 || hit_point.z > root_size_f32 + 1) {
-				var no_hit: DDAHit;
-				no_hit.hit = false;
-				return no_hit;
-			}
+		let root_half_size_f32 = f32(root_size) / 2;
+		let nearest_plane_distance_ish_signed = m * f32(root_size) - dot(plane, origin + dir * starting_distance - vec3<f32>(root_half_size_f32, root_half_size_f32, root_half_size_f32));
+		let plane_dist = nearest_plane_distance_ish_signed / dot(plane, dir);
+		if (nearest_plane_distance_ish_signed / length(plane) <= 0) {
 			starting_distance += plane_dist;
-		}
+			if (plane_dist < 0 || starting_distance > max_length) {
+				var no_hit: DDAHit;
+				no_hit.normal = 0u;
+				return no_hit;
+			}
+			let hit_point = origin + dir * starting_distance;
+			if (hit_point.x < 0 || hit_point.x > f32(root_size) + 1 || hit_point.y < 0 || hit_point.y > f32(root_size) + 1 || hit_point.z < 0 || hit_point.z > f32(root_size) + 1) {
+				var no_hit: DDAHit;
+				no_hit.normal = 0u;
+				return no_hit;
+			}
+		}// else if (plane_dist >= 0) {
+		// 	do_plane_tests = true;
+		// }
 	}
+
+	// var hit_result: DDAHit;
+	// hit_result.normal = 1;
+	// hit_result.voxel_data_index = 0;
+	// hit_result.voxel_index = 0;
+	// hit_result.dist = starting_distance;
+	// return hit_result;
 
 	let delta = abs(inv_dir);
 	let step = u32(dir.x >= 0.0) + u32(dir.y >= 0.0) * 2 + u32(dir.z >= 0.0) * 4;
@@ -203,8 +202,6 @@ fn dda_raycast(
 	var bitmap_low = dda_bitmap_lo(node_byte_off);
 	var bitmap_high = dda_bitmap_hi(node_byte_off);
 
-	var steps = 0u;
-
 	loop {
 		let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
 		let contents_pos         = current_relative_pos / vec3<u32>(node_size >> DDA_LOG_SIZE);
@@ -212,7 +209,6 @@ fn dda_raycast(
 
 		if !dda_bitmap_has(bitmap_low, bitmap_high, cell_index) {
 			// EMPTY: step forward
-			steps += 1;
 			if node_size != 4u {
 				let node_child_size = node_size >> DDA_LOG_SIZE;
 				let node_cell_relative_grid_pos = root_relative_grid_pos & vec3<u32>(node_child_size - 1u);
@@ -252,6 +248,30 @@ fn dda_raycast(
 				return no_hit;
 			}
 
+			// if (do_plane_tests) {
+			// 	let plane = vec3<f32>(plane_u32) - vec3<f32>(7.5, 7.5, 7.5);
+			// 	let m = f32((grid_tree_buf[tree_base / 4u] >> 20) & 0xFF) / 32.0 - 3.984375;
+
+			// 	let root_half_size_f32 = f32(root_size) / 2;
+			// 	var distance = axis_distances[last_step_axis];
+			// 	let nearest_plane_distance_ish_signed = m * f32(root_size) - dot(plane, origin + dir * distance - vec3<f32>(root_half_size_f32, root_half_size_f32, root_half_size_f32));
+			// 	if (nearest_plane_distance_ish_signed / length(plane) <= 0) {
+			// 		let plane_dist = nearest_plane_distance_ish_signed / dot(plane, dir);
+			// 		distance += plane_dist;
+			// 		if (plane_dist < 0 || distance > max_length) {
+			// 			var no_hit: DDAHit;
+			// 			no_hit.normal = 0u;
+			// 			return no_hit;
+			// 		}
+			// 		let hit_point = origin + dir * distance;
+			// 		if (hit_point.x < 0 || hit_point.x > f32(root_size) + 1 || hit_point.y < 0 || hit_point.y > f32(root_size) + 1 || hit_point.z < 0 || hit_point.z > f32(root_size) + 1) {
+			// 			var no_hit: DDAHit;
+			// 			no_hit.normal = 0u;
+			// 			return no_hit;
+			// 		}
+			// 	}
+			// }
+
 			if root_relative_grid_pos[last_step_axis] / node_size != u32(new_pos_signed) / node_size {
 				loop {
 					if node_size == root_size {
@@ -276,7 +296,6 @@ fn dda_raycast(
 				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
 				hit_result.voxel_index = data_idx;
 				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
-				hit_result.steps = steps;
 				return hit_result;
 			}
 
@@ -289,7 +308,6 @@ fn dda_raycast(
 				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
 				hit_result.voxel_index = data_idx;
 				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
-				hit_result.steps = steps;
 				return hit_result;
 			} else {
 				// NODE: descend

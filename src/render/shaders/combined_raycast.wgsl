@@ -5,11 +5,6 @@ fn quat_inv_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
     return v - q.w * t + cross(q.xyz, t);
 }
 
-fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
-    let t = 2.0 * cross(q.xyz, v);
-    return v + q.w * t + cross(q.xyz, t);
-}
-
 struct RaycastHit {
     normal: u32,
     bvh_item_idx: u32,

@@ -1,8 +1,8 @@
 // main_shader.wgsl
 // 0 : camera uniform
 // 1 : BVH (nodes + items)   - defined in bvh_raycast.wgsl
-// 2 : grid tree buffer      - defined in dda_raycast.wgsl
 // 2 : voxel data buffer     - defined in voxel_reader.wgsl
+// 3 : intermediate_textured
 
 // Vertex
 
@@ -18,6 +18,8 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     out.clip_position = vec4<f32>(out.screen_pos * 2.0 - 1.0, 0.0, 1.0);
     return out;
 }
+
+@group(3) @binding(0) var intermediate_textured: texture_2d<u32>;
 
 // Camera uniform
 
@@ -73,10 +75,20 @@ fn id_to_color(id: u32) -> vec3<f32> {
     return vec3<f32>(r, g, b);
 }
 
+fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
 // Fragment
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Reconstruct world-space ray from the screen position.
+
+	let texture_size = textureDimensions(intermediate_textured);
+	let texture_pos = vec2(u32(in.screen_pos.x * f32(texture_size.x)), u32(in.screen_pos.y * f32(texture_size.y)));
+	let data = textureLoad(intermediate_textured, texture_pos, 0);
+
+	// Reconstruct world-space ray from the screen position.
     let ray_start = camera.camera_transform[3].xyz;
     let ray_dir   = normalize((camera.camera_transform * vec4<f32>(
         (-in.screen_pos.x + 0.5) * camera.camera_view_size.x * 2.0,
@@ -85,50 +97,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         0.0,
     )).xyz);
 
-	// var iter = bvh_iter_new(ray_start, ray_dir);
-	// bvh_iter_next(&iter, 1e38);
-	// let candidate = bvh_iter_next(&iter, 1e38);
-	// if (!candidate.valid) {
-	// 	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
-	// 	let t = ray_dir.y * 0.5 + 0.5;
-    //   let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
-    //   let sun = max(dot(ray_dir, sun_dir), 0.0);
-    //   let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
-    //   let sky_color = bg + sun_color;
-    //   return vec4<f32>(sky_color, 1.0);
-	// }
-
-    // return vec4<f32>(id_to_color(bvh_items[candidate.bvh_item_idx].item_index), 1.0);
-
-    // Full two-pass raycast: BVH broad phase -> DDA precise voxel test.
-    let hit = full_raycast(ray_start, ray_dir, 1e38);
-
-	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
-
-    if hit.normal == 0 {
-        // Sky / background.
-        let t = ray_dir.y * 0.5 + 0.5;
+	if (data.x == 0) {
+		let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
+		let t = ray_dir.y * 0.5 + 0.5;
         let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
         let sun = max(dot(ray_dir, sun_dir), 0.0);
         let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
         let sky_color = bg + sun_color;
         return vec4<f32>(sky_color, 1.0);
-    }
+	}
+	let normal = data.x & 0xFFu;
+	let light_visible = (data.x & 256u) != 0;
+	let bvh_item_idx = data.y;
+	let voxel_data_index = data.z & 0xFFFFu;
+	let voxel_index = data.z >> 16u;
+	// let total_dist = bitcast<f32>(data.w);
 
-	let hit_pos = ray_start + (hit.total_dist - 0.01) * ray_dir;
-	let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
-    let light_visible = sky_hit.normal == 0;
-	let item_index_2 = bvh_items[hit.bvh_item_idx].item_index_2;   // grid tree offset
+	let item_index_2 = bvh_items[bvh_item_idx].item_index_2;   // grid tree offset
 
-	// let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
-	let base_color = voxel_reader_palette_color(item_index_2, hit.voxel_data_index, hit.voxel_index).xyz;
+	let base_color = voxel_reader_palette_color(item_index_2, voxel_data_index, voxel_index).xyz;
 	var normal_vec = vec3<f32>(0.0);
-	normal_vec[(hit.normal >> 3u) & 0xF] = -f32((hit.normal & (1u << ((hit.normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;
-	let item = bvh_items[hit.bvh_item_idx];
+	normal_vec[(normal >> 3u) & 0xF] = -f32((normal & (1u << ((normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;
+	let item = bvh_items[bvh_item_idx];
 	let pose_quat = vec4<f32>(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
     let color = shade(base_color, quat_rotate(pose_quat, normal_vec), light_visible);
-
-	// return vec4<f32>(f32(hit.dda_steps) / 500.0, f32(hit.dda_steps) / 500.0, f32(hit.dda_steps) / 500.0, 1.0);
 
     return vec4<f32>(color, 1.0);
 }

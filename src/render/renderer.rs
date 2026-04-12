@@ -67,6 +67,7 @@ impl Renderer {
 
 			self.is_surface_configured = true;
 			self.surface.configure(&self.device, &self.config);
+			self.voxel_renderer.resize(&self.device, &self.config);
 			// self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
 		}
 	}

@@ -3,7 +3,7 @@ struct BVHNode {
     max_x: f32, max_y: f32, max_z: f32,
     data_1_and_2:       u32, // lo16 = left/base, hi16 = right/count
     is_leaf_and_parent: u32, // bit0 = is_leaf, hi16 = parent
-};
+}
 
 struct BVHItem {
     min_x: f32, min_y: f32, min_z: f32,
@@ -12,23 +12,23 @@ struct BVHItem {
     item_index_2: u32,
     pos_x: f32, pos_y: f32, pos_z: f32,
     quat_x: f32, quat_y: f32, quat_z: f32, quat_w: f32,
-};
+}
 
 @group(1) @binding(0) var<storage, read> bvh:       array<BVHNode>;
 @group(1) @binding(1) var<storage, read> bvh_items: array<BVHItem>;
 
-const BVH_STACK_SIZE: u32 = 64u;
+const BVH_STACK_SIZE: u32 = 32u;
 const ITEM_FLAG: u32 = 0x80000000u;
 
 struct BVHStackEntry {
     node_idx: u32,
     dist:     f32,
-};
+}
 
 struct BVHHeap {
     data: array<BVHStackEntry, BVH_STACK_SIZE>,
     size: u32,
-};
+}
 
 fn heap_push(iter: ptr<function, BVHIter>, node_idx: u32, dist: f32) {
     let h = &(*iter).heap;
@@ -100,16 +100,16 @@ fn ray_aabb(rp: vec3<f32>, inv_rd: vec3<f32>, mn: vec3<f32>, mx: vec3<f32>) -> v
 struct BVHIter {
     ray_pos: vec3<f32>,
     inv_dir: vec3<f32>,
-    heap:    BVHHeap,
+    heap: BVHHeap,
     best_dist: f32,
-};
+}
 
 struct BVHHit {
     bvh_item_idx:       u32,
     dist:               f32,
     aabb_internal_dist: f32,
     valid:              bool,
-};
+}
 
 // Init (matches top behavior)
 fn bvh_iter_new(ray_pos: vec3<f32>, ray_dir: vec3<f32>) -> BVHIter {

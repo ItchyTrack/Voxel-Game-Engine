@@ -31,12 +31,14 @@ tobj = { version = "3.2", default-features = false, features = ["async"]}
 bytemuck = { version = "1.24", features = [ "derive" ] }
 tracy-client = { version = "0.18.4", default-features = false }
 noise = "0.9.0"
+rand = "0.10.1"
 clone_cell = "0.4.2"
 num = "0.4.3"
 rtrb = "0.3.2"
 imgui = "0.12"
 imgui-wgpu = "0.28"
 imgui-winit-support = "0.13"
+parry3d = "0.26.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"
