@@ -121,7 +121,7 @@ fn dda_raycast(
 		(grid_tree_buf[tree_base / 4u] >> 12) & 0xF,
 		(grid_tree_buf[tree_base / 4u] >> 16) & 0xF
 	);
-	// var do_plane_tests = false;
+	var max_length_reduced = max_length;
 	if (plane_u32.x != 0 || plane_u32.y != 0 || plane_u32.z != 0) {
 		let plane = vec3<f32>(plane_u32) - vec3<f32>(7.5, 7.5, 7.5);
 		let m = f32((grid_tree_buf[tree_base / 4u] >> 20) & 0xFF) / 32.0 - 3.984375;
@@ -131,7 +131,7 @@ fn dda_raycast(
 		let plane_dist = nearest_plane_distance_ish_signed / dot(plane, dir);
 		if (nearest_plane_distance_ish_signed / length(plane) <= 0) {
 			starting_distance += plane_dist;
-			if (plane_dist < 0 || starting_distance > max_length) {
+			if (plane_dist < 0 || starting_distance > max_length_reduced) {
 				var no_hit: DDAHit;
 				no_hit.normal = 0u;
 				return no_hit;
@@ -142,9 +142,9 @@ fn dda_raycast(
 				no_hit.normal = 0u;
 				return no_hit;
 			}
-		}// else if (plane_dist >= 0) {
-		// 	do_plane_tests = true;
-		// }
+		} else if (plane_dist >= 0) {
+			max_length_reduced = starting_distance + plane_dist;
+		}
 	}
 
 	// var hit_result: DDAHit;
@@ -190,7 +190,7 @@ fn dda_raycast(
 	else if pre_shift_delta.y >= pre_shift_delta.z                                      { last_step_axis = 1u; }
 	else                                                                                { last_step_axis = 2u; }
 
-	if max_length < starting_distance {
+	if max_length_reduced < starting_distance {
 		var no_hit: DDAHit;
 		no_hit.normal = 0u;;
 		return no_hit;
@@ -234,7 +234,7 @@ fn dda_raycast(
 			}
 
 			last_step_axis = select(select(2u, 1u, axis_distances.y <= axis_distances.z), 0u, axis_distances.x <= axis_distances.y && axis_distances.x <= axis_distances.z);
-			if max_length < axis_distances[last_step_axis] {
+			if max_length_reduced < axis_distances[last_step_axis] {
 				var no_hit: DDAHit;
 				no_hit.normal = 0u;;
 				return no_hit;
@@ -247,30 +247,6 @@ fn dda_raycast(
 				no_hit.normal = 0u;;
 				return no_hit;
 			}
-
-			// if (do_plane_tests) {
-			// 	let plane = vec3<f32>(plane_u32) - vec3<f32>(7.5, 7.5, 7.5);
-			// 	let m = f32((grid_tree_buf[tree_base / 4u] >> 20) & 0xFF) / 32.0 - 3.984375;
-
-			// 	let root_half_size_f32 = f32(root_size) / 2;
-			// 	var distance = axis_distances[last_step_axis];
-			// 	let nearest_plane_distance_ish_signed = m * f32(root_size) - dot(plane, origin + dir * distance - vec3<f32>(root_half_size_f32, root_half_size_f32, root_half_size_f32));
-			// 	if (nearest_plane_distance_ish_signed / length(plane) <= 0) {
-			// 		let plane_dist = nearest_plane_distance_ish_signed / dot(plane, dir);
-			// 		distance += plane_dist;
-			// 		if (plane_dist < 0 || distance > max_length) {
-			// 			var no_hit: DDAHit;
-			// 			no_hit.normal = 0u;
-			// 			return no_hit;
-			// 		}
-			// 		let hit_point = origin + dir * distance;
-			// 		if (hit_point.x < 0 || hit_point.x > f32(root_size) + 1 || hit_point.y < 0 || hit_point.y > f32(root_size) + 1 || hit_point.z < 0 || hit_point.z > f32(root_size) + 1) {
-			// 			var no_hit: DDAHit;
-			// 			no_hit.normal = 0u;
-			// 			return no_hit;
-			// 		}
-			// 	}
-			// }
 
 			if root_relative_grid_pos[last_step_axis] / node_size != u32(new_pos_signed) / node_size {
 				loop {
