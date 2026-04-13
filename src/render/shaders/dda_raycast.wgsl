@@ -1,6 +1,6 @@
 const DDA_LOG_SIZE:   u32 = 2u;
 const DDA_SIZE:       u32 = 4u;
-const DDA_SLOT_BYTES: u32 = 12u;
+const DDA_SLOT_BYTES: u32 = 4u;
 
 // Buffer layout:
 //  tree_buf:  [root_depth: u32 (1 byte + 3 pad)] [node slots: 12 bytes each]
@@ -25,10 +25,13 @@ fn dda_u8(byte_off: u32) -> u32 {
 fn dda_u16(byte_off: u32) -> u32 {
 	return (grid_tree_buf[byte_off / 4u] >> ((byte_off % 4u) * 8u)) & 0xFFFFu;
 }
+fn dda_u32(byte_off: u32) -> u32 {
+	return grid_tree_buf[byte_off / 4u];
+}
 fn dda_u64_lo(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u]; }
 fn dda_u64_hi(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u + 1u]; }
 
-fn dda_root_depth(tree_base: u32) -> u32 {
+fn dda_root_header(tree_base: u32) -> u32 {
 	return dda_u8(tree_base); // root_depth is stored in the first byte; 3 bytes of padding follow
 }
 fn dda_nodes_base(tree_base: u32) -> u32 {
@@ -91,7 +94,8 @@ fn dda_raycast(
 	max_length: f32,
 	tree_base:  u32,
 ) -> DDAHit {
-	let root_size = dda_node_size(dda_root_depth(tree_base));
+	let tree_header = dda_u32(tree_base);
+	let root_size = dda_node_size(tree_header & 0xFFu);
 
 	// Origin is expected to be in root-relative space (no root_pos offset).
 	let root_min = vec3<f32>(0.0);
@@ -120,14 +124,14 @@ fn dda_raycast(
 	// Points: https://www.desmos.com/3d/nw1iypcxdw
 	// Ray VS Plane: https://www.desmos.com/3d/ucg2d6tqbu
 	let plane_u32 = vec3<u32>(
-		(grid_tree_buf[tree_base / 4u] >> 8) & 0xF,
-		(grid_tree_buf[tree_base / 4u] >> 12) & 0xF,
-		(grid_tree_buf[tree_base / 4u] >> 16) & 0xF
+		(tree_header >> 8) & 0xF,
+		(tree_header >> 12) & 0xF,
+		(tree_header >> 16) & 0xF
 	);
 	var max_length_reduced = max_length;
 	if (plane_u32.x != 0 || plane_u32.y != 0 || plane_u32.z != 0) {
 		let plane = vec3<f32>(plane_u32) - vec3<f32>(7.5, 7.5, 7.5);
-		let m = f32((grid_tree_buf[tree_base / 4u] >> 20) & 0xFF) / 32.0 - 3.984375;
+		let m = f32((tree_header >> 20) & 0xFF) / 32.0 - 3.984375;
 
 		let root_half_size_f32 = f32(root_size) / 2;
 		let nearest_plane_distance_ish_signed = m * f32(root_size) - dot(plane, origin + dir * starting_distance - vec3<f32>(root_half_size_f32, root_half_size_f32, root_half_size_f32));

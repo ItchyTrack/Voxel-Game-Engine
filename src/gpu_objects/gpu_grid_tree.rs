@@ -6,7 +6,7 @@ use crate::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
 
 use rand::{seq::IteratorRandom};
 
-const SLOT_BYTES:   usize = 12;
+const SLOT_BYTES:   usize = 4;
 const HEADER_BYTES: usize = 12;
 
 fn slots_for_nonleaf(bitmap: u64, depth: u8) -> usize {
@@ -335,7 +335,7 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
         let bitmap = build_bitmap(node);
 
         slot_indices[gpu_idx] = tree_cursor;
-        tree_cursor += if depth == 0 { 1 } else { slots_for_nonleaf(bitmap, depth) as u32 };
+        tree_cursor += if depth == 0 { 3 } else { slots_for_nonleaf(bitmap, depth) as u32 };
 
         let mut offset_back_shift = 0;
         let mut voxel_data_size   = 0;
@@ -389,7 +389,7 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
     let total_voxel_bytes = voxel_cursor as usize;
 
     // ── Pass 3: Write bytes ───────────────────────────────────────────────────
-    let mut tree_bytes:  Vec<u8> = vec![0u8; total_tree_slots * SLOT_BYTES];
+    let mut tree_bytes: Vec<u8> = vec![0u8; total_tree_slots * SLOT_BYTES];
     let mut voxel_bytes: Vec<u8> = vec![0u8; total_voxel_bytes];
 
     for (gpu_idx, &(cpu_idx, depth)) in gpu_order.iter().enumerate() {
