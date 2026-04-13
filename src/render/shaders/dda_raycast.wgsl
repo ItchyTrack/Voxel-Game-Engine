@@ -65,8 +65,11 @@ fn dda_data_index(low: u32, high: u32, cell_index: u32) -> u32 {
 	}
 }
 // Non-leaf data entry: 0x0000 = DATA, 1..0xFFFF = NODE slot offset
-fn dda_node_entry(node_byte_off: u32, data_idx: u32) -> u32 {
-	return dda_u16(node_byte_off + 12u + data_idx * 2u);
+fn dda_node_entry(node_byte_off: u32, data_idx: u32, node_size: u32) -> u32 {
+    if node_size == 16u {
+        return dda_u8(node_byte_off + 12u + data_idx);
+    }
+    return dda_u16(node_byte_off + 12u + data_idx * 2u);
 }
 
 fn dda_node_size(depth: u32) -> u32  { return 1u << (DDA_LOG_SIZE * (depth + 1u)); }
@@ -275,7 +278,7 @@ fn dda_raycast(
 				return hit_result;
 			}
 
-			let entry_val = dda_node_entry(node_byte_off, data_idx);
+			let entry_val = dda_node_entry(node_byte_off, data_idx, node_size);
 
 			if entry_val == 0u {
 				// DATA: hit

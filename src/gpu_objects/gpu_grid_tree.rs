@@ -9,11 +9,11 @@ use rand::{seq::IteratorRandom};
 const SLOT_BYTES:   usize = 12;
 const HEADER_BYTES: usize = 12;
 
-fn slots_for_nonleaf(bitmap: u64) -> usize {
+fn slots_for_nonleaf(bitmap: u64, depth: u8) -> usize {
     let count = bitmap.count_ones() as usize;
-    (HEADER_BYTES + count * 2).div_ceil(SLOT_BYTES)
+    let entry_bytes = if depth == 1 { 1 } else { 2 };
+    (HEADER_BYTES + count * entry_bytes).div_ceil(SLOT_BYTES)
 }
-
 // ── LOD collapse ──────────────────────────────────────────────────────────────
 
 fn compute_lod_collapse(
@@ -274,12 +274,8 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
     let empty_cells: Vec<(f32, f32, f32, f32)> = {
 		let empty_cells = tagged_cells.into_iter().filter(|c| !c.solid).map(|c| (c.center_x, c.center_y, c.center_z, c.half)).collect::<Vec<_>>();
 		let empty_cells_len = empty_cells.len();
-		if empty_cells_len > 2000 {
-			empty_cells.into_iter().sample(&mut rng, empty_cells_len / 40)
-		} else if empty_cells_len > 1000 {
-			empty_cells.into_iter().sample(&mut rng, empty_cells_len / 20)
-		} else if empty_cells_len > 500 {
-			empty_cells.into_iter().sample(&mut rng, empty_cells_len / 10)
+		if empty_cells_len > 100 {
+			empty_cells.into_iter().sample(&mut rng, 100)
 		} else {
 			empty_cells
 		}
@@ -339,7 +335,7 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
         let bitmap = build_bitmap(node);
 
         slot_indices[gpu_idx] = tree_cursor;
-        tree_cursor += if depth == 0 { 1 } else { slots_for_nonleaf(bitmap) as u32 };
+        tree_cursor += if depth == 0 { 1 } else { slots_for_nonleaf(bitmap, depth) as u32 };
 
         let mut offset_back_shift = 0;
         let mut voxel_data_size   = 0;
@@ -459,17 +455,22 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
                             let offset = child_slot - my_slot;
                             voxel_node_run += 1;
                             debug_assert!(
-                                offset >= 1 && offset <= u16::MAX as u32,
-                                "NODE child slot offset {offset} out of u16 range"
-                            );
+								offset >= 1 && offset <= if depth == 1 { u8::MAX as u32 } else { u16::MAX as u32 },
+								"NODE child slot offset {offset} out of range"
+							);
                             offset as u16
                         }
                     }
                     _ => unreachable!(),
                 };
 
-                tree_bytes[entry_cursor..entry_cursor + 2].copy_from_slice(&entry_val.to_le_bytes());
-                entry_cursor += 2;
+				if depth == 1 {
+                    tree_bytes[entry_cursor] = entry_val as u8;
+                    entry_cursor += 1;
+                } else {
+                    tree_bytes[entry_cursor..entry_cursor + 2].copy_from_slice(&entry_val.to_le_bytes());
+                    entry_cursor += 2;
+                }
             }
         }
     }
