@@ -29,24 +29,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         0.0,
     )).xyz);
 
-	// var iter = bvh_iter_new(ray_start, ray_dir);
-	// bvh_iter_next(&iter, 1e38);
-	// let candidate = bvh_iter_next(&iter, 1e38);
-	// if (!candidate.valid) {
-	// 	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
-	// 	let t = ray_dir.y * 0.5 + 0.5;
-    //   let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
-    //   let sun = max(dot(ray_dir, sun_dir), 0.0);
-    //   let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
-    //   let sky_color = bg + sun_color;
-    //   return vec4<f32>(sky_color, 1.0);
-	// }
-
-    // return vec4<f32>(id_to_color(bvh_items[candidate.bvh_item_idx].item_index), 1.0);
-
-    // Full two-pass raycast: BVH broad phase -> DDA precise voxel test.
     let hit = full_raycast(ray_start, ray_dir, 1e38);
-	// return;
 
 	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
 
@@ -65,15 +48,4 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 		hit.voxel_data_index + (hit.voxel_index << 16),
 		bitcast<u32>(hit.total_dist),
 	));
-	// let item_index_2 = bvh_items[hit.bvh_item_idx].item_index_2;   // grid tree offset
-
-	// // let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
-	// let base_color = voxel_reader_palette_color(item_index_2, hit.voxel_data_index, hit.voxel_index).xyz;
-	// var normal_vec = vec3<f32>(0.0);
-	// normal_vec[(hit.normal >> 3u) & 0xF] = -f32((hit.normal & (1u << ((hit.normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;
-	// let item = bvh_items[hit.bvh_item_idx];
-	// let pose_quat = vec4<f32>(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
-    // let color = shade(base_color, quat_rotate(pose_quat, normal_vec), light_visible);
-
-    // return vec4<f32>(color, 1.0);
 }

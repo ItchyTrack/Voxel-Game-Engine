@@ -298,10 +298,10 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 						.fold(f32::NEG_INFINITY, f32::max);
 
 					let actual_m = max_solid_dot / root_size_f;
-					let m_enc_f  = (actual_m + 3.984375) * 32.0;
+					let m_enc_f = (actual_m + 3.984375) * 32.0;
 					if !(0.0..=255.0).contains(&m_enc_f) { continue; }
 
-					let m_enc_ceiled     = m_enc_f.ceil();
+					let m_enc_ceiled = m_enc_f.ceil();
 					let ceiled_threshold = (m_enc_ceiled / 32.0 - 3.984375) * root_size_f;
 
 					let mut wrong_none = 0usize;
@@ -337,10 +337,9 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
         slot_indices[gpu_idx] = tree_cursor;
         tree_cursor += if depth == 0 { 3 } else { slots_for_nonleaf(bitmap, depth) as u32 };
 
-        let mut offset_back_shift = 0;
-        let mut voxel_data_size   = 0;
-        let mut voxel_node_run    = 0;
-        let mut hit_data          = false;
+        let mut voxel_data_size = 0;
+        let mut voxel_node_run = 0;
+        let mut hit_data = false;
 
         for cell in node.contents {
             match cell.value_type() {
@@ -349,9 +348,8 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
                     if hit_data {
                         voxel_data_size += 1 + voxel_node_run;
                     } else {
-                        offset_back_shift += voxel_node_run / 4;
-                        voxel_data_size   += 1 + voxel_node_run % 4;
-                        hit_data           = true;
+                        voxel_data_size += 1 + voxel_node_run;
+                        hit_data = true;
                     }
                     voxel_node_run = 0;
                 }
@@ -361,9 +359,8 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
                         if hit_data {
                             voxel_data_size += 1 + voxel_node_run;
                         } else {
-                            offset_back_shift += voxel_node_run / 4;
-                            voxel_data_size   += 1 + voxel_node_run % 4;
-                            hit_data           = true;
+                            voxel_data_size += 1 + voxel_node_run;
+                            hit_data = true;
                         }
                         voxel_node_run = 0;
                     } else {
@@ -380,12 +377,12 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
                 aligned / 4 <= u16::MAX as u32,
                 "voxel_data_offset overflow at node {gpu_idx}: buffer 2 exceeds 256 KiB"
             );
-            voxel_offsets[gpu_idx] = (aligned / 4) as u16 + offset_back_shift as u16;
+            voxel_offsets[gpu_idx] = (aligned / 4) as u16;
             voxel_cursor = aligned + voxel_data_size;
         }
     }
 
-    let total_tree_slots  = tree_cursor as usize;
+    let total_tree_slots = tree_cursor as usize;
     let total_voxel_bytes = voxel_cursor as usize;
 
     // ── Pass 3: Write bytes ───────────────────────────────────────────────────
@@ -393,10 +390,10 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
     let mut voxel_bytes: Vec<u8> = vec![0u8; total_voxel_bytes];
 
     for (gpu_idx, &(cpu_idx, depth)) in gpu_order.iter().enumerate() {
-        let node      = &nodes[cpu_idx as usize];
-        let my_slot   = slot_indices[gpu_idx];
+        let node = &nodes[cpu_idx as usize];
+        let my_slot = slot_indices[gpu_idx];
         let byte_base = my_slot as usize * SLOT_BYTES;
-        let bitmap    = build_bitmap(node);
+        let bitmap = build_bitmap(node);
 
         let parent_slot_offset: u16 = if node.parent_offset == 0 {
             0
@@ -434,7 +431,7 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
                 let entry_val: u16 = match cell.value_type() {
                     1 => {
                         if hit_data { vox_write += voxel_node_run; }
-                        else        { vox_write += voxel_node_run % 4; hit_data = true; }
+						else { vox_write += voxel_node_run; hit_data = true; }
                         voxel_node_run = 0;
                         let pal = palette_map.get(&cell.value()).copied().unwrap_or(254);
                         voxel_bytes[vox_write] = pal;
@@ -445,7 +442,7 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
                         let child_cpu = cpu_idx + cell.value() as u32;
                         if let Some(rep) = collapse_rep[child_cpu as usize] {
                             if hit_data { vox_write += voxel_node_run; }
-                            else        { vox_write += voxel_node_run % 4; hit_data = true; }
+                            else { vox_write += voxel_node_run; hit_data = true; }
                             voxel_node_run = 0;
                             voxel_bytes[vox_write] = rep;
                             vox_write += 1;
