@@ -8,7 +8,7 @@ fn quat_inv_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 struct RaycastHit {
     normal: u32,
     bvh_item_idx: u32,
-    voxel_data_index: u32,
+    voxel_node_index: u32,
     voxel_index: u32,
     total_dist: f32,
 }
@@ -32,14 +32,14 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
         let local_pos = quat_inv_rotate(pose_quat, entry_world - pose_pos);
         let local_dir = quat_inv_rotate(pose_quat, ray_dir);
         let remaining = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
-        let dda = dda_raycast(local_pos, local_dir, remaining, item.item_index);
+        let dda = dda_raycast(local_pos, local_dir, remaining, item.item_min_xy, item.item_width);
 
         if dda.normal != 0 {
             let total = candidate.dist + dda.dist;
             if total < best.total_dist {
                 best.normal = dda.normal;
                 best.bvh_item_idx = candidate.bvh_item_idx;
-                best.voxel_data_index = dda.voxel_data_index;
+                best.voxel_node_index = dda.voxel_node_index;
                 best.voxel_index = dda.voxel_index;
                 best.total_dist = total;
             }

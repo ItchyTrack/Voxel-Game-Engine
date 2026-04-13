@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use glam::IVec3;
 
-use crate::{gpu_objects::{gpu_bvh, packed_dynamic_buffer::PackedDynamicBuffer}, physics::bvh, pose::Pose};
+use crate::{gpu_objects::{gpu_bvh, packed_dynamic_buffer::PackedDynamicBuffer, packed_buffer_texture::PackedBufferTexture}, physics::bvh, pose::Pose};
 
 pub struct VoxelRenderer {
 	// 64 tree
-	pub packed_64_tree_dynamic_buffer: PackedDynamicBuffer,
+	pub packed_64_tree_buffer: PackedBufferTexture,
 	pub tree_bind_group_layout: wgpu::BindGroupLayout,
 	// voxel data
-	pub packed_voxel_data_dynamic_buffer: PackedDynamicBuffer,
+	pub packed_voxel_data_buffer: PackedDynamicBuffer,
 	pub voxel_bind_group_layout: wgpu::BindGroupLayout,
 	// intermediate textured
 	pub intermediate_textured: wgpu::Texture,
@@ -24,32 +24,32 @@ pub struct VoxelRenderer {
 
 impl VoxelRenderer {
 	pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, camera_bind_group_layout: &wgpu::BindGroupLayout) -> anyhow::Result<Self> {
-		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(&device, 12, wgpu::BufferUsages::STORAGE);
-		if let Err(err) = packed_64_tree_dynamic_buffer {
-			println!("{}", err);
-			return Err(anyhow::Error::msg(err));
-		}
-		let packed_64_tree_dynamic_buffer = packed_64_tree_dynamic_buffer.unwrap();
+		let packed_64_tree_buffer = PackedBufferTexture::new(&device, 2048 + 512, wgpu::TextureUsages::TEXTURE_BINDING);
+		// if let Err(err) = packed_64_tree_buffer {
+		// 	println!("{}", err);
+		// 	return Err(anyhow::Error::msg(err));
+		// }
+		// let packed_64_tree_buffer = packed_64_tree_buffer.unwrap();
 		let tree_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[wgpu::BindGroupLayoutEntry {
 				binding: 0,
 				visibility: wgpu::ShaderStages::COMPUTE,
-				ty: wgpu::BindingType::Buffer {
-					ty: wgpu::BufferBindingType::Storage { read_only: true },
-					has_dynamic_offset: false,
-					min_binding_size: None,
+				ty: wgpu::BindingType::Texture {
+					sample_type: wgpu::TextureSampleType::Uint,
+					view_dimension: wgpu::TextureViewDimension::D2,
+					multisampled: false,
 				},
 				count: None,
 			}],
 			label: Some("gtree_bind_group_layout"),
 		});
 
-		let packed_voxel_data_dynamic_buffer = PackedDynamicBuffer::new(&device, 4, wgpu::BufferUsages::STORAGE);
-		if let Err(err) = packed_voxel_data_dynamic_buffer {
+		let packed_voxel_data_buffer = PackedDynamicBuffer::new(&device, 4, wgpu::BufferUsages::STORAGE);
+		if let Err(err) = packed_voxel_data_buffer {
 			println!("{}", err);
 			return Err(anyhow::Error::msg(err));
 		}
-		let packed_voxel_data_dynamic_buffer = packed_voxel_data_dynamic_buffer.unwrap();
+		let packed_voxel_data_buffer = packed_voxel_data_buffer.unwrap();
 		let voxel_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[wgpu::BindGroupLayoutEntry {
 				binding: 0,
@@ -232,10 +232,10 @@ impl VoxelRenderer {
 
 		Ok(Self {
 			// 64 tree
-			packed_64_tree_dynamic_buffer,
+			packed_64_tree_buffer,
 			tree_bind_group_layout,
 			// voxel data
-			packed_voxel_data_dynamic_buffer,
+			packed_voxel_data_buffer,
 			voxel_bind_group_layout,
 			// intermediate textured
 			intermediate_textured,
@@ -305,7 +305,7 @@ impl VoxelRenderer {
 		view: &wgpu::TextureView,
 		camera_transform_bind_group: &wgpu::BindGroup,
 		bvh: &bvh::BVH<(u32, u32, IVec3)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, u32, Pose)>,
+		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), ((u32, u32, u32), u32, Pose)>,
 	) {
 		let gpu_bvh = gpu_bvh::GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_poses);
 		{
@@ -313,11 +313,7 @@ impl VoxelRenderer {
 				layout: &self.tree_bind_group_layout,
 				entries: &[wgpu::BindGroupEntry {
 					binding: 0,
-					resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: &self.packed_64_tree_dynamic_buffer.get_buffer(),
-						offset: 0,
-						size: None,
-					}),
+					resource:  wgpu::BindingResource::TextureView(self.packed_64_tree_buffer.get_texture_view()),
 				}],
 				label: Some("tree_bind_group"),
 			});
@@ -331,7 +327,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(2, &tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &self.intermediate_textured_storage_bind_group, &[]);
 			compute_pass.set_pipeline(&self.ray_marching_pipeline);
-			compute_pass.dispatch_workgroups((view.texture().width() + 7) / 8, (view.texture().height() + 3) / 4, 1);
+			compute_pass.dispatch_workgroups((view.texture().width() + 3) / 4, (view.texture().height() + 3) / 4, 1);
 		}
 		{
 			let voxels_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -339,7 +335,7 @@ impl VoxelRenderer {
 				entries: &[wgpu::BindGroupEntry {
 					binding: 0,
 					resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: &self.packed_voxel_data_dynamic_buffer.get_buffer(),
+						buffer: &self.packed_voxel_data_buffer.get_buffer(),
 						offset: 0,
 						size: None,
 					}),

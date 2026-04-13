@@ -39,6 +39,7 @@ imgui = "0.12"
 imgui-wgpu = "0.28"
 imgui-winit-support = "0.13"
 parry3d = "0.26.0"
+etagere = "0.3.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"

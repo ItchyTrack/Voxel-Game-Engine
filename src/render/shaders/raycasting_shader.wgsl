@@ -14,7 +14,7 @@ struct CameraUniform {
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 
 @compute
-@workgroup_size(8, 4)
+@workgroup_size(4, 4)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 	let texture_size = textureDimensions(intermediate_textured);
 	let screen_pos = vec2<f32>(f32(global_invocation_id.x) / f32(texture_size.x), f32(global_invocation_id.y) / f32(texture_size.y));
@@ -62,13 +62,13 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 	textureStore(intermediate_textured, global_invocation_id.xy, vec4<u32>(
 		hit.normal + 256u * u32(light_visible),
 		hit.bvh_item_idx,
-		hit.voxel_data_index + (hit.voxel_index << 16),
+		hit.voxel_node_index + (hit.voxel_index << 16),
 		bitcast<u32>(hit.total_dist),
 	));
 	// let item_index_2 = bvh_items[hit.bvh_item_idx].item_index_2;   // grid tree offset
 
 	// // let base_color = dda_palette_color(item_index, hit.voxel_value).xyz;
-	// let base_color = voxel_reader_palette_color(item_index_2, hit.voxel_data_index, hit.voxel_index).xyz;
+	// let base_color = voxel_reader_palette_color(item_index_2, hit.voxel_node_index, hit.voxel_index).xyz;
 	// var normal_vec = vec3<f32>(0.0);
 	// normal_vec[(hit.normal >> 3u) & 0xF] = -f32((hit.normal & (1u << ((hit.normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;
 	// let item = bvh_items[hit.bvh_item_idx];

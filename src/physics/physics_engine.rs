@@ -68,16 +68,16 @@ impl PhysicsEngine {
 			}
 			*self.bvh.borrow_mut() = None; // have to clear afer cleanup
 		}
-		{
-			let bvh = &get_bvh_macro!(self);
-			let _zone = span!("Collect constraints");
-			let constraints = self.constraints.iter_mut().filter_map(|((id1, id2), constraint)| {
-				Some(((*self.physics_body_id_to_index.get(id1)?, *self.physics_body_id_to_index.get(id2)?), constraint))
-			}).collect();
-			drop(_zone);
-			self.solver.solve(&mut self.physics_bodies, constraints, &self.impulses, dt, bvh);
-			self.impulses.clear();
-		}
+		// {
+		// 	let bvh = &get_bvh_macro!(self);
+		// 	let _zone = span!("Collect constraints");
+		// 	let constraints = self.constraints.iter_mut().filter_map(|((id1, id2), constraint)| {
+		// 		Some(((*self.physics_body_id_to_index.get(id1)?, *self.physics_body_id_to_index.get(id2)?), constraint))
+		// 	}).collect();
+		// 	drop(_zone);
+		// 	self.solver.solve(&mut self.physics_bodies, constraints, &self.impulses, dt, bvh);
+		// 	self.impulses.clear();
+		// }
 		*self.bvh.borrow_mut() = None;
 	}
 

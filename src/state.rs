@@ -714,7 +714,7 @@ impl State {
 			// }
 		// }
 		if let Some(player_camera) = self.ecs.get_component::<camera::Camera>(self.player_id) {
-			let mut gpu_grid_tree_id_to_id_poses: HashMap<(u32, u32, IVec3), (u32, u32, Pose)> = HashMap::new();
+			let mut gpu_grid_tree_id_to_id_poses: HashMap<(u32, u32, IVec3), ((u32, u32, u32), u32, Pose)> = HashMap::new();
 			{
 				let _zone = span!("Collect Voxels");
 				let view_frustum = player_camera.frustum();
@@ -722,8 +722,8 @@ impl State {
 					for (key, value) in physics_body.update_gpu_grid_tree(
 						&self.renderer.device,
 						&self.renderer.queue,
-						&mut self.renderer.voxel_renderer.packed_64_tree_dynamic_buffer,
-						&mut self.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer,
+						&mut self.renderer.voxel_renderer.packed_64_tree_buffer,
+						&mut self.renderer.voxel_renderer.packed_voxel_data_buffer,
 						&view_frustum, player_camera.pose()
 					) {
 						gpu_grid_tree_id_to_id_poses.insert((physics_body_index as u32, key.0, key.1), value);
@@ -734,7 +734,7 @@ impl State {
 				let mut bounds = vec![];
 				{
 					let _zone = span!("Collect aabb for rendering");
-					for ((body_index, grid_index, sub_grid_pos), _)  in gpu_grid_tree_id_to_id_poses.iter() {
+					for ((body_index, grid_index, sub_grid_pos), _) in gpu_grid_tree_id_to_id_poses.iter() {
 						let physics_body = &self.physics_engine.physics_body_by_index(*body_index).unwrap();
 						if let Some(bound) = physics_body.sub_grid_aabb_by_index(*grid_index, sub_grid_pos) {
 							bounds.push(((*body_index as u32, *grid_index as u32, *sub_grid_pos), bound));

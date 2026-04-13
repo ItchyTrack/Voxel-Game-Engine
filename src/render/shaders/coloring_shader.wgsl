@@ -90,7 +90,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 	// Reconstruct world-space ray from the screen position.
     let ray_start = camera.camera_transform[3].xyz;
-    let ray_dir   = normalize((camera.camera_transform * vec4<f32>(
+    let ray_dir = normalize((camera.camera_transform * vec4<f32>(
         (-in.screen_pos.x + 0.5) * camera.camera_view_size.x * 2.0,
         ( in.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
         1.0,
@@ -109,13 +109,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let normal = data.x & 0xFFu;
 	let light_visible = (data.x & 256u) != 0;
 	let bvh_item_idx = data.y;
-	let voxel_data_index = data.z & 0xFFFFu;
+	let voxel_node_index = data.z & 0xFFFFu;
 	let voxel_index = data.z >> 16u;
 	// let total_dist = bitcast<f32>(data.w);
 
-	let item_index_2 = bvh_items[bvh_item_idx].item_index_2;   // grid tree offset
+	let voxel_data_index = bvh_items[bvh_item_idx].voxel_data_index; // grid tree offset
 
-	let base_color = voxel_reader_palette_color(item_index_2, voxel_data_index, voxel_index).xyz;
+	let base_color = voxel_reader_palette_color(voxel_data_index, voxel_node_index, voxel_index).xyz;
 	var normal_vec = vec3<f32>(0.0);
 	normal_vec[(normal >> 3u) & 0xF] = -f32((normal & (1u << ((normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;
 	let item = bvh_items[bvh_item_idx];

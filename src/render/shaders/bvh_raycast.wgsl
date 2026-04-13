@@ -8,8 +8,9 @@ struct BVHNode {
 struct BVHItem {
     min_x: f32, min_y: f32, min_z: f32,
     aabb_size: u32,
-    item_index: u32,
-    item_index_2: u32,
+    item_min_xy: u32,
+    item_width: u32,
+    voxel_data_index: u32,
     pos_x: f32, pos_y: f32, pos_z: f32,
     quat_x: f32, quat_y: f32, quat_z: f32, quat_w: f32,
 }

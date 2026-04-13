@@ -121,7 +121,13 @@ impl Renderer {
 			format: surface_format,
 			width: size.width,
 			height: size.height,
-			present_mode: surface_caps.present_modes[0],
+			present_mode: {
+				if surface_caps.present_modes.contains(&wgpu::PresentMode::Fifo) {
+					wgpu::PresentMode::Fifo
+				} else {
+					surface_caps.present_modes[0]
+				}
+			},
 			alpha_mode: surface_caps.alpha_modes[0],
 			view_formats: vec![surface_format],
 			desired_maximum_frame_latency: 2,
@@ -174,10 +180,10 @@ impl Renderer {
 		})
 	}
 
-	pub fn render(&mut self, camera: &camera::Camera, bvh: &bvh::BVH<(u32, u32, IVec3)>, gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, u32, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
+	pub fn render(&mut self, camera: &camera::Camera, bvh: &bvh::BVH<(u32, u32, IVec3)>, gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), ((u32, u32, u32), u32, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
-		tracy_client::plot!("64 tree bytes", self.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
-		tracy_client::plot!("voxel data bytes", self.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+		// tracy_client::plot!("64 tree bytes", self.voxel_renderer.packed_64_tree_buffer.() as f64);
+		tracy_client::plot!("voxel data bytes", self.voxel_renderer.packed_voxel_data_buffer.held_bytes() as f64);
 
 		if !self.is_surface_configured { return Ok(()); }
 		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&camera.build_view_projection_matrix())]));

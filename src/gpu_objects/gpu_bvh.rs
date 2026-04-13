@@ -22,8 +22,9 @@ struct GpuBVHItem {
 	min_corner: [f32; 3],
 	aabb_size: [u8; 3],
 	_padding: u8,
-	item_index: u32,
-	item_index_2: u32,
+	item_min_xy: u32,
+	item_width: u32,
+	voxel_data_index: u32,
 	pos: [f32; 3],
 	quat: [f32; 4],
 }
@@ -39,7 +40,7 @@ impl GpuBvh {
 	pub fn from_bvh(
 		device: &Device,
 		bvh: &bvh::BVH<(u32, u32, IVec3)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, u32, Pose)>,
+		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), ((u32, u32, u32), u32, Pose)>,
 	) -> Self {
 		let (nodes, items) = bvh.get_internals();
 
@@ -84,13 +85,14 @@ impl GpuBvh {
 
 		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
 		for item in items {
-			if let Some((tree_offset, voxels_offset, pose)) = gpu_grid_tree_id_to_id_poses.get(&item.0) {
+			if let Some((tree_box, voxels_offset, pose)) = gpu_grid_tree_id_to_id_poses.get(&item.0) {
 				item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
 					min_corner: item.1.0.to_array(),
 					aabb_size:  (item.1.1 - item.1.0).ceil().as_u8vec3().to_array(),
 					_padding:   0,
-					item_index: *tree_offset,
-					item_index_2: *voxels_offset,
+					item_min_xy: tree_box.0 + (tree_box.1 << 16),
+					item_width: tree_box.2,
+					voxel_data_index: *voxels_offset,
 					pos:        pose.translation.to_array(),
 					quat:       pose.rotation.to_array(),
 				}));

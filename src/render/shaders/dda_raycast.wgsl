@@ -17,37 +17,55 @@ const DDA_SLOT_BYTES: u32 = 12u;
 //
 // Depth-0 nodes: no entries after header; every set bitmap bit is a voxel.
 
-@group(2) @binding(0) var<storage, read> grid_tree_buf: array<u32>;
+// @group(2) @binding(0) var<storage, read> grid_tree_buf: array<u32>;
+@group(2) @binding(0) var grid_tree_buf: texture_2d<u32>;
 
-fn dda_u8(byte_off: u32) -> u32 {
-	return (grid_tree_buf[byte_off / 4u] >> ((byte_off % 4u) * 8u)) & 0xFFu;
+fn dda_u8(byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 {
+	let u32_index = byte_off / 4u;
+	return (textureLoad(grid_tree_buf, vec2<u32>(
+		(tree_base_xy & 0xFFFF) + u32_index % tree_buffer_width,
+		(tree_base_xy >> 16) + u32_index / tree_buffer_width
+	), 0).x >> ((byte_off % 4u) * 8u)) & 0xFFu;
 }
-fn dda_u16(byte_off: u32) -> u32 {
-	return (grid_tree_buf[byte_off / 4u] >> ((byte_off % 4u) * 8u)) & 0xFFFFu;
+fn dda_u16(byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 {
+	let u32_index = byte_off / 4u;
+	return (textureLoad(grid_tree_buf, vec2<u32>(
+		(tree_base_xy & 0xFFFF) + u32_index % tree_buffer_width,
+		(tree_base_xy >> 16) + u32_index / tree_buffer_width
+	), 0).x >> ((byte_off % 4u) * 8u)) & 0xFFFFu;
+	// return (grid_tree_buf[byte_off / 4u] >> ((byte_off % 4u) * 8u)) & 0xFFFFu;
 }
-fn dda_u64_lo(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u]; }
-fn dda_u64_hi(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u + 1u]; }
+fn dda_u32(byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 {
+	let u32_index = byte_off / 4u;
+	return textureLoad(grid_tree_buf, vec2<u32>(
+		(tree_base_xy & 0xFFFF) + u32_index % tree_buffer_width,
+		(tree_base_xy >> 16) + u32_index / tree_buffer_width
+	), 0).x;
+}
+fn dda_u64_lo(byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 { return dda_u32(byte_off, tree_base_xy, tree_buffer_width); }
+fn dda_u64_hi(byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 { return dda_u32(byte_off + 4, tree_base_xy, tree_buffer_width); }
 
-fn dda_root_depth(tree_base: u32) -> u32 {
-	return dda_u8(tree_base); // root_depth is stored in the first byte; 3 bytes of padding follow
+fn dda_root_header(tree_base_xy: u32) -> u32 {
+	// root_depth is stored in the first byte; 3 bytes of padding follow (now has plane in those bytes)
+	return textureLoad(grid_tree_buf, vec2<u32>(tree_base_xy & 0xFFFF, tree_base_xy >> 16), 0).x;
 }
-fn dda_nodes_base(tree_base: u32) -> u32 {
-	return tree_base + 4u; // 4-byte aligned: 1 byte root_depth + 3 bytes pad
-}
+// fn dda_nodes_base(tree_base: u32) -> u32 {
+// 	return tree_base + 4u; // 4-byte aligned: 1 byte root_depth + 3 bytes pad
+// }
 fn dda_node_byte_off(nodes_base: u32, slot_index: u32) -> u32 {
 	return nodes_base + slot_index * DDA_SLOT_BYTES;
 }
-fn dda_parent_offset(node_byte_off: u32) -> u32 {
-	return dda_u16(node_byte_off + 0u);
+fn dda_parent_offset(node_byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 {
+	return dda_u16(node_byte_off + 0u, tree_base_xy, tree_buffer_width);
 }
-fn dda_voxel_data_offset(node_byte_off: u32) -> u32 {
-	return dda_u16(node_byte_off + 2u);
+fn dda_voxel_data_offset(node_byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 {
+	return dda_u16(node_byte_off + 2u, tree_base_xy, tree_buffer_width);
 }
-fn dda_bitmap_lo(node_byte_off: u32) -> u32 {
-	return dda_u64_lo(node_byte_off + 4u);
+fn dda_bitmap_lo(node_byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 {
+	return dda_u64_lo(node_byte_off + 4u, tree_base_xy, tree_buffer_width);
 }
-fn dda_bitmap_hi(node_byte_off: u32) -> u32 {
-	return dda_u64_hi(node_byte_off + 4u);
+fn dda_bitmap_hi(node_byte_off: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 {
+	return dda_u64_hi(node_byte_off + 4u, tree_base_xy, tree_buffer_width);
 }
 fn dda_bitmap_has(lo: u32, hi: u32, cell_index: u32) -> bool {
 	if cell_index < 32u {
@@ -65,8 +83,8 @@ fn dda_data_index(low: u32, high: u32, cell_index: u32) -> u32 {
 	}
 }
 // Non-leaf data entry: 0x0000 = DATA, 1..0xFFFF = NODE slot offset
-fn dda_node_entry(node_byte_off: u32, data_idx: u32) -> u32 {
-	return dda_u16(node_byte_off + 12u + data_idx * 2u);
+fn dda_node_entry(node_byte_off: u32, data_idx: u32, tree_base_xy: u32, tree_buffer_width: u32) -> u32 {
+	return dda_u16(node_byte_off + 12u + data_idx * 2u, tree_base_xy, tree_buffer_width);
 }
 
 fn dda_node_size(depth: u32) -> u32  { return 1u << (DDA_LOG_SIZE * (depth + 1u)); }
@@ -77,18 +95,20 @@ fn dda_get_child_contents_index(contents_pos: vec3<u32>) -> u32 {
 
 struct DDAHit {
 	normal: u32, // if 0 then no hit
-	voxel_data_index: u32,      // slot index of the node containing the hit voxel
+	voxel_node_index: u32,      // slot index of the node containing the hit voxel
 	voxel_index: u32,      // cell index within that node (use popcount(bitmap & mask) for voxel_buf index)
 	dist: f32,
 }
 
 fn dda_raycast(
-	origin:     vec3<f32>,
-	dir:        vec3<f32>,
+	origin: vec3<f32>,
+	dir: vec3<f32>,
 	max_length: f32,
-	tree_base:  u32,
+	tree_base_xy: u32,
+	tree_buffer_width: u32,
 ) -> DDAHit {
-	let root_size = dda_node_size(dda_root_depth(tree_base));
+	let root_config = dda_root_header(tree_base_xy);
+	let root_size = dda_node_size(root_config & 0xF);
 
 	// Origin is expected to be in root-relative space (no root_pos offset).
 	let root_min = vec3<f32>(0.0);
@@ -117,14 +137,14 @@ fn dda_raycast(
 	// Points: https://www.desmos.com/3d/nw1iypcxdw
 	// Ray VS Plane: https://www.desmos.com/3d/ucg2d6tqbu
 	let plane_u32 = vec3<u32>(
-		(grid_tree_buf[tree_base / 4u] >> 8) & 0xF,
-		(grid_tree_buf[tree_base / 4u] >> 12) & 0xF,
-		(grid_tree_buf[tree_base / 4u] >> 16) & 0xF
+		(root_config >> 8) & 0xF,
+		(root_config >> 12) & 0xF,
+		(root_config >> 16) & 0xF
 	);
 	// var do_plane_tests = false;
 	if (plane_u32.x != 0 || plane_u32.y != 0 || plane_u32.z != 0) {
 		let plane = vec3<f32>(plane_u32) - vec3<f32>(7.5, 7.5, 7.5);
-		let m = f32((grid_tree_buf[tree_base / 4u] >> 20) & 0xFF) / 32.0 - 3.984375;
+		let m = f32((root_config >> 20) & 0xFF) / 32.0 - 3.984375;
 
 		let root_half_size_f32 = f32(root_size) / 2;
 		let nearest_plane_distance_ish_signed = m * f32(root_size) - dot(plane, origin + dir * starting_distance - vec3<f32>(root_half_size_f32, root_half_size_f32, root_half_size_f32));
@@ -149,7 +169,7 @@ fn dda_raycast(
 
 	// var hit_result: DDAHit;
 	// hit_result.normal = 1;
-	// hit_result.voxel_data_index = 0;
+	// hit_result.voxel_node_index = 0;
 	// hit_result.voxel_index = 0;
 	// hit_result.dist = starting_distance;
 	// return hit_result;
@@ -196,11 +216,11 @@ fn dda_raycast(
 		return no_hit;
 	}
 
-	let nodes_base = dda_nodes_base(tree_base);
+	const nodes_base: u32 = 4u;
 	var node_size = root_size;
 	var node_byte_off = dda_node_byte_off(nodes_base, 0u);
-	var bitmap_low = dda_bitmap_lo(node_byte_off);
-	var bitmap_high = dda_bitmap_hi(node_byte_off);
+	var bitmap_low = dda_bitmap_lo(node_byte_off, tree_base_xy, tree_buffer_width);
+	var bitmap_high = dda_bitmap_hi(node_byte_off, tree_base_xy, tree_buffer_width);
 
 	loop {
 		let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
@@ -279,12 +299,12 @@ fn dda_raycast(
 						no_hit.normal = 0u;;
 						return no_hit;
 					}
-					node_byte_off -= dda_parent_offset(node_byte_off) * DDA_SLOT_BYTES;
+					node_byte_off -= dda_parent_offset(node_byte_off, tree_base_xy, tree_buffer_width) * DDA_SLOT_BYTES;
 					node_size = node_size << DDA_LOG_SIZE;
 					if root_relative_grid_pos[last_step_axis] / node_size == u32(new_pos_signed) / node_size { break; }
 				}
-				bitmap_low = dda_bitmap_lo(node_byte_off);
-				bitmap_high = dda_bitmap_hi(node_byte_off);
+				bitmap_low = dda_bitmap_lo(node_byte_off, tree_base_xy, tree_buffer_width);
+				bitmap_high = dda_bitmap_hi(node_byte_off, tree_base_xy, tree_buffer_width);
 			}
 			root_relative_grid_pos[last_step_axis] = u32(new_pos_signed);
 		} else {
@@ -293,19 +313,19 @@ fn dda_raycast(
 				// Depth-0: every set bitmap bit is a voxel - immediate hit.
 				var hit_result: DDAHit;
 				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10); // make normal non 0 and encode the normal in it
-				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
+				hit_result.voxel_node_index = dda_voxel_data_offset(node_byte_off, tree_base_xy, tree_buffer_width);
 				hit_result.voxel_index = data_idx;
 				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
 				return hit_result;
 			}
 
-			let entry_val = dda_node_entry(node_byte_off, data_idx);
+			let entry_val = dda_node_entry(node_byte_off, data_idx, tree_base_xy, tree_buffer_width);
 
 			if entry_val == 0u {
 				// DATA: hit
 				var hit_result: DDAHit;
 				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10); // make normal non 0 and encode the normal in it
-				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
+				hit_result.voxel_node_index = dda_voxel_data_offset(node_byte_off, tree_base_xy, tree_buffer_width);
 				hit_result.voxel_index = data_idx;
 				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
 				return hit_result;
@@ -313,8 +333,8 @@ fn dda_raycast(
 				// NODE: descend
 				node_byte_off += entry_val * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;
-				bitmap_low = dda_bitmap_lo(node_byte_off);
-				bitmap_high = dda_bitmap_hi(node_byte_off);
+				bitmap_low = dda_bitmap_lo(node_byte_off, tree_base_xy, tree_buffer_width);
+				bitmap_high = dda_bitmap_hi(node_byte_off, tree_base_xy, tree_buffer_width);
 			}
 		}
 	}
