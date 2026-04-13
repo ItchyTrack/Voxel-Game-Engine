@@ -39,9 +39,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     }
 
 	let hit_pos = ray_start + (hit.total_dist - 0.01) * ray_dir;
-	let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
-    let light_visible = sky_hit.normal == 0;
-    // let light_visible = true;
+	// let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
+    // let light_visible = sky_hit.normal == 0;
+    let light_visible = true;
 	textureStore(intermediate_textured, global_invocation_id.xy, vec4<u32>(
 		hit.normal + 256u * u32(light_visible),
 		hit.bvh_item_idx,

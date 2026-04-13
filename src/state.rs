@@ -9,7 +9,7 @@ use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
 use crate::{entity_component_system, physics::bvh::BVH, player::{camera, orientator::Orientator}, pose::Pose, render::renderer::Renderer, voxels};
-use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup};
+use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
 use crate::voxels::Voxel;
@@ -81,6 +81,10 @@ impl State {
 
 		self.ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
 			orientator.hold_at_orientation(&Quat::IDENTITY, &mut self.physics_engine);
+		});
+		let player_position = self.ecs.get_component::<Camera>(self.player_id).unwrap().position;
+		self.ecs.run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
+			player_tracker.track_pos(&player_position, &mut self.physics_engine);
 		});
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
 			let ray_start = if self.raycast_pose.is_none() {
@@ -287,7 +291,7 @@ impl State {
 		let player_id = ecs.add_entity();
 		ecs.add_component_to_entity(player_id, PlayerInput::new());
 		ecs.add_component_to_entity(player_id, Camera {
-			position: Vec3::new(-30.0, 15.0, 0.0),
+			position: Vec3::new(-30.0, 205.0, 0.0),
 			yaw: f32::consts::PI / 2.0,
 			pitch: 0.0,
 			aspect: renderer.config.width as f32 / renderer.config.height as f32,
@@ -382,7 +386,7 @@ impl State {
 		// 		}
 		// 	}
 		// 	physics_body.pose.translation.z -= 8.0;
-		// 	physics_body.pose.translation.y += 2.0;
+		// 	physics_body.pose.translation.y = 2.0;
 		// 	physics_body.is_static = true;
 		// }
 		// ------------------------------ Cube Stack ------------------------------
@@ -402,8 +406,8 @@ impl State {
 		// 					}
 		// 				}
 		// 				// physics_body.position.x += y as f32 * 0.01;
-		// 				physics_body.pose.translation.y += y as f32 * 4.0 + 2.0;
-		// 				physics_body.pose.translation.y += 0.0;
+		// 				physics_body.pose.translation.y = y as f32 * 4.0 + 2.0;
+		// 				physics_body.pose.translation.y = 0.0;
 		// 				physics_body.pose.translation.z -= 8.0;
 		// 				// physics_body.orientation = Quat::from_rotation_y(y as f32);
 		// 			}
@@ -462,7 +466,7 @@ impl State {
 		// 		}
 		// 	}
 		// 	physics_body.is_static = true;
-		// 	physics_body.pose.translation.y += 2.0;
+		// 	physics_body.pose.translation.y = 2.0;
 		// }
 		// ------------------------------ Ball ------------------------------
 
@@ -470,7 +474,7 @@ impl State {
 		// 	let r = 6;
 		// 	let physics_body_id = physics_engine.add_physics_body();
 		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-		// 	physics_body.pose.translation.y += (0 as f32) * (r as f32) * 2.0 + 7.0 + 40.0;
+		// 	physics_body.pose.translation.y = (0 as f32) * (r as f32) * 2.0 + 7.0 + 40.0;
 		// 	physics_body.pose.translation.z += (0 as f32) * (r as f32) * 2.0 + 3.0 as f32;
 		// 	physics_body.pose.translation.x += (0 as f32) * (r as f32) * 2.0;
 		// 	State::make_ball(physics_body, r);
@@ -481,7 +485,7 @@ impl State {
 		// 			let r = 6;
 		// 			let physics_body_id = physics_engine.add_physics_body();
 		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 + 75.0;
+		// 			physics_body.pose.translation.y = (y as f32) * (r as f32) * 2.0 + 7.0 + 75.0;
 		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + y as f32;
 		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
 		// 			State::make_ball(physics_body, r);
@@ -494,7 +498,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_main).unwrap();
 				physics_body.pose.translation.x += 0.0;
-				physics_body.pose.translation.y += 80.0;
+				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, 2);
 			}
@@ -502,7 +506,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_1).unwrap();
 				physics_body.pose.translation.x += 0.0;
-				physics_body.pose.translation.y += 80.0;
+				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 50.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
@@ -510,7 +514,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_2).unwrap();
 				physics_body.pose.translation.x += 0.0;
-				physics_body.pose.translation.y += 80.0;
+				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 30.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
@@ -518,7 +522,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_3).unwrap();
 				physics_body.pose.translation.x += 10.0;
-				physics_body.pose.translation.y += 80.0;
+				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
@@ -526,7 +530,7 @@ impl State {
 			{
 				let physics_body = physics_engine.physics_body_mut(physics_body_id_4).unwrap();
 				physics_body.pose.translation.x += -10.0;
-				physics_body.pose.translation.y += 80.0;
+				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(physics_body, r);
 			}
@@ -547,7 +551,7 @@ impl State {
 		// 			let grid = physics_body.grid_mut(grid_id).unwrap();
 		// 			grid.add_voxel(IVec3::new(0, 0, 0), voxels::Voxel{ color: [(x * 255 / size_w) as u8, 0, (z * 255 / size_l) as u8, 255], mass: 50 });
 		// 			physics_body.pose.translation.x += x as f32 * 1.5;
-		// 			physics_body.pose.translation.y += 60.0;
+		// 			physics_body.pose.translation.y = 60.0;
 		// 			physics_body.pose.translation.z += z as f32 * 1.5;
 		// 			bodies.insert((x, z), physics_body_id);
 		// 		}
@@ -570,7 +574,7 @@ impl State {
 		// 			let r = 4;
 		// 			let physics_body_id = physics_engine.add_physics_body();
 		// 			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-		// 			physics_body.pose.translation.y += (y as f32) * (r as f32) * 2.0 + 7.0 +620.0;
+		// 			physics_body.pose.translation.y = (y as f32) * (r as f32) * 2.0 + 7.0 +620.0;
 		// 			physics_body.pose.translation.z += (z as f32) * (r as f32) * 2.0 + 3.0 + y as f32;
 		// 			physics_body.pose.translation.x += (x as f32) * (r as f32) * 2.0;
 		// 			State::make_smooth_ball(physics_body, r);
@@ -590,7 +594,7 @@ impl State {
 		// 				physics_body.grids.first_mut().unwrap().add_voxel(IVec3::new(1, 0, 0), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
 		// 				physics_body.grids.first_mut().unwrap().add_voxel(IVec3::new(1, 0, 1), voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
 		// 				physics_body.pose.translation.x += (x * 5) as f32;
-		// 				physics_body.pose.translation.y += (y * 5) as f32;
+		// 				physics_body.pose.translation.y = (y * 5) as f32;
 		// 				physics_body.pose.translation.z -= (z * 5) as f32;
 		// 				physics_body.is_static = true;
 		// 			}
@@ -599,7 +603,7 @@ impl State {
 		// 				let physics_body = physics_bodies.last_mut().unwrap();
 		// 				physics_body.grids.first_mut().unwrap().add_voxel(IVec3::ZERO, voxels::Voxel{ color: [x as f32 / 8.0 + 0.5, y as f32 / 8.0 + 0.5, z as f32 / 8.0 + 0.5, 1.0], mass: 1.0 });
 		// 				physics_body.pose.translation.x += (x * 5) as f32 - 0.4;;
-		// 				physics_body.pose.translation.y += (y * 5) as f32 + 0.8 + (y as f32) * 0.05;
+		// 				physics_body.pose.translation.y = (y * 5) as f32 + 0.8 + (y as f32) * 0.05;
 		// 				physics_body.pose.translation.z -= (z * 5) as f32 + 0.4;
 		// 				physics_body.pose.rotation = Quat::from_rotation_z(z as f32 / 5.0) * Quat::from_rotation_x(x as f32 / 5.0);
 		// 				physics_body.is_static = true;
@@ -628,25 +632,25 @@ impl State {
 		// }
 
 		// standing block
-		{
-			let physics_body_id = physics_engine.add_physics_body();
-			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-			let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
-			let grid = physics_body.grid_mut(grid_id).unwrap();
-			for x in -1..2 {
-				for y in 0..30 {
-					for z in -1..2 {
-						grid.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 });
-					}
-				}
-			}
-			grid.add_voxel(IVec3::new(0, 30, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
-			physics_body.pose.translation.y = 100.0;
-			let standing_entity_id = ecs.add_entity();
-			let mut orientator = Orientator::new();
-			orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 30, 0)));
-			ecs.add_component_to_entity(standing_entity_id, orientator);
-		}
+		// {
+		// 	let physics_body_id = physics_engine.add_physics_body();
+		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 	let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+		// 	let grid = physics_body.grid_mut(grid_id).unwrap();
+		// 	for x in -1..2 {
+		// 		for y in 0..30 {
+		// 			for z in -1..2 {
+		// 				grid.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 });
+		// 			}
+		// 		}
+		// 	}
+		// 	grid.add_voxel(IVec3::new(0, 30, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
+		// 	physics_body.pose.translation.y = 100.0;
+		// 	let standing_entity_id = ecs.add_entity();
+		// 	let mut orientator = Orientator::new();
+		// 	orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 30, 0)));
+		// 	ecs.add_component_to_entity(standing_entity_id, orientator);
+		// }
 
 		// bb8
 		{
@@ -662,17 +666,80 @@ impl State {
 						}
 					}
 				}
-				grid.add_voxel(IVec3::new(0, 30, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
-				physics_body.pose.translation.y = 100.0;
+				grid.add_voxel(IVec3::new(0, 3, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
+				physics_body.pose.translation.y = 120.0;
 				let standing_entity_id = ecs.add_entity();
 				let mut orientator = Orientator::new();
-				orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 30, 0)));
+				orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
+				ecs.add_component_to_entity(standing_entity_id, orientator);
+				let mut player_tracker = PlayerTracker::new();
+				player_tracker.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
+				ecs.add_component_to_entity(standing_entity_id, player_tracker);
+			}
+			let ball_physics_body_id = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(ball_physics_body_id).unwrap();
+				physics_body.pose.translation.y = 108.0;
+				State::make_ball(physics_body, 10);
+			}
+			physics_engine.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
+		}
+		{
+			let physics_body_id = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+				let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+				let grid = physics_body.grid_mut(grid_id).unwrap();
+				for x in -6..7 {
+					for y in 0..3 {
+						for z in -6..7 {
+							grid.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 });
+						}
+					}
+				}
+				grid.add_voxel(IVec3::new(0, 3, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
+				physics_body.pose.translation.y = 120.0;
+				physics_body.pose.translation.x = 30.0;
+				let standing_entity_id = ecs.add_entity();
+				let mut orientator = Orientator::new();
+				orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
 				ecs.add_component_to_entity(standing_entity_id, orientator);
 			}
 			let ball_physics_body_id = physics_engine.add_physics_body();
 			{
 				let physics_body = physics_engine.physics_body_mut(ball_physics_body_id).unwrap();
-				physics_body.pose.translation.y += 80.0;
+				physics_body.pose.translation.y = 108.0;
+				physics_body.pose.translation.x = 30.0;
+				State::make_ball(physics_body, 10);
+			}
+			physics_engine.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
+		}
+		{
+			let physics_body_id = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+				let grid_id = physics_body.add_grid(Pose::new(Vec3::ZERO, Quat::IDENTITY));
+				let grid = physics_body.grid_mut(grid_id).unwrap();
+				for x in -6..7 {
+					for y in 0..3 {
+						for z in -6..7 {
+							grid.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 });
+						}
+					}
+				}
+				grid.add_voxel(IVec3::new(0, 3, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
+				physics_body.pose.translation.y = 120.0;
+				physics_body.pose.translation.x = 60.0;
+				let standing_entity_id = ecs.add_entity();
+				let mut orientator = Orientator::new();
+				orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
+				ecs.add_component_to_entity(standing_entity_id, orientator);
+			}
+			let ball_physics_body_id = physics_engine.add_physics_body();
+			{
+				let physics_body = physics_engine.physics_body_mut(ball_physics_body_id).unwrap();
+				physics_body.pose.translation.y = 108.0;
+				physics_body.pose.translation.x = 60.0;
 				State::make_ball(physics_body, 10);
 			}
 			physics_engine.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
@@ -685,7 +752,7 @@ impl State {
 			let world_generator = crate::world_gen::WorldGenerator::new(2);
 			let grid_id = physics_body.add_grid(Pose::ZERO);
 			let grid = physics_body.grid_mut(grid_id).unwrap();
-			world_generator.gererate_area(glam::IVec2::new(-256, -256), glam::IVec2::new(256, 256), grid);
+			world_generator.gererate_area(glam::IVec2::new(-512, -512), glam::IVec2::new(512, 512), grid);
 			physics_body.is_static = true;
 			physics_body.pose.translation.y = -10.0;
 		}
