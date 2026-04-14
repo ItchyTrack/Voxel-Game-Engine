@@ -45,10 +45,12 @@ cpal = "0.16"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 cpal = { version = "0.16", features = ["wasm-bindgen"] }
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] } # dep of rand
+getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] } # dep of dot_vox
 console_error_panic_hook = "0.1.7"
 console_log = "1.0"
 wgpu = { version = "29.0.0", features = ["webgpu"]}
+imgui = { version = "0.12", features = ["wasm"] }
 wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4.64"
 reqwest = { version = "0.13.2" }
