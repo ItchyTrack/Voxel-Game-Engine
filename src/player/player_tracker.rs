@@ -1,15 +1,19 @@
+use std::cell::Cell;
+
 use glam::Vec3;
 
 use crate::{physics::physics_engine::PhysicsEngine, pose::Pose};
 
 pub struct PlayerTracker {
-	voxel_to_move: Option<u64>
+	voxel_to_move: Option<u64>,
+	error_avg: Cell<Vec3>,
 }
 
 impl PlayerTracker {
 	pub fn new() -> Self {
 		PlayerTracker {
-			voxel_to_move: None
+			voxel_to_move: None,
+			error_avg: Cell::new(Vec3::ZERO),
 		}
 	}
 
@@ -39,12 +43,16 @@ impl PlayerTracker {
 						let voxel_world_location = body.local_to_world(&voxel_body_location);
 
 						let (_com, mass) = body.get_global_center_of_mass_and_mass();
-						let dir = (player_pos - voxel_world_location.translation).normalize();
+						let error = player_pos - voxel_world_location.translation;
+						let error_avg = (self.error_avg.get() * 5.0 + error) / 6.0;
+						self.error_avg.set(error_avg);
+						let dir = error.normalize();
 						let velocity_in_dir = body.velocity.dot(dir);
 						let central_impulse = mass * (
 							dir * (
-								(player_pos - voxel_world_location.translation).length() * 0.2 -
-								velocity_in_dir / 8.0
+								error.length() * 0.2 -
+								velocity_in_dir / 9.0 +
+								error_avg.length() * 0.1
 							) - (body.velocity - dir * velocity_in_dir)
 						);
 						physics_engine.apply_central_impulse(body_id, &Vec3::new(central_impulse.x, 0.0, central_impulse.z));

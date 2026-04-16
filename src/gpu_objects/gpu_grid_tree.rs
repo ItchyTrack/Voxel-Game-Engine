@@ -7,15 +7,18 @@ use crate::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
 use rand::{seq::IteratorRandom};
 
 const SLOT_BYTES:   usize = 4;
-const HEADER_BYTES: usize = 12;
+
+fn get_header_bytes(bitmap: u64) -> u32 {
+	4 * (1 + ((bitmap & 0xFFFFFFFF) != 0) as u32 + ((bitmap & 0xFFFFFFFF00000000) != 0) as u32)
+}
 
 fn slots_for_nonleaf(bitmap: u64, depth: u8) -> usize {
     let count = bitmap.count_ones() as usize;
     let entry_bytes = if depth == 1 { 1 } else { 2 };
-    (HEADER_BYTES + count * entry_bytes).div_ceil(SLOT_BYTES)
+    ( get_header_bytes(bitmap) as usize + count * entry_bytes).div_ceil(SLOT_BYTES)
 }
-// ── LOD collapse ──────────────────────────────────────────────────────────────
 
+// -- LOD collapse --------------------------------------------------------------
 fn compute_lod_collapse(
     nodes:       &[grid_tree::GridTreeNode],
     root_depth:  u8,
@@ -143,8 +146,6 @@ fn closest_palette_entry(palette_vec: &[[u8; 4]], target: [u8; 4]) -> u8 {
         .unwrap_or(0)
 }
 
-// ── Bitmap helper ─────────────────────────────────────────────────────────────
-
 fn build_bitmap(node: &grid_tree::GridTreeNode) -> u64 {
     let mut bitmap = 0u64;
     for (i, cell) in node.contents.iter().enumerate() {
@@ -155,13 +156,11 @@ fn build_bitmap(node: &grid_tree::GridTreeNode) -> u64 {
     bitmap
 }
 
-// ── Main function ─────────────────────────────────────────────────────────────
-
 pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_level: f32) -> (Vec<u8>, Vec<u8>) {
     let (nodes, _, root_depth) = grid_tree.get_internals();
     assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
 
-    // ── Palette ───────────────────────────────────────────────────────────────
+    // -- Palette ---------------------------------------------------------------
     let mut palette_vec: Vec<[u8; 4]>   = Vec::new();
     let mut palette_map: HashMap<u16, u8> = HashMap::new();
     for (id, voxel) in &palette.palette {
@@ -176,11 +175,11 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
     let palette_len_bytes = (palette_vec.len() as u8).to_le_bytes();
     let palette_bytes: &[u8] = bytemuck::cast_slice(&palette_vec);
 
-    // ── LOD collapse ──────────────────────────────────────────────────────────
+    // -- LOD collapse ----------------------------------------------------------
     let mut collapse_rep = compute_lod_collapse(nodes, root_depth, &palette_vec, &palette_map, lod_level);
     collapse_rep[0] = None;
 
-    // ── Pass 1: DFS pre-order → gpu_order ────────────────────────────────────
+    // -- Pass 1: DFS pre-order → gpu_order ------------------------------------
     let mut cpu_to_gpu: Vec<u32>       = vec![u32::MAX; nodes.len()];
     let mut gpu_order:  Vec<(u32, u8)> = Vec::with_capacity(nodes.len());
 
@@ -189,7 +188,6 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
         let gpu_idx = gpu_order.len() as u32;
         cpu_to_gpu[cpu_idx as usize] = gpu_idx;
         gpu_order.push((cpu_idx, depth));
-
         if depth > 0 {
             for cell in nodes[cpu_idx as usize].contents.iter() {
                 if cell.value_type() == 2 {
@@ -201,13 +199,13 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
         }
     }
 
-    // ── Find separating plane ─────────────────────────────────────────────────
+    // -- Find separating plane -------------------------------------------------
     //
     // Encoding (bytes 1-3 of tree_buffer header):
     //   nx, ny, nz : 4-bit each  –  actual = encoded − 7.5
     //   m          : 8-bit       –  actual = encoded / 32.0 − 3.984375
     //
-    // Solid halfspace:  dot(n, pos − root_centre) ≤ m_actual · root_size
+    // Solid halfspace:  dot(n, pos − root_centre) <= m_actual * root_size
 
     const TREE_LOG_SIZE: u32 = 2;
     let root_size_f = (1u32 << (TREE_LOG_SIZE * (root_depth as u32 + 1))) as f32;
@@ -324,18 +322,19 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
         if best.0 < empty_cells.len() { Some((best.1, best.2, best.3, best.4)) } else { None }
     };
 
-    // ── Pass 2: Assign slot indices and voxel buffer offsets ─────────────────
+    // -- Pass 2: Assign slot indices and voxel buffer offsets -----------------
     let mut slot_indices:  Vec<u32> = vec![0; gpu_order.len()];
     let mut voxel_offsets: Vec<u16> = vec![0; gpu_order.len()];
     let mut tree_cursor:  u32 = 0;
     let mut voxel_cursor: u32 = 0;
 
     for (gpu_idx, &(cpu_idx, depth)) in gpu_order.iter().enumerate() {
-        let node   = &nodes[cpu_idx as usize];
+        let node = &nodes[cpu_idx as usize];
         let bitmap = build_bitmap(node);
+		assert!(bitmap != 0);
 
         slot_indices[gpu_idx] = tree_cursor;
-        tree_cursor += if depth == 0 { 3 } else { slots_for_nonleaf(bitmap, depth) as u32 };
+        tree_cursor += if depth == 0 { get_header_bytes(bitmap) / 4 } else { slots_for_nonleaf(bitmap, depth) as u32 };
 
         let mut voxel_data_size = 0;
         let mut voxel_node_run = 0;
@@ -385,7 +384,7 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
     let total_tree_slots = tree_cursor as usize;
     let total_voxel_bytes = voxel_cursor as usize;
 
-    // ── Pass 3: Write bytes ───────────────────────────────────────────────────
+    // -- Pass 3: Write bytes ---------------------------------------------------
     let mut tree_bytes: Vec<u8> = vec![0u8; total_tree_slots * SLOT_BYTES];
     let mut voxel_bytes: Vec<u8> = vec![0u8; total_voxel_bytes];
 
@@ -398,14 +397,26 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
         let parent_slot_offset: u16 = if node.parent_offset == 0 {
             0
         } else {
-            let parent_cpu  = cpu_idx - node.parent_offset as u32;
+            let parent_cpu = cpu_idx - node.parent_offset as u32;
             let parent_slot = slot_indices[cpu_to_gpu[parent_cpu as usize] as usize];
             (my_slot - parent_slot) as u16
         };
-
-        tree_bytes[byte_base..byte_base + 2].copy_from_slice(&parent_slot_offset.to_le_bytes());
+		assert!(parent_slot_offset <= 0x3FFF);
+        tree_bytes[byte_base..byte_base + 2].copy_from_slice(&(parent_slot_offset & 0x3FFF).to_le_bytes());
         tree_bytes[byte_base + 2..byte_base + 4].copy_from_slice(&voxel_offsets[gpu_idx].to_le_bytes());
-        tree_bytes[byte_base + 4..byte_base + 12].copy_from_slice(&bitmap.to_le_bytes());
+		let has_lo = (bitmap & 0xFFFFFFFF) != 0;
+		let has_hi = (bitmap & 0xFFFFFFFF00000000) != 0;
+		assert!(has_hi || has_lo);
+		let flags: u8 = (has_lo as u8) | ((has_hi as u8) << 1);
+		tree_bytes[byte_base + 1] |= flags << 6;
+		let mut bitmap_cursor = byte_base + 4;
+		if has_lo {
+			tree_bytes[bitmap_cursor..bitmap_cursor + 4].copy_from_slice(&(bitmap as u32).to_le_bytes());
+			bitmap_cursor += 4;
+		}
+		if has_hi {
+			tree_bytes[bitmap_cursor..bitmap_cursor + 4].copy_from_slice(&((bitmap >> 32) as u32).to_le_bytes());
+		}
 
         let mut vox_write = voxel_offsets[gpu_idx] as usize * 4;
 
@@ -420,9 +431,9 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
                 vox_write += 1;
             }
         } else {
-            let mut entry_cursor   = byte_base + HEADER_BYTES;
+            let mut entry_cursor = byte_base + get_header_bytes(bitmap) as usize;
             let mut voxel_node_run = 0;
-            let mut hit_data       = false;
+            let mut hit_data = false;
 
             for i in 0..grid_tree::SIZE_USIZE_CUBED {
                 if bitmap & (1u64 << i) == 0 { continue; }
@@ -472,7 +483,7 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
         }
     }
 
-    // ── Assemble final buffers ────────────────────────────────────────────────
+    // -- Assemble final buffers ------------------------------------------------
 
     let tree_raw_len = 1 + tree_bytes.len();
     let tree_padded_len = tree_raw_len.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT as usize);

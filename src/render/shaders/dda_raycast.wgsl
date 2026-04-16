@@ -2,21 +2,6 @@ const DDA_LOG_SIZE:   u32 = 2u;
 const DDA_SIZE:       u32 = 4u;
 const DDA_SLOT_BYTES: u32 = 4u;
 
-// Buffer layout:
-//  tree_buf:  [root_depth: u32 (1 byte + 3 pad)] [node slots: 12 bytes each]
-//  voxel_buf: [packed u8 palette indices]
-//
-// Node slot (12 bytes):
-//  bytes 0..1 : u16 parent_offset     (slots back to parent; 0 = root)
-//  bytes 2..3 : u16 voxel_data_offset (byte offset into voxel_buf = value * 4)
-//  bytes 4..11: u64 bitmap            (bit i = 1 iff cell i is DATA or NODE)
-//
-// Non-leaf nodes (depth > 0): u16 entries packed after the 12-byte header
-//  0x0000        -> DATA  (voxel; index in voxel_buf via popcount)
-//  0x0001..FFFF  -> NODE  (child slot offset from this node's slot index)
-//
-// Depth-0 nodes: no entries after header; every set bitmap bit is a voxel.
-
 @group(2) @binding(0) var<storage, read> grid_tree_buf: array<u32>;
 
 fn dda_u8(byte_off: u32) -> u32 {
@@ -28,9 +13,6 @@ fn dda_u16(byte_off: u32) -> u32 {
 fn dda_u32(byte_off: u32) -> u32 {
 	return grid_tree_buf[byte_off / 4u];
 }
-fn dda_u64_lo(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u]; }
-fn dda_u64_hi(byte_off: u32) -> u32 { return grid_tree_buf[byte_off / 4u + 1u]; }
-
 fn dda_root_header(tree_base: u32) -> u32 {
 	return dda_u8(tree_base); // root_depth is stored in the first byte; 3 bytes of padding follow
 }
@@ -41,38 +23,35 @@ fn dda_node_byte_off(nodes_base: u32, slot_index: u32) -> u32 {
 	return nodes_base + slot_index * DDA_SLOT_BYTES;
 }
 fn dda_parent_offset(node_byte_off: u32) -> u32 {
-	return dda_u16(node_byte_off + 0u);
+	return dda_u16(node_byte_off);
 }
 fn dda_voxel_data_offset(node_byte_off: u32) -> u32 {
 	return dda_u16(node_byte_off + 2u);
 }
-fn dda_bitmap_lo(node_byte_off: u32) -> u32 {
-	return dda_u64_lo(node_byte_off + 4u);
-}
-fn dda_bitmap_hi(node_byte_off: u32) -> u32 {
-	return dda_u64_hi(node_byte_off + 4u);
-}
-fn dda_bitmap_has(lo: u32, hi: u32, cell_index: u32) -> bool {
+fn dda_bitmap_has(low: u32, high: u32, bitmap_status: u32, cell_index: u32) -> bool {
 	if cell_index < 32u {
-		return (lo & (1u << cell_index)) != 0u;
+		if (bitmap_status & 1) == 0 { return false; }
+		return (low & (1u << cell_index)) != 0u;
 	} else {
-		return (hi & (1u << (cell_index - 32u))) != 0u;
+		if (bitmap_status & 2) == 0 { return false; }
+		return (high & (1u << (cell_index - 32u))) != 0u;
 	}
 }
-fn dda_data_index(low: u32, high: u32, cell_index: u32) -> u32 {
+fn dda_data_index(low: u32, high: u32, bitmap_status: u32, cell_index: u32) -> u32 {
 	let mask = (1u << (cell_index & 31u)) - 1u;
 	if cell_index >= 32u {
-		return countOneBits(low) + countOneBits(high & mask);
+		return (bitmap_status & 1) * countOneBits(low) + (bitmap_status >> 1) * countOneBits(high & mask);
 	} else {
-		return countOneBits(low & mask);
+		return (bitmap_status & 1) * countOneBits(low & mask);
 	}
 }
 // Non-leaf data entry: 0x0000 = DATA, 1..0xFFFF = NODE slot offset
-fn dda_node_entry(node_byte_off: u32, data_idx: u32, node_size: u32) -> u32 {
+fn dda_node_entry(node_byte_off: u32, bitmap_status: u32, data_idx: u32, node_size: u32) -> u32 {
+	let byte_start = node_byte_off + 8u + 4u * u32(bitmap_status == 3);
     if node_size == 16u {
-        return dda_u8(node_byte_off + 12u + data_idx);
+        return dda_u8(byte_start + data_idx);
     }
-    return dda_u16(node_byte_off + 12u + data_idx * 2u);
+    return dda_u16(byte_start + data_idx * 2u);
 }
 
 fn dda_node_size(depth: u32) -> u32  { return 1u << (DDA_LOG_SIZE * (depth + 1u)); }
@@ -206,15 +185,22 @@ fn dda_raycast(
 	let nodes_base = dda_nodes_base(tree_base);
 	var node_size = root_size;
 	var node_byte_off = dda_node_byte_off(nodes_base, 0u);
-	var bitmap_low = dda_bitmap_lo(node_byte_off);
-	var bitmap_high = dda_bitmap_hi(node_byte_off);
+	var bitmap_status = dda_parent_offset(node_byte_off) >> 14;
+	var bitmap_low = 0u;
+	var bitmap_high = 0u;
+	if (bitmap_status & 1) != 0 {
+		bitmap_low = dda_u32(node_byte_off + 4);
+	}
+	if (bitmap_status & 2) != 0 {
+		bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u);
+	}
 
 	loop {
 		let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
-		let contents_pos         = current_relative_pos / vec3<u32>(node_size >> DDA_LOG_SIZE);
-		let cell_index           = dda_get_child_contents_index(contents_pos);
+		let contents_pos = current_relative_pos / vec3<u32>(node_size >> DDA_LOG_SIZE);
+		let cell_index = dda_get_child_contents_index(contents_pos);
 
-		if !dda_bitmap_has(bitmap_low, bitmap_high, cell_index) {
+		if !dda_bitmap_has(bitmap_low, bitmap_high, bitmap_status, cell_index) {
 			// EMPTY: step forward
 			if node_size != 4u {
 				let node_child_size = node_size >> DDA_LOG_SIZE;
@@ -262,16 +248,23 @@ fn dda_raycast(
 						no_hit.normal = 0u;;
 						return no_hit;
 					}
-					node_byte_off -= dda_parent_offset(node_byte_off) * DDA_SLOT_BYTES;
+					node_byte_off -= (dda_parent_offset(node_byte_off) & 0x3FFF) * DDA_SLOT_BYTES;
 					node_size = node_size << DDA_LOG_SIZE;
-					if root_relative_grid_pos[last_step_axis] / node_size == u32(new_pos_signed) / node_size { break; }
+					if root_relative_grid_pos[last_step_axis] / node_size == u32(new_pos_signed) / node_size {
+						bitmap_status = dda_parent_offset(node_byte_off) >> 14;
+						break;
+					}
 				}
-				bitmap_low = dda_bitmap_lo(node_byte_off);
-				bitmap_high = dda_bitmap_hi(node_byte_off);
+				if (bitmap_status & 1) != 0 {
+					bitmap_low = dda_u32(node_byte_off + 4);
+				}
+				if (bitmap_status & 2) != 0 {
+					bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u);
+				}
 			}
 			root_relative_grid_pos[last_step_axis] = u32(new_pos_signed);
 		} else {
-			let data_idx  = dda_data_index(bitmap_low, bitmap_high, cell_index);
+			let data_idx = dda_data_index(bitmap_low, bitmap_high, bitmap_status, cell_index);
 			if node_size == 4u {
 				// Depth-0: every set bitmap bit is a voxel - immediate hit.
 				var hit_result: DDAHit;
@@ -282,7 +275,7 @@ fn dda_raycast(
 				return hit_result;
 			}
 
-			let entry_val = dda_node_entry(node_byte_off, data_idx, node_size);
+			let entry_val = dda_node_entry(node_byte_off, bitmap_status, data_idx, node_size);
 
 			if entry_val == 0u {
 				// DATA: hit
@@ -296,8 +289,13 @@ fn dda_raycast(
 				// NODE: descend
 				node_byte_off += entry_val * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;
-				bitmap_low = dda_bitmap_lo(node_byte_off);
-				bitmap_high = dda_bitmap_hi(node_byte_off);
+				bitmap_status = dda_parent_offset(node_byte_off) >> 14;
+				if (bitmap_status & 1) != 0 {
+					bitmap_low = dda_u32(node_byte_off + 4);
+				}
+				if (bitmap_status & 2) != 0 {
+					bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u);
+				}
 			}
 		}
 	}

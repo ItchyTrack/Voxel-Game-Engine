@@ -349,6 +349,7 @@ impl GridTree {
 		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
 		let parent = &mut self.nodes[parent_node_index as usize];
 		parent.used_cell_count += 1;
+		assert!(parent.used_cell_count <= 64);
 		let child_size = GridTreeNode::child_size(parent_depth);
 		let contents_pos = (pos / child_size).as_u8vec3();
 		assert!(next_node_offset != 0);
@@ -356,10 +357,11 @@ impl GridTree {
 		self.nodes.push(GridTreeNode {
 			contents: [GridTreeCell::NONE; SIZE_USIZE_CUBED],
 			parent_offset: next_node_offset,
-			used_cell_count: 1,
+			used_cell_count: 0,
 		});
 		if parent_depth == 1 {
 			let node = &mut self.nodes[(parent_node_index + next_node_offset as u32) as usize];
+			node.used_cell_count += 1;
 			node.set_child_cell((pos % SIZE as u16).as_u8vec3(), cell_to_set);
 		} else {
 			self.set_voxel_in_none_cell(parent_node_index + next_node_offset as u32, parent_depth - 1, cell_to_set, &(pos % child_size));
@@ -400,8 +402,12 @@ impl GridTree {
 		}
 	}
 	// Assumes childern are dead. // Does nothing (leaks the memory)
-	pub fn remove_node(&mut self, _node_index: u32) {
-
+	pub fn remove_node(&mut self, node_index: u32) {
+		if let Some(node) = self.nodes.get_mut(node_index as usize) {
+			node.used_cell_count = 255; // mark as deleted (does not change anything but it nice to do)
+		} else {
+			println!("NODE GONE!");
+		}
 	}
 
 	pub fn insert(&mut self, pos: &I16Vec3, data: u16) -> Option<u16> {
@@ -421,6 +427,10 @@ impl GridTree {
 				0 => {
 					if current_depth == 0 {
 						node.used_cell_count += 1;
+						assert!(node.used_cell_count <= 64);
+						if node.used_cell_count > 64 {
+							panic!("ERROR!!!");
+						}
 						node.set_child_cell_to_data(contents_pos, data);
 						self.try_merge(current_node_index, data, &cell_index_stack[0..cell_index_stack_size]);
 					} else {
