@@ -3,16 +3,16 @@ use std::{cell::{Ref, RefCell}, collections::HashMap};
 use glam::{I8Vec3, Vec3, IVec3};
 use tracy_client::span;
 
-use crate::{physics::solver::Impulse, pose::Pose};
+use crate::{physics::{physics_body::{PhysicsBodyGridId, PhysicsBodyId}, solver::Impulse}, pose::Pose};
 
 use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver, ball_joint_constraint::BallJointConstraint, voxel_tracker::VoxelTracker};
 
 pub struct PhysicsEngine {
 	physics_bodies: Vec<PhysicsBody>,
-	physics_body_id_to_index: HashMap<u32, u32>,
-	constraints: HashMap<(u32, u32), BallJointConstraint>,
-	impulses: HashMap<u32, Vec<Impulse>>,
-	next_body_id: u32,
+	physics_body_id_to_index: HashMap<PhysicsBodyId, u32>,
+	constraints: HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
+	impulses: HashMap<PhysicsBodyId, Vec<Impulse>>,
+	next_body_id: PhysicsBodyId,
 	solver: Solver,
 	bvh: RefCell<Option<BVH<(u32, u32, IVec3)>>>,
 	voxel_tracker: VoxelTracker,
@@ -48,7 +48,7 @@ impl PhysicsEngine {
 			physics_body_id_to_index: HashMap::new(),
 			constraints: HashMap::new(),
 			impulses: HashMap::new(),
-			next_body_id: 0,
+			next_body_id: PhysicsBodyId(0),
 			solver: Solver::new(),
 			bvh: RefCell::new(None),
 			voxel_tracker: VoxelTracker::new(),
@@ -85,14 +85,14 @@ impl PhysicsEngine {
 		self.get_bvh()
 	}
 
-	pub fn add_physics_body(&mut self) -> u32 {
+	pub fn add_physics_body(&mut self) -> PhysicsBodyId {
 		self.physics_body_id_to_index.insert(self.next_body_id, self.physics_bodies.len() as u32);
 		self.physics_bodies.push(PhysicsBody::new(self.next_body_id));
-		self.next_body_id += 1;
-		self.next_body_id - 1
+		self.next_body_id.0 += 1;
+		PhysicsBodyId(self.next_body_id.0 - 1)
 	}
 
-	pub fn remove_physics_body(&mut self, physics_body_id: u32) {
+	pub fn remove_physics_body(&mut self, physics_body_id: PhysicsBodyId) {
 		let index = match self.physics_body_id_to_index.remove(&physics_body_id) {
 			Some(i) => i,
 			None => return,
@@ -112,7 +112,7 @@ impl PhysicsEngine {
 		}
 	}
 
-	pub fn physics_body(&self, physics_body_id: u32) -> Option<&PhysicsBody> {
+	pub fn physics_body(&self, physics_body_id: PhysicsBodyId) -> Option<&PhysicsBody> {
 		let index = *self.physics_body_id_to_index.get(&physics_body_id)?;
 		self.physics_bodies.get(index as usize)
 	}
@@ -121,7 +121,7 @@ impl PhysicsEngine {
 		self.physics_bodies.get(physics_body_index as usize)
 	}
 
-	pub fn physics_body_mut(&mut self, physics_body_id: u32) -> Option<&mut PhysicsBody> {
+	pub fn physics_body_mut(&mut self, physics_body_id: PhysicsBodyId) -> Option<&mut PhysicsBody> {
 		let index = *self.physics_body_id_to_index.get(&physics_body_id)?;
 		self.physics_bodies.get_mut(index as usize)
 	}
@@ -134,29 +134,29 @@ impl PhysicsEngine {
 		&self.physics_bodies
 	}
 
-	pub fn apply_central_impulse(&mut self, physics_body_id: u32, impluse: &Vec3) {
+	pub fn apply_central_impulse(&mut self, physics_body_id: PhysicsBodyId, impluse: &Vec3) {
 		self.impulses.entry(physics_body_id).or_default().push(Impulse::CentralImpulse { central_impluse: *impluse });
 	}
-	pub fn apply_rotational_impulse(&mut self, physics_body_id: u32, rotational_impluse: &Vec3) {
+	pub fn apply_rotational_impulse(&mut self, physics_body_id: PhysicsBodyId, rotational_impluse: &Vec3) {
 		self.impulses.entry(physics_body_id).or_default().push(Impulse::RotationalImpulse { rotational_impluse: *rotational_impluse });
 	}
-	pub fn apply_impulse(&mut self, physics_body_id: u32, impluse_pos: &Vec3, impluse: &Vec3) {
+	pub fn apply_impulse(&mut self, physics_body_id: PhysicsBodyId, impluse_pos: &Vec3, impluse: &Vec3) {
 		self.impulses.entry(physics_body_id).or_default().push(Impulse::Impulse { impluse: *impluse, impluse_pos: *impluse_pos });
 	}
 
-	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose) {
+	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: PhysicsBodyId, body_1_attachment: &Pose, physics_body_id_2: PhysicsBodyId, body_2_attachment: &Pose) {
 		if self.physics_body_id_to_index.contains_key(&physics_body_id_1) && self.physics_body_id_to_index.contains_key(&physics_body_id_2) {
 			self.constraints.insert(
-				if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
+				if physics_body_id_1.0 < physics_body_id_2.0 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
 				BallJointConstraint::new(body_1_attachment, body_2_attachment, f32::INFINITY, 0.0)
 			);
 		}
 	}
 
-	pub fn create_ball_joint_spring_constraint(&mut self, physics_body_id_1: u32, body_1_attachment: &Pose, physics_body_id_2: u32, body_2_attachment: &Pose, stiffness : f32) {
+	pub fn create_ball_joint_spring_constraint(&mut self, physics_body_id_1: PhysicsBodyId, body_1_attachment: &Pose, physics_body_id_2: PhysicsBodyId, body_2_attachment: &Pose, stiffness : f32) {
 		if self.physics_body_id_to_index.contains_key(&physics_body_id_1) && self.physics_body_id_to_index.contains_key(&physics_body_id_2) {
 			self.constraints.insert(
-				if physics_body_id_1 < physics_body_id_2 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
+				if physics_body_id_1.0 < physics_body_id_2.0 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
 				BallJointConstraint::new(body_1_attachment, body_2_attachment, stiffness, 0.0)
 			);
 		}
@@ -169,7 +169,8 @@ impl PhysicsEngine {
 			let physics_body = &self.physics_bodies[body_index as usize];
 			let grid = physics_body.grid_by_index(grid_index).unwrap();
 			if let Some((hit_pos, hit_normal, grid_distance)) = grid.get_sub_grid_from_sub_grid_pos(&sub_grid_pos).unwrap().get_voxels().get_voxels().raycast(
-				&(&Pose::from_translation(-grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3()) * grid.pose.inverse() * physics_body.pose.inverse() * Pose::new(pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
+				&(&Pose::from_translation(-grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3()) * grid.pose.inverse() * physics_body.pose.inverse() * Pose::new(
+					pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
 				max_length.map(|max_length| max_length - bvh_distance),
 				// &(&physics_body.pose * grid.pose * Pose::from_translation(grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3()))
 			) {
@@ -202,13 +203,13 @@ impl PhysicsEngine {
 		Ref::map(self.bvh.borrow(), |bvh| { bvh.as_ref().unwrap() })
 	}
 
-	pub fn start_tracking(&mut self, body_id: u32, grid_id: u32, voxel: IVec3) -> u64 {
+	pub fn start_tracking(&mut self, body_id: PhysicsBodyId, grid_id: PhysicsBodyGridId, voxel: IVec3) -> u64 {
 		self.voxel_tracker.start_tracking(body_id, grid_id, voxel)
 	}
 	pub fn stop_tracking(&mut self, tracked_voxel_id: u64) {
 		self.voxel_tracker.stop_tracking(tracked_voxel_id);
 	}
-	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<(u32, u32, IVec3)> {
+	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<(PhysicsBodyId, PhysicsBodyGridId, IVec3)> {
 		let tracked_voxel = self.voxel_tracker.get_tracked_voxel(tracked_voxel_id)?;
 		Some((tracked_voxel.body_id, tracked_voxel.grid_id, tracked_voxel.voxel))
 	}

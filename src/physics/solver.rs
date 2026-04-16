@@ -4,7 +4,7 @@ use std::{collections::HashMap};
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use crate::{math::{Mat6, Vec6}, pose::Pose};
+use crate::{math::{Mat6, Vec6}, physics::physics_body::PhysicsBodyId, pose::Pose};
 
 use super::{physics_body, collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
 
@@ -49,7 +49,7 @@ impl Solver {
 		&mut self,
 		physics_bodies: &mut Vec<physics_body::PhysicsBody>,
 		mut constraints: Vec<((u32, u32), &mut BallJointConstraint)>,
-		impulses: &HashMap<u32, Vec<Impulse>>,
+		impulses: &HashMap<PhysicsBodyId, Vec<Impulse>>,
 		dt: f32,
 		bvh: &BVH<(u32, u32, IVec3)>
 	) {

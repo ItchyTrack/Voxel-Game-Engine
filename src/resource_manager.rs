@@ -84,3 +84,17 @@ impl ResourceManager {
 		&self.resources
 	}
 }
+
+pub struct PhysicsBodyResource {
+
+}
+
+impl PhysicsBodyResource {
+	pub fn new() -> Self {
+		Self {
+
+		}
+	}
+}
+
+impl ResourceInfo for PhysicsBodyResource { }

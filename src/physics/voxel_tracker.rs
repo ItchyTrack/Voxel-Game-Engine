@@ -2,9 +2,11 @@ use std::collections::HashMap;
 
 use glam::IVec3;
 
+use crate::physics::physics_body::{PhysicsBodyGridId, PhysicsBodyId};
+
 pub struct TrackedVoxel {
-	pub body_id: u32,
-	pub grid_id: u32,
+	pub body_id: PhysicsBodyId,
+	pub grid_id: PhysicsBodyGridId,
 	pub voxel: IVec3,
 }
 
@@ -17,7 +19,7 @@ impl VoxelTracker {
 	pub fn new() -> Self {
 		Self { tracked_voxels: HashMap::new(), next_id: 0 }
 	}
-	pub fn start_tracking(&mut self, body_id: u32, grid_id: u32, voxel: IVec3) -> u64 {
+	pub fn start_tracking(&mut self, body_id: PhysicsBodyId, grid_id: PhysicsBodyGridId, voxel: IVec3) -> u64 {
 		self.tracked_voxels.insert(self.next_id, TrackedVoxel {
 			body_id,
 			grid_id,

@@ -161,19 +161,22 @@ impl SubGrid {
 	}
 }
 
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+pub struct PhysicsBodyGridId(pub u32);
+
 pub struct PhysicsBodyGrid {
 	pub pose: Pose,
 	sub_grids: HashMap<IVec3, SubGrid>,
 	mass: u64,
 	voxel_center_of_mass_times_mass: I64Vec3,
 	inertia_tensor_at_zero: InertiaTensor,
-	id: u32,
+	id: PhysicsBodyGridId,
 }
 
 const SUB_GRID_SIZE: u16 = 64;
 
 impl PhysicsBodyGrid {
-	pub fn new(grid_id: u32, pose: &Pose) -> Self {
+	pub fn new(grid_id: PhysicsBodyGridId, pose: &Pose) -> Self {
 		Self {
 			pose: *pose,
 			sub_grids: HashMap::new(),
@@ -208,7 +211,7 @@ impl PhysicsBodyGrid {
 		sub_grid_pos * SUB_GRID_SIZE as i32
 	}
 
-	pub fn id(&self) -> u32 {
+	pub fn id(&self) -> PhysicsBodyGridId {
 		self.id
 	}
 
@@ -327,19 +330,22 @@ impl PhysicsBodyGrid {
 	}
 }
 
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+pub struct PhysicsBodyId(pub u32);
+
 pub struct PhysicsBody {
 	pub pose: Pose,
 	pub velocity: Vec3,
 	pub angular_velocity: Vec3,
 	pub is_static: bool,
 	grids: Vec<PhysicsBodyGrid>,
-	grids_id_to_index: HashMap<u32, u32>,
-	next_grid_id: u32,
-	id: u32,
+	grids_id_to_index: HashMap<PhysicsBodyGridId, u32>,
+	next_grid_id: PhysicsBodyGridId,
+	id: PhysicsBodyId,
 }
 
 impl PhysicsBody {
-	pub fn new(id: u32) -> Self {
+	pub fn new(id: PhysicsBodyId) -> Self {
 		Self {
 			pose: Pose::ZERO,
 			velocity: Vec3::ZERO,
@@ -347,11 +353,11 @@ impl PhysicsBody {
 			is_static: false,
 			grids: vec![],
 			grids_id_to_index: HashMap::new(),
-			next_grid_id: 0,
+			next_grid_id: PhysicsBodyGridId(0),
 			id: id,
 		}
 	}
-	pub fn id(&self) -> u32 {
+	pub fn id(&self) -> PhysicsBodyId {
 		self.id
 	}
 	pub fn mass(&self) -> f32 {
@@ -461,14 +467,14 @@ impl PhysicsBody {
 		return self.grids.is_empty();
 	}
 
-	pub fn add_grid(&mut self, grid_pose: Pose) -> u32 {
+	pub fn add_grid(&mut self, grid_pose: Pose) -> PhysicsBodyGridId {
 		self.grids_id_to_index.insert(self.next_grid_id, self.grids.len() as u32);
 		self.grids.push(PhysicsBodyGrid::new(self.next_grid_id, &grid_pose));
-		self.next_grid_id += 1;
-		self.next_grid_id - 1
+		self.next_grid_id.0 += 1;
+		PhysicsBodyGridId(self.next_grid_id.0 - 1)
 	}
 
-	pub fn remove_grid(&mut self, grid_id: u32) {
+	pub fn remove_grid(&mut self, grid_id: PhysicsBodyGridId) {
 		let index = match self.grids_id_to_index.remove(&grid_id) {
 			Some(i) => i,
 			None => return,
@@ -491,7 +497,7 @@ impl PhysicsBody {
 		}
 	}
 
-	pub fn grid(&self, grid_id: u32) -> Option<&PhysicsBodyGrid> {
+	pub fn grid(&self, grid_id: PhysicsBodyGridId) -> Option<&PhysicsBodyGrid> {
 		let index = *self.grids_id_to_index.get(&grid_id)?;
 		self.grids.get(index as usize)
 	}
@@ -500,7 +506,7 @@ impl PhysicsBody {
 		self.grids.get(grid_index as usize)
 	}
 
-	pub fn grid_mut(&mut self, grid_id: u32) -> Option<&mut PhysicsBodyGrid> {
+	pub fn grid_mut(&mut self, grid_id: PhysicsBodyGridId) -> Option<&mut PhysicsBodyGrid> {
 		let index = *self.grids_id_to_index.get(&grid_id)?;
 		self.grids.get_mut(index as usize)
 	}

@@ -1,9 +1,9 @@
 use glam::Vec3;
 
-use crate::{physics::physics_engine::PhysicsEngine};
+use crate::physics::{physics_body::PhysicsBodyId, physics_engine::PhysicsEngine};
 
 pub struct ObjectPickup {
-	body_id: Option<u32>
+	body_id: Option<PhysicsBodyId>
 }
 
 impl ObjectPickup {
@@ -13,7 +13,7 @@ impl ObjectPickup {
 		}
 	}
 
-	pub fn set(&mut self, body_id: u32) {
+	pub fn set(&mut self, body_id: PhysicsBodyId) {
 		self.body_id = Some(body_id);
 	}
 
@@ -25,7 +25,7 @@ impl ObjectPickup {
 		self.body_id.is_some()
 	}
 
-	pub fn get_holding(&self) -> Option<u32> {
+	pub fn get_holding(&self) -> Option<PhysicsBodyId> {
 		self.body_id
 	}
 
