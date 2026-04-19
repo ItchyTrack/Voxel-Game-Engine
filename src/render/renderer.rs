@@ -121,7 +121,7 @@ impl Renderer {
 			format: surface_format,
 			width: size.width,
 			height: size.height,
-			present_mode: surface_caps.present_modes[0],
+			present_mode: if surface_caps.present_modes.contains(&wgpu::PresentMode::Immediate) { wgpu::PresentMode::Immediate } else { surface_caps.present_modes[0] },
 			alpha_mode: surface_caps.alpha_modes[0],
 			view_formats: vec![surface_format],
 			desired_maximum_frame_latency: 2,
@@ -134,7 +134,7 @@ impl Renderer {
 		imgui_platform.attach_window(
 			imgui.io_mut(),
 			&*window,
-			imgui_winit_support::HiDpiMode::Default,
+			imgui_winit_support::HiDpiMode::Default,//Locked(1.0),
 		);
 		imgui.set_ini_filename(None);
 		let renderer_config = imgui_wgpu::RendererConfig {

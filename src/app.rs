@@ -113,7 +113,7 @@ impl ApplicationHandler<State> for App {
 				let dt = (now - self.last_update).as_secs_f32();
 				self.last_update = now;
 				state.renderer.imgui.io_mut().update_delta_time(std::time::Duration::from_secs_f32(dt));
-				self.dt_avg = (self.dt_avg * 2.0 + dt * 1.0) / 3.0;
+				self.dt_avg = self.dt_avg * 0.8 + dt * 0.2;
 				state.renderer.set_dt_avg(self.dt_avg);
 				state.update(dt);
 				match state.render() {
@@ -131,6 +131,7 @@ impl ApplicationHandler<State> for App {
 					}
 				}
 				frame_mark();
+				state.renderer.window.request_redraw();
 			}
 			WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state: key_state, .. }, .. } => {
 				if !state.renderer.imgui.io().want_capture_keyboard {

@@ -2,7 +2,7 @@
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
-use std::{collections::HashMap, f32, sync::Arc};
+use std::{collections::{HashMap, VecDeque}, f32, sync::{Arc, Mutex}};
 
 use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
@@ -18,6 +18,16 @@ use crate::debug_draw;
 const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
 const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
 
+pub struct Task {
+	task_func: Box<dyn FnOnce(&mut State)>,
+}
+
+impl Task {
+	pub fn run(self, state: &mut State) {
+		(self.task_func)(state);
+	}
+}
+
 pub struct State {
 	pub renderer: Renderer,
 	pub mouse_captured: bool,
@@ -29,6 +39,7 @@ pub struct State {
 	pub raycast_pose: Option<Pose>,
 	pub place_sound_cooldown: f32,
 	pub break_sound_cooldown: f32,
+	pub task_queue: Arc<Mutex<VecDeque<Task>>>,
 }
 
 impl State {
@@ -59,6 +70,12 @@ impl State {
 
 	pub fn update(&mut self, dt: f32) {
 		let _zone = span!("State Update");
+		{
+			let _zone = span!("Do tasks");
+			while let Some(task) = { self.task_queue.lock().unwrap().pop_front() } {
+				task.run(self);
+			}
+		}
 		self.place_sound_cooldown = (self.place_sound_cooldown - dt).max(0.0);
 		self.break_sound_cooldown = (self.break_sound_cooldown - dt).max(0.0);
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
@@ -305,70 +322,70 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		// match crate::resources::load_binary("Church_Of_St_Sophia.vox").await {
-		// 	Ok(bytes) => {
-		// 		match dot_vox::load_bytes(&bytes) {
-		// 			Ok(dot_vox_data) => {
-		// 				let physics_body_id = physics_engine.add_physics_body();
-		// 				let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-		// 				physics_body.pose.translation.y -= 350.0;
-		// 				physics_body.is_static = true;
-		// 				let grid_id = physics_body.add_grid(Pose::ZERO);
-		// 				let grid = physics_body.grid_mut(grid_id).unwrap();
-		// 				let mut stack = vec![(0, Pose::ZERO, IVec3::new(1, 1, -1))];
-		// 				while let Some((scene_id, pose, flip)) = stack.pop() {
-		// 					match &dot_vox_data.scenes[scene_id as usize] {
-		// 						dot_vox::SceneNode::Transform { attributes: _, frames, child, layer_id: _ } => {
-		// 							if let Some(frame) = frames.first() {
-		// 								let pos = frame.position().unwrap_or(dot_vox::Position{x: 0, y: 0, z: 0});
-		// 								let (rot, flip_vec) = frame.orientation().and_then(|quat| {
-		// 									let (q, v) = quat.to_quat_scale();
-		// 									let q = Quat::from_array(q);
-		// 									Some((Quat::from_xyzw(q.x, q.z, -q.y, q.w), Vec3::from_array(v).as_ivec3()))
-		// 								}).unwrap_or((Quat::IDENTITY, IVec3::ONE));
-		// 								stack.push((*child, Pose::new(pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32), pose.rotation * rot), flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y)));
-		// 							}
-		// 						},
-		// 						dot_vox::SceneNode::Group { attributes: _, children } => {
-		// 							for child in children {
-		// 								stack.push((*child, pose, flip));
-		// 							}
-		// 						},
-		// 						dot_vox::SceneNode::Shape { attributes: _, models } => {
-		// 							for shape_model in models {
-		// 								if let Some(model) = dot_vox_data.models.get(shape_model.model_id as usize) {
-		// 									let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
-		// 									let half = (size / 2.0).floor();
-		// 									for voxel in &model.voxels {
-		// 										grid.add_voxel((
-		// 											pose * Pose::from_translation(-half * flip.as_vec3()) * (
-		// 												IVec3::new(
-		// 													voxel.x as i32,
-		// 													voxel.z as i32,
-		// 													voxel.y as i32,
-		// 												) * flip + flip.min(IVec3::ZERO)
-		// 											).as_vec3()
-		// 										).as_ivec3(), voxels::Voxel {
-		// 											color: [
-		// 												dot_vox_data.palette[voxel.i as usize].r,
-		// 												dot_vox_data.palette[voxel.i as usize].g,
-		// 												dot_vox_data.palette[voxel.i as usize].b,
-		// 												dot_vox_data.palette[voxel.i as usize].a,
-		// 											],
-		// 											mass: 100,
-		// 										});
-		// 									}
-		// 								}
-		// 							}
-		// 						},
-		// 					}
-		// 				}
-		// 			},
-		// 			Err(err) => println!("dot_vox error: {err}"),
-		// 		};
-		// 	},
-		// 	Err(err) => println!("load_string error: {err}"),
-		// }
+		match crate::resources::load_binary("Church_Of_St_Sophia.vox").await {
+			Ok(bytes) => {
+				match dot_vox::load_bytes(&bytes) {
+					Ok(dot_vox_data) => {
+						let physics_body_id = physics_engine.add_physics_body();
+						let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+						physics_body.pose.translation.y -= 350.0;
+						physics_body.is_static = true;
+						let grid_id = physics_body.add_grid(Pose::ZERO);
+						let grid = physics_body.grid_mut(grid_id).unwrap();
+						let mut stack = vec![(0, Pose::ZERO, IVec3::new(1, 1, -1))];
+						while let Some((scene_id, pose, flip)) = stack.pop() {
+							match &dot_vox_data.scenes[scene_id as usize] {
+								dot_vox::SceneNode::Transform { attributes: _, frames, child, layer_id: _ } => {
+									if let Some(frame) = frames.first() {
+										let pos = frame.position().unwrap_or(dot_vox::Position{x: 0, y: 0, z: 0});
+										let (rot, flip_vec) = frame.orientation().and_then(|quat| {
+											let (q, v) = quat.to_quat_scale();
+											let q = Quat::from_array(q);
+											Some((Quat::from_xyzw(q.x, q.z, -q.y, q.w), Vec3::from_array(v).as_ivec3()))
+										}).unwrap_or((Quat::IDENTITY, IVec3::ONE));
+										stack.push((*child, Pose::new(pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32), pose.rotation * rot), flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y)));
+									}
+								},
+								dot_vox::SceneNode::Group { attributes: _, children } => {
+									for child in children {
+										stack.push((*child, pose, flip));
+									}
+								},
+								dot_vox::SceneNode::Shape { attributes: _, models } => {
+									for shape_model in models {
+										if let Some(model) = dot_vox_data.models.get(shape_model.model_id as usize) {
+											let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
+											let half = (size / 2.0).floor();
+											for voxel in &model.voxels {
+												grid.add_voxel((
+													pose * Pose::from_translation(-half * flip.as_vec3()) * (
+														IVec3::new(
+															voxel.x as i32,
+															voxel.z as i32,
+															voxel.y as i32,
+														) * flip + flip.min(IVec3::ZERO)
+													).as_vec3()
+												).as_ivec3(), voxels::Voxel {
+													color: [
+														dot_vox_data.palette[voxel.i as usize].r,
+														dot_vox_data.palette[voxel.i as usize].g,
+														dot_vox_data.palette[voxel.i as usize].b,
+														dot_vox_data.palette[voxel.i as usize].a,
+													],
+													mass: 100,
+												});
+											}
+										}
+									}
+								},
+							}
+						}
+					},
+					Err(err) => println!("dot_vox error: {err}"),
+				};
+			},
+			Err(err) => println!("load_string error: {err}"),
+		}
 
 		// ------------------------------ Static Box ------------------------------
 		// {
@@ -746,16 +763,16 @@ impl State {
 		}
 
 		// terrain
-		{
-			let physics_body_id = physics_engine.add_physics_body();
-			let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-			let world_generator = crate::world_gen::WorldGenerator::new(2);
-			let grid_id = physics_body.add_grid(Pose::ZERO);
-			let grid = physics_body.grid_mut(grid_id).unwrap();
-			world_generator.gererate_area(glam::IVec2::new(-512, -512), glam::IVec2::new(512, 512), grid);
-			physics_body.is_static = true;
-			physics_body.pose.translation.y = -10.0;
-		}
+		// {
+		// 	let physics_body_id = physics_engine.add_physics_body();
+		// 	let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+		// 	let world_generator = crate::world_gen::WorldGenerator::new(2);
+		// 	let grid_id = physics_body.add_grid(Pose::ZERO);
+		// 	let grid = physics_body.grid_mut(grid_id).unwrap();
+		// 	world_generator.gererate_area(glam::IVec2::new(-512, -512), glam::IVec2::new(512, 512), grid);
+		// 	physics_body.is_static = true;
+		// 	physics_body.pose.translation.y = -10.0;
+		// }
 
 		Ok(Self {
 			renderer,
@@ -768,6 +785,7 @@ impl State {
 			raycast_pose: None,
 			place_sound_cooldown: 0.0,
 			break_sound_cooldown: 0.0,
+			task_queue: Arc::new(Mutex::new(VecDeque::new())),
 		})
 	}
 
