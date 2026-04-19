@@ -131,7 +131,7 @@ impl ApplicationHandler<State> for App {
 					}
 				}
 				frame_mark();
-				state.renderer.window.request_redraw();
+				// state.renderer.window.request_redraw();
 			}
 			WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state: key_state, .. }, .. } => {
 				if !state.renderer.imgui.io().want_capture_keyboard {
