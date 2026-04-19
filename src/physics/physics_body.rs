@@ -173,7 +173,7 @@ pub struct PhysicsBodyGrid {
 	id: PhysicsBodyGridId,
 }
 
-const SUB_GRID_SIZE: u16 = 32;
+const SUB_GRID_SIZE: u16 = 64;
 
 impl PhysicsBodyGrid {
 	pub fn new(grid_id: PhysicsBodyGridId, pose: &Pose) -> Self {

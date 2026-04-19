@@ -166,7 +166,7 @@ impl State {
 			}
 		});
 		self.leaky_bucket += dt;
-		let time_step = 1.0 / 200.0;
+		let time_step = 1.0 / 100.0;
 		let current_time = Instant::now();
 		while self.leaky_bucket >= time_step {
 			self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
