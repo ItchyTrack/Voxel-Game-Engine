@@ -106,6 +106,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let sky_color = bg + sun_color;
         return vec4<f32>(sky_color, 1.0);
 	}
+	// return vec4<f32>(f32(data.x) / 30000.0, f32(data.x) / 30000.0, f32(data.x) / 30000.0, 1.0);
 	let normal = data.x & 0xFFu;
 	let light_visible = (data.x & 256u) != 0;
 	let bvh_item_idx = data.y;

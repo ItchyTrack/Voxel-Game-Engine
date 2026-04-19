@@ -1,27 +1,27 @@
 // -- Node layout ---------------------------------------------------------------
 //
-// Each BVHNode is exactly 64 bytes (one cache line).  All four fields are
+// Each BVHNode is exactly 64 bytes (one cache line). All four fields are
 // vec4<f32> so the struct is naturally 16-byte-aligned throughout.
 //
 // Integer values (child indices, flags) are stored in the .w component of
-// each vec4 via bit-cast.  This keeps the struct packed without padding and
+// each vec4 via bit-cast. This keeps the struct packed without padding and
 // lets AABB min/max be extracted as .xyz swizzles — no per-component reads.
 //
-// ┌- internal node ---------------------------------------------------------┐
+// +- internal node --------------------------------------------------------+
 // │  c0_min_and_ref  .xyz = child-0 AABB min,  .w = bitcast<f32>(c0_ref)   │
 // │  c0_max_and_ref2 .xyz = child-0 AABB max,  .w = bitcast<f32>(c1_ref)   │
 // │  c1_min_and_flags.xyz = child-1 AABB min,  .w = bitcast<f32>(0)        │
 // │  c1_max_pad      .xyz = child-1 AABB max,  .w = 0.0                    │
-// └-------------------------------------------------------------------------┘
-// ┌- leaf node -------------------------------------------------------------┐
-// │  c0_min_and_ref  .xyz = own AABB min,       .w = bitcast<f32>(base)     │
-// │  c0_max_and_ref2 .xyz = own AABB max,       .w = bitcast<f32>(count)    │
-// │  c1_min_and_flags       zeroed,             .w = bitcast<f32>(1)  ←flag │
-// │  c1_max_pad             zeroed                                           │
-// └-------------------------------------------------------------------------┘
+// +------------------------------------------------------------------------+
+// +- leaf node ------------------------------------------------------------+
+// │  c0_min_and_ref  .xyz = own AABB min,      .w = bitcast<f32>(base)     │
+// │  c0_max_and_ref2 .xyz = own AABB max,      .w = bitcast<f32>(count)    │
+// │  c1_min_and_flags       zeroed,            .w = bitcast<f32>(1) <-flag │
+// │  c1_max_pad             zeroed                                         │
+// +------------------------------------------------------------------------+
 //
 // Index 0 is a sentinel: c0 stores the world AABB, c0_ref points to the
-// true root (index 1).  bvh_iter_new reads only the sentinel.
+// true root (index 1). bvh_iter_new reads only the sentinel.
 
 struct BVHNode {
     c0_min_and_ref:   vec4<f32>,
@@ -66,30 +66,30 @@ fn ray_aabb(rp: vec3<f32>, inv: vec3<f32>, mn: vec3<f32>, mx: vec3<f32>) -> vec2
 //
 // WHY A STACK INSTEAD OF A HEAP:
 //   The previous implementation used a binary min-heap to guarantee strict
-//   nearest-first ordering.  On GPU, each heap push/pop is O(log n) with
+//   nearest-first ordering. On GPU, each heap push/pop is O(log n) with
 //   irregular memory access patterns inside private/scratch memory, which
 //   causes register pressure and potential spilling.
 //
 //   A plain LIFO stack with *ordered push* (far child pushed before near child
 //   so the near child sits on top) achieves near-identical traversal order at
-//   O(1) cost per entry.  For a well-built SAH BVH the ordering is very close
+//   O(1) cost per entry. For a well-built SAH BVH the ordering is very close
 //   to optimal; the rare reordering is negligible compared to the savings.
 //
 // WHY THE VOXEL DDA MAKES THIS ESPECIALLY GOOD:
 //   The DDA is expensive, so the first hit returned to the caller will almost
-//   always update max_dist to a tight bound.  Combined with the ordered stack
+//   always update max_dist to a tight bound. Combined with the ordered stack
 //   all remaining candidates farther than that bound are culled immediately
 //   on pop — the stack drains quickly after the first real hit.
 //
 // ITEM_FLAG ENCODING:
 //   Items (leaf primitives) are pushed onto the same stack as nodes, using
-//   bit 31 as a tag.  When a leaf node is visited, its item AABBs are tested
-//   and the hits are pushed.  Because items are pushed after the leaf is
+//   bit 31 as a tag. When a leaf node is visited, its item AABBs are tested
+//   and the hits are pushed. Because items are pushed after the leaf is
 //   visited, they sit on top of the stack (LIFO), so they are returned before
 //   any farther subtrees — preserving approximate nearest-first order.
 
 const ITEM_FLAG:   u32 = 0x80000000u;
-const STACK_DEPTH: i32 = 32;           // 32 × 8 B = 256 B private memory
+const STACK_DEPTH: i32 = 32;           // 32 * 8 B = 256 B private memory
 
 struct StackEntry { idx: u32, dist: f32 }
 
@@ -201,7 +201,7 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
             // -- Internal: test both children using AABBs already in node --
             //
             // No extra BVH reads needed — both AABBs came for free with the
-            // parent read above.  Push far child first so near child sits on
+            // parent read above. Push far child first so near child sits on
             // top of the stack (nearest-first traversal approximation).
             let r0 = ray_aabb(rp, inv, node.c0_min_and_ref.xyz,   node.c0_max_and_ref2.xyz);
             let r1 = ray_aabb(rp, inv, node.c1_min_and_flags.xyz, node.c1_max_pad.xyz);

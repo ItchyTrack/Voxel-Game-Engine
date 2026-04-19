@@ -10,26 +10,26 @@ use crate::{physics::bvh, pose::Pose};
 // Each GpuBVHNode is exactly 64 bytes — one cache line.
 //
 // The key optimisation vs the previous layout: for an internal node, both
-// children's AABBs are stored *inside the parent*.  The shader reads one node
+// children's AABBs are stored *inside the parent*. The shader reads one node
 // and immediately has both AABBs to test, instead of needing three node reads
-// (parent + child 0 + child 1) to make progress.  This cuts BVH memory
-// bandwidth for internal nodes by 3×.
+// (parent + child 0 + child 1) to make progress. This cuts BVH memory
+// bandwidth for internal nodes by 3*.
 //
 // Refs and flags are bit-cast into the .w component of the vec4 fields so
 // that every field stays naturally 16-byte aligned for GPU consumption.
 //
-// ┌- internal node ---------------------------------------------------------┐
+// +- internal node --------------------------------------------------------+
 // │  c0_min_and_ref  .xyz = child-0 AABB min,  .w = bits(child-0 idx)      │
 // │  c0_max_and_ref2 .xyz = child-0 AABB max,  .w = bits(child-1 idx)      │
 // │  c1_min_and_flags.xyz = child-1 AABB min,  .w = bits(flags) = 0        │
 // │  c1_max_pad      .xyz = child-1 AABB max,  .w = 0.0                    │
-// └-------------------------------------------------------------------------┘
-// ┌- leaf node -------------------------------------------------------------┐
-// │  c0_min_and_ref  .xyz = own AABB min,       .w = bits(item base)        │
-// │  c0_max_and_ref2 .xyz = own AABB max,       .w = bits(item count)       │
-// │  c1_min_and_flags       zeroed,             .w = bits(flags) = 1        │
-// │  c1_max_pad             zeroed                                           │
-// └-------------------------------------------------------------------------┘
+// +------------------------------------------------------------------------+
+// +- leaf node ------------------------------------------------------------+
+// │  c0_min_and_ref  .xyz = own AABB min,      .w = bits(item base)        │
+// │  c0_max_and_ref2 .xyz = own AABB max,      .w = bits(item count)       │
+// │  c1_min_and_flags       zeroed,            .w = bits(flags) = 1        │
+// │  c1_max_pad             zeroed                                         │
+// +------------------------------------------------------------------------+
 //
 // GPU node array layout:
 //   [0]  sentinel  – c0 stores the world (root) AABB; c0_ref = 1 (true root).

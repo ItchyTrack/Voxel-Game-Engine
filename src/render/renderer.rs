@@ -106,7 +106,10 @@ impl Renderer {
 				label: None,
 				required_features: wgpu::Features::default(),
 				experimental_features: wgpu::ExperimentalFeatures::disabled(),
-				required_limits: if cfg!(target_arch = "wasm32") { wgpu::Limits::defaults() } else { wgpu::Limits::default() },
+				required_limits: wgpu::Limits {
+					max_bind_groups: 5,
+					..wgpu::Limits::defaults()
+				},
 				memory_hints: Default::default(),
 				trace: wgpu::Trace::Off,
 			})
