@@ -6,19 +6,35 @@ use crate::{gpu_objects::{gpu_grid_tree, packed_dynamic_buffer::PackedDynamicBuf
 
 use super::inertia_tensor::InertiaTensor;
 
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+pub struct SubGridId(pub u32);
+
 pub struct SubGrid {
 	voxels: voxels::Voxels,
 	reupload_gpu_grid: Cell<bool>,
 	gpu_grid_tree_id: Cell<Option<(u32, u32, f32)>>, // tree id, tree id, lod it was taken at
+	sub_grid_id: SubGridId,
+	sub_grid_pos: I16Vec3,
 }
 
 impl SubGrid {
-	pub fn new() -> Self {
+	pub fn new(sub_grid_id: SubGridId, sub_grid_pos: I16Vec3) -> Self {
 		Self {
 			voxels: voxels::Voxels::new(),
 			reupload_gpu_grid: Cell::new(false),
 			gpu_grid_tree_id: Cell::new(None),
+			sub_grid_id,
+			sub_grid_pos,
 		}
+	}
+	pub fn id(&self) -> SubGridId {
+		self.sub_grid_id
+	}
+	pub fn sub_grid_pos(&self) -> I16Vec3 {
+		self.sub_grid_pos
+	}
+	pub fn sub_grid_ipos(&self) -> IVec3 {
+		self.sub_grid_pos.as_ivec3()
 	}
 	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: voxels::Voxel) -> Option<voxels::Voxel> {
 		self.reupload_gpu_grid.set(true);
@@ -166,11 +182,14 @@ pub struct PhysicsBodyGridId(pub u32);
 
 pub struct PhysicsBodyGrid {
 	pub pose: Pose,
-	sub_grids: HashMap<IVec3, SubGrid>,
+	sub_grids: Vec<SubGrid>,
+	sub_grid_id_to_index: HashMap<SubGridId, u32>,
+	sub_grid_pos_to_index: HashMap<I16Vec3, u32>,
+	next_sub_grid_id: SubGridId,
+	id: PhysicsBodyGridId,
 	mass: u64,
 	voxel_center_of_mass_times_mass: I64Vec3,
 	inertia_tensor_at_zero: InertiaTensor,
-	id: PhysicsBodyGridId,
 }
 
 const SUB_GRID_SIZE: u16 = 64;
@@ -179,32 +198,92 @@ impl PhysicsBodyGrid {
 	pub fn new(grid_id: PhysicsBodyGridId, pose: &Pose) -> Self {
 		Self {
 			pose: *pose,
-			sub_grids: HashMap::new(),
+			sub_grids: vec![],
+			sub_grid_id_to_index: HashMap::new(),
+			sub_grid_pos_to_index: HashMap::new(),
+			next_sub_grid_id: SubGridId(0),
+			id: grid_id,
 			mass: 0,
 			voxel_center_of_mass_times_mass: I64Vec3::ZERO,
 			inertia_tensor_at_zero: InertiaTensor::ZERO,
-			id: grid_id,
 		}
 	}
 
-	pub fn get_sub_grids(&self) -> &HashMap<IVec3, SubGrid> {
+	fn pos_to_sub_grid_pos(&self, pos: &IVec3) -> I16Vec3{
+		pos.div_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()
+	}
+
+	pub fn add_sub_grid(&mut self, pos: &IVec3) -> SubGridId {
+		self.sub_grid_id_to_index.insert(self.next_sub_grid_id, self.sub_grids.len() as u32);
+		let sub_grid_pos = self.pos_to_sub_grid_pos(pos);
+		self.sub_grid_pos_to_index.insert(sub_grid_pos, self.sub_grids.len() as u32);
+		self.sub_grids.push(SubGrid::new(self.next_sub_grid_id, sub_grid_pos));
+		self.next_sub_grid_id.0 += 1;
+		SubGridId(self.next_sub_grid_id.0 - 1)
+	}
+
+	pub fn remove_sub_grid(&mut self, sub_grid_id: SubGridId) {
+		let index = match self.sub_grid_id_to_index.remove(&sub_grid_id) {
+			Some(i) => i,
+			None => return,
+		};
+		let sub_grid = self.sub_grids.swap_remove(index as usize);
+		self.sub_grid_pos_to_index.remove(&sub_grid.sub_grid_pos);
+		if index != self.sub_grids.len() as u32 {
+			let other_id = self.sub_grids[index as usize].id();
+			self.sub_grid_id_to_index.insert(other_id, index);
+		}
+	}
+
+	pub fn remove_sub_grid_by_index(&mut self, index: u32) {
+		if let Some(sub_grid) = self.sub_grids.get(index as usize) {
+			self.sub_grid_id_to_index.remove(&sub_grid.id());
+		} else { return; }
+		self.sub_grids.swap_remove(index as usize);
+		if index != self.sub_grids.len() as u32 {
+			let other_id = self.sub_grids[index as usize].id();
+			self.sub_grid_id_to_index.insert(other_id, index);
+		}
+	}
+
+	pub fn sub_grid(&self, sub_grid_id: SubGridId) -> Option<&SubGrid> {
+		let index = *self.sub_grid_id_to_index.get(&sub_grid_id)?;
+		self.sub_grids.get(index as usize)
+	}
+
+	pub fn sub_grid_by_index(&self, sub_grid_index: u32) -> Option<&SubGrid> {
+		self.sub_grids.get(sub_grid_index as usize)
+	}
+
+	pub fn sub_grid_mut(&mut self, sub_grid_id: SubGridId) -> Option<&mut SubGrid> {
+		let index = *self.sub_grid_id_to_index.get(&sub_grid_id)?;
+		self.sub_grids.get_mut(index as usize)
+	}
+
+	pub fn sub_grid_by_index_mut(&mut self, sub_grid_index: u32) -> Option<&mut SubGrid> {
+		self.sub_grids.get_mut(sub_grid_index as usize)
+	}
+
+	pub fn sub_grids(&self) -> &[SubGrid] {
 		&self.sub_grids
 	}
 
 	pub fn get_sub_grid(&self, pos: &IVec3) -> Option<(&SubGrid, I16Vec3)> {
-		Some((self.sub_grids.get(&(pos.div_euclid(IVec3::splat(SUB_GRID_SIZE as i32))))?, pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()))
-	}
-
-	pub fn get_sub_grid_from_sub_grid_pos(&self, sub_grid_pos: &IVec3) -> Option<&SubGrid> {
-		Some(self.sub_grids.get(&sub_grid_pos)?)
+		Some((self.sub_grids.get(*self.sub_grid_pos_to_index.get(&self.pos_to_sub_grid_pos(pos))? as usize)?, pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()))
 	}
 
 	fn get_sub_grid_mut(&mut self, pos: &IVec3) -> Option<(&mut SubGrid, I16Vec3)> {
-		Some((self.sub_grids.get_mut(&(pos.div_euclid(IVec3::splat(SUB_GRID_SIZE as i32))))?, pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()))
+		let sub_grid_pos = self.pos_to_sub_grid_pos(pos);
+		Some((self.sub_grids.get_mut(*self.sub_grid_pos_to_index.get(&sub_grid_pos)? as usize)?, pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()))
 	}
 
 	fn get_sub_grid_mut_create(&mut self, pos: &IVec3) -> (&mut SubGrid, I16Vec3) {
-		(self.sub_grids.entry(pos.div_euclid(IVec3::splat(SUB_GRID_SIZE as i32))).or_insert_with(|| SubGrid::new()), pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3())
+		let sub_grid_pos = self.pos_to_sub_grid_pos(pos);
+		if let Some(sub_grid_index) = self.sub_grid_pos_to_index.get(&sub_grid_pos) {
+			return (self.sub_grid_by_index_mut(*sub_grid_index).unwrap(), pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3());
+		}
+		let sub_grid_id = self.add_sub_grid(pos);
+		(self.sub_grid_mut(sub_grid_id).unwrap(), pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3())
 	}
 
 	pub fn sub_grid_pos_to_grid_pos(&self, sub_grid_pos: &IVec3) -> IVec3 {
@@ -242,11 +321,11 @@ impl PhysicsBodyGrid {
 		view_frustum: &camera::ViewFrustum,
 		_camera_pose: Pose,
 		pose: &Pose
-	) -> Vec<(IVec3, (u32, u32, Pose))> {
-		self.sub_grids.iter().filter_map(|(sub_grid_pos, sub_grid)| {
-			let grid_pose = pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(sub_grid_pos).as_vec3());
+	) -> Vec<(u32, (u32, u32, Pose))> {
+		self.sub_grids.iter().enumerate().filter_map(|(sub_grid_index, sub_grid)| {
+			let grid_pose = pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3());
 			Some((
-				*sub_grid_pos,
+				sub_grid_index as u32,
 				(sub_grid.update_gpu_grid_tree(
 					device,
 					queue,
@@ -263,16 +342,16 @@ impl PhysicsBodyGrid {
 	// return true is this should be deleted
 	pub fn clean_up(&mut self) -> bool {
 		let mut sub_grids_to_remove = vec![];
-		for (id, sub_grid) in &mut self.sub_grids {
+		for sub_grid in &mut self.sub_grids {
 			if sub_grid.clean_up() {
-				sub_grids_to_remove.push(*id);
+				sub_grids_to_remove.push(sub_grid.id());
 			}
 		}
 		if sub_grids_to_remove.len() == self.sub_grids.len() {
 			return true;
 		}
 		for id in sub_grids_to_remove {
-			self.sub_grids.remove(&id);
+			self.remove_sub_grid(id);
 		}
 		return false;
 	}
@@ -339,7 +418,7 @@ pub struct PhysicsBody {
 	pub angular_velocity: Vec3,
 	pub is_static: bool,
 	grids: Vec<PhysicsBodyGrid>,
-	grids_id_to_index: HashMap<PhysicsBodyGridId, u32>,
+	grid_id_to_index: HashMap<PhysicsBodyGridId, u32>,
 	next_grid_id: PhysicsBodyGridId,
 	id: PhysicsBodyId,
 }
@@ -352,7 +431,7 @@ impl PhysicsBody {
 			angular_velocity: Vec3::ZERO,
 			is_static: false,
 			grids: vec![],
-			grids_id_to_index: HashMap::new(),
+			grid_id_to_index: HashMap::new(),
 			next_grid_id: PhysicsBodyGridId(0),
 			id: id,
 		}
@@ -444,11 +523,11 @@ impl PhysicsBody {
 		packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
 		view_frustum: &camera::ViewFrustum,
 		camera_pose: Pose,
-	) -> Vec<((u32, IVec3), (u32, u32, Pose))> {
+	) -> Vec<((u32, u32), (u32, u32, Pose))> {
 		let mut gpu_grid_tree_id_to_id_poses = vec![];
 		for (grid_index, grid) in self.grids.iter().enumerate() {
-			for (sub_grid_pos, data) in grid.update_gpu_grid_tree(device, queue, packed_64_tree_dynamic_buffer, packed_voxel_data_dynamic_buffer, view_frustum, camera_pose, &self.pose) {
-				gpu_grid_tree_id_to_id_poses.push(((grid_index as u32, sub_grid_pos), data));
+			for (sub_grid_index, data) in grid.update_gpu_grid_tree(device, queue, packed_64_tree_dynamic_buffer, packed_voxel_data_dynamic_buffer, view_frustum, camera_pose, &self.pose) {
+				gpu_grid_tree_id_to_id_poses.push(((grid_index as u32, sub_grid_index), data));
 			}
 		}
 		gpu_grid_tree_id_to_id_poses
@@ -468,37 +547,37 @@ impl PhysicsBody {
 	}
 
 	pub fn add_grid(&mut self, grid_pose: Pose) -> PhysicsBodyGridId {
-		self.grids_id_to_index.insert(self.next_grid_id, self.grids.len() as u32);
+		self.grid_id_to_index.insert(self.next_grid_id, self.grids.len() as u32);
 		self.grids.push(PhysicsBodyGrid::new(self.next_grid_id, &grid_pose));
 		self.next_grid_id.0 += 1;
 		PhysicsBodyGridId(self.next_grid_id.0 - 1)
 	}
 
 	pub fn remove_grid(&mut self, grid_id: PhysicsBodyGridId) {
-		let index = match self.grids_id_to_index.remove(&grid_id) {
+		let index = match self.grid_id_to_index.remove(&grid_id) {
 			Some(i) => i,
 			None => return,
 		};
 		self.grids.swap_remove(index as usize);
 		if index != self.grids.len() as u32 {
 			let other_id = self.grids[index as usize].id();
-			self.grids_id_to_index.insert(other_id, index);
+			self.grid_id_to_index.insert(other_id, index);
 		}
 	}
 
 	pub fn remove_grid_by_index(&mut self, index: u32) {
 		if let Some(grid) = self.grids.get(index as usize) {
-			self.grids_id_to_index.remove(&grid.id());
+			self.grid_id_to_index.remove(&grid.id());
 		} else { return; }
 		self.grids.swap_remove(index as usize);
 		if index != self.grids.len() as u32 {
 			let other_id = self.grids[index as usize].id();
-			self.grids_id_to_index.insert(other_id, index);
+			self.grid_id_to_index.insert(other_id, index);
 		}
 	}
 
 	pub fn grid(&self, grid_id: PhysicsBodyGridId) -> Option<&PhysicsBodyGrid> {
-		let index = *self.grids_id_to_index.get(&grid_id)?;
+		let index = *self.grid_id_to_index.get(&grid_id)?;
 		self.grids.get(index as usize)
 	}
 
@@ -507,7 +586,7 @@ impl PhysicsBody {
 	}
 
 	pub fn grid_mut(&mut self, grid_id: PhysicsBodyGridId) -> Option<&mut PhysicsBodyGrid> {
-		let index = *self.grids_id_to_index.get(&grid_id)?;
+		let index = *self.grid_id_to_index.get(&grid_id)?;
 		self.grids.get_mut(index as usize)
 	}
 
@@ -523,7 +602,7 @@ impl PhysicsBody {
 		let mut aabb_min = Vec3::splat(f32::MAX);
 		let mut aabb_max = Vec3::splat(f32::MIN);
 		for grid in &self.grids {
-			for (sub_grid_pos, sub_grid) in grid.get_sub_grids() {
+			for sub_grid in grid.sub_grids() {
 				if let Some((min, max)) = sub_grid.get_voxels().get_bounding_box() {
 					let min = min.as_vec3();
 					let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
@@ -537,7 +616,7 @@ impl PhysicsBody {
 						Vec3::new(min.x, max.y, max.z),
 						max,
 					];
-					let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3();
+					let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3();
 					let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
 					aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
 					aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
@@ -552,7 +631,7 @@ impl PhysicsBody {
 		let mut aabb_min = Vec3::splat(f32::MAX);
 		let mut aabb_max = Vec3::splat(f32::MIN);
 		let grid = self.grids.get(grid_index as usize)?;
-		for (sub_grid_pos, sub_grid) in grid.get_sub_grids() {
+		for sub_grid in grid.sub_grids() {
 			if let Some((min, max)) = sub_grid.get_voxels().get_bounding_box() {
 				let min = min.as_vec3();
 				let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
@@ -566,7 +645,7 @@ impl PhysicsBody {
 					Vec3::new(min.x, max.y, max.z),
 					max,
 				];
-				let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3();
+				let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3();
 				let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
 				aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
 				aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
@@ -575,9 +654,9 @@ impl PhysicsBody {
 		Some((aabb_min, aabb_max))
 	}
 
-	pub fn sub_grid_aabb_by_index(&self, grid_index: u32, sub_grid_pos: &IVec3) -> Option<(Vec3, Vec3)> {
+	pub fn sub_grid_aabb_by_index(&self, grid_index: u32, sub_grid_index: u32) -> Option<(Vec3, Vec3)> {
 		let grid = self.grids.get(grid_index as usize)?;
-		let sub_grid = grid.get_sub_grid_from_sub_grid_pos(sub_grid_pos)?;
+		let sub_grid = grid.sub_grid_by_index(sub_grid_index)?;
 		let (min, max) = sub_grid.get_voxels().get_bounding_box()?;
 		let min = min.as_vec3();
 		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
@@ -591,7 +670,7 @@ impl PhysicsBody {
 			Vec3::new(min.x, max.y, max.z),
 			max,
 		];
-		let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3();
+		let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3();
 		let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
 		Some((
 			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),

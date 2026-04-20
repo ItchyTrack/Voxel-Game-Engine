@@ -12,6 +12,7 @@ mod math;
 mod world_gen;
 mod grid_tree;
 mod resource_manager;
+mod physics_body_resource;
 mod debug_draw;
 mod entity_component_system;
 mod gpu_objects {

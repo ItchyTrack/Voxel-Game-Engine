@@ -8,7 +8,7 @@ use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, physics::bvh::BVH, player::{camera, orientator::Orientator}, pose::Pose, render::renderer::Renderer, voxels};
+use crate::{entity_component_system, physics::bvh::BVH, player::{camera, orientator::Orientator}, pose::Pose, render::renderer::Renderer, resource_manager::ResourceManager, voxels};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
@@ -19,10 +19,15 @@ const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
 const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
 
 pub struct Task {
-	task_func: Box<dyn FnOnce(&mut State)>,
+	task_func: Box<dyn FnOnce(&mut State) + Send + 'static>,
 }
 
 impl Task {
+	pub fn new<F: FnOnce(&mut State) + Send + 'static>(function: F) -> Self {
+		Self {
+			task_func: Box::new(function),
+		}
+	}
 	pub fn run(self, state: &mut State) {
 		(self.task_func)(state);
 	}
@@ -34,6 +39,7 @@ pub struct State {
 	pub audio_engine: AudioEngine,
 	pub physics_engine: PhysicsEngine,
 	pub ecs: entity_component_system::EntityComponentSystem,
+	pub resource_manager: ResourceManager,
 	pub player_id: u32,
 	pub leaky_bucket: f32,
 	pub raycast_pose: Option<Pose>,
@@ -780,6 +786,7 @@ impl State {
 			audio_engine: AudioEngine::new(),
 			physics_engine,
 			ecs,
+			resource_manager: ResourceManager::new(),
 			player_id,
 			leaky_bucket: 0.0,
 			raycast_pose: None,
@@ -799,7 +806,7 @@ impl State {
 			// }
 		// }
 		if let Some(player_camera) = self.ecs.get_component::<camera::Camera>(self.player_id) {
-			let mut gpu_grid_tree_id_to_id_poses: HashMap<(u32, u32, IVec3), (u32, u32, Pose)> = HashMap::new();
+			let mut gpu_grid_tree_id_to_id_poses: HashMap<(u32, u32, u32), (u32, u32, Pose)> = HashMap::new();
 			{
 				let _zone = span!("Collect Voxels");
 				let view_frustum = player_camera.frustum();
@@ -819,10 +826,10 @@ impl State {
 				let mut bounds = vec![];
 				{
 					let _zone = span!("Collect aabb for rendering");
-					for ((body_index, grid_index, sub_grid_pos), _)  in gpu_grid_tree_id_to_id_poses.iter() {
+					for ((body_index, grid_index, sub_grid_index), _)  in gpu_grid_tree_id_to_id_poses.iter() {
 						let physics_body = &self.physics_engine.physics_body_by_index(*body_index).unwrap();
-						if let Some(bound) = physics_body.sub_grid_aabb_by_index(*grid_index, sub_grid_pos) {
-							bounds.push(((*body_index as u32, *grid_index as u32, *sub_grid_pos), bound));
+						if let Some(bound) = physics_body.sub_grid_aabb_by_index(*grid_index, *sub_grid_index) {
+							bounds.push(((*body_index as u32, *grid_index as u32, *sub_grid_index as u32), bound));
 						}
 					}
 				}

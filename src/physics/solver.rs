@@ -51,7 +51,7 @@ impl Solver {
 		mut constraints: Vec<((u32, u32), &mut BallJointConstraint)>,
 		impulses: &HashMap<PhysicsBodyId, Vec<Impulse>>,
 		dt: f32,
-		bvh: &BVH<(u32, u32, IVec3)>
+		bvh: &BVH<(u32, u32, u32)>
 	) {
 		let _zone = span!("Solve Collisions");
 		constraints.iter_mut().for_each(|((physics_body_index_1, physics_body_index_2), constraint)| {

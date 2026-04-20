@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use glam::IVec3;
-
 use crate::{gpu_objects::{gpu_bvh, packed_dynamic_buffer::PackedDynamicBuffer}, physics::bvh, pose::Pose};
 
 const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
@@ -472,8 +470,8 @@ impl VoxelRenderer {
 		encoder: &mut wgpu::CommandEncoder,
 		view: &wgpu::TextureView,
 		camera_transform_bind_group: &wgpu::BindGroup,
-		bvh: &bvh::BVH<(u32, u32, IVec3)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, u32, Pose)>,
+		bvh: &bvh::BVH<(u32, u32, u32)>,
+		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, u32), (u32, u32, Pose)>,
 	) {
 		let gpu_bvh = gpu_bvh::GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_poses);
 		{

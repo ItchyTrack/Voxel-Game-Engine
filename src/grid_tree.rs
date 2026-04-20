@@ -62,7 +62,7 @@ impl GridTreeCell {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GridTreeNode {
 	pub contents: [GridTreeCell; SIZE_USIZE_CUBED],
 	pub parent_offset: u16, // if parent_index == 0 then no parent
@@ -172,7 +172,7 @@ impl GridTreeNode {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GridTree {
 	nodes: Vec<GridTreeNode>, // root at 0
 	root_pos: I16Vec3,

@@ -1,19 +1,23 @@
-use std::collections::HashMap;
+use std::{collections::HashMap};
 
-use parry3d::bounding_volume::Aabb;
+use crate::physics_body_resource::{PhysicsBodyGridResource, PhysicsBodyResource, SubGridResource};
 
-use crate::{physics::physics_body::PhysicsBodyId};
-
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct UUID(pub String);
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct ResourceUUID(pub UUID);
 
 pub trait ResourceInfo {
 	fn deserialize(&mut self, raw: &String);
 	fn serialize(&mut self) -> String;
 	fn set_empty(&mut self) -> bool; // returns if it was successfully set empty
+}
+
+pub enum ResourceInfoType {
+	PhysicsBody { physics_body_resource: PhysicsBodyResource },
+	PhysicsBodyGrid { grid_resource: PhysicsBodyGridResource },
+	SubGrid { sub_grid_resource: SubGridResource },
 }
 
 pub struct NetworkState {
@@ -35,12 +39,12 @@ pub struct Resource {
 	directly_requested: bool,
 	dependents_count: u32,
 	dependencies: Vec<String>, // I dont know if we need this
-	info: Box<dyn ResourceInfo>,
+	info: ResourceInfoType,
 	network_state: NetworkState,
 }
 
 impl Resource {
-	pub fn new(on_disk: bool, loaded: bool, dependencies: Vec<String>, info: Box<dyn ResourceInfo>) -> Self {
+	pub fn new(on_disk: bool, loaded: bool, dependencies: Vec<String>, info: ResourceInfoType) -> Self {
 		Self {
 			on_disk,
 			loaded,
@@ -63,8 +67,8 @@ impl Resource {
 	pub fn dependencies(&self) -> &Vec<String> {
 		&self.dependencies
 	}
-	pub fn info(&self) -> &dyn ResourceInfo {
-		self.info.as_ref()
+	pub fn info(&self) -> &ResourceInfoType {
+		&self.info
 	}
 	// pub fn info_type<T: 'static>(&self) -> &T {
 	// 	self.info
@@ -126,47 +130,5 @@ impl ResourceManager {
 	}
 	pub fn resources(&self) -> &HashMap<ResourceUUID, Resource> {
 		&self.resources
-	}
-}
-
-pub struct PhysicsBodyResource {
-	physics_body_id: Option<PhysicsBodyId>,
-	bounds: Option<Aabb>,
-	grid_resources: Vec<(Aabb, ResourceUUID)>,
-	constraints: Vec<ResourceUUID>, // unused
-}
-
-impl PhysicsBodyResource {
-	pub fn new() -> Self {
-		Self {
-			physics_body_id: None,
-			grid_resources: Vec::new(),
-			constraints: Vec::new(),
-			bounds: None,
-		}
-	}
-	pub fn physics_body_id(&self) -> Option<PhysicsBodyId> {
-		self.physics_body_id
-	}
-	pub fn bounds(&self) -> Option<Aabb> {
-		self.bounds
-	}
-	pub fn grid_resources(&self) ->  &Vec<(Aabb, ResourceUUID)> {
-		&self.grid_resources
-	}
-	pub fn constraints(&self) ->  &Vec<ResourceUUID> {
-		&self.constraints
-	}
-}
-
-impl ResourceInfo for PhysicsBodyResource {
-	fn deserialize(&mut self, _raw: &String) {
-		unimplemented!()
-	}
-	fn serialize(&mut self) -> String {
-		unimplemented!()
-	}
-	fn set_empty(&mut self) -> bool {
-		unimplemented!()
 	}
 }

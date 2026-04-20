@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::vec;
 
-use glam::IVec3;
 use tracy_client::span;
 use winit::{window::Window};
 
@@ -177,7 +176,7 @@ impl Renderer {
 		})
 	}
 
-	pub fn render(&mut self, camera: &camera::Camera, bvh: &bvh::BVH<(u32, u32, IVec3)>, gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, u32, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
+	pub fn render(&mut self, camera: &camera::Camera, bvh: &bvh::BVH<(u32, u32, u32)>, gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, u32), (u32, u32, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
 		tracy_client::plot!("64 tree bytes", self.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
 		tracy_client::plot!("voxel data bytes", self.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glam::{IVec3, Vec3};
+use glam::Vec3;
 use wgpu::{Device, util::DeviceExt};
 
 use crate::{physics::bvh, pose::Pose};
@@ -114,8 +114,8 @@ pub struct GpuBvh {
 impl GpuBvh {
 	pub fn from_bvh(
 		device: &Device,
-		bvh: &bvh::BVH<(u32, u32, IVec3)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, IVec3), (u32, u32, Pose)>,
+		bvh: &bvh::BVH<(u32, u32, u32)>,
+		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, u32), (u32, u32, Pose)>,
 	) -> Self {
 		let (nodes, items) = bvh.get_internals();
 
