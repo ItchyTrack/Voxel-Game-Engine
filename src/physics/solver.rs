@@ -4,11 +4,11 @@ use std::{collections::HashMap};
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use crate::{math::{Mat6, Vec6}, physics::physics_body::PhysicsBodyId, pose::Pose};
+use crate::{math::{Mat6, Vec6}, physics::physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}, pose::Pose};
 
 use super::{physics_body, collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
 
-type CollisionKlMapKey = (u32, u32, IVec3, collision::CubeFeature, u32, u32, IVec3, collision::CubeFeature);
+type CollisionKlMapKey = (PhysicsBodyId, PhysicsBodyGridId, IVec3, collision::CubeFeature, PhysicsBodyId, PhysicsBodyGridId, IVec3, collision::CubeFeature);
 
 pub enum Impulse {
 	Impulse {
@@ -48,24 +48,28 @@ impl Solver {
 	pub fn solve(
 		&mut self,
 		physics_bodies: &mut Vec<physics_body::PhysicsBody>,
-		mut constraints: Vec<((u32, u32), &mut BallJointConstraint)>,
+		physics_body_id_to_index: &HashMap<PhysicsBodyId, u32>,
+		constraints: &mut HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
 		impulses: &HashMap<PhysicsBodyId, Vec<Impulse>>,
 		dt: f32,
-		bvh: &BVH<(u32, u32, u32)>
+		bvh: &BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>
 	) {
 		let _zone = span!("Solve Collisions");
-		constraints.iter_mut().for_each(|((physics_body_index_1, physics_body_index_2), constraint)| {
-			if let Some(physics_body_1) = physics_bodies.get(*physics_body_index_1 as usize) {
-				if let Some(physics_body_2) = physics_bodies.get(*physics_body_index_2 as usize) {
+		constraints.iter_mut().for_each(|((physics_body_id_1, physics_body_id_2), constraint)| {
+			if let Some(physics_body_1) = physics_bodies.get(*physics_body_id_to_index.get(physics_body_id_1).unwrap() as usize) {
+				if let Some(physics_body_2) = physics_bodies.get(*physics_body_id_to_index.get(physics_body_id_2).unwrap() as usize) {
 					constraint.update_attachment_com(&physics_body_1.get_local_center_of_mass(), &physics_body_2.get_local_center_of_mass());
 				}
 			}
 		});
 		let initial_all:Vec<Pose> = physics_bodies.iter().map(|physics_body| Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose).collect();
-		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies, &bvh).iter().map(
+		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(&physics_bodies, physics_body_id_to_index, &bvh).iter().map(
 			|c| {
-				let body1 = &physics_bodies[c.part1.body_index as usize];
-				let body2 = &physics_bodies[c.part2.body_index as usize];
+				let c_part1_body_index = *physics_body_id_to_index.get(&c.part1.body_id).unwrap();
+				let c_part2_body_index = *physics_body_id_to_index.get(&c.part2.body_id).unwrap();
+
+				let body1 = &physics_bodies[c_part1_body_index as usize];
+				let body2 = &physics_bodies[c_part2_body_index as usize];
 				let collision = collision::Collision {
 					part1: collision::HalfCollision {
 						local_collision: c.part1.local_collision - body1.get_local_center_of_mass(),
@@ -76,19 +80,19 @@ impl Solver {
 						..c.part2
 					},
 				};
-				let (old_penalty, old_lambda) = self.collisions_kl_map.get(&if collision.part1.body_index < collision.part2.body_index {
+				let (old_penalty, old_lambda) = self.collisions_kl_map.get(&if c_part1_body_index < c_part2_body_index {
 					(
-						collision.part1.body_index, collision.part1.grid_index, collision.part1.voxel_pos, collision.part1.feature,
-						collision.part2.body_index, collision.part2.grid_index, collision.part2.voxel_pos, collision.part2.feature
+						collision.part1.body_id, collision.part1.grid_id, collision.part1.voxel_pos, collision.part1.feature,
+						collision.part2.body_id, collision.part2.grid_id, collision.part2.voxel_pos, collision.part2.feature
 					)
 				} else {
 					(
-						collision.part2.body_index, collision.part2.grid_index, collision.part2.voxel_pos, collision.part2.feature,
-						collision.part1.body_index, collision.part1.grid_index, collision.part1.voxel_pos, collision.part1.feature
+						collision.part2.body_id, collision.part2.grid_id, collision.part2.voxel_pos, collision.part2.feature,
+						collision.part1.body_id, collision.part1.grid_id, collision.part1.voxel_pos, collision.part1.feature
 					)
 				}).unwrap_or(&(Vec3::ZERO, Vec3::ZERO));
 				let mut collision_constraint = CollisionConstraint::new(collision, old_penalty, old_lambda);
-				collision_constraint.init(&initial_all[c.part1.body_index as usize], &initial_all[c.part2.body_index as usize]);
+				collision_constraint.init(&initial_all[c_part1_body_index as usize], &initial_all[c_part2_body_index as usize]);
 				collision_constraint
 			}
 		).collect();
@@ -138,14 +142,17 @@ impl Solver {
 				let mut f: Vec6 = h * Self::sub_state(&x_guess[index], &y_all[index]);
 
 				let physics_body_collisions = collision_constraints.iter().filter(|collision| {
-					collision.collision.part1.body_index == index as u32 || collision.collision.part2.body_index == index as u32
+					*physics_body_id_to_index.get(&collision.collision.part1.body_id).unwrap() == index as u32 ||
+					*physics_body_id_to_index.get(&collision.collision.part2.body_id).unwrap() == index as u32
 				});
 				for physics_body_collision in physics_body_collisions {
+					let part1_body_index = *physics_body_id_to_index.get(&physics_body_collision.collision.part1.body_id).unwrap();
+					let part2_body_index = *physics_body_id_to_index.get(&physics_body_collision.collision.part2.body_id).unwrap();
 					let result = physics_body_collision.get_updated(
-						&x_guess[physics_body_collision.collision.part1.body_index as usize], &initial_all[physics_body_collision.collision.part1.body_index as usize],
-						&x_guess[physics_body_collision.collision.part2.body_index as usize], &initial_all[physics_body_collision.collision.part2.body_index as usize],
+						&x_guess[part1_body_index as usize], &initial_all[part1_body_index as usize],
+						&x_guess[part2_body_index as usize], &initial_all[part2_body_index as usize],
 						alpha,
-						physics_body_collision.collision.part1.body_index == index as u32
+						part1_body_index == index as u32
 					);
 					if result.is_none() { continue; }
 					let (c_f, c_h) = result.unwrap();
@@ -153,14 +160,16 @@ impl Solver {
 					h += c_h;
 				}
 				let physics_body_constraints = constraints.iter().filter(|(key, _)| {
-					key.0 == index as u32 || key.1 == index as u32
+					*physics_body_id_to_index.get(&key.0).unwrap() == index as u32 ||  *physics_body_id_to_index.get(&key.1).unwrap() == index as u32
 				});
-				for ((physics_body_index_1, physics_body_index_2), physics_body_constraint) in physics_body_constraints {
+				for ((physics_body_id_1, physics_body_id_2), physics_body_constraint) in physics_body_constraints {
+					let physics_body_index_1 = *physics_body_id_to_index.get(physics_body_id_1).unwrap();
+					let physics_body_index_2 = *physics_body_id_to_index.get(physics_body_id_2).unwrap();
 					let result = physics_body_constraint.get_updated(
-						&x_guess[*physics_body_index_1 as usize], &initial_all[*physics_body_index_1 as usize],
-						&x_guess[*physics_body_index_2 as usize], &initial_all[*physics_body_index_2 as usize],
+						&x_guess[physics_body_index_1 as usize], &initial_all[physics_body_index_1 as usize],
+						&x_guess[physics_body_index_2 as usize], &initial_all[physics_body_index_2 as usize],
 						alpha,
-						*physics_body_index_1 == index as u32
+						physics_body_index_1 == index as u32
 					);
 					if result.is_none() { continue; }
 					let (c_f, c_h) = result.unwrap();
@@ -178,16 +187,20 @@ impl Solver {
 			}
 			if iteration < iterations {
 				for collision_constraint in collision_constraints.iter_mut() {
+					let part1_body_index = *physics_body_id_to_index.get(&collision_constraint.collision.part1.body_id).unwrap();
+					let part2_body_index = *physics_body_id_to_index.get(&collision_constraint.collision.part2.body_id).unwrap();
 					collision_constraint.update_dual(
-						&x_guess[collision_constraint.collision.part1.body_index as usize], &initial_all[collision_constraint.collision.part1.body_index as usize],
-						&x_guess[collision_constraint.collision.part2.body_index as usize], &initial_all[collision_constraint.collision.part2.body_index as usize],
+						&x_guess[part1_body_index as usize], &initial_all[part1_body_index as usize],
+						&x_guess[part2_body_index as usize], &initial_all[part2_body_index as usize],
 						alpha
 					);
 				}
-				for ((physics_body_index_1, physics_body_index_2), constraint) in constraints.iter_mut() {
+				for ((physics_body_id_1, physics_body_id_2), constraint) in constraints.iter_mut() {
+					let physics_body_index_1 = *physics_body_id_to_index.get(physics_body_id_1).unwrap();
+					let physics_body_index_2 = *physics_body_id_to_index.get(physics_body_id_2).unwrap();
 					constraint.update_dual(
-						&x_guess[*physics_body_index_1 as usize], &initial_all[*physics_body_index_1 as usize],
-						&x_guess[*physics_body_index_2 as usize], &initial_all[*physics_body_index_2 as usize],
+						&x_guess[physics_body_index_1 as usize], &initial_all[physics_body_index_1 as usize],
+						&x_guess[physics_body_index_2 as usize], &initial_all[physics_body_index_2 as usize],
 						alpha
 					);
 				}
@@ -207,15 +220,17 @@ impl Solver {
 		// save K and L
 		for collision_constraint in collision_constraints {
 			let collision = collision_constraint.collision;
-			self.collisions_kl_map.insert(if collision.part1.body_index < collision.part2.body_index {
+			let part1_body_index = *physics_body_id_to_index.get(&collision.part1.body_id).unwrap();
+			let part2_body_index = *physics_body_id_to_index.get(&collision.part2.body_id).unwrap();
+			self.collisions_kl_map.insert(if part1_body_index < part2_body_index {
 				(
-					collision.part1.body_index, collision.part1.grid_index, collision.part1.voxel_pos, collision.part1.feature,
-					collision.part2.body_index, collision.part2.grid_index, collision.part2.voxel_pos, collision.part2.feature
+					collision.part1.body_id, collision.part1.grid_id, collision.part1.voxel_pos, collision.part1.feature,
+					collision.part2.body_id, collision.part2.grid_id, collision.part2.voxel_pos, collision.part2.feature
 				)
 			} else {
 				(
-					collision.part2.body_index, collision.part2.grid_index, collision.part2.voxel_pos, collision.part2.feature,
-					collision.part1.body_index, collision.part1.grid_index, collision.part1.voxel_pos, collision.part1.feature
+					collision.part2.body_id, collision.part2.grid_id, collision.part2.voxel_pos, collision.part2.feature,
+					collision.part1.body_id, collision.part1.grid_id, collision.part1.voxel_pos, collision.part1.feature
 				)
 			}, (collision_constraint.penalty, collision_constraint.lambda));
 		}

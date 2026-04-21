@@ -15,7 +15,7 @@ use crate::{
 
 use super::inertia_tensor::InertiaTensor;
 
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct SubGridId(pub u32);
 
 pub struct SubGrid {
@@ -71,17 +71,19 @@ impl SubGrid {
 		resource_manager: &ResourceManager,
 		physics_engine: &PhysicsEngine,
 		task_queue: &TaskQueue,
-		view_frustum: &camera::ViewFrustum,
+		hit_count: u32,
+		_view_frustum: &camera::ViewFrustum,
 		lod_level: f32,
 		pose: Pose
 	) -> Option<(u32, u32, Pose)> {
-		let aabb = self.voxels.get_bounding_box()?;
-		let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
-		let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
-		let center = (aabb.0 + aabb.1) / 2.0;
-		let in_view = view_frustum.compare_sphere(center, radius);
+		// let aabb = self.voxels.get_bounding_box()?;
+		// let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
+		// let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
+		// let center = (aabb.0 + aabb.1) / 2.0;
+		// let in_view = view_frustum.compare_sphere(center, radius);
 		// if !in_view { return None; }
-		let lod_level = if in_view { lod_level } else { lod_level + 1.1 };
+		// let lod_level = if in_view { lod_level } else { lod_level + 3.0 };
+		let lod_level = if hit_count > 0 { lod_level } else { lod_level + 3.0 };
 		let sub_grid_resource = if let Some(resource) = resource_manager.resource(&self.uuid) {
 			match resource.info() {
 				ResourceInfoType::SubGrid { sub_grid_resource } => { sub_grid_resource },
@@ -213,7 +215,7 @@ impl SubGrid {
 	}
 }
 
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct PhysicsBodyGridId(pub u32);
 
 pub struct PhysicsBodyGrid {
@@ -364,22 +366,26 @@ impl PhysicsBodyGrid {
 		resource_manager: &mut ResourceManager,
 		physics_engine: &PhysicsEngine,
 		task_queue: &TaskQueue,
+		id_to_hit_count: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), u32>,
+		physics_body_id: PhysicsBodyId,
 		view_frustum: &camera::ViewFrustum,
 		_camera_pose: Pose,
 		pose: &Pose
-	) -> Vec<(u32, (u32, u32, Pose))> {
-		self.sub_grids.iter().enumerate().filter_map(|(sub_grid_index, sub_grid)| {
+	) -> Vec<(SubGridId, (u32, u32, Pose))> {
+		self.sub_grids.iter().filter_map(|sub_grid| {
+			let hit_count = id_to_hit_count.get(&(physics_body_id, self.id, sub_grid.id)).unwrap_or(&1);
 			let grid_pose = pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3());
 			Some((
-				sub_grid_index as u32,
+				sub_grid.id(),
 				(sub_grid.update_gpu_grid_tree(
 					packed_64_tree_dynamic_buffer,
 					packed_voxel_data_dynamic_buffer,
 					resource_manager,
 					physics_engine,
 					task_queue,
+					*hit_count,
 					view_frustum,
-					f32::max(_camera_pose.translation.distance(grid_pose.translation) - 800.0, 0.0) / 500.0,
+					f32::max(_camera_pose.translation.distance(grid_pose.translation) - 1000.0, 0.0) / 1000.0,
 					grid_pose
 				)?)
 			))}
@@ -456,7 +462,7 @@ impl PhysicsBodyGrid {
 	}
 }
 
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct PhysicsBodyId(pub u32);
 
 pub struct PhysicsBody {
@@ -573,22 +579,25 @@ impl PhysicsBody {
 		resource_manager: &mut ResourceManager,
 		physics_engine: &PhysicsEngine,
 		task_queue: &TaskQueue,
+		id_to_hit_count: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), u32>,
 		view_frustum: &camera::ViewFrustum,
 		camera_pose: Pose,
-	) -> Vec<((u32, u32), (u32, u32, Pose))> {
+	) -> Vec<((PhysicsBodyGridId, SubGridId), (u32, u32, Pose))> {
 		let mut gpu_grid_tree_id_to_id_poses = vec![];
-		for (grid_index, grid) in self.grids.iter().enumerate() {
-			for (sub_grid_index, data) in grid.update_gpu_grid_tree(
+		for grid in self.grids.iter() {
+			for (sub_grid_id, data) in grid.update_gpu_grid_tree(
 				packed_64_tree_dynamic_buffer,
 				packed_voxel_data_dynamic_buffer,
 				resource_manager,
 				physics_engine,
 				task_queue,
+				id_to_hit_count,
+				self.id(),
 				view_frustum,
 				camera_pose,
 				&self.pose
 			) {
-				gpu_grid_tree_id_to_id_poses.push(((grid_index as u32, sub_grid_index), data));
+				gpu_grid_tree_id_to_id_poses.push(((grid.id(), sub_grid_id), data));
 			}
 		}
 		gpu_grid_tree_id_to_id_poses
@@ -713,6 +722,30 @@ impl PhysicsBody {
 			}
 		}
 		Some((aabb_min, aabb_max))
+	}
+
+	pub fn sub_grid_aabb(&self, grid_id: PhysicsBodyGridId, sub_grid_id: SubGridId) -> Option<(Vec3, Vec3)> {
+		let grid = self.grid(grid_id)?;
+		let sub_grid = grid.sub_grid(sub_grid_id)?;
+		let (min, max) = sub_grid.get_voxels().get_bounding_box()?;
+		let min = min.as_vec3();
+		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
+		let corners = [
+			min,
+			Vec3::new(max.x, min.y, min.z),
+			Vec3::new(min.x, max.y, min.z),
+			Vec3::new(min.x, min.y, max.z),
+			Vec3::new(max.x, max.y, min.z),
+			Vec3::new(max.x, min.y, max.z),
+			Vec3::new(min.x, max.y, max.z),
+			max,
+		];
+		let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3();
+		let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
+		Some((
+			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
+			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))
+		))
 	}
 
 	pub fn sub_grid_aabb_by_index(&self, grid_index: u32, sub_grid_index: u32) -> Option<(Vec3, Vec3)> {

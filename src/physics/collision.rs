@@ -1,8 +1,8 @@
-use std::vec;
+use std::{collections::HashMap, vec};
 
 use glam::{I16Vec3, IVec3, Quat, U8Vec3, Vec3};
 
-use crate::{physics::bvh::BVH, pose::Pose, voxels};
+use crate::{physics::{bvh::BVH, physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}}, pose::Pose, voxels};
 use super::{physics_body};
 
 use tracy_client::span;
@@ -16,8 +16,8 @@ pub enum CubeFeature {
 
 #[derive(Copy, Clone)]
 pub struct HalfCollision {
-	pub body_index: u32,
-	pub grid_index: u32,
+	pub body_id: PhysicsBodyId,
+	pub grid_id: PhysicsBodyGridId,
 	pub voxel_pos: IVec3,
 	pub feature: CubeFeature,
 	pub collision: Vec3,
@@ -45,7 +45,7 @@ fn get_bit(num: u8, bit: u8) -> u8 {
 
 static mut CHECK_COUNTER: u32 = 0;
 
-pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, bvh: &BVH<(u32, u32, u32)>) -> Vec<Collision> {
+pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, physics_body_id_to_index: &HashMap<PhysicsBodyId, u32>, bvh: &BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>) -> Vec<Collision> {
 	unsafe { CHECK_COUNTER = 0; }
 	let _zone = span!("Do Collisions");
 	// bvh.render_debug();
@@ -58,11 +58,11 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, bvh: &BVH
 			for (sub_grid_index_a, sub_grid_a) in grid_a.sub_grids().iter().enumerate() {
 				if let Some(bound) = physics_body_a.sub_grid_aabb_by_index(grid_index_a as u32, sub_grid_index_a as u32) {
 					let sub_grid_grid_pos_a = grid_a.sub_grid_pos_to_grid_pos(&sub_grid_a.sub_grid_ipos());
-					for (body_index_b, grid_index_b, sub_grid_index_b) in bvh.get_collisions(&bound) {
-						let physics_body_b = &physics_bodies[body_index_b as usize];
-						if !physics_body_b.is_static && (body_index_a as u32) <= body_index_b { continue; }
-						let grid_b = physics_body_b.grid_by_index(grid_index_b as u32).unwrap();
-						let sub_grid_b = grid_b.sub_grid_by_index(sub_grid_index_b).unwrap();
+					for (body_id_b, grid_id_b, sub_grid_id_b) in bvh.get_collisions(&bound) {
+						let physics_body_b = &physics_bodies[*physics_body_id_to_index.get(&body_id_b).unwrap() as usize];
+						if !physics_body_b.is_static && (body_index_a as u32) <= *physics_body_id_to_index.get(&body_id_b).unwrap() { continue; }
+						let grid_b = physics_body_b.grid(grid_id_b).unwrap();
+						let sub_grid_b = grid_b.sub_grid(sub_grid_id_b).unwrap();
 						let sub_grid_grid_pos_b = grid_b.sub_grid_pos_to_grid_pos(&sub_grid_b.sub_grid_ipos());
 						let no_swap = sub_grid_a.get_voxels().get_voxels().len() < sub_grid_b.get_voxels().get_voxels().len();
 						let (physics_body1, grid_1, sub_grid_1, sub_grid_grid_pos_1, physics_body2, grid_2, sub_grid_2, sub_grid_grid_pos_2) = {
@@ -235,16 +235,16 @@ pub fn get_collisions(physics_bodies: &Vec<physics_body::PhysicsBody>, bvh: &BVH
 
 											Some(Collision {
 												part1: HalfCollision{
-													body_index: if no_swap { body_index_a as u32 } else { body_index_b as u32 },
-													grid_index: if no_swap { grid_index_a as u32 } else { grid_index_b as u32 },
+													body_id: if no_swap { physics_body_a.id() } else { physics_body_b.id() },
+													grid_id: if no_swap { grid_a.id() } else { grid_b.id() },
 													voxel_pos: collision_grid_pos_1 + IVec3::new(x as i32, y as i32, z as i32),
 													feature: c.1,
 													collision: physics_body2.pose * grid_2.pose * Pose::from_translation(sub_grid_grid_pos_2.as_vec3()) * c.0,
 													local_collision: physics_body1.pose.inverse() * physics_body2.pose * grid_2.pose * Pose::from_translation(sub_grid_grid_pos_2.as_vec3()) * c.0,
 												},
 												part2: HalfCollision{
-													body_index: if no_swap { body_index_b as u32 } else { body_index_a as u32 },
-													grid_index: if no_swap { grid_index_b as u32 } else { grid_index_a as u32 },
+													body_id: if no_swap { physics_body_b.id() } else { physics_body_a.id() },
+													grid_id: if no_swap { grid_b.id() } else { grid_a.id() },
 													voxel_pos: collision_grid_pos_2,
 													feature: c.3,
 													collision: physics_body2.pose * grid_2.pose * Pose::from_translation(sub_grid_grid_pos_2.as_vec3()) * c.2,

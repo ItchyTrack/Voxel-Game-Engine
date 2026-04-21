@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use glam::Vec3;
 use wgpu::{Device, util::DeviceExt};
 
-use crate::{physics::bvh, pose::Pose};
+use crate::{physics::{bvh, physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}}, pose::Pose};
 
 // -- GPU node layout -----------------------------------------------------------
 //
@@ -105,17 +105,21 @@ struct GpuBVHItem {
 }
 
 pub struct GpuBvh {
-	pub bvh_buffer:        wgpu::Buffer,
-	pub items_buffer:      wgpu::Buffer,
-	pub bind_group:        wgpu::BindGroup,
+	pub bvh_buffer: wgpu::Buffer,
+	pub items_buffer: wgpu::Buffer,
+	pub bind_group: wgpu::BindGroup,
+	pub item_hit_count_buffer: wgpu::Buffer,
+    pub item_hit_count_staging_buffer: wgpu::Buffer,
+    pub item_count: usize,
 	pub bind_group_layout: wgpu::BindGroupLayout,
+    pub item_ids: Vec<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
 }
 
 impl GpuBvh {
 	pub fn from_bvh(
 		device: &Device,
-		bvh: &bvh::BVH<(u32, u32, u32)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, u32), (u32, u32, Pose)>,
+		bvh: &bvh::BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
+		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), (u32, u32, Pose, )>,
 	) -> Self {
 		let (nodes, items) = bvh.get_internals();
 
@@ -163,6 +167,7 @@ impl GpuBvh {
 
 		// -- Build GPU item buffer ---------------------------------------------
 		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
+		let mut item_ids: Vec<_> = Vec::with_capacity(items.len());
 		for item in items {
 			if let Some((tree_offset, voxels_offset, pose)) = gpu_grid_tree_id_to_id_poses.get(&item.0) {
 				item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
@@ -174,6 +179,7 @@ impl GpuBvh {
 					pos:          pose.translation.to_array(),
 					quat:         pose.rotation.to_array(),
 				}));
+				item_ids.push(item.0);
 			} else {
 				println!("BVH item not found. Inserting 0 node into gpu bvh!");
 				item_data.resize(item_data.len() + size_of::<GpuBVHItem>(), 0);
@@ -187,6 +193,24 @@ impl GpuBvh {
 			contents: &item_data,
 			usage:    wgpu::BufferUsages::STORAGE,
 		});
+
+		// -- Build hit-count buffers -------------------------------------------
+		let item_count     = items.len().max(1); // match the ≥1 guarantee on items_buffer
+        let hit_count_size = (item_count * std::mem::size_of::<u32>()) as u64;
+
+        let item_hit_count_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label:              Some("bvh_item_hit_count_buffer"),
+            size:               hit_count_size,
+            // COPY_SRC so we can blit into the staging buffer each frame
+            usage:              wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false, // zero-initialised by wgpu
+        });
+        let item_hit_count_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label:              Some("bvh_item_hit_count_staging_buffer"),
+            size:               hit_count_size,
+            usage:              wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
 		let bind_group_layout = Self::bind_group_layout(device);
 		let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -204,38 +228,54 @@ impl GpuBvh {
 						buffer: &items_buffer, offset: 0, size: None,
 					}),
 				},
+				wgpu::BindGroupEntry {
+                    binding:  2,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &item_hit_count_buffer, offset: 0, size: None,
+                    }),
+                },
 			],
 			label: Some("bvh_bind_group"),
 		});
 
-		Self { bvh_buffer, items_buffer, bind_group, bind_group_layout }
+		Self { bvh_buffer, items_buffer, item_hit_count_buffer, item_hit_count_staging_buffer, item_count, bind_group, bind_group_layout, item_ids }
 	}
 
 	pub fn bind_group_layout(device: &Device) -> wgpu::BindGroupLayout {
-		device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[
-				wgpu::BindGroupLayoutEntry {
-					binding:    0,
-					visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-					ty: wgpu::BindingType::Buffer {
-						ty:                 wgpu::BufferBindingType::Storage { read_only: true },
-						has_dynamic_offset: false,
-						min_binding_size:   None,
-					},
-					count: None,
-				},
-				wgpu::BindGroupLayoutEntry {
-					binding:    1,
-					visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-					ty: wgpu::BindingType::Buffer {
-						ty:                 wgpu::BufferBindingType::Storage { read_only: true },
-						has_dynamic_offset: false,
-						min_binding_size:   None,
-					},
-					count: None,
-				},
-			],
-			label: Some("bvh_bind_group_layout"),
-		})
-	}
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding:    0,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty:                 wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size:   None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding:    1,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty:                 wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size:   None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding:    2,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty:                 wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size:   None,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("bvh_bind_group_layout"),
+        })
+    }
 }

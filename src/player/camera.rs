@@ -6,10 +6,12 @@ use winit::keyboard::KeyCode;
 use crate::player;
 use crate::pose::Pose;
 
+#[derive(Copy, Clone)]
 pub struct ViewFrustum {
 	planes: [Plane; 6],
 }
 
+#[derive(Copy, Clone)]
 struct Plane {
 	normal: Vec3,
 	distance_from_origin: f32,

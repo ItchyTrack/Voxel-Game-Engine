@@ -62,6 +62,7 @@ struct BVHItem {
 
 @group(1) @binding(0) var<storage, read> bvh:       array<BVHNode>;
 @group(1) @binding(1) var<storage, read> bvh_items: array<BVHItem>;
+@group(1) @binding(2) var<storage, read_write> bvh_item_hit_counts: array<atomic<u32>>;
 
 // -- Ray–AABB intersection -----------------------------------------------------
 //
@@ -169,6 +170,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
                 let d = ray_aabb(ray_pos, inv_dir, mn_exp, mx_exp);
                 if d.x < min_dist {
                     min_dist = d.x;
+					atomicAdd(&bvh_item_hit_counts[base + i], 1u);
                 }
             }
         } else {

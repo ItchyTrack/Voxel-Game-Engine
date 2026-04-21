@@ -5,8 +5,10 @@ use std::vec;
 use tracy_client::span;
 use winit::{window::Window};
 
+use crate::gpu_objects::gpu_bvh::GpuBvh;
 use crate::gpu_objects::matrix;
 use crate::physics::bvh;
+use crate::physics::physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId};
 use crate::player::camera;
 use crate::pose::Pose;
 use crate::render::{crosshair_renderer, debug_draw_renderer, voxel_renderer};
@@ -29,6 +31,9 @@ pub struct Renderer {
 	pub crosshair_renderer: crosshair_renderer::CrosshairRenderer,
 	pub debug_draw_renderer: debug_draw_renderer::DebugDrawRenderer,
 	pub dt_avg: f32,
+	pub bvh_item_ids: Vec<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
+	pub bvh_item_hit_counts: Vec<u32>,
+    last_gpu_bvh: Option<GpuBvh>
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -173,10 +178,18 @@ impl Renderer {
 			crosshair_renderer,
 			debug_draw_renderer,
 			dt_avg: 0.0,
+			bvh_item_ids: Vec::new(),
+			bvh_item_hit_counts	: Vec::new(),
+			last_gpu_bvh: None,
 		})
 	}
 
-	pub fn render(&mut self, camera: &camera::Camera, bvh: &bvh::BVH<(u32, u32, u32)>, gpu_grid_tree_id_to_id_poses: &HashMap<(u32, u32, u32), (u32, u32, Pose)>) -> Result<(), wgpu::CurrentSurfaceTexture> {
+	pub fn render(
+			&mut self,
+			camera: &camera::Camera,
+			bvh: &bvh::BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
+			gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), (u32, u32, Pose)>
+		) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
 		tracy_client::plot!("64 tree bytes", self.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
 		tracy_client::plot!("voxel data bytes", self.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
@@ -198,12 +211,29 @@ impl Renderer {
 			}
 		};
 
+		{
+			let _zone = span!("Read item hit counts");
+			if let Some(prev) = self.last_gpu_bvh.take() {
+				let staging = prev.item_hit_count_staging_buffer.slice(..);
+				staging.map_async(wgpu::MapMode::Read, |_| {});
+				let _ = self.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+				{
+					let view = staging.get_mapped_range();
+					let counts: &[u32] = bytemuck::cast_slice(&view);
+					self.bvh_item_ids = prev.item_ids;
+					self.bvh_item_hit_counts.clear();
+					self.bvh_item_hit_counts.extend_from_slice(&counts[..prev.item_count]);
+				}
+				prev.item_hit_count_staging_buffer.unmap();
+			}
+		}
+
 		let _zone = span!("Render");
 
 		let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
-		self.voxel_renderer.render(&self.device, &mut encoder, &view, &self.camera_transform_bind_group, bvh, gpu_grid_tree_id_to_id_poses);
+		self.last_gpu_bvh = Some(self.voxel_renderer.render(&self.device, &mut encoder, &view, &self.camera_transform_bind_group, bvh, gpu_grid_tree_id_to_id_poses));
 		self.debug_draw_renderer.render(&self.device, &mut encoder, &self.camera_bind_group, &view);
 		self.crosshair_renderer.render(&self.config, &mut encoder, &self.queue, &output);
 		// imgui

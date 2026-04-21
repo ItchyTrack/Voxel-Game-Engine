@@ -9,11 +9,12 @@ use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, physics::bvh::BVH, physics_body_resource::{PhysicsBodyGridResource, PhysicsBodyResource}, player::{camera, orientator::Orientator}, pose::Pose, render::renderer::Renderer, resource_manager::{ResourceInfoType, ResourceManager, ResourceUUID}, voxels};
-use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker};
+use crate::{entity_component_system, pose::Pose, render::renderer::Renderer, resource_manager::{ResourceInfoType, ResourceManager, ResourceUUID}};
+use crate::{physics::{bvh::BVH, physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}}, physics_body_resource::{PhysicsBodyGridResource, PhysicsBodyResource}};
+use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
-use crate::voxels::Voxel;
+use crate::voxels::{Voxel, self};
 use crate::debug_draw;
 
 const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
@@ -49,6 +50,7 @@ pub struct State {
 	pub place_sound_cooldown: f32,
 	pub break_sound_cooldown: f32,
 	pub task_queue: TaskQueue,
+	pub freeze_gpu_grids: bool,
 }
 
 impl State {
@@ -79,7 +81,7 @@ impl State {
 
 	pub fn update(&mut self, dt: f32) {
 		let _zone = span!("State Update");
-		{
+		if !self.freeze_gpu_grids {
 			let _zone = span!("Do tasks");
 			while let Some(task) = { self.task_queue.lock().unwrap().pop_front() } {
 				task.run(self);
@@ -126,9 +128,9 @@ impl State {
 				}
 			}
 			let started_holding = object_pickup.is_holding();
-			if let Some((body_index, grid_index, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
-				let physics_body = self.physics_engine.physics_body_by_index(body_index).unwrap();
-				let grid = physics_body.grid_by_index(grid_index).unwrap();
+			if let Some((body_id, grid_id, hit_pos, hit_normal, distance)) = self.physics_engine.raycast(&ray_start, None) {
+				let physics_body = self.physics_engine.physics_body(body_id).unwrap();
+				let grid = physics_body.grid(grid_id).unwrap();
 				let globle_hit_normal = physics_body.pose.rotation * grid.pose.rotation * hit_normal.as_vec3();
 				let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
 				let globle_hit_pos_snap = physics_body.pose * grid.pose * hit_pos.as_vec3();
@@ -139,14 +141,14 @@ impl State {
 				debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
 				debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid.pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
 				if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().add_voxel(place_voxel_pos, Voxel{ color: [100, 100, 100, 1], mass: 100 }, &mut self.resource_manager);
+					self.physics_engine.physics_body_mut(body_id).unwrap().grid_mut(grid_id).unwrap().add_voxel(place_voxel_pos, Voxel{ color: [100, 100, 100, 1], mass: 100 }, &mut self.resource_manager);
 					if self.place_sound_cooldown <= 0.0 {
 						self.audio_engine.play_sound(SoundEffect::BlockPlace, place_sound_pos);
 						self.place_sound_cooldown = BLOCK_PLACE_SOUND_INTERVAL_SECONDS;
 					}
 				}
 				if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
-					self.physics_engine.physics_body_by_index_mut(body_index).unwrap().grid_by_index_mut(grid_index).unwrap().remove_voxel(&break_voxel_pos);
+					self.physics_engine.physics_body_mut(body_id).unwrap().grid_mut(grid_id).unwrap().remove_voxel(&break_voxel_pos);
 					if self.break_sound_cooldown <= 0.0 {
 						self.audio_engine.play_sound(SoundEffect::BlockBreak, break_sound_pos);
 						self.break_sound_cooldown = BLOCK_BREAK_SOUND_INTERVAL_SECONDS;
@@ -154,14 +156,14 @@ impl State {
 				}
 				if player_input.key(KeyCode::KeyR).just_pressed {
 					self.physics_engine.apply_impulse(
-						self.physics_engine.physics_body_by_index(body_index).unwrap().id(),
+						self.physics_engine.physics_body(body_id).unwrap().id(),
 						&globle_hit_pos,
 						&(ray_start.rotation * Vec3::Z * 1600000.0)
 					);
 				}
 				if player_input.key(KeyCode::KeyF).just_pressed {
 					if !started_holding {
-						let body = self.physics_engine.physics_body_by_index(body_index).unwrap();
+						let body = self.physics_engine.physics_body(body_id).unwrap();
 						if !body.is_static {
 							object_pickup.set(body.id());
 						}
@@ -172,6 +174,14 @@ impl State {
 				if started_holding {
 					object_pickup.reset();
 				}
+			}
+			if player_input.key(KeyCode::KeyT).just_pressed {
+				self.freeze_gpu_grids ^= true;
+				// if self.fixed_view_frustum.is_none() {
+				// 	self.fixed_view_frustum = Some(camera.frustum());
+				// } else {
+				// 	self.fixed_view_frustum = None;
+				// }
 			}
 		});
 		self.leaky_bucket += dt;
@@ -971,6 +981,7 @@ impl State {
 			place_sound_cooldown: 0.0,
 			break_sound_cooldown: 0.0,
 			task_queue: Arc::new(Mutex::new(VecDeque::new())),
+			freeze_gpu_grids: false,
 		})
 	}
 
@@ -983,21 +994,27 @@ impl State {
 			// 	physics_body.render_debug_inertia_box();
 			// }
 		// }
-		if let Some(player_camera) = self.ecs.get_component::<camera::Camera>(self.player_id) {
-			let mut gpu_grid_tree_id_to_id_poses: HashMap<(u32, u32, u32), (u32, u32, Pose)> = HashMap::new();
+		if let Some(player_camera) = self.ecs.get_component::<Camera>(self.player_id) {
+			let mut id_to_hit_count = HashMap::new();
+			for (id, hit_count) in self.renderer.bvh_item_ids.iter().zip(self.renderer.bvh_item_hit_counts.iter()) {
+				id_to_hit_count.insert(*id, *hit_count);
+			}
+			let mut gpu_grid_tree_id_to_id_poses: HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), (u32, u32, Pose)> = HashMap::new();
 			{
 				let _zone = span!("Collect Voxels");
 				let view_frustum = player_camera.frustum();
-				for (physics_body_index, physics_body) in self.physics_engine.physics_bodies().iter().enumerate() {
+				for physics_body in self.physics_engine.physics_bodies().iter() {
 					for (key, value) in physics_body.update_gpu_grid_tree(
 						&mut self.renderer.voxel_renderer.packed_64_tree_dynamic_buffer,
 						&mut self.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer,
 						&mut self.resource_manager,
 						&self.physics_engine,
 						&mut self.task_queue,
-						&view_frustum, player_camera.pose()
+						&id_to_hit_count,
+						&view_frustum,
+						player_camera.pose(),
 					) {
-						gpu_grid_tree_id_to_id_poses.insert((physics_body_index as u32, key.0, key.1), value);
+						gpu_grid_tree_id_to_id_poses.insert((physics_body.id(), key.0, key.1), value);
 					}
 				}
 			}
@@ -1005,10 +1022,10 @@ impl State {
 				let mut bounds = vec![];
 				{
 					let _zone = span!("Collect aabb for rendering");
-					for ((body_index, grid_index, sub_grid_index), _)  in gpu_grid_tree_id_to_id_poses.iter() {
-						let physics_body = &self.physics_engine.physics_body_by_index(*body_index).unwrap();
-						if let Some(bound) = physics_body.sub_grid_aabb_by_index(*grid_index, *sub_grid_index) {
-							bounds.push(((*body_index as u32, *grid_index as u32, *sub_grid_index as u32), bound));
+					for ((body_id, grid_id, sub_grid_id), _) in gpu_grid_tree_id_to_id_poses.iter() {
+						let physics_body = &self.physics_engine.physics_body(*body_id).unwrap();
+						if let Some(bound) = physics_body.sub_grid_aabb(*grid_id, *sub_grid_id) {
+							bounds.push(((*body_id, *grid_id, *sub_grid_id), bound));
 						}
 					}
 				}

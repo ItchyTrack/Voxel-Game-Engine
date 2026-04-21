@@ -41,6 +41,8 @@ struct BVHItem {
 
 @group(1) @binding(0) var<storage, read> bvh:       array<BVHNode>;
 @group(1) @binding(1) var<storage, read> bvh_items: array<BVHItem>;
+@group(1) @binding(2) var<storage, read_write> bvh_item_hit_counts: array<atomic<u32>>;
+
 
 // -- Ray–AABB intersection -----------------------------------------------------
 //
@@ -168,6 +170,7 @@ fn bvh_iter_next(it: ptr<function, BVHIter>, max_dist: f32) -> BVHHit {
             let d    = ray_aabb(rp, inv, mn, mx);
             // Re-test needed: max_dist may have tightened since we pushed this item.
             if d.x < max_dist {
+				atomicAdd(&bvh_item_hit_counts[ii], 1u);
                 return BVHHit(ii, d.x, d.y - d.x, true);
             }
             continue;
