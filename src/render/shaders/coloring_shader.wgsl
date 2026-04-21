@@ -7,16 +7,16 @@
 // Vertex
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) screen_pos: vec2<f32>,
+	@builtin(position) clip_position: vec4<f32>,
+	@location(0) screen_pos: vec2<f32>,
 }
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
-    var out: VertexOutput;
-    out.screen_pos    = vec2<f32>(f32((vertex_index << 1u) & 2u), f32(vertex_index & 2u));
-    out.clip_position = vec4<f32>(out.screen_pos * 2.0 - 1.0, 0.0, 1.0);
-    return out;
+	var out: VertexOutput;
+	out.screen_pos    = vec2<f32>(f32((vertex_index << 1u) & 2u), f32(vertex_index & 2u));
+	out.clip_position = vec4<f32>(out.screen_pos * 2.0 - 1.0, 0.0, 1.0);
+	return out;
 }
 
 @group(3) @binding(0) var intermediate_textured: texture_2d<u32>;
@@ -24,60 +24,60 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 // Camera uniform
 
 struct CameraUniform {
-    camera_transform: mat4x4<f32>,
-    camera_view_size: vec2<f32>,
+	camera_transform: mat4x4<f32>,
+	camera_view_size: vec2<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 
 // Helpers
 fn voxel_color(value: u32) -> vec3<f32> {
-    // Hue-cycle by voxel data value - replace with palette lookup as needed.
-    let h = f32(value % 17u) / 17.0 * 6.0;
-    let s = u32(h); let f = h - f32(s); let q = 1.0 - f;
-    switch s % 6u {
-        case 0u: { return vec3<f32>(1.0, f,   0.0); }
-        case 1u: { return vec3<f32>(q,   1.0, 0.0); }
-        case 2u: { return vec3<f32>(0.0, 1.0, f  ); }
-        case 3u: { return vec3<f32>(0.0, q,   1.0); }
-        case 4u: { return vec3<f32>(f,   0.0, 1.0); }
-        default: { return vec3<f32>(1.0, 0.0, q  ); }
-    }
+	// Hue-cycle by voxel data value - replace with palette lookup as needed.
+	let h = f32(value % 17u) / 17.0 * 6.0;
+	let s = u32(h); let f = h - f32(s); let q = 1.0 - f;
+	switch s % 6u {
+		case 0u: { return vec3<f32>(1.0, f,   0.0); }
+		case 1u: { return vec3<f32>(q,   1.0, 0.0); }
+		case 2u: { return vec3<f32>(0.0, 1.0, f  ); }
+		case 3u: { return vec3<f32>(0.0, q,   1.0); }
+		case 4u: { return vec3<f32>(f,   0.0, 1.0); }
+		default: { return vec3<f32>(1.0, 0.0, q  ); }
+	}
 }
 
 fn shade(base_color: vec3<f32>, world_normal: vec3<f32>, light_visible: bool) -> vec3<f32> {
 	let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
-    // Simple directional + ambient.
-    let ndotl = max(dot(world_normal, light_dir), 0.0);
+	// Simple directional + ambient.
+	let ndotl = max(dot(world_normal, light_dir), 0.0);
 	// using hit sky
 	let shadow = select(ndotl * 0.1, ndotl, light_visible);
-    let ambient = 0.25;
-    return base_color * (ambient + (1.0 - ambient) * shadow);
+	let ambient = 0.25;
+	return base_color * (ambient + (1.0 - ambient) * shadow);
 }
 
 fn hash_u32(x: u32) -> u32 {
-    var h = x;
-    h ^= h >> 16u;
-    h *= 0x7feb352du;
-    h ^= h >> 15u;
-    h *= 0x846ca68bu;
-    h ^= h >> 16u;
-    return h;
+	var h = x;
+	h ^= h >> 16u;
+	h *= 0x7feb352du;
+	h ^= h >> 15u;
+	h *= 0x846ca68bu;
+	h ^= h >> 16u;
+	return h;
 }
 
 fn id_to_color(id: u32) -> vec3<f32> {
-    let h = hash_u32(id);
+	let h = hash_u32(id);
 
-    // Split hash into RGB channels
-    let r = f32((h >>  0u) & 0xFFu) / 255.0;
-    let g = f32((h >>  8u) & 0xFFu) / 255.0;
-    let b = f32((h >> 16u) & 0xFFu) / 255.0;
+	// Split hash into RGB channels
+	let r = f32((h >>  0u) & 0xFFu) / 255.0;
+	let g = f32((h >>  8u) & 0xFFu) / 255.0;
+	let b = f32((h >> 16u) & 0xFFu) / 255.0;
 
-    return vec3<f32>(r, g, b);
+	return vec3<f32>(r, g, b);
 }
 
 fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
-    let t = 2.0 * cross(q.xyz, v);
-    return v + q.w * t + cross(q.xyz, t);
+	let t = 2.0 * cross(q.xyz, v);
+	return v + q.w * t + cross(q.xyz, t);
 }
 
 // Fragment
@@ -89,22 +89,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let data = textureLoad(intermediate_textured, texture_pos, 0);
 
 	// Reconstruct world-space ray from the screen position.
-    let ray_start = camera.camera_transform[3].xyz;
-    let ray_dir   = normalize((camera.camera_transform * vec4<f32>(
-        (-in.screen_pos.x + 0.5) * camera.camera_view_size.x * 2.0,
-        ( in.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
-        1.0,
-        0.0,
-    )).xyz);
+	let ray_start = camera.camera_transform[3].xyz;
+	let ray_dir   = normalize((camera.camera_transform * vec4<f32>(
+		(-in.screen_pos.x + 0.5) * camera.camera_view_size.x * 2.0,
+		( in.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
+		1.0,
+		0.0,
+	)).xyz);
 
 	if (data.x == 0) {
 		let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
 		let t = ray_dir.y * 0.5 + 0.5;
-        let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
-        let sun = max(dot(ray_dir, sun_dir), 0.0);
-        let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
-        let sky_color = bg + sun_color;
-        return vec4<f32>(sky_color, 1.0);
+		let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
+		let sun = max(dot(ray_dir, sun_dir), 0.0);
+		let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
+		let sky_color = bg + sun_color;
+		return vec4<f32>(sky_color, 1.0);
 	}
 	// return vec4<f32>(f32(data.x) / 30000.0, f32(data.x) / 30000.0, f32(data.x) / 30000.0, 1.0);
 	let normal = data.x & 0xFFu;
@@ -121,7 +121,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	normal_vec[(normal >> 3u) & 0xF] = -f32((normal & (1u << ((normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;
 	let item = bvh_items[bvh_item_idx];
 	let pose_quat = vec4<f32>(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
-    let color = shade(base_color, quat_rotate(pose_quat, normal_vec), light_visible);
+	let color = shade(base_color, quat_rotate(pose_quat, normal_vec), light_visible);
 
-    return vec4<f32>(color, 1.0);
+	return vec4<f32>(color, 1.0);
 }

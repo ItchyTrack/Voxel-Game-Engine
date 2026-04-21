@@ -83,9 +83,9 @@ impl PhysicsConstraint for CollisionConstraint {
 		let bounds = force.x.abs() * self.friction;
 		let friction_scale = Vec2::new(force.y, force.z).length();
 		if friction_scale > bounds && friction_scale > 0.0 {
-            force.y *= bounds / friction_scale;
-            force.z *= bounds / friction_scale;
-        }
+			force.y *= bounds / friction_scale;
+			force.z *= bounds / friction_scale;
+		}
 
 		let (d_prime_linear, d_prime_angular) = if calc_1 { (d_prime_linear_1, d_prime_angular_1) } else { (d_prime_linear_2, d_prime_angular_2) };
 		// let (d_prime_linear, d_prime_angular) = (d_prime_linear_1, d_prime_angular_1);
@@ -144,9 +144,9 @@ impl PhysicsConstraint for CollisionConstraint {
 		let bounds = force.x.abs() * self.friction;
 		let friction_scale = Vec2::new(force.y, force.z).length();
 		if friction_scale > bounds && friction_scale > 0.0 {
-            force.y *= bounds / friction_scale;
-            force.z *= bounds / friction_scale;
-        }
+			force.y *= bounds / friction_scale;
+			force.z *= bounds / friction_scale;
+		}
 
 		self.lambda = force;
 
@@ -155,9 +155,9 @@ impl PhysicsConstraint for CollisionConstraint {
 		if force.x < 0.0 {
 			self.penalty.x = (self.penalty.x + beta * c.x.abs()).min(10000000000.0);
 		}
-        if friction_scale <= bounds {
-            self.penalty.y = (self.penalty.y + beta * c.y.abs()).min(10000000000.0);
-            self.penalty.z = (self.penalty.z + beta * c.z.abs()).min(10000000000.0);
-        }
+		if friction_scale <= bounds {
+			self.penalty.y = (self.penalty.y + beta * c.y.abs()).min(10000000000.0);
+			self.penalty.z = (self.penalty.z + beta * c.z.abs()).min(10000000000.0);
+		}
 	}
 }

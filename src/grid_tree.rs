@@ -368,8 +368,8 @@ impl GridTree {
 		}
 	}
 	pub fn get_internals(&self) -> (&Vec<GridTreeNode>, I16Vec3, u8) {
-        (&self.nodes, self.root_pos, self.root_depth)
-    }
+		(&self.nodes, self.root_pos, self.root_depth)
+	}
 	// cell_to_merge cant be NODE. pos_in_node is any pos
 	fn try_merge(&mut self, node_index: u32, data: u16, cell_index_stack: &[u8]) {
 		let node = &mut self.nodes[node_index as usize];
