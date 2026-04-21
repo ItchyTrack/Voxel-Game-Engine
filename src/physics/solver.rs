@@ -239,86 +239,86 @@ impl Solver {
 
 // From https://github.com/savant117/avbd-demo3d
 fn solve(a_lin: Mat3, a_ang: Mat3, a_cross: Mat3, b_lin: Vec3, b_ang: Vec3) -> (Vec3, Vec3) {
-    // Extract elements from lower triangle storage
-    let a11 = a_lin.col(0).to_array()[0];
-    let a21 = a_lin.col(1).to_array()[0];
+	// Extract elements from lower triangle storage
+	let a11 = a_lin.col(0).to_array()[0];
+	let a21 = a_lin.col(1).to_array()[0];
 	let a22 = a_lin.col(1).to_array()[1];
-    let a31 = a_lin.col(2).to_array()[0];
+	let a31 = a_lin.col(2).to_array()[0];
 	let a32 = a_lin.col(2).to_array()[1];
 	let a33 = a_lin.col(2).to_array()[2];
-    let a41 = a_cross.col(0).to_array()[0];
+	let a41 = a_cross.col(0).to_array()[0];
 	let a42 = a_cross.col(0).to_array()[1];
 	let a43 = a_cross.col(0).to_array()[2];
 	let a44 = a_ang.col(0).to_array()[0];
-    let a51 = a_cross.col(1).to_array()[0];
+	let a51 = a_cross.col(1).to_array()[0];
 	let a52 = a_cross.col(1).to_array()[1];
 	let a53 = a_cross.col(1).to_array()[2];
 	let a54 = a_ang.col(1).to_array()[0];
 	let a55 = a_ang.col(1).to_array()[1];
-    let a61 = a_cross.col(2).to_array()[0];
+	let a61 = a_cross.col(2).to_array()[0];
 	let a62 = a_cross.col(2).to_array()[1];
 	let a63 = a_cross.col(2).to_array()[2];
 	let a64 = a_ang.col(2).to_array()[0];
 	let a65 = a_ang.col(2).to_array()[1];
 	let a66 = a_ang.col(2).to_array()[2];
 
-    // Step 1: LDL^T decomposition
-    let l21 = a21 / a11;
-    let l31 = a31 / a11;
-    let l41 = a41 / a11;
-    let l51 = a51 / a11;
-    let l61 = a61 / a11;
+	// Step 1: LDL^T decomposition
+	let l21 = a21 / a11;
+	let l31 = a31 / a11;
+	let l41 = a41 / a11;
+	let l51 = a51 / a11;
+	let l61 = a61 / a11;
 
-    let d1 = a11;
+	let d1 = a11;
 
-    let d2 = a22 - l21 * l21 * d1;
+	let d2 = a22 - l21 * l21 * d1;
 
-    let l32 = (a32 - l21 * l31 * d1) / d2;
-    let l42 = (a42 - l21 * l41 * d1) / d2;
-    let l52 = (a52 - l21 * l51 * d1) / d2;
-    let l62 = (a62 - l21 * l61 * d1) / d2;
+	let l32 = (a32 - l21 * l31 * d1) / d2;
+	let l42 = (a42 - l21 * l41 * d1) / d2;
+	let l52 = (a52 - l21 * l51 * d1) / d2;
+	let l62 = (a62 - l21 * l61 * d1) / d2;
 
-    let d3 = a33 - (l31 * l31 * d1 + l32 * l32 * d2);
+	let d3 = a33 - (l31 * l31 * d1 + l32 * l32 * d2);
 
-    let l43 = (a43 - l31 * l41 * d1 - l32 * l42 * d2) / d3;
-    let l53 = (a53 - l31 * l51 * d1 - l32 * l52 * d2) / d3;
-    let l63 = (a63 - l31 * l61 * d1 - l32 * l62 * d2) / d3;
+	let l43 = (a43 - l31 * l41 * d1 - l32 * l42 * d2) / d3;
+	let l53 = (a53 - l31 * l51 * d1 - l32 * l52 * d2) / d3;
+	let l63 = (a63 - l31 * l61 * d1 - l32 * l62 * d2) / d3;
 
-    let d4 = a44 - (l41 * l41 * d1 + l42 * l42 * d2 + l43 * l43 * d3);
+	let d4 = a44 - (l41 * l41 * d1 + l42 * l42 * d2 + l43 * l43 * d3);
 
-    let l54 = (a54 - l41 * l51 * d1 - l42 * l52 * d2 - l43 * l53 * d3) / d4;
-    let l64 = (a64 - l41 * l61 * d1 - l42 * l62 * d2 - l43 * l63 * d3) / d4;
+	let l54 = (a54 - l41 * l51 * d1 - l42 * l52 * d2 - l43 * l53 * d3) / d4;
+	let l64 = (a64 - l41 * l61 * d1 - l42 * l62 * d2 - l43 * l63 * d3) / d4;
 
-    let d5 = a55 - (l51 * l51 * d1 + l52 * l52 * d2 + l53 * l53 * d3 + l54 * l54 * d4);
+	let d5 = a55 - (l51 * l51 * d1 + l52 * l52 * d2 + l53 * l53 * d3 + l54 * l54 * d4);
 
-    let l65 = (a65 - l51 * l61 * d1 - l52 * l62 * d2 - l53 * l63 * d3 - l54 * l64 * d4) / d5;
+	let l65 = (a65 - l51 * l61 * d1 - l52 * l62 * d2 - l53 * l63 * d3 - l54 * l64 * d4) / d5;
 
-    let d6 = a66 - (l61 * l61 * d1 + l62 * l62 * d2 + l63 * l63 * d3 + l64 * l64 * d4 + l65 * l65 * d5);
+	let d6 = a66 - (l61 * l61 * d1 + l62 * l62 * d2 + l63 * l63 * d3 + l64 * l64 * d4 + l65 * l65 * d5);
 
-    // Step 2: Forward substitution: Solve Ly = b
-    let y1 = b_lin[0];
-    let y2 = b_lin[1] - l21 * y1;
-    let y3 = b_lin[2] - l31 * y1 - l32 * y2;
-    let y4 = b_ang[0] - l41 * y1 - l42 * y2 - l43 * y3;
-    let y5 = b_ang[1] - l51 * y1 - l52 * y2 - l53 * y3 - l54 * y4;
-    let y6 = b_ang[2] - l61 * y1 - l62 * y2 - l63 * y3 - l64 * y4 - l65 * y5;
+	// Step 2: Forward substitution: Solve Ly = b
+	let y1 = b_lin[0];
+	let y2 = b_lin[1] - l21 * y1;
+	let y3 = b_lin[2] - l31 * y1 - l32 * y2;
+	let y4 = b_ang[0] - l41 * y1 - l42 * y2 - l43 * y3;
+	let y5 = b_ang[1] - l51 * y1 - l52 * y2 - l53 * y3 - l54 * y4;
+	let y6 = b_ang[2] - l61 * y1 - l62 * y2 - l63 * y3 - l64 * y4 - l65 * y5;
 
-    // Step 3: Diagonal solve: Solve Dz = y
-    let z1 = y1 / d1;
-    let z2 = y2 / d2;
-    let z3 = y3 / d3;
-    let z4 = y4 / d4;
-    let z5 = y5 / d5;
-    let z6 = y6 / d6;
+	// Step 3: Diagonal solve: Solve Dz = y
+	let z1 = y1 / d1;
+	let z2 = y2 / d2;
+	let z3 = y3 / d3;
+	let z4 = y4 / d4;
+	let z5 = y5 / d5;
+	let z6 = y6 / d6;
 
-    // Step 4: Backward substitution: Solve L^T x = z
+	// Step 4: Backward substitution: Solve L^T x = z
 	let mut x_ang = Vec3::ZERO;
-    x_ang[2] = z6;
-    x_ang[1] = z5 - l65 * x_ang[2];
-    x_ang[0] = z4 - l54 * x_ang[1] - l64 * x_ang[2];
+	x_ang[2] = z6;
+	x_ang[1] = z5 - l65 * x_ang[2];
+	x_ang[0] = z4 - l54 * x_ang[1] - l64 * x_ang[2];
 	let mut x_lin = Vec3::ZERO;
-    x_lin[2] = z3 - l43 * x_ang[0] - l53 * x_ang[1] - l63 * x_ang[2];
-    x_lin[1] = z2 - l32 * x_lin[2] - l42 * x_ang[0] - l52 * x_ang[1] - l62 * x_ang[2];
-    x_lin[0] = z1 - l21 * x_lin[1] - l31 * x_lin[2] - l41 * x_ang[0] - l51 * x_ang[1] - l61 * x_ang[2];
+	x_lin[2] = z3 - l43 * x_ang[0] - l53 * x_ang[1] - l63 * x_ang[2];
+	x_lin[1] = z2 - l32 * x_lin[2] - l42 * x_ang[0] - l52 * x_ang[1] - l62 * x_ang[2];
+	x_lin[0] = z1 - l21 * x_lin[1] - l31 * x_lin[2] - l41 * x_ang[0] - l51 * x_ang[1] - l61 * x_ang[2];
 	(x_lin, x_ang)
 }

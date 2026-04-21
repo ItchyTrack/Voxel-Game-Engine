@@ -33,7 +33,7 @@ pub struct Renderer {
 	pub dt_avg: f32,
 	pub bvh_item_ids: Vec<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
 	pub bvh_item_hit_counts: Vec<u32>,
-    last_gpu_bvh: Option<GpuBvh>
+	last_gpu_bvh: Option<GpuBvh>
 }
 
 #[cfg(target_arch = "wasm32")]

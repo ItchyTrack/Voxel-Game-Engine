@@ -547,11 +547,11 @@ impl VoxelRenderer {
 			render_pass.draw(0..3, 0..1);
 		}
 
-        encoder.copy_buffer_to_buffer(
-            &gpu_bvh.item_hit_count_buffer, 0,
-            &gpu_bvh.item_hit_count_staging_buffer, 0,
-            gpu_bvh.item_hit_count_buffer.size(),
-        );
+		encoder.copy_buffer_to_buffer(
+			&gpu_bvh.item_hit_count_buffer, 0,
+			&gpu_bvh.item_hit_count_staging_buffer, 0,
+			gpu_bvh.item_hit_count_buffer.size(),
+		);
 
 		gpu_bvh
 	}

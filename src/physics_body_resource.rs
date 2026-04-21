@@ -149,116 +149,114 @@ impl SubGridResource {
 		if let Some(_currently_uploading) = &self.gpu_state.get().currently_uploading {
 			return;
 		} else {
-			if (!self.gpu_state.get().on_gpu) || (self.gpu_state.get().lod_level != request.lod_level) {
-				let mut gpu_state = self.gpu_state.get();
-				gpu_state.currently_uploading = Some(request.clone());
-				self.gpu_state.set(gpu_state);
+			let mut gpu_state = self.gpu_state.get();
+			gpu_state.currently_uploading = Some(request.clone());
+			self.gpu_state.set(gpu_state);
 
-				if self.sub_grid_id.is_none() {
-					unimplemented!("Everything must be loaded!");
-				}
-				let physics_body_grid_resource = resource_manager.resource(self.physics_body_grid_uuid()).unwrap();
-				let physics_body_grid_resource_info = match physics_body_grid_resource.info() {
-					ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource,
-					_ => panic!(),
-				};
-				if physics_body_grid_resource_info.physics_body_grid_id().is_none() {
-					unimplemented!("Everything must be loaded!");
-				}
-				let physics_body_resource = resource_manager.resource(physics_body_grid_resource_info.physics_body_uuid()).unwrap();
-				let physics_body_resource_info = match physics_body_resource.info() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource,
-					_ => panic!(),
-				};
-				if physics_body_resource_info.physics_body_id().is_none() {
-					unimplemented!("Everything must be loaded!");
-				}
-
-				let physics_body_id = physics_body_resource_info.physics_body_id().unwrap();
-				let physics_body_grid_id = physics_body_grid_resource_info.physics_body_grid_id().unwrap();
-				let sub_grid_id = self.sub_grid_id().unwrap();
-				let physics_body = physics_engine.physics_body(physics_body_id).unwrap();
-				let physics_body_grid = physics_body.grid(physics_body_grid_id).unwrap();
-				let sub_grid = physics_body_grid.sub_grid(sub_grid_id).unwrap();
-				let palette = sub_grid.get_voxels().get_palette().clone();
-				let voxels = sub_grid.get_voxels().get_voxels().clone();
-
-				let task_queue = task_queue.clone();
-				let sub_grid_uuid = self.sub_grid_uuid.clone();
-				tokio::spawn(async move {
-					let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, request.lod_level);
-
-					task_queue.lock().unwrap().push_back(Task::new(move |state: &mut State| {
-						let sub_grid_resource = match state.resource_manager.resource(&sub_grid_uuid).unwrap().info() {
-							ResourceInfoType::SubGrid { sub_grid_resource } => sub_grid_resource,
-							_ => panic!()
-						};
-						let mut gpu_state = sub_grid_resource.gpu_state.get();
-						gpu_state.currently_uploading = None;
-						if gpu_state.on_gpu {
-							match state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.replace_buffer(&state.renderer.device, &state.renderer.queue, gpu_state.tree_id, &tree_buffer) {
-								Ok(gpu_grid_tree_id) => {
-									match state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.replace_buffer(&state.renderer.device, &state.renderer.queue, gpu_state.voxels_id, &voxel_buffer) {
-										Ok(gpu_voxel_data_id) => {
-											gpu_state.on_gpu = true;
-											gpu_state.lod_level = request.lod_level;
-											gpu_state.tree_id = gpu_grid_tree_id;
-											gpu_state.voxels_id = gpu_voxel_data_id;
-											tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
-											tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-										},
-										Err(err) => {
-											println!("{}", err);
-											if let Err(err) = state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.remove_buffer(gpu_grid_tree_id) {
-												println!("{}", err);
-											}
-											tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
-											tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-										},
-									}
-								},
-								Err(err) => {
-									println!("{}", err);
-									if let Err(err) = state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.remove_buffer(gpu_state.voxels_id) {
-										println!("{}", err);
-									}
-									tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
-									tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-								}
-							};
-						} else {
-							match state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.add_buffer(&state.renderer.device, &state.renderer.queue, &tree_buffer) {
-								Ok(gpu_grid_tree_id) => {
-									match state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.add_buffer(&state.renderer.device, &state.renderer.queue, &voxel_buffer) {
-										Ok(gpu_voxel_data_id) => {
-											gpu_state.on_gpu = true;
-											gpu_state.lod_level = request.lod_level;
-											gpu_state.tree_id = gpu_grid_tree_id;
-											gpu_state.voxels_id = gpu_voxel_data_id;
-											tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
-											tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-										},
-										Err(err) => {
-											println!("{}", err);
-											if let Err(err) = state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.remove_buffer(gpu_grid_tree_id) {
-												println!("{}", err);
-											}
-											tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
-											tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-										},
-									}
-								},
-								Err(err) => {
-									println!("{}", err);
-									tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
-									tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
-								}
-							};
-						}
-						sub_grid_resource.gpu_state.set(gpu_state);
-					}));
-				});
+			if self.sub_grid_id.is_none() {
+				unimplemented!("Everything must be loaded!");
 			}
+			let physics_body_grid_resource = resource_manager.resource(self.physics_body_grid_uuid()).unwrap();
+			let physics_body_grid_resource_info = match physics_body_grid_resource.info() {
+				ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource,
+				_ => panic!(),
+			};
+			if physics_body_grid_resource_info.physics_body_grid_id().is_none() {
+				unimplemented!("Everything must be loaded!");
+			}
+			let physics_body_resource = resource_manager.resource(physics_body_grid_resource_info.physics_body_uuid()).unwrap();
+			let physics_body_resource_info = match physics_body_resource.info() {
+				ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource,
+				_ => panic!(),
+			};
+			if physics_body_resource_info.physics_body_id().is_none() {
+				unimplemented!("Everything must be loaded!");
+			}
+
+			let physics_body_id = physics_body_resource_info.physics_body_id().unwrap();
+			let physics_body_grid_id = physics_body_grid_resource_info.physics_body_grid_id().unwrap();
+			let sub_grid_id = self.sub_grid_id().unwrap();
+			let physics_body = physics_engine.physics_body(physics_body_id).unwrap();
+			let physics_body_grid = physics_body.grid(physics_body_grid_id).unwrap();
+			let sub_grid = physics_body_grid.sub_grid(sub_grid_id).unwrap();
+			let palette = sub_grid.get_voxels().get_palette().clone();
+			let voxels = sub_grid.get_voxels().get_voxels().clone();
+
+			let task_queue = task_queue.clone();
+			let sub_grid_uuid = self.sub_grid_uuid.clone();
+			tokio::spawn(async move {
+				let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, request.lod_level);
+
+				task_queue.lock().unwrap().push_back(Task::new(move |state: &mut State| {
+					let sub_grid_resource = match state.resource_manager.resource(&sub_grid_uuid).unwrap().info() {
+						ResourceInfoType::SubGrid { sub_grid_resource } => sub_grid_resource,
+						_ => panic!()
+					};
+					let mut gpu_state = sub_grid_resource.gpu_state.get();
+					gpu_state.currently_uploading = None;
+					if gpu_state.on_gpu {
+						match state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.replace_buffer(&state.renderer.device, &state.renderer.queue, gpu_state.tree_id, &tree_buffer) {
+							Ok(gpu_grid_tree_id) => {
+								match state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.replace_buffer(&state.renderer.device, &state.renderer.queue, gpu_state.voxels_id, &voxel_buffer) {
+									Ok(gpu_voxel_data_id) => {
+										gpu_state.on_gpu = true;
+										gpu_state.lod_level = request.lod_level;
+										gpu_state.tree_id = gpu_grid_tree_id;
+										gpu_state.voxels_id = gpu_voxel_data_id;
+										tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
+										tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+									},
+									Err(err) => {
+										println!("{}", err);
+										if let Err(err) = state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.remove_buffer(gpu_grid_tree_id) {
+											println!("{}", err);
+										}
+										tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
+										tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+									},
+								}
+							},
+							Err(err) => {
+								println!("{}", err);
+								if let Err(err) = state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.remove_buffer(gpu_state.voxels_id) {
+									println!("{}", err);
+								}
+								tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
+								tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+							}
+						};
+					} else {
+						match state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.add_buffer(&state.renderer.device, &state.renderer.queue, &tree_buffer) {
+							Ok(gpu_grid_tree_id) => {
+								match state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.add_buffer(&state.renderer.device, &state.renderer.queue, &voxel_buffer) {
+									Ok(gpu_voxel_data_id) => {
+										gpu_state.on_gpu = true;
+										gpu_state.lod_level = request.lod_level;
+										gpu_state.tree_id = gpu_grid_tree_id;
+										gpu_state.voxels_id = gpu_voxel_data_id;
+										tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
+										tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+									},
+									Err(err) => {
+										println!("{}", err);
+										if let Err(err) = state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.remove_buffer(gpu_grid_tree_id) {
+											println!("{}", err);
+										}
+										tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
+										tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+									},
+								}
+							},
+							Err(err) => {
+								println!("{}", err);
+								tracy_client::plot!("64 tree bytes", state.renderer.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
+								tracy_client::plot!("voxel data bytes", state.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+							}
+						};
+					}
+					sub_grid_resource.gpu_state.set(gpu_state);
+				}));
+			});
 		}
 	}
 }
