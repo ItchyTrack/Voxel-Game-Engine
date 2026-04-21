@@ -3,7 +3,7 @@ use std::{cell::{Ref, RefCell}, collections::HashMap};
 use glam::{I8Vec3, Vec3, IVec3};
 use tracy_client::span;
 
-use crate::{physics::{physics_body::{PhysicsBodyGridId, PhysicsBodyId}, solver::Impulse}, pose::Pose};
+use crate::{physics::{physics_body::{PhysicsBodyGridId, PhysicsBodyId}, solver::Impulse}, pose::Pose, resource_manager::ResourceUUID};
 
 use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver, ball_joint_constraint::BallJointConstraint, voxel_tracker::VoxelTracker};
 
@@ -85,9 +85,9 @@ impl PhysicsEngine {
 		self.get_bvh()
 	}
 
-	pub fn add_physics_body(&mut self) -> PhysicsBodyId {
+	pub fn add_physics_body(&mut self, body_uuid: ResourceUUID) -> PhysicsBodyId {
 		self.physics_body_id_to_index.insert(self.next_body_id, self.physics_bodies.len() as u32);
-		self.physics_bodies.push(PhysicsBody::new(self.next_body_id));
+		self.physics_bodies.push(PhysicsBody::new(body_uuid, self.next_body_id));
 		self.next_body_id.0 += 1;
 		PhysicsBodyId(self.next_body_id.0 - 1)
 	}

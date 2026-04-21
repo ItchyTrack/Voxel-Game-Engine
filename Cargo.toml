@@ -41,6 +41,7 @@ imgui-winit-support = "0.13"
 parry3d = "0.26.0"
 tokio = { version = "1", features = ["full"] }
 tokio-macros = "2.7.0"
+uuid = { version = "1.23.1", features = [ "v4", "js" ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"

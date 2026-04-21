@@ -1,12 +1,11 @@
 use std::{collections::HashMap};
 
+use uuid::Uuid;
+
 use crate::physics_body_resource::{PhysicsBodyGridResource, PhysicsBodyResource, SubGridResource};
 
 #[derive(Clone, Eq, Hash, PartialEq)]
-pub struct UUID(pub String);
-
-#[derive(Clone, Eq, Hash, PartialEq)]
-pub struct ResourceUUID(pub UUID);
+pub struct ResourceUUID(pub Uuid);
 
 pub trait ResourceInfo {
 	fn deserialize(&mut self, raw: &String);
@@ -70,12 +69,9 @@ impl Resource {
 	pub fn info(&self) -> &ResourceInfoType {
 		&self.info
 	}
-	// pub fn info_type<T: 'static>(&self) -> &T {
-	// 	self.info
-
-	// 		.downcast_ref::<ComponentStorageImpl<T>>()
-	// 		.map(|s| &s.storage).unwrap()
-	// }
+	pub fn info_mut(&mut self) -> &mut ResourceInfoType {
+		&mut self.info
+	}
 	pub fn network_state(&self) -> &NetworkState {
 		&self.network_state
 	}
@@ -130,5 +126,19 @@ impl ResourceManager {
 	}
 	pub fn resources(&self) -> &HashMap<ResourceUUID, Resource> {
 		&self.resources
+	}
+	pub fn create_resource(&mut self, uuid: ResourceUUID, on_disk: bool, loaded: bool, dependencies: Vec<String>, resource_info: ResourceInfoType) -> Option<&mut Resource> {
+		match self.resources.entry(uuid) {
+			std::collections::hash_map::Entry::Occupied(_occupied_entry) => {
+				println!("ERROR: created resource with existing uuid");
+				return None;
+			},
+			std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+				return Some(vacant_entry.insert(Resource::new(on_disk, loaded, dependencies, resource_info)));
+			},
+		}
+	}
+	pub fn create_resource_blank(&mut self, uuid: ResourceUUID, resource_info: ResourceInfoType) -> Option<&mut Resource> {
+		self.create_resource(uuid, false, true, vec![], resource_info)
 	}
 }
