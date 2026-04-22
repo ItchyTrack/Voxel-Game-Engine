@@ -1,11 +1,11 @@
-use std::{cell::Cell, collections::VecDeque, sync::{Arc, Mutex}};
+use std::cell::Cell;
 
 use parry3d::bounding_volume::Aabb;
 
 use crate::gpu_objects::gpu_grid_tree::make_gpu_grid_tree;
 use crate::physics::{physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}, physics_engine::{PhysicsEngine}};
 use crate::resource_manager::{ResourceInfo, ResourceInfoType, ResourceManager, ResourceUUID};
-use crate::state::{State, Task};
+use crate::state::{AsyncTaskPriorityQueue, PriorityTask, State, Task, TaskQueue};
 
 // ------- SubGridGpuState -------
 #[derive(Clone, Copy, Debug)]
@@ -145,7 +145,15 @@ impl SubGridResource {
 	}
 	pub fn bounds(&self) -> Option<Aabb> { self.bounds }
 	pub fn gpu_state(&self) -> SubGridGpuState { self.gpu_state.get() }
-	pub fn request_gpu_state(&self, task_queue: &Arc<Mutex<VecDeque<Task>>>, physics_engine: &PhysicsEngine, resource_manager: &ResourceManager, request: SubGridGpuUploadingState) {
+	pub fn request_gpu_state(
+		&self,
+		async_task_priority_queue: &AsyncTaskPriorityQueue,
+		task_queue: &TaskQueue,
+		physics_engine: &PhysicsEngine,
+		resource_manager: &ResourceManager,
+		request: SubGridGpuUploadingState,
+		priority: f32
+	) {
 		if let Some(_currently_uploading) = &self.gpu_state.get().currently_uploading {
 			return;
 		} else {
@@ -184,7 +192,8 @@ impl SubGridResource {
 
 			let task_queue = task_queue.clone();
 			let sub_grid_uuid = self.sub_grid_uuid.clone();
-			tokio::spawn(async move {
+
+			async_task_priority_queue.push(PriorityTask::new(priority, async move {
 				let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, request.lod_level);
 
 				task_queue.lock().unwrap().push_back(Task::new(move |state: &mut State| {
@@ -256,7 +265,7 @@ impl SubGridResource {
 					}
 					sub_grid_resource.gpu_state.set(gpu_state);
 				}));
-			});
+			}));
 		}
 	}
 }

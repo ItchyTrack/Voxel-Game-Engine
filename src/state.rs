@@ -1,9 +1,10 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+use async_priority_queue::PriorityQueue;
 use uuid::Uuid;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
-use std::{collections::{HashMap, VecDeque}, f32, sync::{Arc, Mutex}};
+use std::{collections::{HashMap, VecDeque}, f32, pin::Pin, sync::{Arc, Mutex}};
 
 use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
@@ -35,7 +36,45 @@ impl Task {
 	}
 }
 
+pub struct PriorityTask {
+	priority: f32,
+	task_func: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+}
+
+impl PriorityTask {
+	pub fn new<F: Future<Output = ()> + Send + 'static>(priority: f32, function: F) -> Self {
+		Self {
+			priority,
+			task_func: Box::pin(function),
+		}
+	}
+	pub fn run(self) -> impl Future<Output = ()> {
+		self.task_func
+	}
+}
+
+impl PartialEq for PriorityTask {
+	fn eq(&self, other: &Self) -> bool {
+		self.priority == other.priority
+	}
+}
+
+impl Eq for PriorityTask {}
+
+impl PartialOrd for PriorityTask {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		return self.priority.partial_cmp(&other.priority);
+	}
+}
+
+impl Ord for PriorityTask {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.priority.total_cmp(&other.priority)
+	}
+}
+
 pub type TaskQueue = Arc<Mutex<VecDeque<Task>>>;
+pub type AsyncTaskPriorityQueue = Arc<PriorityQueue<PriorityTask>>;
 
 pub struct State {
 	pub renderer: Renderer,
@@ -50,6 +89,8 @@ pub struct State {
 	pub place_sound_cooldown: f32,
 	pub break_sound_cooldown: f32,
 	pub task_queue: TaskQueue,
+	pub async_task_priority_queue: AsyncTaskPriorityQueue,
+	pub async_task_priority_queue_threads: Vec<tokio::task::JoinHandle<()>>,
 	pub freeze_gpu_grids: bool,
 }
 
@@ -954,8 +995,6 @@ impl State {
 			physics_engine.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
 		}
 
-
-
 		// terrain
 		// {
 		// 	let physics_body_id = physics_engine.add_physics_body();
@@ -967,6 +1006,17 @@ impl State {
 		// 	physics_body.is_static = true;
 		// 	physics_body.pose.translation.y = -10.0;
 		// }
+
+		let async_task_priority_queue = Arc::new(PriorityQueue::<PriorityTask>::new());
+		let async_task_priority_queue_threads = (0..8).map(|_| {
+			let async_task_priority_queue = async_task_priority_queue.clone();
+			tokio::spawn(async move {
+				loop {
+					let task = async_task_priority_queue.pop().await;
+					task.run().await;
+				}
+			})
+		}).collect();
 
 		Ok(Self {
 			renderer,
@@ -981,6 +1031,8 @@ impl State {
 			place_sound_cooldown: 0.0,
 			break_sound_cooldown: 0.0,
 			task_queue: Arc::new(Mutex::new(VecDeque::new())),
+			async_task_priority_queue,
+			async_task_priority_queue_threads,
 			freeze_gpu_grids: false,
 		})
 	}
@@ -1009,6 +1061,7 @@ impl State {
 						&mut self.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer,
 						&mut self.resource_manager,
 						&self.physics_engine,
+						&mut self.async_task_priority_queue,
 						&mut self.task_queue,
 						&id_to_hit_count,
 						&view_frustum,

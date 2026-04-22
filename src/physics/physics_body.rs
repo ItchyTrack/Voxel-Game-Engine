@@ -9,7 +9,7 @@ use crate::{
 	player::camera,
 	pose::Pose,
 	resource_manager::{ResourceInfoType, ResourceManager, ResourceUUID},
-	state::TaskQueue,
+	state::{AsyncTaskPriorityQueue, TaskQueue},
 	voxels
 };
 
@@ -70,19 +70,21 @@ impl SubGrid {
 		packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
 		resource_manager: &ResourceManager,
 		physics_engine: &PhysicsEngine,
+		async_task_priority_queue: &AsyncTaskPriorityQueue,
 		task_queue: &TaskQueue,
 		hit_count: u32,
-		_view_frustum: &camera::ViewFrustum,
+		view_frustum: &camera::ViewFrustum,
 		lod_level: f32,
+		priority: f32,
 		pose: Pose
 	) -> Option<(u32, u32, Pose)> {
-		// let aabb = self.voxels.get_bounding_box()?;
-		// let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
-		// let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
-		// let center = (aabb.0 + aabb.1) / 2.0;
-		// let in_view = view_frustum.compare_sphere(center, radius);
+		let aabb = self.voxels.get_bounding_box()?;
+		let aabb = (pose * aabb.0.as_vec3(), pose * aabb.1.as_vec3());
+		let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
+		let center = (aabb.0 + aabb.1) / 2.0;
+		let in_view = view_frustum.compare_sphere(center, radius);
 		// if !in_view { return None; }
-		// let lod_level = if in_view { lod_level } else { lod_level + 3.0 };
+		let priority = if in_view { priority + 5.0 } else { priority };
 		let lod_level = if hit_count > 0 { lod_level } else { lod_level + 3.0 };
 		let sub_grid_resource = if let Some(resource) = resource_manager.resource(&self.uuid) {
 			match resource.info() {
@@ -98,7 +100,7 @@ impl SubGrid {
 		};
 		if self.reupload_gpu_grid.get() || (lod_level != sub_grid_resource.gpu_state().lod_level() && lod_level == 0.0) || ((sub_grid_resource.gpu_state().lod_level() - lod_level).abs() > 0.25) {
 			self.reupload_gpu_grid.set(false);
-			sub_grid_resource.request_gpu_state(task_queue, physics_engine, resource_manager, SubGridGpuUploadingState{ lod_level: lod_level });
+			sub_grid_resource.request_gpu_state(async_task_priority_queue, task_queue, physics_engine, resource_manager, SubGridGpuUploadingState{ lod_level: lod_level }, priority);
 			if !sub_grid_resource.gpu_state().on_gpu() { return None; }
 		}
 		return Some((
@@ -365,11 +367,12 @@ impl PhysicsBodyGrid {
 		packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
 		resource_manager: &mut ResourceManager,
 		physics_engine: &PhysicsEngine,
+		async_task_priority_queue: &AsyncTaskPriorityQueue,
 		task_queue: &TaskQueue,
 		id_to_hit_count: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), u32>,
 		physics_body_id: PhysicsBodyId,
 		view_frustum: &camera::ViewFrustum,
-		_camera_pose: Pose,
+		camera_pose: Pose,
 		pose: &Pose
 	) -> Vec<(SubGridId, (u32, u32, Pose))> {
 		self.sub_grids.iter().filter_map(|sub_grid| {
@@ -382,10 +385,12 @@ impl PhysicsBodyGrid {
 					packed_voxel_data_dynamic_buffer,
 					resource_manager,
 					physics_engine,
+					async_task_priority_queue,
 					task_queue,
 					*hit_count,
 					view_frustum,
-					f32::max(_camera_pose.translation.distance(grid_pose.translation) - 1000.0, 0.0) / 1000.0,
+					f32::max(camera_pose.translation.distance(grid_pose.translation) - 1000.0, 0.0) / 1000.0,
+					-camera_pose.translation.distance(grid_pose.translation) / 1000.0,
 					grid_pose
 				)?)
 			))}
@@ -578,6 +583,7 @@ impl PhysicsBody {
 		packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
 		resource_manager: &mut ResourceManager,
 		physics_engine: &PhysicsEngine,
+		async_task_priority_queue: &AsyncTaskPriorityQueue,
 		task_queue: &TaskQueue,
 		id_to_hit_count: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), u32>,
 		view_frustum: &camera::ViewFrustum,
@@ -590,6 +596,7 @@ impl PhysicsBody {
 				packed_voxel_data_dynamic_buffer,
 				resource_manager,
 				physics_engine,
+				async_task_priority_queue,
 				task_queue,
 				id_to_hit_count,
 				self.id(),
