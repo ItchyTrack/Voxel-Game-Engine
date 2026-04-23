@@ -97,6 +97,7 @@ pub struct State {
 pub struct DebugEnables {
 	pub freeze_gpu_grids: bool,
 	pub freeze_physics: bool,
+	pub inertia_boxes: bool,
 }
 
 impl DebugEnables {
@@ -104,6 +105,7 @@ impl DebugEnables {
 		Self {
 			freeze_gpu_grids: false,
 			freeze_physics: false,
+			inertia_boxes: false,
 		}
 	}
 }
@@ -1053,14 +1055,16 @@ impl State {
 	}
 
 	pub fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
-		// for physics_body in self.physics_engine.physics_bodies() {
-			// for grid in physics_body.grids() {
-			// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
-			// }
-			// if !physics_body.is_static {
-			// 	physics_body.render_debug_inertia_box();
-			// }
+		// for grid in physics_body.grids() {
+		// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
 		// }
+		if self.debug_enables.inertia_boxes {
+			for physics_body in self.physics_engine.physics_bodies() {
+				if !physics_body.is_static {
+					physics_body.render_debug_inertia_box();
+				}
+			}
+		}
 		if let Some(player_camera) = self.ecs.get_component::<Camera>(self.player_id) {
 			let mut id_to_hit_count = HashMap::new();
 			for (id, hit_count) in self.renderer.bvh_item_ids.iter().zip(self.renderer.bvh_item_hit_counts.iter()) {

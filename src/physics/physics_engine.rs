@@ -172,7 +172,7 @@ impl PhysicsEngine {
 				&(&Pose::from_translation(-grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()).as_vec3()) * grid.pose.inverse() * physics_body.pose.inverse() * Pose::new(
 					pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
 				max_length.map(|max_length| max_length - bvh_distance),
-				// &(&physics_body.pose * grid.pose * Pose::from_translation(grid.sub_grid_pos_to_grid_pos(&sub_grid_pos).as_vec3()))
+				// &(&physics_body.pose * grid.pose * Pose::from_translation(grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos().as_ivec3()).as_vec3()))
 			) {
 				if best_hit.is_none() || grid_distance + bvh_distance < best_hit.unwrap().4 {
 					best_hit = Some((body_id, grid_id, hit_pos.as_ivec3() + grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()), hit_normal, grid_distance + bvh_distance));

@@ -243,7 +243,7 @@ impl Renderer {
 			let io = self.imgui.io_mut();
 			self.imgui_platform.prepare_frame(io, &*self.window).unwrap();
 			let ui = self.imgui.frame();
-			ui.window("Hello").position([0.0, 0.0], imgui::Condition::FirstUseEver).size([175.0, 200.0], imgui::Condition::FirstUseEver).build(|| {
+			ui.window("Debug").position([0.0, 0.0], imgui::Condition::FirstUseEver).size([175.0, 200.0], imgui::Condition::FirstUseEver).build(|| {
 					ui.text(format!("FPS: {:.2}", 1.0 / self.dt_avg));
 					ui.separator();
 					ui.text(format!("64 tree bytes: {:}KB", self.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() / 1000));
@@ -253,6 +253,7 @@ impl Renderer {
 					ui.separator();
 					ui.checkbox("freeze upload", &mut debug_enables.freeze_gpu_grids);
 					ui.checkbox("freeze physics", &mut debug_enables.freeze_physics);
+					ui.checkbox("inertia boxes", &mut debug_enables.inertia_boxes);
 				});
 
 			self.imgui_platform.prepare_render(ui, &*self.window);
