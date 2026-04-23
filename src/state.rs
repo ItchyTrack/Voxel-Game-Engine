@@ -91,7 +91,21 @@ pub struct State {
 	pub task_queue: TaskQueue,
 	pub async_task_priority_queue: AsyncTaskPriorityQueue,
 	pub async_task_priority_queue_threads: Vec<tokio::task::JoinHandle<()>>,
+	pub debug_enables: DebugEnables,
+}
+
+pub struct DebugEnables {
 	pub freeze_gpu_grids: bool,
+	pub freeze_physics: bool,
+}
+
+impl DebugEnables {
+	pub fn new() -> Self {
+		Self {
+			freeze_gpu_grids: false,
+			freeze_physics: false,
+		}
+	}
 }
 
 impl State {
@@ -122,7 +136,7 @@ impl State {
 
 	pub fn update(&mut self, dt: f32) {
 		let _zone = span!("State Update");
-		if !self.freeze_gpu_grids {
+		if !self.debug_enables.freeze_gpu_grids {
 			let _zone = span!("Do tasks");
 			while let Some(task) = { self.task_queue.lock().unwrap().pop_front() } {
 				task.run(self);
@@ -148,13 +162,6 @@ impl State {
 			}
 		}
 
-		self.ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
-			orientator.hold_at_orientation(&Quat::IDENTITY, &mut self.physics_engine);
-		});
-		let player_position = self.ecs.get_component::<Camera>(self.player_id).unwrap().position;
-		self.ecs.run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
-			player_tracker.track_pos(&player_position, &mut self.physics_engine);
-		});
 		self.ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
 			let ray_start = if self.raycast_pose.is_none() {
 				Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch))
@@ -217,28 +224,36 @@ impl State {
 				}
 			}
 			if player_input.key(KeyCode::KeyT).just_pressed {
-				self.freeze_gpu_grids ^= true;
-				// if self.fixed_view_frustum.is_none() {
-				// 	self.fixed_view_frustum = Some(camera.frustum());
-				// } else {
-				// 	self.fixed_view_frustum = None;
-				// }
+				self.debug_enables.freeze_gpu_grids ^= true;
+			}
+			if player_input.key(KeyCode::KeyP).just_pressed {
+				self.debug_enables.freeze_physics ^= true;
 			}
 		});
-		self.leaky_bucket += dt;
-		let time_step = 1.0 / 100.0;
-		let current_time = Instant::now();
-		while self.leaky_bucket >= time_step {
-			self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
-				if object_pickup.is_holding() {
-					object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), &mut self.physics_engine);
+		self.physics_engine.update();
+		if !self.debug_enables.freeze_physics {
+			self.leaky_bucket += dt;
+			let time_step = 1.0 / 100.0;
+			let current_time = Instant::now();
+			while self.leaky_bucket >= time_step {
+				self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
+					if object_pickup.is_holding() {
+						object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), time_step, &mut self.physics_engine);
+					}
+				});
+				self.ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
+					orientator.hold_at_orientation(&Quat::IDENTITY, time_step, &mut self.physics_engine);
+				});
+				let player_position = self.ecs.get_component::<Camera>(self.player_id).unwrap().position;
+				self.ecs.run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
+					player_tracker.track_pos(&player_position, time_step, &mut self.physics_engine);
+				});
+				self.physics_engine.update_physics(time_step);
+				self.leaky_bucket -= time_step;
+				let elapsed = current_time.elapsed().as_secs_f32();
+				if elapsed > 1.0 / 60.0 {
+					self.leaky_bucket = 0.0;
 				}
-			});
-			self.physics_engine.update(time_step);
-			self.leaky_bucket -= time_step;
-			let elapsed = current_time.elapsed().as_secs_f32();
-			if elapsed > 1.0 / 60.0 {
-				self.leaky_bucket = 0.0;
 			}
 		}
 		self.ecs.run_on_single_component_mut::<PlayerInput, _>(self.player_id, |_entity_id, player_input|
@@ -1033,7 +1048,7 @@ impl State {
 			task_queue: Arc::new(Mutex::new(VecDeque::new())),
 			async_task_priority_queue,
 			async_task_priority_queue_threads,
-			freeze_gpu_grids: false,
+			debug_enables: DebugEnables::new(),
 		})
 	}
 
@@ -1084,7 +1099,7 @@ impl State {
 				}
 				BVH::new(bounds)
 			};
-			return self.renderer.render(&player_camera, &bvh, &gpu_grid_tree_id_to_id_poses);
+			return self.renderer.render(&player_camera, &bvh, &gpu_grid_tree_id_to_id_poses, &mut self.debug_enables);
 		} else {
 			println!("Error: could not find player camera!");
 			return Ok(());

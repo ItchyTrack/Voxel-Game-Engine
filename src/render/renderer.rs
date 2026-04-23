@@ -12,6 +12,7 @@ use crate::physics::physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId};
 use crate::player::camera;
 use crate::pose::Pose;
 use crate::render::{crosshair_renderer, debug_draw_renderer, voxel_renderer};
+use crate::state::DebugEnables;
 
 pub struct Renderer {
 	pub surface: wgpu::Surface<'static>,
@@ -188,7 +189,8 @@ impl Renderer {
 			&mut self,
 			camera: &camera::Camera,
 			bvh: &bvh::BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
-			gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), (u32, u32, Pose)>
+			gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), (u32, u32, Pose)>,
+			debug_enables: &mut DebugEnables,
 		) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
 		tracy_client::plot!("64 tree bytes", self.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
@@ -241,9 +243,16 @@ impl Renderer {
 			let io = self.imgui.io_mut();
 			self.imgui_platform.prepare_frame(io, &*self.window).unwrap();
 			let ui = self.imgui.frame();
-			ui.window("Hello").size([300.0, 100.0], imgui::Condition::FirstUseEver).build(|| {
-					ui.text("Hello world!");
+			ui.window("Hello").position([0.0, 0.0], imgui::Condition::FirstUseEver).size([175.0, 200.0], imgui::Condition::FirstUseEver).build(|| {
 					ui.text(format!("FPS: {:.2}", 1.0 / self.dt_avg));
+					ui.separator();
+					ui.text(format!("64 tree bytes: {:}KB", self.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() / 1000));
+					ui.text(format!("Voxel bytes: {:}KB", self.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() / 1000));
+					ui.text(format!("BVH bytes: {:}KB", self.last_gpu_bvh.as_ref().map_or(0, |bvh| bvh.bvh_buffer.size()) / 1000));
+					ui.text(format!("BVH leaf bytes: {:}KB", self.last_gpu_bvh.as_ref().map_or(0, |bvh| bvh.items_buffer.size()) / 1000));
+					ui.separator();
+					ui.checkbox("freeze upload", &mut debug_enables.freeze_gpu_grids);
+					ui.checkbox("freeze physics", &mut debug_enables.freeze_physics);
 				});
 
 			self.imgui_platform.prepare_render(ui, &*self.window);

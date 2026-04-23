@@ -54,7 +54,8 @@ impl PhysicsEngine {
 		}
 	}
 
-	pub fn update(&mut self, dt: f32) {
+	pub fn update(&mut self) {
+		let _zone = span!("PhysicsEngine update ");
 		{
 			let _zone = span!("Clean up");
 			let mut index = 0u32;
@@ -67,6 +68,10 @@ impl PhysicsEngine {
 			}
 			*self.bvh.borrow_mut() = None; // have to clear afer cleanup
 		}
+	}
+
+	pub fn update_physics(&mut self, dt: f32) {
+		let _zone = span!("PhysicsEngine update physics");
 		{
 			let bvh = &get_bvh_macro!(self);
 			self.solver.solve(&mut self.physics_bodies, &self.physics_body_id_to_index, &mut self.constraints, &self.impulses, dt, bvh);

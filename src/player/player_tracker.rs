@@ -34,7 +34,7 @@ impl PlayerTracker {
 	}
 
 	// this trys to move the COM of the body to pose
-	pub fn track_pos(&self, player_pos: &Vec3, physics_engine: &mut PhysicsEngine) {
+	pub fn track_pos(&self, player_pos: &Vec3, _dt: f32, physics_engine: &mut PhysicsEngine) {
 		if let Some(voxel_to_move) = self.voxel_to_move {
 			if let Some((body_id, grid_id, voxel_pos)) = physics_engine.get_tracked_voxel(voxel_to_move) {
 				if let Some(body) = physics_engine.physics_body_mut(body_id) {

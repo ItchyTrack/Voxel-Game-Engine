@@ -29,7 +29,7 @@ impl Orientator {
 		self.tracked_voxel
 	}
 
-	pub fn hold_at_orientation(&self, orientation: &Quat, physics_engine: &mut PhysicsEngine) {
+	pub fn hold_at_orientation(&self, orientation: &Quat, _dt: f32, physics_engine: &mut PhysicsEngine) {
 		if let Some(tracked_voxel) = self.tracked_voxel {
 			if let Some((body_id, grid_id, _voxel_pos)) = physics_engine.get_tracked_voxel(tracked_voxel) {
 				if let Some(body) = physics_engine.physics_body_mut(body_id) {

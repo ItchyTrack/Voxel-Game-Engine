@@ -30,7 +30,7 @@ impl ObjectPickup {
 	}
 
 	// this trys to move the COM of the body to pose
-	pub fn hold_at_pos(&self, pos: &Vec3, physics_engine: &mut PhysicsEngine) {
+	pub fn hold_at_pos(&self, pos: &Vec3, _dt: f32, physics_engine: &mut PhysicsEngine) {
 		if let Some(body_id) = self.body_id {
 			if let Some(body) = physics_engine.physics_body_mut(body_id) {
 				let (com, mass) = body.get_global_center_of_mass_and_mass();
@@ -39,19 +39,19 @@ impl ObjectPickup {
 				let central_impulse = mass * (
 					dir * (
 						(pos - com).length() * 4.0 -
-						velocity_in_dir / 2.0
+						velocity_in_dir * 0.5
 					) - (body.velocity - dir * velocity_in_dir)
 				);
-				let (axis, angle) = body.pose.rotation.to_axis_angle();
-				let angular_velocity_in_dir = body.angular_velocity.dot(axis);
-				let rotational_impulse = body.rotational_inertia().mat.as_mat3() * (
-					axis * (
-						-angle * 4.0 -
-						angular_velocity_in_dir / 2.0
-					) - (body.angular_velocity - axis * angular_velocity_in_dir)
-				);
+				// let (axis, angle) = body.pose.rotation.to_axis_angle();
+				// let angular_velocity_in_dir = body.angular_velocity.dot(axis);
+				// let rotational_impulse = body.rotational_inertia().mat.as_mat3() * (
+				// 	axis * (
+				// 		-angle * 4.0 -
+				// 		angular_velocity_in_dir * 0.5
+				// 	) - (body.angular_velocity - axis * angular_velocity_in_dir)
+				// );
 				physics_engine.apply_central_impulse(body_id, &central_impulse);
-				physics_engine.apply_rotational_impulse(body_id, &rotational_impulse);
+				// physics_engine.apply_rotational_impulse(body_id, &rotational_impulse);
 			}
 		}
 	}
