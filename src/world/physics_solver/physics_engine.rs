@@ -4,7 +4,7 @@ use glam::{I8Vec3, Vec3, IVec3};
 use tracy_client::span;
 
 use super::{bvh::BVH, solver::{Solver, Impulse}, ball_joint_constraint::BallJointConstraint, voxel_tracker::VoxelTracker};
-use super::super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::GridId, subgrid::SubGridId, resource_manager::ResourceUUID};
+use super::super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::GridId, sub_grid::SubGridId, resource_manager::ResourceUUID};
 use crate::pose::Pose;
 
 pub struct PhysicsEngine {

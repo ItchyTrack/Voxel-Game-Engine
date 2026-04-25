@@ -1,3 +1,90 @@
+use crate::world::{grid::{Grid, GridId}, physics_body::{PhysicsBody, PhysicsBodyId}, resource_manager::ResourceManager, sparse_set::SparseSet, sub_grid::{SubGrid, SubGridId}};
+
+pub struct World {
+	pub physics_bodies: SparseSet<PhysicsBodyId, PhysicsBody>,
+	pub grids: SparseSet<GridId, Grid>,
+	pub sub_grids: SparseSet<SubGridId, SubGrid>,
+	pub next_body_id: PhysicsBodyId,
+	pub next_grid_id: GridId,
+	pub next_sub_grid_id: SubGridId,
+	pub voxel_tracker: VoxelTracker,
+
+	pub constraints: HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
+	pub impulses: HashMap<PhysicsBodyId, Vec<Impulse>>,
+	pub solver: Solver,
+	pub leaky_bucket: f32,
+
+	pub bvh: RefCell<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
+
+	pub ecs: entity_component_system::EntityComponentSystem,
+
+	pub resource_manager: ResourceManager,
+
+	pub task_queue: TaskQueue,
+	pub async_task_priority_queue: AsyncTaskPriorityQueue,
+	pub async_task_priority_queue_threads: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl World {
+	// called at any rate (faster is better and should be at least once per frame)
+	pub fn update(&mut self) {
+		let _zone = span!("World Update");
+		if !self.debug_enables.freeze_gpu_grids {
+			let _zone = span!("Do tasks");
+			while let Some(task) = { self.task_queue.lock().unwrap().pop_front() } {
+				task.run(self);
+			}
+		}
+
+		{
+			// let _zone = span!("Clean up");
+			// let mut index = 0u32;
+			// while index < self.physics_bodies.len() as u32 {
+			// 	if self.physics_bodies[index as usize].clean_up() {
+			// 		self.remove_physics_body_by_index(index);
+			// 	} else {
+			// 		index += 1;
+			// 	}
+			// }
+			*self.bvh.borrow_mut() = None; // have to clear afer cleanup
+		}
+
+		self.leaky_bucket += dt;
+		let time_step = 1.0 / 100.0;
+		let current_time = Instant::now();
+		while self.leaky_bucket >= time_step {
+			self.physics_update(time_step);
+			self.leaky_bucket -= time_step;
+			let elapsed = current_time.elapsed().as_secs_f32(); // timeout should maybe be removed at some point
+			if elapsed > 1.0 / 60.0 {
+				self.leaky_bucket = 0.0;
+			}
+		}
+	}
+
+	fn physics_update(&mut self, dt: f32) {
+		self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
+			if object_pickup.is_holding() {
+				object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), time_step, &mut self.physics_engine);
+			}
+		});
+		self.ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
+			orientator.hold_at_orientation(&Quat::IDENTITY, time_step, &mut self.physics_engine);
+		});
+		let player_position = self.ecs.get_component::<Camera>(self.player_id).unwrap().position;
+		self.ecs.run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
+			player_tracker.track_pos(&player_position, time_step, &mut self.physics_engine);
+		});
+		let _zone = span!("PhysicsEngine update physics");
+		{
+			let bvh = &get_bvh_macro!(self);
+			self.solver.solve(&mut self.physics_bodies, &self.grids, &self.sub_grids, &mut self.constraints, &self.impulses, dt, bvh);
+			self.impulses.clear();
+		}
+		*self.bvh.borrow_mut() = None;
+	}
+}
+
 // pub fn update_gpu_grid_tree(
 // 	&self,
 // 	packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,

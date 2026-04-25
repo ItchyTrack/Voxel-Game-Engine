@@ -2,9 +2,10 @@ use std::collections::HashSet;
 
 use crate::voxels;
 use crate::pose::Pose;
+use crate::world::physics_body::PhysicsBodyId;
 use super::physics_solver::inertia_tensor::InertiaTensor;
 use super::resource_manager::{ResourceManager, ResourceUUID};
-use super::{subgrid::SubGridId};
+use super::{sub_grid::SubGridId};
 
 use glam::{I16Vec3, I64Vec3, IVec3, Vec3, Quat};
 
@@ -15,6 +16,7 @@ pub struct Grid {
 	pub pose: Pose,
 	sub_grids: HashSet<SubGridId>,
 	id: GridId,
+	physics_body_id: PhysicsBodyId,
 	uuid: ResourceUUID,
 	mass: u64,
 	voxel_center_of_mass_times_mass: I64Vec3,
@@ -24,11 +26,12 @@ pub struct Grid {
 const SUB_GRID_SIZE: u16 = 64;
 
 impl Grid {
-	pub fn new(grid_uuid: ResourceUUID, grid_id: GridId, pose: &Pose) -> Self {
+	pub fn new(grid_uuid: ResourceUUID, grid_id: GridId, pose: &Pose, physics_body_id: PhysicsBodyId) -> Self {
 		Self {
 			pose: *pose,
 			sub_grids: vec![],
 			id: grid_id,
+			physics_body_id,
 			uuid: grid_uuid,
 			mass: 0,
 			voxel_center_of_mass_times_mass: I64Vec3::ZERO,

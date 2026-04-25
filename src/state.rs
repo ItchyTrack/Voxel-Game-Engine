@@ -81,16 +81,11 @@ pub struct State {
 	pub mouse_captured: bool,
 	pub audio_engine: AudioEngine,
 	pub physics_engine: PhysicsEngine,
-	pub ecs: entity_component_system::EntityComponentSystem,
 	pub resource_manager: ResourceManager,
 	pub player_id: u32,
-	pub leaky_bucket: f32,
 	pub raycast_pose: Option<Pose>,
 	pub place_sound_cooldown: f32,
 	pub break_sound_cooldown: f32,
-	pub task_queue: TaskQueue,
-	pub async_task_priority_queue: AsyncTaskPriorityQueue,
-	pub async_task_priority_queue_threads: Vec<tokio::task::JoinHandle<()>>,
 	pub debug_enables: DebugEnables,
 }
 

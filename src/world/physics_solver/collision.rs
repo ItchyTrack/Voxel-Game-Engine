@@ -2,12 +2,12 @@ use std::vec;
 
 use glam::{I16Vec3, IVec3, Quat, U8Vec3, Vec3};
 use super::super::sparse_set::SparseSet;
-use crate::world::subgrid;
+use crate::world::sub_grid;
 use crate::{pose::Pose, voxels};
 use super::{bvh::BVH};
 use super::super::physics_body::{PhysicsBody, PhysicsBodyId};
 use super::super::grid::{Grid, GridId};
-use super::super::subgrid::{SubGrid, SubGridId};
+use super::super::sub_grid::{SubGrid, SubGridId};
 
 use tracy_client::span;
 
@@ -62,7 +62,7 @@ pub fn get_collisions(physics_bodies: &SparseSet<PhysicsBodyId, PhysicsBody>, gr
 		// 	for (sub_grid_index_a, sub_grid_a) in grid_a.sub_grids().iter().enumerate() {
 				// if let Some(bound) = physics_body_a.sub_grid_aabb_by_index(grid_index_a as u32, sub_grid_index_a as u32) {
 					// let sub_grid_grid_pos_a = grid_a.sub_grid_pos_to_grid_pos(&sub_grid_a.sub_grid_ipos());
-				for sub_grid in &sub_grids {
+				for [sub_grid_id_a, sub_grid_a] in &sub_grids {
 					for (body_id_b, grid_id_b, sub_grid_id_b) in bvh.get_collisions(&bound) {
 						let physics_body_b = &physics_bodies[*physics_body_id_to_index.get(&body_id_b).unwrap() as usize];
 						if !physics_body_b.is_static && (body_index_a as u32) <= *physics_body_id_to_index.get(&body_id_b).unwrap() { continue; }
