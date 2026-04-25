@@ -4,11 +4,12 @@ use std::{collections::HashMap};
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use crate::{math::{Mat6, Vec6}, physics::physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}, pose::Pose};
+use crate::pose::Pose;
+use super::math::{Mat6, Vec6};
+use super::super::{physics_body::PhysicsBody, physics_body::PhysicsBodyId, grid::GridId, subgrid::SubGridId};
+use super::{collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
 
-use super::{physics_body, collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
-
-type CollisionKlMapKey = (PhysicsBodyId, PhysicsBodyGridId, IVec3, collision::CubeFeature, PhysicsBodyId, PhysicsBodyGridId, IVec3, collision::CubeFeature);
+type CollisionKlMapKey = (PhysicsBodyId, GridId, IVec3, collision::CubeFeature, PhysicsBodyId, GridId, IVec3, collision::CubeFeature);
 
 pub enum Impulse {
 	Impulse {
@@ -47,12 +48,12 @@ impl Solver {
 
 	pub fn solve(
 		&mut self,
-		physics_bodies: &mut Vec<physics_body::PhysicsBody>,
+		physics_bodies: &mut Vec<PhysicsBody>,
 		physics_body_id_to_index: &HashMap<PhysicsBodyId, u32>,
 		constraints: &mut HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
 		impulses: &HashMap<PhysicsBodyId, Vec<Impulse>>,
 		dt: f32,
-		bvh: &BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>
+		bvh: &BVH<(PhysicsBodyId, GridId, SubGridId)>
 	) {
 		let _zone = span!("Solve Collisions");
 		constraints.iter_mut().for_each(|((physics_body_id_1, physics_body_id_2), constraint)| {

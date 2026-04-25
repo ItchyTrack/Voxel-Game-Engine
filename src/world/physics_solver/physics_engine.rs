@@ -3,9 +3,9 @@ use std::{cell::{Ref, RefCell}, collections::HashMap};
 use glam::{I8Vec3, Vec3, IVec3};
 use tracy_client::span;
 
-use crate::{physics::{physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}, solver::Impulse}, pose::Pose, resource_manager::ResourceUUID};
-
-use super::{bvh::BVH, physics_body::{PhysicsBody}, solver::Solver, ball_joint_constraint::BallJointConstraint, voxel_tracker::VoxelTracker};
+use super::{bvh::BVH, solver::{Solver, Impulse}, ball_joint_constraint::BallJointConstraint, voxel_tracker::VoxelTracker};
+use super::super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::GridId, subgrid::SubGridId, resource_manager::ResourceUUID};
+use crate::pose::Pose;
 
 pub struct PhysicsEngine {
 	physics_bodies: Vec<PhysicsBody>,
@@ -14,7 +14,7 @@ pub struct PhysicsEngine {
 	impulses: HashMap<PhysicsBodyId, Vec<Impulse>>,
 	next_body_id: PhysicsBodyId,
 	solver: Solver,
-	bvh: RefCell<Option<BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>>>,
+	bvh: RefCell<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
 	voxel_tracker: VoxelTracker,
 }
 
@@ -80,7 +80,7 @@ impl PhysicsEngine {
 		*self.bvh.borrow_mut() = None;
 	}
 
-	pub fn bvh(&self) -> Ref<'_, BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>> {
+	pub fn bvh(&self) -> Ref<'_, BVH<(PhysicsBodyId, GridId, SubGridId)>> {
 		self.get_bvh()
 	}
 
@@ -161,8 +161,8 @@ impl PhysicsEngine {
 		}
 	}
 
-	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(PhysicsBodyId, PhysicsBodyGridId, IVec3, I8Vec3, f32)> {
-		let mut best_hit: Option<(PhysicsBodyId, PhysicsBodyGridId, IVec3, I8Vec3, f32)> = None;
+	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(PhysicsBodyId, GridId, IVec3, I8Vec3, f32)> {
+		let mut best_hit: Option<(PhysicsBodyId, GridId, IVec3, I8Vec3, f32)> = None;
 		for ((body_id, grid_id, sub_grid_id), bvh_distance) in self.get_bvh().raycast(pose, max_length) {
 			if best_hit.is_some() && bvh_distance > best_hit.unwrap().4 { break; }
 			let physics_body = &self.physics_body(body_id).unwrap();
@@ -182,7 +182,7 @@ impl PhysicsEngine {
 		best_hit
 	}
 
-	pub fn get_bvh(&'_ self) -> Ref<'_, BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>> {
+	pub fn get_bvh(&'_ self) -> Ref<'_, BVH<(PhysicsBodyId, GridId, SubGridId)>> {
 		if self.bvh.borrow().is_none() {
 			let mut bounds = vec![];
 			{
@@ -202,13 +202,13 @@ impl PhysicsEngine {
 		Ref::map(self.bvh.borrow(), |bvh| { bvh.as_ref().unwrap() })
 	}
 
-	pub fn start_tracking(&mut self, body_id: PhysicsBodyId, grid_id: PhysicsBodyGridId, voxel: IVec3) -> u64 {
+	pub fn start_tracking(&mut self, body_id: PhysicsBodyId, grid_id: GridId, voxel: IVec3) -> u64 {
 		self.voxel_tracker.start_tracking(body_id, grid_id, voxel)
 	}
 	pub fn stop_tracking(&mut self, tracked_voxel_id: u64) {
 		self.voxel_tracker.stop_tracking(tracked_voxel_id);
 	}
-	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<(PhysicsBodyId, PhysicsBodyGridId, IVec3)> {
+	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<(PhysicsBodyId, GridId, IVec3)> {
 		let tracked_voxel = self.voxel_tracker.get_tracked_voxel(tracked_voxel_id)?;
 		Some((tracked_voxel.body_id, tracked_voxel.grid_id, tracked_voxel.voxel))
 	}

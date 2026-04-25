@@ -11,7 +11,7 @@ use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
 use crate::{entity_component_system, pose::Pose, render::renderer::Renderer, resource_manager::{ResourceInfoType, ResourceManager, ResourceUUID}};
-use crate::{physics::{bvh::BVH, physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}}, physics_body_resource::{PhysicsBodyGridResource, PhysicsBodyResource}};
+use crate::{physics::{bvh::BVH, physics_body::{GridId, PhysicsBodyId, SubGridId}}, physics_body_resource::{GridResource, PhysicsBodyResource}};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
 use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
@@ -275,11 +275,11 @@ impl State {
 			let grid_uuid = ResourceUUID(Uuid::new_v4());
 			let grid_resource = resource_manager.create_resource_blank(
 				grid_uuid.clone(),
-				ResourceInfoType::PhysicsBodyGrid { grid_resource: PhysicsBodyGridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) }
+				ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) }
 			).unwrap();
 			let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::new(-0.5, -0.5, -0.5), Quat::IDENTITY));
 			match grid_resource.info_mut() {
-				ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
+				ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
 				_ => unreachable!()
 			}
 			let grid = physics_body.grid_mut(grid_id).unwrap();
@@ -302,11 +302,11 @@ impl State {
 			let grid_uuid = ResourceUUID(Uuid::new_v4());
 			let grid_resource = resource_manager.create_resource_blank(
 				grid_uuid.clone(),
-				ResourceInfoType::PhysicsBodyGrid { grid_resource: PhysicsBodyGridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) }
+				ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) }
 			).unwrap();
 			let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::new(-0.707, -0.5, 0.0), Quat::from_rotation_y(f32::consts::PI / 4.0)));
 			match grid_resource.info_mut() {
-				ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
+				ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
 				_ => unreachable!()
 			}
 			let grid = physics_body.grid_mut(grid_id).unwrap();
@@ -378,7 +378,7 @@ impl State {
 					let rotation = Quat::from_rotation_arc(Vec3::Z, inward);
 					let translation = center - rotation * voxel_center;
 					let grid_uuid = ResourceUUID(Uuid::new_v4());
-					resource_manager.create_resource(grid_uuid.clone(), false, true, vec![], ResourceInfoType::PhysicsBodyGrid { grid_resource: PhysicsBodyGridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) });
+					resource_manager.create_resource(grid_uuid.clone(), false, true, vec![], ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) });
 					let grid_id = physics_body.add_grid(grid_uuid, Pose::new(translation, rotation));
 					let grid = physics_body.grid_mut(grid_id).unwrap();
 					grid.add_voxel(
@@ -444,11 +444,11 @@ impl State {
 						let grid_uuid = ResourceUUID(Uuid::new_v4());
 						let grid_resource = resource_manager.create_resource_blank(
 							grid_uuid.clone(),
-							ResourceInfoType::PhysicsBodyGrid { grid_resource: PhysicsBodyGridResource::new(grid_uuid.clone(), physics_body_uuid) }
+							ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
 						).unwrap();
 						let grid_id = physics_body.add_grid(grid_uuid, Pose::ZERO);
 						match grid_resource.info_mut() {
-							ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
+							ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
 							_ => unreachable!()
 						};
 						let grid = physics_body.grid_mut(grid_id).unwrap();
@@ -855,11 +855,11 @@ impl State {
 				let grid_uuid = ResourceUUID(Uuid::new_v4());
 				let grid_resource = resource_manager.create_resource_blank(
 					grid_uuid.clone(),
-					ResourceInfoType::PhysicsBodyGrid { grid_resource: PhysicsBodyGridResource::new(grid_uuid.clone(), physics_body_uuid) }
+					ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
 				).unwrap();
 				let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::ZERO, Quat::IDENTITY));
 				match grid_resource.info_mut() {
-					ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
+					ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
 					_ => unreachable!()
 				}
 				let grid = physics_body.grid_mut(grid_id).unwrap();
@@ -910,11 +910,11 @@ impl State {
 				let grid_uuid = ResourceUUID(Uuid::new_v4());
 				let grid_resource = resource_manager.create_resource_blank(
 					grid_uuid.clone(),
-					ResourceInfoType::PhysicsBodyGrid { grid_resource: PhysicsBodyGridResource::new(grid_uuid.clone(), physics_body_uuid) }
+					ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
 				).unwrap();
 				let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::ZERO, Quat::IDENTITY));
 				match grid_resource.info_mut() {
-					ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
+					ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
 					_ => unreachable!()
 				}
 				let grid = physics_body.grid_mut(grid_id).unwrap();
@@ -967,11 +967,11 @@ impl State {
 				let grid_uuid = ResourceUUID(Uuid::new_v4());
 				let grid_resource = resource_manager.create_resource_blank(
 					grid_uuid.clone(),
-					ResourceInfoType::PhysicsBodyGrid { grid_resource: PhysicsBodyGridResource::new(grid_uuid.clone(), physics_body_uuid) }
+					ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
 				).unwrap();
 				let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::ZERO, Quat::IDENTITY));
 				match grid_resource.info_mut() {
-					ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
+					ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
 					_ => unreachable!()
 				}
 				let grid = physics_body.grid_mut(grid_id).unwrap();
@@ -1070,7 +1070,7 @@ impl State {
 			for (id, hit_count) in self.renderer.bvh_item_ids.iter().zip(self.renderer.bvh_item_hit_counts.iter()) {
 				id_to_hit_count.insert(*id, *hit_count);
 			}
-			let mut gpu_grid_tree_id_to_id_poses: HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), (u32, u32, Pose)> = HashMap::new();
+			let mut gpu_grid_tree_id_to_id_poses: HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> = HashMap::new();
 			{
 				let _zone = span!("Collect Voxels");
 				let view_frustum = player_camera.frustum();

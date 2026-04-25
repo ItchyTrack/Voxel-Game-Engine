@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{gpu_objects::{gpu_bvh::{self, GpuBvh}, packed_dynamic_buffer::PackedDynamicBuffer}, physics::{bvh, physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}}, pose::Pose};
+use crate::{gpu_objects::{gpu_bvh::{self, GpuBvh}, packed_dynamic_buffer::PackedDynamicBuffer}, physics::{bvh, physics_body::{GridId, PhysicsBodyId, SubGridId}}, pose::Pose};
 
 const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
 
@@ -470,8 +470,8 @@ impl VoxelRenderer {
 		encoder: &mut wgpu::CommandEncoder,
 		view: &wgpu::TextureView,
 		camera_transform_bind_group: &wgpu::BindGroup,
-		bvh: &bvh::BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), (u32, u32, Pose)>,
+		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
+		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
 	) -> GpuBvh {
 		let gpu_bvh = gpu_bvh::GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_poses);
 		{

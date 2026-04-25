@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use glam::Vec3;
 use wgpu::{Device, util::DeviceExt};
 
-use crate::{physics::{bvh, physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}}, pose::Pose};
+use crate::{physics::{bvh, physics_body::{GridId, PhysicsBodyId, SubGridId}}, pose::Pose};
 
 // -- GPU node layout -----------------------------------------------------------
 //
@@ -112,14 +112,14 @@ pub struct GpuBvh {
 	pub item_hit_count_staging_buffer: wgpu::Buffer,
 	pub item_count: usize,
 	pub bind_group_layout: wgpu::BindGroupLayout,
-	pub item_ids: Vec<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
+	pub item_ids: Vec<(PhysicsBodyId, GridId, SubGridId)>,
 }
 
 impl GpuBvh {
 	pub fn from_bvh(
 		device: &Device,
-		bvh: &bvh::BVH<(PhysicsBodyId, PhysicsBodyGridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, PhysicsBodyGridId, SubGridId), (u32, u32, Pose, )>,
+		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
+		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose, )>,
 	) -> Self {
 		let (nodes, items) = bvh.get_internals();
 

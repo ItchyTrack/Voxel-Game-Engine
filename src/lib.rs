@@ -4,17 +4,12 @@ mod resources;
 mod player;
 mod app;
 mod render;
-mod physics;
-mod audio;
+mod world;
 mod state;
 mod pose;
-mod math;
 mod world_gen;
 mod grid_tree;
-mod resource_manager;
-mod physics_body_resource;
 mod debug_draw;
-mod entity_component_system;
 mod gpu_objects {
 	pub mod gpu_bvh;
 	pub mod gpu_grid_tree;

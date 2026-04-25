@@ -1,7 +1,6 @@
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
 
-type SparseSet<T> = HashMap<u32, T>;
+use crate::world::sparse_set::SparseSet;
 
 trait ComponentStorageDyn {
 	fn as_any(&self) -> &dyn Any;
@@ -46,7 +45,7 @@ impl ComponentStorage {
 	pub fn new<T: 'static>() -> Self {
 		Self {
 			internal: Box::new(ComponentStorageImpl::<T> {
-				storage: HashMap::new(),
+				storage: SparseSet::new(),
 				type_id: TypeId::of::<T>(),
 			}),
 		}

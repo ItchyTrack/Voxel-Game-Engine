@@ -1,8 +1,8 @@
 use glam::{Mat3, Vec2, Vec3};
 
-use crate::{math::{Mat6, Vec6}, pose::Pose};
+use crate::pose::Pose;
 
-use super::{physics_constraint::{PhysicsConstraint, GAMMA}, solver::Solver, collision};
+use super::{math::{Mat6, Vec6}, physics_constraint::{PhysicsConstraint, GAMMA}, solver::Solver, collision};
 
 pub struct CollisionConstraint {
 	pub collision: collision::Collision,

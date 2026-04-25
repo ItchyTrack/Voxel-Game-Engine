@@ -1,4 +1,5 @@
-use crate::{pose::Pose, math::{Mat6, Vec6}};
+use crate::pose::Pose;
+use super::math::{Mat6, Vec6};
 
 pub const GAMMA: f32 = 0.99;
 

@@ -1,8 +1,7 @@
 use glam::{IVec3, IVec2};
 use noise::{NoiseFn, SuperSimplex};
 
-use crate::{physics::physics_body::PhysicsBodyGrid, resource_manager::ResourceManager, voxels::Voxel};
-
+use crate::{world::{grid::Grid, resource_manager::ResourceManager}, voxels::Voxel};
 pub struct WorldGenerator {
 	noise: SuperSimplex,
 }
@@ -14,7 +13,7 @@ impl WorldGenerator {
 		}
 	}
 
-	pub fn gererate_area(&self, lower: IVec2, higher: IVec2, voxels: &mut PhysicsBodyGrid, resource_manager: &mut ResourceManager) {
+	pub fn gererate_area(&self, lower: IVec2, higher: IVec2, voxels: &mut Grid, resource_manager: &mut ResourceManager) {
 		for x in lower.x..higher.x {
 			for z in lower.y..higher.y {
 				let noise0 = self.noise.get([

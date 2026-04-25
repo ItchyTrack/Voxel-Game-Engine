@@ -3,7 +3,7 @@ use std::cell::Cell;
 use parry3d::bounding_volume::Aabb;
 
 use crate::gpu_objects::gpu_grid_tree::make_gpu_grid_tree;
-use crate::physics::{physics_body::{PhysicsBodyGridId, PhysicsBodyId, SubGridId}, physics_engine::{PhysicsEngine}};
+use crate::physics::{physics_body::{GridId, PhysicsBodyId, SubGridId}, physics_engine::{PhysicsEngine}};
 use crate::resource_manager::{ResourceInfo, ResourceInfoType, ResourceManager, ResourceUUID};
 use crate::state::{AsyncTaskPriorityQueue, PriorityTask, State, Task, TaskQueue};
 
@@ -80,15 +80,15 @@ impl ResourceInfo for PhysicsBodyResource {
 }
 
 // ------- GridResource -------
-pub struct PhysicsBodyGridResource {
+pub struct GridResource {
 	physics_body_uuid: ResourceUUID,
 	physics_body_grid_uuid: ResourceUUID,
-	physics_body_grid_id: Option<PhysicsBodyGridId>,
+	physics_body_grid_id: Option<GridId>,
 	bounds: Option<Aabb>,
 	sub_grid_resources: Vec<(Aabb, ResourceUUID)>,
 }
 
-impl PhysicsBodyGridResource {
+impl GridResource {
 	pub fn new(physics_body_grid_uuid: ResourceUUID, physics_body_uuid: ResourceUUID) -> Self {
 		Self {
 			physics_body_uuid,
@@ -99,15 +99,15 @@ impl PhysicsBodyGridResource {
 		}
 	}
 	pub fn physics_body_uuid(&self) -> &ResourceUUID { &self.physics_body_uuid }
-	pub fn set_physics_body_grid_id(&mut self, physics_body_grid_id: Option<PhysicsBodyGridId>) {
+	pub fn set_physics_body_grid_id(&mut self, physics_body_grid_id: Option<GridId>) {
 		self.physics_body_grid_id = physics_body_grid_id;
 	}
-	pub fn physics_body_grid_id(&self) -> Option<PhysicsBodyGridId> { self.physics_body_grid_id }
+	pub fn physics_body_grid_id(&self) -> Option<GridId> { self.physics_body_grid_id }
 	pub fn bounds(&self) -> Option<Aabb> { self.bounds }
 	pub fn sub_grid_resources(&self) ->  &Vec<(Aabb, ResourceUUID)> { &self.sub_grid_resources}
 }
 
-impl ResourceInfo for PhysicsBodyGridResource {
+impl ResourceInfo for GridResource {
 	fn deserialize(&mut self, _raw: &String) {
 		unimplemented!()
 	}
@@ -166,7 +166,7 @@ impl SubGridResource {
 			}
 			let physics_body_grid_resource = resource_manager.resource(self.physics_body_grid_uuid()).unwrap();
 			let physics_body_grid_resource_info = match physics_body_grid_resource.info() {
-				ResourceInfoType::PhysicsBodyGrid { grid_resource } => grid_resource,
+				ResourceInfoType::Grid { grid_resource } => grid_resource,
 				_ => panic!(),
 			};
 			if physics_body_grid_resource_info.physics_body_grid_id().is_none() {
