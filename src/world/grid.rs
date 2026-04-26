@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::voxels;
 use crate::pose::Pose;
 use crate::world::physics_body::PhysicsBodyId;
@@ -14,7 +12,7 @@ pub struct GridId(pub u32);
 
 pub struct Grid {
 	pub pose: Pose,
-	sub_grids: HashSet<SubGridId>,
+	sub_grids: Vec<SubGridId>,
 	id: GridId,
 	physics_body_id: PhysicsBodyId,
 	uuid: ResourceUUID,

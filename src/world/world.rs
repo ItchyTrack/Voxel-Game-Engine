@@ -1,7 +1,6 @@
-use std::{cell::{RefCell, Ref}, collections::VecDeque, pin::Pin, sync::{Arc, Mutex}, time::Instant};
+use std::{cell::{Ref, RefCell}, collections::{HashMap, VecDeque}, pin::Pin, sync::{Arc, Mutex}, time::Instant};
 
 use async_priority_queue::PriorityQueue;
-use parry3d::utils::hashmap::HashMap;
 use tracy_client::span;
 
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId}, sub_grid::{SubGrid, SubGridId}};
@@ -70,7 +69,7 @@ macro_rules! get_bvh_macro {
 			let mut bounds = vec![];
 			{
 				let _zone = span!("Collect aabb");
-				for (physics_body_id, physics_body) in $self.physics_bodies {
+				for (physics_body_id, physics_body) in &$self.physics_bodies {
 					for grid_id in physics_body.grids() {
 						let grid = $self.grids.get(grid_id).unwrap();
 						let grid_pose = physics_body.pose * grid.pose;
@@ -85,7 +84,7 @@ macro_rules! get_bvh_macro {
 									sub_grid_pose.translation + local_aabb.1
 								)
 							};
-							bounds.push(((physics_body_id, *grid_id, *sub_grid_id), bound));
+							bounds.push(((*physics_body_id, *grid_id, *sub_grid_id), bound));
 						}
 					}
 				}
@@ -106,7 +105,7 @@ pub struct World {
 	pub voxel_tracker: VoxelTracker,
 
 	pub constraints: HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
-	pub impulses: HashMap<PhysicsBodyId, Vec<Impulse>>,
+	pub impulses: SparseSet<PhysicsBodyId, Vec<Impulse>>,
 	pub solver: Solver,
 	pub leaky_bucket: f32,
 

@@ -51,10 +51,10 @@ impl Solver {
 	pub fn solve(
 		&mut self,
 		physics_bodies: &mut SparseSet<PhysicsBodyId, PhysicsBody>,
-		grids: &mut SparseSet<GridId, Grid>,
-		sub_grids: &mut SparseSet<SubGridId, SubGrid>,
+		grids: &SparseSet<GridId, Grid>,
+		sub_grids: &SparseSet<SubGridId, SubGrid>,
 		constraints: &mut HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
-		impulses: &HashMap<PhysicsBodyId, Vec<Impulse>>,
+		impulses: &SparseSet<PhysicsBodyId, Vec<Impulse>>,
 		dt: f32,
 		bvh: &BVH<(PhysicsBodyId, GridId, SubGridId)>
 	) {

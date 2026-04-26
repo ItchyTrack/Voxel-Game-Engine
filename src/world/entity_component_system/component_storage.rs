@@ -1,17 +1,18 @@
 use std::any::{Any, TypeId};
 
 use crate::world::sparse_set::SparseSet;
+use super::entity_component_system::EntityId;
 
 trait ComponentStorageDyn {
 	fn as_any(&self) -> &dyn Any;
 	fn as_any_mut(&mut self) -> &mut dyn Any;
-	fn remove(&mut self, entity_id: u32);
+	fn remove(&mut self, entity_id: EntityId);
 	fn held_type_id(&self) -> TypeId;
 	fn type_name(&self) -> &'static str;
 }
 
 struct ComponentStorageImpl<T> {
-	storage: SparseSet<T>,
+	storage: SparseSet<EntityId, T>,
 	type_id: TypeId,
 }
 
@@ -24,7 +25,7 @@ impl<T: 'static> ComponentStorageDyn for ComponentStorageImpl<T> {
 		self
 	}
 
-	fn remove(&mut self, entity_id: u32) {
+	fn remove(&mut self, entity_id: EntityId) {
 		self.storage.remove(&entity_id);
 	}
 
@@ -51,7 +52,7 @@ impl ComponentStorage {
 		}
 	}
 
-	pub fn get<T: 'static>(&self) -> &SparseSet<T> {
+	pub fn get<T: 'static>(&self) -> &SparseSet<EntityId, T> {
 		assert!(TypeId::of::<T>() == self.internal.held_type_id());
 		self.internal
 			.as_any()
@@ -59,7 +60,7 @@ impl ComponentStorage {
 			.map(|s| &s.storage).unwrap()
 	}
 
-	pub fn get_mut<T: 'static>(&mut self) -> &mut SparseSet<T> {
+	pub fn get_mut<T: 'static>(&mut self) -> &mut SparseSet<EntityId, T> {
 		assert!(TypeId::of::<T>() == self.internal.held_type_id());
 		self.internal
 			.as_any_mut()
@@ -67,7 +68,7 @@ impl ComponentStorage {
 			.map(|s| &mut s.storage).unwrap()
 	}
 
-	pub fn remove(&mut self, entity_id: u32) {
+	pub fn remove(&mut self, entity_id: EntityId) {
 		self.internal.remove(entity_id);
 	}
 
