@@ -1,4 +1,100 @@
-use crate::world::{grid::{Grid, GridId}, physics_body::{PhysicsBody, PhysicsBodyId}, resource_manager::ResourceManager, sparse_set::SparseSet, sub_grid::{SubGrid, SubGridId}};
+use std::{cell::{RefCell, Ref}, collections::VecDeque, pin::Pin, sync::{Arc, Mutex}, time::Instant};
+
+use async_priority_queue::PriorityQueue;
+use parry3d::utils::hashmap::HashMap;
+use tracy_client::span;
+
+use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId}, sub_grid::{SubGrid, SubGridId}};
+use super::{physics_solver::{voxel_tracker::VoxelTracker, ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
+use super::{resource_manager::ResourceManager, sparse_set::SparseSet, entity_component_system::entity_component_system::EntityComponentSystem};
+use crate::pose::Pose;
+
+pub struct Task {
+	task_func: Box<dyn FnOnce(&mut World) + Send + 'static>,
+}
+
+impl Task {
+	pub fn new<F: FnOnce(&mut World) + Send + 'static>(function: F) -> Self {
+		Self {
+			task_func: Box::new(function),
+		}
+	}
+	pub fn run(self, world: &mut World) {
+		(self.task_func)(world);
+	}
+}
+
+pub struct PriorityTask {
+	priority: f32,
+	task_func: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+}
+
+impl PriorityTask {
+	pub fn new<F: Future<Output = ()> + Send + 'static>(priority: f32, function: F) -> Self {
+		Self {
+			priority,
+			task_func: Box::pin(function),
+		}
+	}
+	pub fn run(self) -> impl Future<Output = ()> {
+		self.task_func
+	}
+}
+
+impl PartialEq for PriorityTask {
+	fn eq(&self, other: &Self) -> bool {
+		self.priority == other.priority
+	}
+}
+
+impl Eq for PriorityTask {}
+
+impl PartialOrd for PriorityTask {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		return self.priority.partial_cmp(&other.priority);
+	}
+}
+
+impl Ord for PriorityTask {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.priority.total_cmp(&other.priority)
+	}
+}
+
+pub type TaskQueue = Arc<Mutex<VecDeque<Task>>>;
+pub type AsyncTaskPriorityQueue = Arc<PriorityQueue<PriorityTask>>;
+
+macro_rules! get_bvh_macro {
+	($self:expr) => {{
+		if $self.bvh.borrow().is_none() {
+			let mut bounds = vec![];
+			{
+				let _zone = span!("Collect aabb");
+				for (physics_body_id, physics_body) in $self.physics_bodies {
+					for grid_id in physics_body.grids() {
+						let grid = $self.grids.get(grid_id).unwrap();
+						let grid_pose = physics_body.pose * grid.pose;
+						for sub_grid_id in grid.sub_grids() {
+							let sub_grid = $self.sub_grids.get(sub_grid_id).unwrap();
+							let sub_grid_pose = grid_pose * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
+							let bound = {
+								let local_aabb = sub_grid.local_aabb(&sub_grid_pose.rotation);
+								let local_aabb = if let Some(local_aabb) = local_aabb { local_aabb } else { continue; };
+								(
+									sub_grid_pose.translation + local_aabb.0,
+									sub_grid_pose.translation + local_aabb.1
+								)
+							};
+							bounds.push(((physics_body_id, *grid_id, *sub_grid_id), bound));
+						}
+					}
+				}
+			}
+			*$self.bvh.borrow_mut() = Some(BVH::new(bounds));
+		}
+		Ref::map($self.bvh.borrow(), |bvh| bvh.as_ref().unwrap())
+	}};
+}
 
 pub struct World {
 	pub physics_bodies: SparseSet<PhysicsBodyId, PhysicsBody>,
@@ -16,7 +112,7 @@ pub struct World {
 
 	pub bvh: RefCell<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
 
-	pub ecs: entity_component_system::EntityComponentSystem,
+	pub ecs: EntityComponentSystem,
 
 	pub resource_manager: ResourceManager,
 
@@ -27,14 +123,14 @@ pub struct World {
 
 impl World {
 	// called at any rate (faster is better and should be at least once per frame)
-	pub fn update(&mut self) {
+	pub fn update(&mut self, dt: f32) {
 		let _zone = span!("World Update");
-		if !self.debug_enables.freeze_gpu_grids {
+		// if !self.debug_enables.freeze_gpu_grids {
 			let _zone = span!("Do tasks");
 			while let Some(task) = { self.task_queue.lock().unwrap().pop_front() } {
 				task.run(self);
 			}
-		}
+		// }
 
 		{
 			// let _zone = span!("Clean up");
@@ -63,18 +159,18 @@ impl World {
 	}
 
 	fn physics_update(&mut self, dt: f32) {
-		self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
-			if object_pickup.is_holding() {
-				object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), time_step, &mut self.physics_engine);
-			}
-		});
-		self.ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
-			orientator.hold_at_orientation(&Quat::IDENTITY, time_step, &mut self.physics_engine);
-		});
-		let player_position = self.ecs.get_component::<Camera>(self.player_id).unwrap().position;
-		self.ecs.run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
-			player_tracker.track_pos(&player_position, time_step, &mut self.physics_engine);
-		});
+		// self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
+		// 	if object_pickup.is_holding() {
+		// 		object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), time_step, &mut self.physics_engine);
+		// 	}
+		// });
+		// self.ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
+		// 	orientator.hold_at_orientation(&Quat::IDENTITY, time_step, &mut self.physics_engine);
+		// });
+		// let player_position = self.ecs.get_component::<Camera>(self.player_id).unwrap().position;
+		// self.ecs.run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
+		// 	player_tracker.track_pos(&player_position, time_step, &mut self.physics_engine);
+		// });
 		let _zone = span!("PhysicsEngine update physics");
 		{
 			let bvh = &get_bvh_macro!(self);

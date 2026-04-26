@@ -7,3 +7,4 @@ pub mod physics_solver;
 pub mod grid;
 pub mod sub_grid;
 pub mod entity_component_system;
+pub mod physics_body_resource;

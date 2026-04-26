@@ -21,61 +21,6 @@ use crate::debug_draw;
 const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
 const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
 
-pub struct Task {
-	task_func: Box<dyn FnOnce(&mut State) + Send + 'static>,
-}
-
-impl Task {
-	pub fn new<F: FnOnce(&mut State) + Send + 'static>(function: F) -> Self {
-		Self {
-			task_func: Box::new(function),
-		}
-	}
-	pub fn run(self, state: &mut State) {
-		(self.task_func)(state);
-	}
-}
-
-pub struct PriorityTask {
-	priority: f32,
-	task_func: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
-}
-
-impl PriorityTask {
-	pub fn new<F: Future<Output = ()> + Send + 'static>(priority: f32, function: F) -> Self {
-		Self {
-			priority,
-			task_func: Box::pin(function),
-		}
-	}
-	pub fn run(self) -> impl Future<Output = ()> {
-		self.task_func
-	}
-}
-
-impl PartialEq for PriorityTask {
-	fn eq(&self, other: &Self) -> bool {
-		self.priority == other.priority
-	}
-}
-
-impl Eq for PriorityTask {}
-
-impl PartialOrd for PriorityTask {
-	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		return self.priority.partial_cmp(&other.priority);
-	}
-}
-
-impl Ord for PriorityTask {
-	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		self.priority.total_cmp(&other.priority)
-	}
-}
-
-pub type TaskQueue = Arc<Mutex<VecDeque<Task>>>;
-pub type AsyncTaskPriorityQueue = Arc<PriorityQueue<PriorityTask>>;
-
 pub struct State {
 	pub renderer: Renderer,
 	pub mouse_captured: bool,

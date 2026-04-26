@@ -105,12 +105,11 @@ impl Grid {
 	// 	(self.sub_grid_mut(sub_grid_id).unwrap(), pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3())
 	// }
 
-	// pub fn sub_grid_pos_to_grid_pos(&self, sub_grid_pos: &IVec3) -> IVec3 {
-	// 	sub_grid_pos * SUB_GRID_SIZE as i32
-	// }
-
 	pub fn id(&self) -> GridId {
 		self.id
+	}
+	pub fn physics_body_id(&self) -> PhysicsBodyId {
+		self.physics_body_id
 	}
 
 	pub fn get_body_center_of_mass(&self) -> Vec3 {

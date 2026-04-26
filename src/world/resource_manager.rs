@@ -2,7 +2,7 @@ use std::{collections::HashMap};
 
 use uuid::Uuid;
 
-use crate::physics_body_resource::{GridResource, PhysicsBodyResource, SubGridResource};
+use super::physics_body_resource::{GridResource, PhysicsBodyResource};
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct ResourceUUID(pub Uuid);
@@ -16,7 +16,6 @@ pub trait ResourceInfo {
 pub enum ResourceInfoType {
 	PhysicsBody { physics_body_resource: PhysicsBodyResource },
 	Grid { grid_resource: GridResource },
-	SubGrid { sub_grid_resource: SubGridResource },
 }
 
 pub struct NetworkState {
