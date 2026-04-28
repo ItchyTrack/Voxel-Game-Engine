@@ -7,6 +7,7 @@ mod render;
 mod world;
 mod state;
 mod pose;
+mod audio;
 mod world_gen;
 mod grid_tree;
 mod debug_draw;

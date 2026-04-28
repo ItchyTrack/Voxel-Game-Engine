@@ -7,6 +7,12 @@ use super::physics_body_resource::{GridResource, PhysicsBodyResource};
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct ResourceUUID(pub Uuid);
 
+impl ResourceUUID {
+	pub fn generate() -> Self {
+		Self(Uuid::new_v4())
+	}
+}
+
 pub trait ResourceInfo {
 	fn deserialize(&mut self, raw: &String);
 	fn serialize(&mut self) -> String;

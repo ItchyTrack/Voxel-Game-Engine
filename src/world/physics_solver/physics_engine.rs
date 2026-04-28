@@ -12,7 +12,7 @@ pub struct PhysicsEngine {
 	physics_body_id_to_index: HashMap<PhysicsBodyId, u32>,
 	constraints: HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
 	impulses: HashMap<PhysicsBodyId, Vec<Impulse>>,
-	next_body_id: PhysicsBodyId,
+	next_physics_body_id: PhysicsBodyId,
 	solver: Solver,
 	bvh: RefCell<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
 	voxel_tracker: VoxelTracker,
@@ -47,7 +47,7 @@ impl PhysicsEngine {
 			physics_body_id_to_index: HashMap::new(),
 			constraints: HashMap::new(),
 			impulses: HashMap::new(),
-			next_body_id: PhysicsBodyId(0),
+			next_physics_body_id: PhysicsBodyId(0),
 			solver: Solver::new(),
 			bvh: RefCell::new(None),
 			voxel_tracker: VoxelTracker::new(),
@@ -85,10 +85,10 @@ impl PhysicsEngine {
 	}
 
 	pub fn add_physics_body(&mut self, body_uuid: ResourceUUID) -> PhysicsBodyId {
-		self.physics_body_id_to_index.insert(self.next_body_id, self.physics_bodies.len() as u32);
-		self.physics_bodies.push(PhysicsBody::new(body_uuid, self.next_body_id));
-		self.next_body_id.0 += 1;
-		PhysicsBodyId(self.next_body_id.0 - 1)
+		self.physics_body_id_to_index.insert(self.next_physics_body_id, self.physics_bodies.len() as u32);
+		self.physics_bodies.push(PhysicsBody::new(body_uuid, self.next_physics_body_id));
+		self.next_physics_body_id.0 += 1;
+		PhysicsBodyId(self.next_physics_body_id.0 - 1)
 	}
 
 	pub fn remove_physics_body(&mut self, physics_body_id: PhysicsBodyId) {

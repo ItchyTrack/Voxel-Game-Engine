@@ -5,8 +5,9 @@ use tracy_client::span;
 
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId}, sub_grid::{SubGrid, SubGridId}};
 use super::{physics_solver::{voxel_tracker::VoxelTracker, ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
-use super::{resource_manager::ResourceManager, sparse_set::SparseSet, entity_component_system::entity_component_system::EntityComponentSystem};
-use crate::pose::Pose;
+use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::EntityComponentSystem};
+use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType}, physics_body_resource::PhysicsBodyResource};
+use crate::{pose::Pose, world::physics_body_resource::GridResource};
 
 pub struct Task {
 	task_func: Box<dyn FnOnce(&mut World) + Send + 'static>,
@@ -99,7 +100,7 @@ pub struct World {
 	pub physics_bodies: SparseSet<PhysicsBodyId, PhysicsBody>,
 	pub grids: SparseSet<GridId, Grid>,
 	pub sub_grids: SparseSet<SubGridId, SubGrid>,
-	pub next_body_id: PhysicsBodyId,
+	pub next_physics_body_id: PhysicsBodyId,
 	pub next_grid_id: GridId,
 	pub next_sub_grid_id: SubGridId,
 	pub voxel_tracker: VoxelTracker,
@@ -121,6 +122,44 @@ pub struct World {
 }
 
 impl World {
+	pub fn new() -> Self {
+		let async_task_priority_queue = Arc::new(PriorityQueue::<PriorityTask>::new());
+		let async_task_priority_queue_threads = (0..8).map(|_| {
+			let async_task_priority_queue = async_task_priority_queue.clone();
+			tokio::spawn(async move {
+				loop {
+					let task = async_task_priority_queue.pop().await;
+					task.run().await;
+				}
+			})
+		}).collect();
+
+		Self {
+			physics_bodies: SparseSet::new(),
+			grids: SparseSet::new(),
+			sub_grids: SparseSet::new(),
+			next_physics_body_id: PhysicsBodyId(0),
+			next_grid_id: GridId(0),
+			next_sub_grid_id: SubGridId(0),
+			voxel_tracker: VoxelTracker::new(),
+
+			constraints: HashMap::new(),
+			impulses: SparseSet::new(),
+			solver: Solver::new(),
+			leaky_bucket: 0.0,
+
+			bvh: RefCell::new(None),
+
+			ecs: EntityComponentSystem::new(),
+
+			resource_manager: ResourceManager::new(),
+
+			task_queue: TaskQueue::new(Mutex::new(VecDeque::new())),
+			async_task_priority_queue,
+			async_task_priority_queue_threads,
+		}
+	}
+
 	// called at any rate (faster is better and should be at least once per frame)
 	pub fn update(&mut self, dt: f32) {
 		let _zone = span!("World Update");
@@ -177,6 +216,56 @@ impl World {
 			self.impulses.clear();
 		}
 		*self.bvh.borrow_mut() = None;
+	}
+
+	pub fn add_physics_body(&mut self) -> PhysicsBodyId {
+		let physics_body_uuid = ResourceUUID::generate();
+		let physics_body_resource = self.resource_manager.create_resource_blank(
+			physics_body_uuid.clone(),
+			ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid.clone()) }
+		).unwrap();
+		let physics_body_id = self.next_physics_body_id;
+		self.next_physics_body_id.0 += 1;
+		self.physics_bodies.insert(physics_body_id, PhysicsBody::new(physics_body_uuid, physics_body_id));
+		match physics_body_resource.info_mut() {
+			ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id)),
+			_ => unreachable!()
+		}
+		physics_body_id
+	}
+	pub fn add_grid(&mut self, physics_body_id: PhysicsBodyId, pose: &Pose) -> Option<GridId> {
+		let physics_body_uuid = self.physics_body(physics_body_id)?.uuid().clone();
+		let grid_uuid = ResourceUUID::generate();
+		let grid_resource = self.resource_manager.create_resource_blank(
+			grid_uuid.clone(),
+			ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
+		).unwrap();
+		let grid_id = self.next_grid_id;
+		self.next_grid_id.0 += 1;
+		self.grids.insert(grid_id, Grid::new(grid_uuid, grid_id, pose, physics_body_id));
+		match grid_resource.info_mut() {
+			ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
+			_ => unreachable!()
+		}
+		Some(grid_id)
+	}
+	pub fn physics_body(&self, physics_body_id: PhysicsBodyId) -> Option<&PhysicsBody> {
+		self.physics_bodies.get(&physics_body_id)
+	}
+	pub fn physics_body_mut(&mut self, physics_body_id: PhysicsBodyId) -> Option<&mut PhysicsBody> {
+		self.physics_bodies.get_mut(&physics_body_id)
+	}
+	pub fn grid(&self, grid_id: GridId) -> Option<&Grid> {
+		self.grids.get(&grid_id)
+	}
+	pub fn grid_mut(&mut self, grid_id: GridId) -> Option<&mut Grid> {
+		self.grids.get_mut(&grid_id)
+	}
+	pub fn sub_grid(&self, sub_grid_id: SubGridId) -> Option<&SubGrid> {
+		self.sub_grids.get(&sub_grid_id)
+	}
+	pub fn sub_grid_mut(&mut self, sub_grid_id: SubGridId) -> Option<&mut SubGrid> {
+		self.sub_grids.get_mut(&sub_grid_id)
 	}
 }
 

@@ -7,8 +7,10 @@ use winit::{window::Window};
 
 use crate::gpu_objects::gpu_bvh::GpuBvh;
 use crate::gpu_objects::matrix;
-use crate::physics::bvh;
-use crate::physics::physics_body::{GridId, PhysicsBodyId, SubGridId};
+use crate::world::physics_solver::bvh;
+use crate::world::physics_body::PhysicsBodyId;
+use crate::world::grid::GridId;
+use crate::world::sub_grid::SubGridId;
 use crate::player::camera;
 use crate::pose::Pose;
 use crate::render::{crosshair_renderer, debug_draw_renderer, voxel_renderer};

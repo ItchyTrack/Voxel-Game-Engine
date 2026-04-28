@@ -1,22 +1,17 @@
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
-use async_priority_queue::PriorityQueue;
 use uuid::Uuid;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
-use std::{collections::{HashMap, VecDeque}, f32, pin::Pin, sync::{Arc, Mutex}};
+use std::{collections::{HashMap}, f32, sync::Arc};
 
-use glam::{IVec3, Quat, Vec3, Vec4};
+use glam::{IVec3, Quat, Vec3};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{entity_component_system, pose::Pose, render::renderer::Renderer, resource_manager::{ResourceInfoType, ResourceManager, ResourceUUID}, world::{entity_component_system::entity_component_system::EntityId, world::World}};
-use crate::{physics::{bvh::BVH, physics_body::{GridId, PhysicsBodyId, SubGridId}}, physics_body_resource::{GridResource, PhysicsBodyResource}};
+use crate::{pose::Pose, render::renderer::Renderer, audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}};
+use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::{PhysicsBody, PhysicsBodyId}, physics_body_resource::GridResource};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
-use crate::physics::{physics_body::PhysicsBody, physics_engine::PhysicsEngine};
-use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
-use crate::voxels::{Voxel, self};
-use crate::debug_draw;
+use crate::{world::resource_manager::{ResourceInfoType, ResourceManager}, voxels::{self}};
 
 const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
 const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
@@ -25,8 +20,6 @@ pub struct State {
 	pub renderer: Renderer,
 	pub mouse_captured: bool,
 	pub audio_engine: AudioEngine,
-	pub physics_engine: PhysicsEngine,
-	pub resource_manager: ResourceManager,
 	pub player_id: EntityId,
 	pub raycast_pose: Option<Pose>,
 	pub place_sound_cooldown: f32,
@@ -207,24 +200,15 @@ impl State {
 
 	pub fn resize(&mut self, width: u32, height: u32) {
 		self.renderer.resize(width, height);
-		self.ecs.run_on_components_mut::<Camera, _>(&mut |_entity_id, camera| {
+		self.world.ecs.run_on_components_mut::<Camera, _>(&mut |_entity_id, camera| {
 			camera.aspect = self.renderer.config.width as f32 / self.renderer.config.height as f32;
 		})
 	}
 
-	fn make_ball(resource_manager: &mut ResourceManager, physics_body: &mut PhysicsBody, radius: i32) {
+	fn make_ball(&mut self, physics_body_id: PhysicsBodyId, radius: i32) {
 		{
-			let grid_uuid = ResourceUUID(Uuid::new_v4());
-			let grid_resource = resource_manager.create_resource_blank(
-				grid_uuid.clone(),
-				ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) }
-			).unwrap();
-			let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::new(-0.5, -0.5, -0.5), Quat::IDENTITY));
-			match grid_resource.info_mut() {
-				ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
-				_ => unreachable!()
-			}
-			let grid = physics_body.grid_mut(grid_id).unwrap();
+			let grid_id = self.world.add_grid(physics_body_id, &Pose::new(Vec3::new(-0.5, -0.5, -0.5), Quat::IDENTITY));
+			let grid = self.world.grid_mut(grid_id).unwrap();
 
 			for x in -radius..radius + 1 {
 				for y in -0..radius + 1 {
@@ -232,8 +216,7 @@ impl State {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
 								IVec3::new(x, y, z),
-								voxels::Voxel { color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], mass: 100 },
-								resource_manager
+								voxels::Voxel { color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], mass: 100 }
 							);
 						}
 					}
@@ -241,17 +224,8 @@ impl State {
 			}
 		}
 		{
-			let grid_uuid = ResourceUUID(Uuid::new_v4());
-			let grid_resource = resource_manager.create_resource_blank(
-				grid_uuid.clone(),
-				ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) }
-			).unwrap();
-			let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::new(-0.707, -0.5, 0.0), Quat::from_rotation_y(f32::consts::PI / 4.0)));
-			match grid_resource.info_mut() {
-				ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
-				_ => unreachable!()
-			}
-			let grid = physics_body.grid_mut(grid_id).unwrap();
+			let grid_id = self.world.add_grid(physics_body_id, &Pose::new(Vec3::new(-0.707, -0.5, 0.0), Quat::from_rotation_y(f32::consts::PI / 4.0)));
+			let grid = self.world.grid_mut(grid_id).unwrap();
 
 			for x in -radius..radius + 1 {
 				for y in -radius..0 {
@@ -259,8 +233,7 @@ impl State {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
 								IVec3::new(x, y, z),
-								voxels::Voxel { color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], mass: 100 },
-								resource_manager
+								voxels::Voxel { color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], mass: 100 }
 							);
 						}
 					}
@@ -343,9 +316,9 @@ impl State {
 
 	pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
 		let renderer = Renderer::new(window).await?;
-		let mut physics_engine = PhysicsEngine::new();
-		let mut ecs = entity_component_system::EntityComponentSystem::new();
 
+		let world = World::new();
+		let ecs = &world.ecs;
 		// create player entity
 		let player_id = ecs.add_entity();
 		ecs.add_component_to_entity(player_id, PlayerInput::new());
@@ -375,12 +348,12 @@ impl State {
 							physics_body_uuid.clone(),
 							ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid.clone()) }
 						).unwrap();
-						let physics_body_id = physics_engine.add_physics_body(physics_body_uuid.clone());
+						let physics_body_id = world.add_physics_body(physics_body_uuid.clone());
 						match physics_body_resource.info_mut() {
 							ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id)),
 							_ => unreachable!()
 						};
-						let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
+						let physics_body = world.physics_body_mut(physics_body_id).unwrap();
 						physics_body.pose.translation.y -= 350.0;
 						physics_body.is_static = true;
 						let grid_uuid = ResourceUUID(Uuid::new_v4());
@@ -577,18 +550,9 @@ impl State {
 		// }
 		{
 			let r = 5;
-			let physics_body_uuid_main = ResourceUUID(Uuid::new_v4());
-			let physics_body_resource_main = resource_manager.create_resource_blank(
-				physics_body_uuid_main.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid_main.clone()) }
-			).unwrap();
-			let physics_body_id_main = physics_engine.add_physics_body(physics_body_uuid_main);
+			let physics_body_id_main = world.add_physics_body();
 			{
-				match physics_body_resource_main.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id_main)),
-					_ => unreachable!()
-				};
-				let physics_body = physics_engine.physics_body_mut(physics_body_id_main).unwrap();
+				let physics_body = world.physics_body_mut(physics_body_id_main).unwrap();
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
@@ -599,30 +563,21 @@ impl State {
 				physics_body_uuid_1.clone(),
 				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid_1.clone()) }
 			).unwrap();
-			let physics_body_id_1 = physics_engine.add_physics_body(physics_body_uuid_1);
+			let physics_body_id_1 = world.add_physics_body(physics_body_uuid_1);
 			{
 				match physics_body_resource_1.info_mut() {
 					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id_1)),
 					_ => unreachable!()
 				};
-				let physics_body = physics_engine.physics_body_mut(physics_body_id_1).unwrap();
+				let physics_body = world.physics_body_mut(physics_body_id_1).unwrap();
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 50.0 - 60.0;
 				State::make_ball(&mut resource_manager, physics_body, r);
 			}
-			let physics_body_uuid_2 = ResourceUUID(Uuid::new_v4());
-			let physics_body_resource_2 = resource_manager.create_resource_blank(
-				physics_body_uuid_2.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid_2.clone()) }
-			).unwrap();
-			let physics_body_id_2 = physics_engine.add_physics_body(physics_body_uuid_2);
+			let physics_body_id_2 = world.add_physics_body();
 			{
-				match physics_body_resource_2.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id_2)),
-					_ => unreachable!()
-				};
-				let physics_body = physics_engine.physics_body_mut(physics_body_id_2).unwrap();
+				let physics_body = world.physics_body_mut(physics_body_id_2).unwrap();
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 30.0 - 60.0;
@@ -633,39 +588,26 @@ impl State {
 				physics_body_uuid_3.clone(),
 				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid_3.clone()) }
 			).unwrap();
-			let physics_body_id_3 = physics_engine.add_physics_body(physics_body_uuid_3);
+			let physics_body_id_3 = world.add_physics_body();
 			{
-				match physics_body_resource_3.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id_3)),
-					_ => unreachable!()
-				};
-				let physics_body = physics_engine.physics_body_mut(physics_body_id_3).unwrap();
+				let physics_body = world.physics_body_mut(physics_body_id_3).unwrap();
 				physics_body.pose.translation.x += 10.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(&mut resource_manager, physics_body, r);
 			}
-			let physics_body_uuid_4 = ResourceUUID(Uuid::new_v4());
-			let physics_body_resource_4 = resource_manager.create_resource_blank(
-				physics_body_uuid_4.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid_4.clone()) }
-			).unwrap();
-			let physics_body_id_4 = physics_engine.add_physics_body(physics_body_uuid_4);
+			let physics_body_id_4 = world.add_physics_body();
 			{
-				match physics_body_resource_4.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id_4)),
-					_ => unreachable!()
-				};
-				let physics_body = physics_engine.physics_body_mut(physics_body_id_4).unwrap();
+				let physics_body = world.physics_body_mut(physics_body_id_4).unwrap();
 				physics_body.pose.translation.x += -10.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
 				State::make_ball(&mut resource_manager, physics_body, r);
 			}
-			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, 10.0)), physics_body_id_1, &Pose::ZERO);
-			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, -10.0)), physics_body_id_2, &Pose::ZERO);
-			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(10.0, 0.0, 0.0)), physics_body_id_3, &Pose::ZERO);
-			physics_engine.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(-10.0, 0.0, 0.0)), physics_body_id_4, &Pose::ZERO);
+			world.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, 10.0)), physics_body_id_1, &Pose::ZERO);
+			world.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, -10.0)), physics_body_id_2, &Pose::ZERO);
+			world.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(10.0, 0.0, 0.0)), physics_body_id_3, &Pose::ZERO);
+			world.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(-10.0, 0.0, 0.0)), physics_body_id_4, &Pose::ZERO);
 		}
 		// {
 		// 	let mut bodies = HashMap::new();
@@ -782,29 +724,11 @@ impl State {
 
 		// bb8
 		{
-			let physics_body_uuid = ResourceUUID(Uuid::new_v4());
-			let physics_body_resource = resource_manager.create_resource_blank(
-				physics_body_uuid.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid.clone()) }
-			).unwrap();
-			let physics_body_id = physics_engine.add_physics_body(physics_body_uuid.clone());
+			let physics_body_id = world.add_physics_body();
 			{
-				match physics_body_resource.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id)),
-					_ => unreachable!()
-				};
-				let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-				let grid_uuid = ResourceUUID(Uuid::new_v4());
-				let grid_resource = resource_manager.create_resource_blank(
-					grid_uuid.clone(),
-					ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
-				).unwrap();
-				let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::ZERO, Quat::IDENTITY));
-				match grid_resource.info_mut() {
-					ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
-					_ => unreachable!()
-				}
-				let grid = physics_body.grid_mut(grid_id).unwrap();
+				let physics_body = world.physics_body_mut(physics_body_id).unwrap();
+				let grid_id = world.add_grid(physics_body_id, &Pose::new(Vec3::ZERO, Quat::IDENTITY)).unwrap();
+				let grid = world.grid_mut(grid_id).unwrap();
 				for x in -6..7 {
 					for y in 0..3 {
 						for z in -6..7 {
@@ -816,50 +740,23 @@ impl State {
 				physics_body.pose.translation.y = 120.0;
 				let standing_entity_id = ecs.add_entity();
 				let mut orientator = Orientator::new();
-				orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
+				orientator.set(world.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
 				ecs.add_component_to_entity(standing_entity_id, orientator);
 			}
-			let ball_body_uuid = ResourceUUID(Uuid::new_v4());
-			let ball_body_resource = resource_manager.create_resource_blank(
-				ball_body_uuid.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(ball_body_uuid.clone()) }
-			).unwrap();
-			let ball_physics_body_id = physics_engine.add_physics_body(ball_body_uuid);
+			let ball_physics_body_id = world.add_physics_body();
 			{
-				match ball_body_resource.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(ball_physics_body_id)),
-					_ => unreachable!()
-				}
-				let physics_body = physics_engine.physics_body_mut(ball_physics_body_id).unwrap();
+				let physics_body = world.physics_body_mut(ball_physics_body_id).unwrap();
 				physics_body.pose.translation.y = 108.0;
 				State::make_ball(&mut resource_manager, physics_body, 10);
 			}
-			physics_engine.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
+			world.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
 		}
 		{
-			let physics_body_uuid = ResourceUUID(Uuid::new_v4());
-			let physics_body_resource = resource_manager.create_resource_blank(
-				physics_body_uuid.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid.clone()) }
-			).unwrap();
-			let physics_body_id = physics_engine.add_physics_body(physics_body_uuid.clone());
+			let physics_body_id = world.add_physics_body();
 			{
-				match physics_body_resource.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id)),
-					_ => unreachable!()
-				}
-				let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-				let grid_uuid = ResourceUUID(Uuid::new_v4());
-				let grid_resource = resource_manager.create_resource_blank(
-					grid_uuid.clone(),
-					ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
-				).unwrap();
-				let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::ZERO, Quat::IDENTITY));
-				match grid_resource.info_mut() {
-					ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
-					_ => unreachable!()
-				}
-				let grid = physics_body.grid_mut(grid_id).unwrap();
+				let physics_body = world.physics_body_mut(physics_body_id).unwrap();
+				let grid_id = world.add_grid(physics_body_id, &Pose::new(Vec3::ZERO, Quat::IDENTITY)).unwrap();
+				let grid = world.grid_mut(grid_id).unwrap();
 				for x in -6..7 {
 					for y in 0..3 {
 						for z in -6..7 {
@@ -872,51 +769,24 @@ impl State {
 				physics_body.pose.translation.x = 80.0;
 				let standing_entity_id = ecs.add_entity();
 				let mut orientator = Orientator::new();
-				orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
+				orientator.set(world.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
 				ecs.add_component_to_entity(standing_entity_id, orientator);
 			}
-			let ball_body_uuid = ResourceUUID(Uuid::new_v4());
-			let ball_body_resource = resource_manager.create_resource_blank(
-				ball_body_uuid.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(ball_body_uuid.clone()) }
-			).unwrap();
-			let ball_physics_body_id = physics_engine.add_physics_body(ball_body_uuid);
+			let ball_physics_body_id = world.add_physics_body();
 			{
-				match ball_body_resource.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(ball_physics_body_id)),
-					_ => unreachable!()
-				}
-				let physics_body = physics_engine.physics_body_mut(ball_physics_body_id).unwrap();
+				let physics_body = world.physics_body_mut(ball_physics_body_id).unwrap();
 				physics_body.pose.translation.y = 108.0;
 				physics_body.pose.translation.x = 80.0;
 				State::make_ball(&mut resource_manager, physics_body, 10);
 			}
-			physics_engine.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
+			world.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
 		}
 		{
-			let physics_body_uuid = ResourceUUID(Uuid::new_v4());
-			let physics_body_resource = resource_manager.create_resource_blank(
-				physics_body_uuid.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid.clone()) }
-			).unwrap();
-			let physics_body_id = physics_engine.add_physics_body(physics_body_uuid.clone());
+			let physics_body_id = world.add_physics_body();
 			{
-				match physics_body_resource.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id)),
-					_ => unreachable!()
-				}
-				let physics_body = physics_engine.physics_body_mut(physics_body_id).unwrap();
-				let grid_uuid = ResourceUUID(Uuid::new_v4());
-				let grid_resource = resource_manager.create_resource_blank(
-					grid_uuid.clone(),
-					ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
-				).unwrap();
-				let grid_id = physics_body.add_grid(grid_uuid, Pose::new(Vec3::ZERO, Quat::IDENTITY));
-				match grid_resource.info_mut() {
-					ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
-					_ => unreachable!()
-				}
-				let grid = physics_body.grid_mut(grid_id).unwrap();
+				let physics_body = world.physics_body_mut(physics_body_id).unwrap();
+				let grid_id = world.add_grid(physics_body_id, &Pose::new(Vec3::ZERO, Quat::IDENTITY)).unwrap();
+				let grid = world.grid_mut(grid_id).unwrap();
 				for x in -6..7 {
 					for y in 0..3 {
 						for z in -6..7 {
@@ -935,23 +805,14 @@ impl State {
 				player_tracker.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
 				ecs.add_component_to_entity(standing_entity_id, player_tracker);
 			}
-			let ball_body_uuid = ResourceUUID(Uuid::new_v4());
-			let ball_body_resource = resource_manager.create_resource_blank(
-				ball_body_uuid.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(ball_body_uuid.clone()) }
-			).unwrap();
-			let ball_physics_body_id = physics_engine.add_physics_body(ball_body_uuid);
+			let ball_physics_body_id = world.add_physics_body();
 			{
-				match ball_body_resource.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(ball_physics_body_id)),
-					_ => unreachable!()
-				}
-				let physics_body = physics_engine.physics_body_mut(ball_physics_body_id).unwrap();
+				let physics_body = world.physics_body_mut(ball_physics_body_id).unwrap();
 				physics_body.pose.translation.y = 108.0;
 				physics_body.pose.translation.x = 30.0;
 				State::make_ball(&mut resource_manager, physics_body, 10);
 			}
-			physics_engine.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
+			world.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
 		}
 
 		// terrain
@@ -966,33 +827,18 @@ impl State {
 		// 	physics_body.pose.translation.y = -10.0;
 		// }
 
-		let async_task_priority_queue = Arc::new(PriorityQueue::<PriorityTask>::new());
-		let async_task_priority_queue_threads = (0..8).map(|_| {
-			let async_task_priority_queue = async_task_priority_queue.clone();
-			tokio::spawn(async move {
-				loop {
-					let task = async_task_priority_queue.pop().await;
-					task.run().await;
-				}
-			})
-		}).collect();
+
 
 		Ok(Self {
 			renderer,
 			mouse_captured: false,
 			audio_engine: AudioEngine::new(),
-			physics_engine,
-			ecs,
-			resource_manager,
 			player_id,
-			leaky_bucket: 0.0,
 			raycast_pose: None,
 			place_sound_cooldown: 0.0,
 			break_sound_cooldown: 0.0,
-			task_queue: Arc::new(Mutex::new(VecDeque::new())),
-			async_task_priority_queue,
-			async_task_priority_queue_threads,
 			debug_enables: DebugEnables::new(),
+			world,
 		})
 	}
 
@@ -1001,43 +847,44 @@ impl State {
 		// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
 		// }
 		if self.debug_enables.inertia_boxes {
-			for physics_body in self.physics_engine.physics_bodies() {
+			for (physics_body_id, physics_body) in self.world.physics_bodies {
 				if !physics_body.is_static {
 					physics_body.render_debug_inertia_box();
 				}
 			}
 		}
-		if let Some(player_camera) = self.ecs.get_component::<Camera>(self.player_id) {
+		if let Some(player_camera) = self.world.ecs.get_component::<Camera>(self.player_id) {
 			let mut id_to_hit_count = HashMap::new();
 			for (id, hit_count) in self.renderer.bvh_item_ids.iter().zip(self.renderer.bvh_item_hit_counts.iter()) {
 				id_to_hit_count.insert(*id, *hit_count);
 			}
 			let mut gpu_grid_tree_id_to_id_poses: HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> = HashMap::new();
 			{
-				let _zone = span!("Collect Voxels");
+				// let _zone = span!("Collect Voxels");
 				let view_frustum = player_camera.frustum();
-				for physics_body in self.physics_engine.physics_bodies().iter() {
-					for (key, value) in physics_body.update_gpu_grid_tree(
-						&mut self.renderer.voxel_renderer.packed_64_tree_dynamic_buffer,
-						&mut self.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer,
-						&mut self.resource_manager,
-						&self.physics_engine,
-						&mut self.async_task_priority_queue,
-						&mut self.task_queue,
-						&id_to_hit_count,
-						&view_frustum,
-						player_camera.pose(),
-					) {
-						gpu_grid_tree_id_to_id_poses.insert((physics_body.id(), key.0, key.1), value);
-					}
-				}
+				// for (physics_body_id, physics_body) in self.world.physics_bodies.iter() {
+				// 	for (key, value) in physics_body.update_gpu_grid_tree(
+				// 		&mut self.renderer.voxel_renderer.packed_64_tree_dynamic_buffer,
+				// 		&mut self.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer,
+				// 		&mut self.resource_manager,
+				// 		&self.physics_engine,
+				// 		&mut self.async_task_priority_queue,
+				// 		&mut self.task_queue,
+				// 		&id_to_hit_count,
+				// 		&view_frustum,
+				// 		player_camera.pose(),
+				// 	) {
+				// 		gpu_grid_tree_id_to_id_poses.insert((physics_body.id(), key.0, key.1), value);
+				// 	}
+				// }
+				self.world.get_rendering_buffers(id_to_hit_count, &view_frustum, player_camera.pose());
 			}
 			let bvh = {
 				let mut bounds = vec![];
 				{
 					let _zone = span!("Collect aabb for rendering");
 					for ((body_id, grid_id, sub_grid_id), _) in gpu_grid_tree_id_to_id_poses.iter() {
-						let physics_body = &self.physics_engine.physics_body(*body_id).unwrap();
+						let physics_body = &self.world.physics_body(*body_id).unwrap();
 						if let Some(bound) = physics_body.sub_grid_aabb(*grid_id, *sub_grid_id) {
 							bounds.push(((*body_id, *grid_id, *sub_grid_id), bound));
 						}
