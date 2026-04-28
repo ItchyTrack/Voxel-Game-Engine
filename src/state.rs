@@ -8,10 +8,10 @@ use glam::{IVec3, Quat, Vec3};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{pose::Pose, render::renderer::Renderer, audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}};
-use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::{PhysicsBody, PhysicsBodyId}, physics_body_resource::GridResource};
+use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, pose::Pose, physics_solver::bvh::BVH};
+use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
-use crate::{world::resource_manager::{ResourceInfoType, ResourceManager}, voxels::{self}};
+use crate::{voxels::{self}, render::renderer::Renderer, world::{self, grid::{GridId, SubGridId}}};
 
 const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
 const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
@@ -205,18 +205,18 @@ impl State {
 		})
 	}
 
-	fn make_ball(&mut self, physics_body_id: PhysicsBodyId, radius: i32) {
+	fn make_ball(world: &mut World, physics_body_id: PhysicsBodyId, radius: i32) {
 		{
-			let grid_id = self.world.add_grid(physics_body_id, &Pose::new(Vec3::new(-0.5, -0.5, -0.5), Quat::IDENTITY));
-			let grid = self.world.grid_mut(grid_id).unwrap();
+			let grid_id = world.add_grid(physics_body_id, &Pose::new(Vec3::new(-0.5, -0.5, -0.5), Quat::IDENTITY)).unwrap();
+			let grid = world.grid_mut(grid_id).unwrap();
 
 			for x in -radius..radius + 1 {
 				for y in -0..radius + 1 {
 					for z in -radius..radius + 1 {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
-								IVec3::new(x, y, z),
-								voxels::Voxel { color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], mass: 100 }
+								&IVec3::new(x, y, z),
+								&voxels::Voxel { color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], mass: 100 }
 							);
 						}
 					}
@@ -224,16 +224,16 @@ impl State {
 			}
 		}
 		{
-			let grid_id = self.world.add_grid(physics_body_id, &Pose::new(Vec3::new(-0.707, -0.5, 0.0), Quat::from_rotation_y(f32::consts::PI / 4.0)));
-			let grid = self.world.grid_mut(grid_id).unwrap();
+			let grid_id = world.add_grid(physics_body_id, &Pose::new(Vec3::new(-0.707, -0.5, 0.0), Quat::from_rotation_y(f32::consts::PI / 4.0))).unwrap();
+			let grid = world.grid_mut(grid_id).unwrap();
 
 			for x in -radius..radius + 1 {
 				for y in -radius..0 {
 					for z in -radius..radius + 1 {
 						if IVec3::new(x, y, z).length_squared() as f32 <= (radius as f32 - 0.5).powf(2.0) {
 							grid.add_voxel(
-								IVec3::new(x, y, z),
-								voxels::Voxel { color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], mass: 100 }
+								&IVec3::new(x, y, z),
+								&voxels::Voxel { color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], mass: 100 }
 							);
 						}
 					}
@@ -242,7 +242,7 @@ impl State {
 		}
 	}
 
-	fn make_smooth_ball(resource_manager: &mut ResourceManager, physics_body: &mut PhysicsBody, radius: i32){
+	fn make_smooth_ball(world: &mut World, physics_body_id: PhysicsBodyId, radius: i32){
 		let face_resolution = (radius * 2).max(1);
 		let sphere_radius = radius as f32 - 0.5;
 		let voxel_center = Vec3::splat(0.5);
@@ -292,13 +292,11 @@ impl State {
 					let inward = -normal;
 					let rotation = Quat::from_rotation_arc(Vec3::Z, inward);
 					let translation = center - rotation * voxel_center;
-					let grid_uuid = ResourceUUID(Uuid::new_v4());
-					resource_manager.create_resource(grid_uuid.clone(), false, true, vec![], ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body.uuid().clone()) });
-					let grid_id = physics_body.add_grid(grid_uuid, Pose::new(translation, rotation));
-					let grid = physics_body.grid_mut(grid_id).unwrap();
+					let grid_id = world.add_grid(physics_body_id, &Pose::new(translation, rotation)).unwrap();
+					let grid = world.grid_mut(grid_id).unwrap();
 					grid.add_voxel(
-						IVec3::ZERO,
-						voxels::Voxel {
+						&IVec3::ZERO,
+						&voxels::Voxel {
 							color: [
 								((normal.x * 0.5 + 0.5) * 255.0) as u8,
 								((normal.y * 0.5 + 0.5) * 255.0) as u8,
@@ -306,8 +304,7 @@ impl State {
 								1,
 							],
 							mass: 100,
-						},
-						resource_manager
+						}
 					);
 				}
 			}
@@ -337,36 +334,16 @@ impl State {
 		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
 		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
-		let mut resource_manager = ResourceManager::new();
-
 		match crate::resources::load_binary("Church_Of_St_Sophia.vox").await {
 			Ok(bytes) => {
 				match dot_vox::load_bytes(&bytes) {
 					Ok(dot_vox_data) => {
-						let physics_body_uuid = ResourceUUID(Uuid::new_v4());
-						let physics_body_resource = resource_manager.create_resource_blank(
-							physics_body_uuid.clone(),
-							ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid.clone()) }
-						).unwrap();
-						let physics_body_id = world.add_physics_body(physics_body_uuid.clone());
-						match physics_body_resource.info_mut() {
-							ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id)),
-							_ => unreachable!()
-						};
+						let physics_body_id = world.add_physics_body();
 						let physics_body = world.physics_body_mut(physics_body_id).unwrap();
 						physics_body.pose.translation.y -= 350.0;
 						physics_body.is_static = true;
-						let grid_uuid = ResourceUUID(Uuid::new_v4());
-						let grid_resource = resource_manager.create_resource_blank(
-							grid_uuid.clone(),
-							ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
-						).unwrap();
-						let grid_id = physics_body.add_grid(grid_uuid, Pose::ZERO);
-						match grid_resource.info_mut() {
-							ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
-							_ => unreachable!()
-						};
-						let grid = physics_body.grid_mut(grid_id).unwrap();
+						let grid_id = world.add_grid(physics_body_id, &Pose::ZERO).unwrap();
+						let grid = world.grid_mut(grid_id).unwrap();
 						let mut stack = vec![(0, Pose::ZERO, IVec3::new(1, 1, -1))];
 						while let Some((scene_id, pose, flip)) = stack.pop() {
 							match &dot_vox_data.scenes[scene_id as usize] {
@@ -396,23 +373,26 @@ impl State {
 											let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
 											let half = (size / 2.0).floor();
 											for voxel in &model.voxels {
-												grid.add_voxel((
-													pose * Pose::from_translation(-half * flip.as_vec3()) * (
-														IVec3::new(
-															voxel.x as i32,
-															voxel.z as i32,
-															voxel.y as i32,
-														) * flip + flip.min(IVec3::ZERO)
-													).as_vec3()
-												).as_ivec3(), voxels::Voxel {
-													color: [
-														dot_vox_data.palette[voxel.i as usize].r,
-														dot_vox_data.palette[voxel.i as usize].g,
-														dot_vox_data.palette[voxel.i as usize].b,
-														dot_vox_data.palette[voxel.i as usize].a,
-													],
-													mass: 100,
-												}, &mut resource_manager);
+												grid.add_voxel(
+													&(
+														pose * Pose::from_translation(-half * flip.as_vec3()) * (
+															IVec3::new(
+																voxel.x as i32,
+																voxel.z as i32,
+																voxel.y as i32,
+															) * flip + flip.min(IVec3::ZERO)
+														).as_vec3()
+													).as_ivec3(),
+													&voxels::Voxel {
+														color: [
+															dot_vox_data.palette[voxel.i as usize].r,
+															dot_vox_data.palette[voxel.i as usize].g,
+															dot_vox_data.palette[voxel.i as usize].b,
+															dot_vox_data.palette[voxel.i as usize].a,
+														],
+														mass: 100,
+													}
+												);
 											}
 										}
 									}
@@ -556,24 +536,15 @@ impl State {
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
-				State::make_ball(&mut resource_manager, physics_body, 2);
+				State::make_ball(&mut world, physics_body.id(), 2);
 			}
-			let physics_body_uuid_1 = ResourceUUID(Uuid::new_v4());
-			let physics_body_resource_1 = resource_manager.create_resource_blank(
-				physics_body_uuid_1.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid_1.clone()) }
-			).unwrap();
-			let physics_body_id_1 = world.add_physics_body(physics_body_uuid_1);
+			let physics_body_id_1 = world.add_physics_body();
 			{
-				match physics_body_resource_1.info_mut() {
-					ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id_1)),
-					_ => unreachable!()
-				};
 				let physics_body = world.physics_body_mut(physics_body_id_1).unwrap();
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 50.0 - 60.0;
-				State::make_ball(&mut resource_manager, physics_body, r);
+				State::make_ball(&mut world, physics_body.id(), r);
 			}
 			let physics_body_id_2 = world.add_physics_body();
 			{
@@ -581,20 +552,15 @@ impl State {
 				physics_body.pose.translation.x += 0.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 30.0 - 60.0;
-				State::make_ball(&mut resource_manager, physics_body, r);
+				State::make_ball(&mut world, physics_body.id(), r);
 			}
-			let physics_body_uuid_3 = ResourceUUID(Uuid::new_v4());
-			let physics_body_resource_3 = resource_manager.create_resource_blank(
-				physics_body_uuid_3.clone(),
-				ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid_3.clone()) }
-			).unwrap();
 			let physics_body_id_3 = world.add_physics_body();
 			{
 				let physics_body = world.physics_body_mut(physics_body_id_3).unwrap();
 				physics_body.pose.translation.x += 10.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
-				State::make_ball(&mut resource_manager, physics_body, r);
+				State::make_ball(&mut world, physics_body.id(), r);
 			}
 			let physics_body_id_4 = world.add_physics_body();
 			{
@@ -602,7 +568,7 @@ impl State {
 				physics_body.pose.translation.x += -10.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
-				State::make_ball(&mut resource_manager, physics_body, r);
+				State::make_ball(&mut self, physics_body.id(), r);
 			}
 			world.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, 10.0)), physics_body_id_1, &Pose::ZERO);
 			world.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, -10.0)), physics_body_id_2, &Pose::ZERO);
@@ -732,11 +698,11 @@ impl State {
 				for x in -6..7 {
 					for y in 0..3 {
 						for z in -6..7 {
-							grid.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 }, &mut resource_manager);
+							grid.add_voxel(&IVec3::new(x, y, z), &voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 });
 						}
 					}
 				}
-				grid.add_voxel(IVec3::new(0, 3, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 }, &mut resource_manager);
+				grid.add_voxel(&IVec3::new(0, 3, 0), &voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
 				physics_body.pose.translation.y = 120.0;
 				let standing_entity_id = ecs.add_entity();
 				let mut orientator = Orientator::new();
@@ -747,7 +713,7 @@ impl State {
 			{
 				let physics_body = world.physics_body_mut(ball_physics_body_id).unwrap();
 				physics_body.pose.translation.y = 108.0;
-				State::make_ball(&mut resource_manager, physics_body, 10);
+				State::make_ball(&mut world, physics_body.id(), 10);
 			}
 			world.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
 		}
@@ -760,11 +726,11 @@ impl State {
 				for x in -6..7 {
 					for y in 0..3 {
 						for z in -6..7 {
-							grid.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 }, &mut resource_manager);
+							grid.add_voxel(&IVec3::new(x, y, z), &voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 });
 						}
 					}
 				}
-				grid.add_voxel(IVec3::new(0, 3, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 }, &mut resource_manager);
+				grid.add_voxel(&IVec3::new(0, 3, 0), &voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
 				physics_body.pose.translation.y = 120.0;
 				physics_body.pose.translation.x = 80.0;
 				let standing_entity_id = ecs.add_entity();
@@ -777,7 +743,7 @@ impl State {
 				let physics_body = world.physics_body_mut(ball_physics_body_id).unwrap();
 				physics_body.pose.translation.y = 108.0;
 				physics_body.pose.translation.x = 80.0;
-				State::make_ball(&mut resource_manager, physics_body, 10);
+				State::make_ball(&mut world, physics_body.id(), 10);
 			}
 			world.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
 		}
@@ -790,19 +756,19 @@ impl State {
 				for x in -6..7 {
 					for y in 0..3 {
 						for z in -6..7 {
-							grid.add_voxel(IVec3::new(x, y, z), voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 }, &mut resource_manager);
+							grid.add_voxel(&IVec3::new(x, y, z), &voxels::Voxel{ color: [128, 128, 128, 255], mass: 200 });
 						}
 					}
 				}
-				grid.add_voxel(IVec3::new(0, 3, 0), voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 }, &mut resource_manager);
+				grid.add_voxel(&IVec3::new(0, 3, 0), &voxels::Voxel{ color: [255, 0, 0, 255], mass: 200 });
 				physics_body.pose.translation.y = 120.0;
 				physics_body.pose.translation.x = 30.0;
 				let standing_entity_id = ecs.add_entity();
 				let mut orientator = Orientator::new();
-				orientator.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
+				orientator.set(world.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
 				ecs.add_component_to_entity(standing_entity_id, orientator);
 				let mut player_tracker = PlayerTracker::new();
-				player_tracker.set(physics_engine.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
+				player_tracker.set(world.start_tracking(physics_body_id, grid_id, IVec3::new(0, 3, 0)));
 				ecs.add_component_to_entity(standing_entity_id, player_tracker);
 			}
 			let ball_physics_body_id = world.add_physics_body();
@@ -810,7 +776,7 @@ impl State {
 				let physics_body = world.physics_body_mut(ball_physics_body_id).unwrap();
 				physics_body.pose.translation.y = 108.0;
 				physics_body.pose.translation.x = 30.0;
-				State::make_ball(&mut resource_manager, physics_body, 10);
+				State::make_ball(&mut world, physics_body.id(), 10);
 			}
 			world.create_ball_joint_constraint(physics_body_id, &Pose::from_translation(Vec3::new(0.0, -12.0, 0.0)), ball_physics_body_id, &Pose::ZERO);
 		}

@@ -6,9 +6,9 @@ use tracy_client::span;
 
 use crate::pose::Pose;
 use crate::world::grid::Grid;
-use crate::world::sub_grid::SubGrid;
+use crate::world::grid::SubGrid;
 use super::math::{Mat6, Vec6};
-use super::super::{physics_body::PhysicsBody, physics_body::PhysicsBodyId, grid::GridId, sub_grid::SubGridId, sparse_set::SparseSet};
+use super::super::{physics_body::PhysicsBody, physics_body::PhysicsBodyId, grid::GridId, grid::SubGridId, sparse_set::SparseSet};
 use super::{collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
 
 type CollisionKlMapKey = (PhysicsBodyId, GridId, IVec3, collision::CubeFeature, PhysicsBodyId, GridId, IVec3, collision::CubeFeature);
@@ -52,7 +52,6 @@ impl Solver {
 		&mut self,
 		physics_bodies: &mut SparseSet<PhysicsBodyId, PhysicsBody>,
 		grids: &SparseSet<GridId, Grid>,
-		sub_grids: &SparseSet<SubGridId, SubGrid>,
 		constraints: &mut HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
 		impulses: &SparseSet<PhysicsBodyId, Vec<Impulse>>,
 		dt: f32,
@@ -69,7 +68,7 @@ impl Solver {
 		let initial_all: SparseSet<PhysicsBodyId, Pose> = SparseSet::from_iter(
 			physics_bodies.iter().map(|(physics_body_id, physics_body)| (*physics_body_id, Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose))
 		);
-		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(physics_bodies, grids, sub_grids, &bvh).iter().map(
+		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(physics_bodies, grids, &bvh).iter().map(
 			|c| {
 				let body1 = &physics_bodies.get(&c.part1.body_id);
 				let body2 = &physics_bodies.get(&c.part2.body_id);

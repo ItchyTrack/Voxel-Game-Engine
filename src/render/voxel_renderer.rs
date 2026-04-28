@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::{gpu_objects::{gpu_bvh::{self, GpuBvh}, packed_dynamic_buffer::PackedDynamicBuffer}, physics::{bvh, physics_body::{GridId, PhysicsBodyId, SubGridId}}, pose::Pose};
+use crate::{gpu_objects::{gpu_bvh::{self, GpuBvh}, packed_dynamic_buffer::PackedDynamicBuffer}, pose::Pose};
+use crate::world::{physics_solver::bvh, physics_body::{PhysicsBodyId}, grid::{GridId, SubGridId}};
 
 const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
 

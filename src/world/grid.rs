@@ -1,186 +1,200 @@
-use crate::voxels;
-use crate::pose::Pose;
-use crate::world::physics_body::PhysicsBodyId;
-use super::physics_solver::inertia_tensor::InertiaTensor;
-use super::resource_manager::{ResourceManager, ResourceUUID};
-use super::{sub_grid::SubGridId};
+use std::{collections::HashMap, sync::atomic::{AtomicBool, Ordering}};
 
-use glam::{I16Vec3, I64Vec3, IVec3, Vec3, Quat};
+use crate::{pose::Pose, voxels::{self, Voxel}};
+use super::{physics_body::PhysicsBodyId, physics_solver::inertia_tensor::InertiaTensor, sparse_set::SparseSet, resource_manager::ResourceUUID};
+use glam::{I16Vec3, IVec3, Quat, Vec3, I64Vec3};
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+pub struct SubGridId(pub u32);
+pub struct SubGridVersionId(pub u64);
+
+pub struct SubGrid {
+	voxels: voxels::Voxels,
+	sub_grid_pos: IVec3,
+	version_id: SubGridVersionId,
+	reupload_gpu_grid: AtomicBool,
+}
+
+impl SubGrid {
+	pub fn new(sub_grid_pos: IVec3) -> Self {
+		Self {
+			voxels: voxels::Voxels::new(),
+			sub_grid_pos,
+			version_id: SubGridVersionId(0),
+			reupload_gpu_grid: AtomicBool::new(false),
+		}
+	}
+	pub fn sub_grid_pos(&self) -> IVec3 {
+		self.sub_grid_pos
+	}
+	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: voxels::Voxel) -> Option<voxels::Voxel> {
+		self.reupload_gpu_grid.store(true, Ordering::Relaxed);
+		self.voxels.add_voxel(pos, voxel)
+	}
+	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<voxels::Voxel> {
+		self.reupload_gpu_grid.store(true, Ordering::Relaxed);
+		self.voxels.remove_voxel(pos)
+	}
+	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
+	pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
+
+	// pub fn set_updated_gpu_grid_tree(&self, tree_id: u32, voxel_id: u32, lod: f32) {
+		// self.gpu_grid_tree_id.set(Some((tree_id, voxel_id, lod)));
+	// }
+	pub fn reupload_gpu_grid(&self) -> bool {
+		self.reupload_gpu_grid.load(Ordering::Relaxed)
+	}
+
+	// return true is this should be deleted
+	pub fn clean_up(&mut self) -> bool {
+		self.get_voxels().get_voxels().is_empty()
+	}
+
+	pub fn local_aabb(&self, quat: &Quat) -> Option<(Vec3, Vec3)> {
+		let (min, max) = self.voxels.get_bounding_box()?;
+		let min = min.as_vec3();
+		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
+		let corners = [
+			min,
+			Vec3::new(max.x, min.y, min.z),
+			Vec3::new(min.x, max.y, min.z),
+			Vec3::new(min.x, min.y, max.z),
+			Vec3::new(max.x, max.y, min.z),
+			Vec3::new(max.x, min.y, max.z),
+			Vec3::new(min.x, max.y, max.z),
+			max,
+		];
+		let rotated_corners = corners.map(|c| quat * c);
+		Some((
+			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
+			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))
+		))
+	}
+}
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct GridId(pub u32);
 
 pub struct Grid {
-	pub pose: Pose,
-	sub_grids: Vec<SubGridId>,
-	id: GridId,
+	pose: Pose,
+	global_pose: Option<Pose>,
 	physics_body_id: PhysicsBodyId,
-	uuid: ResourceUUID,
+	sub_grids: SparseSet<SubGridId, SubGrid>,
+	next_sub_grid_id: SubGridId,
+	position_mapping: HashMap<IVec3, SubGridId>,
+	resource_uuid: ResourceUUID,
 	mass: u64,
 	voxel_center_of_mass_times_mass: I64Vec3,
 	inertia_tensor_at_zero: InertiaTensor,
 }
 
-const SUB_GRID_SIZE: u16 = 64;
-
 impl Grid {
-	pub fn new(grid_uuid: ResourceUUID, grid_id: GridId, pose: &Pose, physics_body_id: PhysicsBodyId) -> Self {
+	const CHUNK_SIZE: i32 = 64;
+
+	pub fn new(physics_body_id: PhysicsBodyId, pose: &Pose, resource_uuid: ResourceUUID) -> Self {
 		Self {
 			pose: *pose,
-			sub_grids: vec![],
-			id: grid_id,
-			physics_body_id,
-			uuid: grid_uuid,
+			global_pose: None,
+			physics_body_id: physics_body_id,
+			sub_grids: SparseSet::new(),
+			next_sub_grid_id: SubGridId(0),
+			position_mapping: HashMap::new(),
+			resource_uuid: resource_uuid,
 			mass: 0,
 			voxel_center_of_mass_times_mass: I64Vec3::ZERO,
 			inertia_tensor_at_zero: InertiaTensor::ZERO,
 		}
 	}
 
-	fn pos_to_sub_grid_pos(&self, pos: &IVec3) -> I16Vec3{
-		pos.div_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()
-	}
-
-	// pub fn add_sub_grid(&mut self, uuid: ResourceUUID, pos: &IVec3) -> SubGridId {
-	// 	self.sub_grid_id_to_index.insert(self.next_sub_grid_id, self.sub_grids.len() as u32);
-	// 	let sub_grid_pos = self.pos_to_sub_grid_pos(pos);
-	// 	self.sub_grid_pos_to_index.insert(sub_grid_pos, self.sub_grids.len() as u32);
-	// 	self.sub_grids.push(SubGrid::new(uuid, self.next_sub_grid_id, sub_grid_pos));
-	// 	self.next_sub_grid_id.0 += 1;
-	// 	SubGridId(self.next_sub_grid_id.0 - 1)
-	// }
-
-	// pub fn remove_sub_grid(&mut self, sub_grid_id: SubGridId) {
-	// 	let index = match self.sub_grid_id_to_index.remove(&sub_grid_id) {
-	// 		Some(i) => i,
-	// 		None => return,
-	// 	};
-	// 	let sub_grid = self.sub_grids.swap_remove(index as usize);
-	// 	self.sub_grid_pos_to_index.remove(&sub_grid.sub_grid_pos);
-	// 	if index != self.sub_grids.len() as u32 {
-	// 		let other_id = self.sub_grids[index as usize].id();
-	// 		self.sub_grid_id_to_index.insert(other_id, index);
-	// 	}
-	// }
-
-	// pub fn remove_sub_grid_by_index(&mut self, index: u32) {
-	// 	if let Some(sub_grid) = self.sub_grids.get(index as usize) {
-	// 		self.sub_grid_id_to_index.remove(&sub_grid.id());
-	// 	} else { return; }
-	// 	self.sub_grids.swap_remove(index as usize);
-	// 	if index != self.sub_grids.len() as u32 {
-	// 		let other_id = self.sub_grids[index as usize].id();
-	// 		self.sub_grid_id_to_index.insert(other_id, index);
-	// 	}
-	// }
-
-	pub fn sub_grids(&self) -> &[SubGridId] {
-		&self.sub_grids
-	}
-
-	// pub fn get_sub_grid(&self, pos: &IVec3) -> Option<(&SubGrid, I16Vec3)> {
-	// 	Some((self.sub_grids.get(*self.sub_grid_pos_to_index.get(&self.pos_to_sub_grid_pos(pos))? as usize)?, pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()))
-	// }
-
-	// fn get_sub_grid_mut(&mut self, pos: &IVec3) -> Option<(&mut SubGrid, I16Vec3)> {
-	// 	let sub_grid_pos = self.pos_to_sub_grid_pos(pos);
-	// 	Some((self.sub_grids.get_mut(*self.sub_grid_pos_to_index.get(&sub_grid_pos)? as usize)?, pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3()))
-	// }
-
-	// fn get_sub_grid_mut_create(&mut self, pos: &IVec3, resource_manager: &mut ResourceManager) -> (&mut SubGrid, I16Vec3) {
-	// 	let sub_grid_pos = self.pos_to_sub_grid_pos(pos);
-	// 	if let Some(sub_grid_index) = self.sub_grid_pos_to_index.get(&sub_grid_pos) {
-	// 		return (self.sub_grid_by_index_mut(*sub_grid_index).unwrap(), pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3());
-	// 	}
-
-	// 	let sub_grid_uuid = ResourceUUID(Uuid::new_v4());
-	// 	let sub_grid_resource = resource_manager.create_resource_blank(sub_grid_uuid.clone(), ResourceInfoType::SubGrid { sub_grid_resource: SubGridResource::new(sub_grid_uuid.clone(), self.uuid.clone()) }).unwrap();
-	// 	let sub_grid_id = self.add_sub_grid(sub_grid_uuid, pos);
-	// 	match sub_grid_resource.info_mut() {
-	// 		ResourceInfoType::SubGrid { sub_grid_resource } => sub_grid_resource.set_sub_grid_id(Some(sub_grid_id)),
-	// 		_ => unreachable!()
-	// 	}
-	// 	(self.sub_grid_mut(sub_grid_id).unwrap(), pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE as i32)).as_i16vec3())
-	// }
-
-	pub fn id(&self) -> GridId {
-		self.id
+	// info
+	pub fn pose(&self) -> &Pose {
+		&self.pose
 	}
 	pub fn physics_body_id(&self) -> PhysicsBodyId {
 		self.physics_body_id
 	}
 
-	pub fn get_body_center_of_mass(&self) -> Vec3 {
-		if self.mass == 0 {
-			Vec3::ZERO
-		} else {
-			self.local_to_body_vec(&(self.voxel_center_of_mass_times_mass.as_vec3() / self.mass as f32 + 0.5))
-		}
+	// sub grids
+	fn add_sub_grid(&mut self, sub_grid_pos: &IVec3) -> SubGridId {
+		let sub_grid_id = self.next_sub_grid_id;
+		self.next_sub_grid_id.0 += 1;
+		self.sub_grids.insert(sub_grid_id, SubGrid::new(*sub_grid_pos));
+		sub_grid_id
+	}
+	fn remove_sub_grid(&mut self, sub_grid_id: SubGridId) -> bool {
+		self.sub_grids.remove(&sub_grid_id).is_some()
+	}
+	fn map_position_to_sub_grid_id(&self, pos: &IVec3) -> Option<SubGridId> {
+		self.position_mapping.get(&(pos / Self::CHUNK_SIZE)).copied()
+	}
+	fn map_position_to_sub_grid_id_create(&mut self, pos: &IVec3) -> SubGridId {
+		*self.position_mapping.entry(pos / Self::CHUNK_SIZE).or_insert_with(|| {
+			let sub_grid_id = self.next_sub_grid_id;
+			self.next_sub_grid_id.0 += 1;
+			self.sub_grids.insert(sub_grid_id, SubGrid::new((pos / Self::CHUNK_SIZE) * Self::CHUNK_SIZE));
+			sub_grid_id
+		})
+	}
+	pub fn sub_grids(&self) -> &SparseSet<SubGridId, SubGrid> {
+		&self.sub_grids
 	}
 
-	pub fn get_local_center_of_mass(&self) -> Vec3 {
-		if self.mass == 0 {
-			Vec3::ZERO
-		} else {
-			(self.voxel_center_of_mass_times_mass.as_vec3() / self.mass as f32) + 0.5
+	// voxels
+	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) -> Option<voxels::Voxel> {
+		self.mass += voxel.mass as u64;
+		self.voxel_center_of_mass_times_mass += voxel.mass as i64 * voxel_pos.as_i64vec3();
+		self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
+		let sub_grid_id = self.map_position_to_sub_grid_id_create(voxel_pos);
+		let sub_grid = self.sub_grids.get_mut(&sub_grid_id)?;
+		let old_voxel = sub_grid.add_voxel(voxel_pos.rem_euclid(IVec3::splat( Self::CHUNK_SIZE)).as_i16vec3(), *voxel)?;
+		self.mass -= old_voxel.mass as u64;
+		self.voxel_center_of_mass_times_mass -= old_voxel.mass as i64 * voxel_pos.as_i64vec3();
+		self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
+		Some(old_voxel)
+	}
+	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) -> Option<voxels::Voxel> {
+		let sub_grid_id = self.map_position_to_sub_grid_id(voxel_pos)?;
+		let sub_grid = self.sub_grids.get_mut(&sub_grid_id)?;
+		let voxel = sub_grid.remove_voxel(&voxel_pos.rem_euclid(IVec3::splat( Self::CHUNK_SIZE)).as_i16vec3())?;
+		self.mass -= voxel.mass as u64;
+		self.voxel_center_of_mass_times_mass -= voxel.mass as i64 * voxel_pos.as_i64vec3();
+		self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
+		if sub_grid.get_voxels().get_voxels().len() == 0 {
+			self.sub_grids.remove(&sub_grid_id);
 		}
+		Some(voxel)
+	}
+	pub fn get_voxel(&self, voxel_pos: &IVec3) -> Option<&voxels::Voxel> {
+		let sub_grid_id = self.map_position_to_sub_grid_id(voxel_pos)?;
+		let sub_grid = self.sub_grids.get(&sub_grid_id)?;
+		sub_grid.get_voxel(&voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3())
 	}
 
+	// physics
 	pub fn mass(&self) -> f32 { self.mass as f32 }
 
-	// return true is this should be deleted
-	pub fn clean_up(&mut self) -> bool {
-		let mut sub_grids_to_remove = vec![];
-		for sub_grid in &mut self.sub_grids {
-			if sub_grid.clean_up() {
-				sub_grids_to_remove.push(sub_grid.id());
-			}
-		}
-		if sub_grids_to_remove.len() == self.sub_grids.len() {
-			return true;
-		}
-		for id in sub_grids_to_remove {
-			self.remove_sub_grid(id);
-		}
-		return false;
-	}
-
-	pub fn add_voxel(&mut self, pos: IVec3, voxel: voxels::Voxel, resource_manager: &mut ResourceManager) {
-		self.mass += voxel.mass as u64;
-		self.voxel_center_of_mass_times_mass += voxel.mass as i64 * pos.as_i64vec3();
-		self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
-		let (sub_grid, sub_grid_pos) = self.get_sub_grid_mut_create(&pos, resource_manager);
-		if let Some(old_voxel) = sub_grid.add_voxel(sub_grid_pos, voxel) {
-			self.mass -= old_voxel.mass as u64;
-			self.voxel_center_of_mass_times_mass -= old_voxel.mass as i64 * pos.as_i64vec3();
-			self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
+	pub fn grid_center_of_mass(&self) -> Vec3 {
+		if self.mass == 0 {
+			Vec3::ZERO
+		} else {
+			self.voxel_center_of_mass_times_mass.as_vec3() / self.mass() + 0.5
 		}
 	}
-
-	pub fn remove_voxel(&mut self, pos: &IVec3) {
-		if let Some((sub_grid, sub_grid_pos)) = self.get_sub_grid_mut(&pos) {
-			if let Some(voxel) = sub_grid.remove_voxel(&sub_grid_pos) {
-				self.mass -= voxel.mass as u64;
-				self.voxel_center_of_mass_times_mass -= voxel.mass as i64 * pos.as_i64vec3();
-				self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(pos.as_dvec3() + 0.5));
-			}
-		}
+	pub fn physics_body_center_of_mass(&self) -> Vec3 {
+		self.grid_to_physics_body_vec(&self.grid_center_of_mass())
 	}
 
-	pub fn get_voxel(&self, pos: IVec3) -> Option<&voxels::Voxel> {
-		let (sub_grid, sub_grid_pos) = self.get_sub_grid(&pos)?;
-		sub_grid.get_voxel(sub_grid_pos)
+	pub fn grid_inertia_tensor_at_zero(&self) -> &InertiaTensor {
+		&self.inertia_tensor_at_zero
 	}
-	// pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
-
-	pub fn body_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }
-	pub fn local_to_body(&self, other: &Pose) -> Pose { self.pose * other }
-	pub fn body_to_local_vec(&self, pos: &Vec3) -> Vec3 { self.pose.inverse() * pos }
-	pub fn local_to_body_vec(&self, pos: &Vec3) -> Vec3 { self.pose * pos }
-	pub fn body_to_local_rot(&self, rot: &Quat) -> Quat { self.pose.inverse() * rot }
-	pub fn local_to_body_rot(&self, rot: &Quat) -> Quat { self.pose * rot }
-
-	pub fn get_inertia_tensor_at_body(&self) -> InertiaTensor {
+	pub fn grid_inertia_tensor_at_centered_of_mass(&self) -> InertiaTensor {
+		let com = self.voxel_center_of_mass_times_mass.as_dvec3() / self.mass as f64 + 0.5;
+		self.inertia_tensor_at_zero.move_to_center_of_mass(
+			&com,
+			self.mass as f64
+		)
+	}
+	pub fn inertia_tensor(&self) -> InertiaTensor {
 		let com = self.voxel_center_of_mass_times_mass.as_dvec3() / self.mass as f64 + 0.5;
 		self.inertia_tensor_at_zero.move_between_points(
 			&com,
@@ -189,11 +203,55 @@ impl Grid {
 		).get_rotated(self.pose.rotation.as_dquat())
 	}
 
-	pub fn get_inertia_tensor_at_zero(&self) -> &InertiaTensor {
-		&self.inertia_tensor_at_zero
+	pub fn global_pose(&self) -> &Option<Pose> {
+		&self.global_pose
+	}
+	pub fn update_physics_body_pose(&mut self, physics_body_pose: &Pose) {
+		self.global_pose = Some(physics_body_pose * self.pose);
 	}
 
 	pub fn get_inertia_tensor_at_center_of_mass(&self) -> InertiaTensor {
 		self.inertia_tensor_at_zero.move_to_center_of_mass(&(self.voxel_center_of_mass_times_mass.as_dvec3() / self.mass as f64), self.mass as f64)
+	}
+
+	// reference frame
+	pub fn physics_body_to_grid(&self, other: &Pose) -> Pose { self.pose.inverse() * other }
+	pub fn grid_to_physics_body(&self, other: &Pose) -> Pose { self.pose * other }
+	pub fn physics_body_to_grid_vec(&self, pos: &Vec3) -> Vec3 { self.pose.inverse() * pos }
+	pub fn grid_to_physics_body_vec(&self, pos: &Vec3) -> Vec3 { self.pose * pos }
+	pub fn physics_body_to_grid_rot(&self, rot: &Quat) -> Quat { self.pose.inverse() * rot }
+	pub fn grid_to_physics_body_rot(&self, rot: &Quat) -> Quat { self.pose * rot }
+}
+
+pub struct GridManager {
+	grids: SparseSet<GridId, Grid>,
+	next_grid_id: GridId,
+}
+
+impl GridManager {
+	pub fn new() -> Self {
+		Self {
+			grids: SparseSet::new(),
+			next_grid_id: GridId(0),
+		}
+	}
+	// grids
+	pub fn add_grid(&mut self, physics_body_id: PhysicsBodyId, pose: &Pose, resource_uuid: ResourceUUID) -> GridId {
+		let grid_id = self.next_grid_id;
+		self.next_grid_id.0 += 1;
+		self.grids.insert(grid_id, Grid::new(physics_body_id, pose, resource_uuid));
+		grid_id
+	}
+	pub fn remove_grid(&mut self, grid_id: GridId) -> bool {
+		self.grids.remove(&grid_id).is_some()
+	}
+	pub fn grid(&self, grid_id: GridId) -> Option<&Grid> {
+		self.grids.get(&grid_id)
+	}
+	pub fn grid_mut(&mut self, grid_id: GridId) -> Option<&mut Grid> {
+		self.grids.get_mut(&grid_id)
+	}
+	pub fn grids(&self) -> &SparseSet<GridId, Grid> {
+		&self.grids
 	}
 }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use glam::Vec3;
 use wgpu::{Device, util::DeviceExt};
 
-use crate::{world::{physics_solver::bvh, physics_body::PhysicsBodyId, grid::GridId, sub_grid::SubGridId}, pose::Pose};
+use crate::{world::{physics_solver::bvh, physics_body::PhysicsBodyId, grid::GridId, grid::SubGridId}, pose::Pose};
 
 
 // -- GPU node layout -----------------------------------------------------------

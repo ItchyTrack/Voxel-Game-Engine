@@ -73,8 +73,8 @@ impl Voxels {
 		self.voxel_palette.get_voxel(self.voxels.remove(pos)?).cloned()
 	}
 
-	pub fn get_voxel(&self, pos: I16Vec3) -> Option<&Voxel> {
-			self.voxel_palette.get_voxel(self.voxels.get(&pos)?)
+	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> {
+			self.voxel_palette.get_voxel(self.voxels.get(pos)?)
 		}
 	pub fn get_voxels(&self) -> &GridTree { &self.voxels }
 	pub fn get_palette(&self) -> &VoxelPalette { &self.voxel_palette }

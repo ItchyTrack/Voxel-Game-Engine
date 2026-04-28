@@ -3,11 +3,11 @@ use std::{cell::{Ref, RefCell}, collections::{HashMap, VecDeque}, pin::Pin, sync
 use async_priority_queue::PriorityQueue;
 use tracy_client::span;
 
-use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId}, sub_grid::{SubGrid, SubGridId}};
+use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
 use super::{physics_solver::{voxel_tracker::VoxelTracker, ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
 use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::EntityComponentSystem};
 use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType}, physics_body_resource::PhysicsBodyResource};
-use crate::{pose::Pose, world::physics_body_resource::GridResource};
+use crate::{pose::Pose};
 
 pub struct Task {
 	task_func: Box<dyn FnOnce(&mut World) + Send + 'static>,
@@ -72,10 +72,9 @@ macro_rules! get_bvh_macro {
 				let _zone = span!("Collect aabb");
 				for (physics_body_id, physics_body) in &$self.physics_bodies {
 					for grid_id in physics_body.grids() {
-						let grid = $self.grids.get(grid_id).unwrap();
-						let grid_pose = physics_body.pose * grid.pose;
-						for sub_grid_id in grid.sub_grids() {
-							let sub_grid = $self.sub_grids.get(sub_grid_id).unwrap();
+						let grid = $self.grid_manager.grid(*grid_id).unwrap();
+						let grid_pose = physics_body.pose * grid.pose();
+						for (sub_grid_id, sub_grid) in grid.sub_grids() {
 							let sub_grid_pose = grid_pose * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
 							let bound = {
 								let local_aabb = sub_grid.local_aabb(&sub_grid_pose.rotation);
@@ -98,8 +97,7 @@ macro_rules! get_bvh_macro {
 
 pub struct World {
 	pub physics_bodies: SparseSet<PhysicsBodyId, PhysicsBody>,
-	pub grids: SparseSet<GridId, Grid>,
-	pub sub_grids: SparseSet<SubGridId, SubGrid>,
+	pub grid_manager: GridManager,
 	pub next_physics_body_id: PhysicsBodyId,
 	pub next_grid_id: GridId,
 	pub next_sub_grid_id: SubGridId,
@@ -136,8 +134,7 @@ impl World {
 
 		Self {
 			physics_bodies: SparseSet::new(),
-			grids: SparseSet::new(),
-			sub_grids: SparseSet::new(),
+			grid_manager: GridManager::new(),
 			next_physics_body_id: PhysicsBodyId(0),
 			next_grid_id: GridId(0),
 			next_sub_grid_id: SubGridId(0),
@@ -212,7 +209,7 @@ impl World {
 		let _zone = span!("PhysicsEngine update physics");
 		{
 			let bvh = &get_bvh_macro!(self);
-			self.solver.solve(&mut self.physics_bodies, &self.grids, &self.sub_grids, &mut self.constraints, &self.impulses, dt, bvh);
+			self.solver.solve(&mut self.physics_bodies, &self.grid_manager.grids(), &mut self.constraints, &self.impulses, dt, bvh);
 			self.impulses.clear();
 		}
 		*self.bvh.borrow_mut() = None;
@@ -235,19 +232,20 @@ impl World {
 	}
 	pub fn add_grid(&mut self, physics_body_id: PhysicsBodyId, pose: &Pose) -> Option<GridId> {
 		let physics_body_uuid = self.physics_body(physics_body_id)?.uuid().clone();
-		let grid_uuid = ResourceUUID::generate();
+		let grid_resource_uuid = ResourceUUID::generate();
 		let grid_resource = self.resource_manager.create_resource_blank(
-			grid_uuid.clone(),
-			ResourceInfoType::Grid { grid_resource: GridResource::new(grid_uuid.clone(), physics_body_uuid) }
+			grid_resource_uuid.clone(),
+			ResourceInfoType::Grid { grid_resource: GridResource::new(grid_resource_uuid.clone(), physics_body_uuid) }
 		).unwrap();
-		let grid_id = self.next_grid_id;
-		self.next_grid_id.0 += 1;
-		self.grids.insert(grid_id, Grid::new(grid_uuid, grid_id, pose, physics_body_id));
+		let grid_id = self.grid_manager.add_grid(physics_body_id, pose, grid_resource_uuid);
 		match grid_resource.info_mut() {
 			ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
 			_ => unreachable!()
 		}
 		Some(grid_id)
+	}
+	pub fn remove_grid(&mut self, grid_id: GridId) -> bool {
+		self.grid_manager.remove_grid(grid_id)
 	}
 	pub fn physics_body(&self, physics_body_id: PhysicsBodyId) -> Option<&PhysicsBody> {
 		self.physics_bodies.get(&physics_body_id)
@@ -256,16 +254,10 @@ impl World {
 		self.physics_bodies.get_mut(&physics_body_id)
 	}
 	pub fn grid(&self, grid_id: GridId) -> Option<&Grid> {
-		self.grids.get(&grid_id)
+		self.grid_manager.grid(grid_id)
 	}
 	pub fn grid_mut(&mut self, grid_id: GridId) -> Option<&mut Grid> {
-		self.grids.get_mut(&grid_id)
-	}
-	pub fn sub_grid(&self, sub_grid_id: SubGridId) -> Option<&SubGrid> {
-		self.sub_grids.get(&sub_grid_id)
-	}
-	pub fn sub_grid_mut(&mut self, sub_grid_id: SubGridId) -> Option<&mut SubGrid> {
-		self.sub_grids.get_mut(&sub_grid_id)
+		self.grid_manager.grid_mut(grid_id)
 	}
 }
 

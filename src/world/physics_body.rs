@@ -290,11 +290,4 @@ impl PhysicsBody {
 	pub fn local_to_world_vec(&self, vec: &Vec3) -> Vec3 { self.pose * vec }
 	pub fn world_to_local_rot(&self, rot: &Quat) -> Quat { self.pose.inverse() * rot }
 	pub fn local_to_world_rot(&self, rot: &Quat) -> Quat { self.pose * rot }
-
-	pub fn world_to_grid(&self, grid_index: u32, other: &Pose) -> Pose { self.grids[grid_index as usize].body_to_local(&self.world_to_local(other)) }
-	pub fn grid_to_world(&self, grid_index: u32, other: &Pose) -> Pose { self.local_to_world(&self.grids[grid_index as usize].local_to_body(other)) }
-	pub fn world_to_grid_vec(&self, grid_index: u32, pos: &Vec3) -> Vec3 { self.grids[grid_index as usize].body_to_local_vec(&self.world_to_local_vec(pos)) }
-	pub fn grid_to_world_vec(&self, grid_index: u32, pos: &Vec3) -> Vec3 { self.local_to_world_vec(&self.grids[grid_index as usize].local_to_body_vec(pos)) }
-	pub fn world_to_grid_rot(&self, grid_index: u32, rot: &Quat) -> Quat { self.grids[grid_index as usize].body_to_local_rot(&self.world_to_local_rot(rot)) }
-	pub fn grid_to_world_rot(&self, grid_index: u32, rot: &Quat) -> Quat { self.local_to_world_rot(&self.grids[grid_index as usize].local_to_body_rot(rot)) }
 }
