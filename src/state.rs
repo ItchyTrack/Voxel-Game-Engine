@@ -9,8 +9,8 @@ use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabM
 use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, world::physics_solver::bvh::BVH};
 use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
-use crate::{voxels::{self}, render::renderer::Renderer};
-use crate::world::{self, grid::{GridId, SubGridId}, voxels, pose::Pose};
+use crate::render::renderer::Renderer;
+use crate::world::{grid::{GridId, SubGridId}, voxels, pose::Pose};
 
 const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
 const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
@@ -313,7 +313,7 @@ impl State {
 	pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
 		let renderer = Renderer::new(window).await?;
 
-		let mut world = World::new();
+		let world = World::new();
 		let player_id = {
 			let ecs = &mut world.ecs.write();
 			// create player entity
