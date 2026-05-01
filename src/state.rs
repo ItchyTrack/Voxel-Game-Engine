@@ -6,7 +6,7 @@ use glam::{IVec3, Quat, Vec3};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}};
+use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, world::physics_solver::bvh::BVH};
 use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
 use crate::{voxels::{self}, render::renderer::Renderer};
@@ -192,14 +192,14 @@ impl State {
 		// 		}
 		// 	}
 		// }
-		self.world.ecs.run_on_single_component_mut::<PlayerInput, _>(self.player_id, |_entity_id, player_input|
+		self.world.ecs.write().run_on_single_component_mut::<PlayerInput, _>(self.player_id, |_entity_id, player_input|
 			player_input.end_frame()
 		);
 	}
 
 	pub fn resize(&mut self, width: u32, height: u32) {
 		self.renderer.resize(width, height);
-		self.world.ecs.run_on_components_mut::<Camera, _>(&mut |_entity_id, camera| {
+		self.world.ecs.write().run_on_components_mut::<Camera, _>(&mut |_entity_id, camera| {
 			camera.aspect = self.renderer.config.width as f32 / self.renderer.config.height as f32;
 		})
 	}
@@ -207,7 +207,7 @@ impl State {
 	fn make_ball(world: &mut World, physics_body_id: PhysicsBodyId, radius: i32) {
 		{
 			let grid_id = world.add_grid(physics_body_id, &Pose::new(Vec3::new(-0.5, -0.5, -0.5), Quat::IDENTITY)).unwrap();
-			let grid = world.grid_mut(grid_id).unwrap();
+			let grid = &mut world.grid_mut(grid_id).unwrap();
 
 			for x in -radius..radius + 1 {
 				for y in -0..radius + 1 {
@@ -224,7 +224,7 @@ impl State {
 		}
 		{
 			let grid_id = world.add_grid(physics_body_id, &Pose::new(Vec3::new(-0.707, -0.5, 0.0), Quat::from_rotation_y(f32::consts::PI / 4.0))).unwrap();
-			let grid = world.grid_mut(grid_id).unwrap();
+			let grid = &mut world.grid_mut(grid_id).unwrap();
 
 			for x in -radius..radius + 1 {
 				for y in -radius..0 {
@@ -292,7 +292,7 @@ impl State {
 					let rotation = Quat::from_rotation_arc(Vec3::Z, inward);
 					let translation = center - rotation * voxel_center;
 					let grid_id = world.add_grid(physics_body_id, &Pose::new(translation, rotation)).unwrap();
-					let grid = world.grid_mut(grid_id).unwrap();
+					let grid = &mut world.grid_mut(grid_id).unwrap();
 					grid.add_voxel(
 						&IVec3::ZERO,
 						&voxels::Voxel {
@@ -314,7 +314,7 @@ impl State {
 		let renderer = Renderer::new(window).await?;
 
 		let world = World::new();
-		let ecs = &world.ecs;
+		let ecs = &world.ecs.write();
 		// create player entity
 		let player_id = ecs.add_entity();
 		ecs.add_component_to_entity(player_id, PlayerInput::new());
@@ -330,8 +330,8 @@ impl State {
 			#[cfg(target_arch = "wasm32")]
 			zfar: 900.0,
 		});
-		ecs.get_mut().unwrap().add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
-		ecs.get_mut().unwrap().add_component_to_entity(player_id, ObjectPickup::new());
+		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
+		ecs.add_component_to_entity(player_id, ObjectPickup::new());
 
 		match crate::resources::load_binary("Church_Of_St_Sophia.vox").await {
 			Ok(bytes) => {
@@ -445,7 +445,7 @@ impl State {
 				physics_body.pose.translation.x += -10.0;
 				physics_body.pose.translation.y = 80.0;
 				physics_body.pose.translation.z += 40.0 - 60.0;
-				State::make_ball(&mut self, physics_body.id(), r);
+				State::make_ball(&mut world, physics_body.id(), r);
 			}
 			world.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, 10.0)), physics_body_id_1, &Pose::ZERO);
 			world.create_ball_joint_constraint(physics_body_id_main, &Pose::from_translation(Vec3::new(0.0, 0.0, -10.0)), physics_body_id_2, &Pose::ZERO);
@@ -578,13 +578,13 @@ impl State {
 		// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
 		// }
 		if self.debug_enables.inertia_boxes {
-			for (physics_body_id, physics_body) in self.world.physics_bodies {
+			for (physics_body_id, physics_body) in self.world.physics_bodies.read().iter() {
 				if !physics_body.is_static {
 					physics_body.render_debug_inertia_box();
 				}
 			}
 		}
-		if let Some(player_camera) = self.world.ecs.get_component::<Camera>(self.player_id) {
+		if let Some(player_camera) = self.world.ecs.read().get_component::<Camera>(self.player_id) {
 			let mut id_to_hit_count = HashMap::new();
 			for (id, hit_count) in self.renderer.bvh_item_ids.iter().zip(self.renderer.bvh_item_hit_counts.iter()) {
 				id_to_hit_count.insert(*id, *hit_count);
@@ -615,7 +615,7 @@ impl State {
 				{
 					let _zone = span!("Collect aabb for rendering");
 					for ((body_id, grid_id, sub_grid_id), _) in gpu_grid_tree_id_to_id_poses.iter() {
-						if let Some(grid) = self.world.grid_manager.get_mut().unwrap().grid(*grid_id) && let Some(body) = self.world.physics_body(*body_id) {
+						if let Some(grid) = self.world.grid_manager.read().grid(*grid_id) && let Some(body) = self.world.physics_body(*body_id) {
 							if let Some(sub_gid) = grid.sub_grid(*sub_grid_id) {
 								if let Some(bound) = sub_gid.local_aabb(&(body.pose.rotation * grid.pose().rotation)) {
 									bounds.push(((*body_id, *grid_id, *sub_grid_id), bound));

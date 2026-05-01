@@ -55,7 +55,7 @@ impl PlayerTracker {
 								error_avg.length() * 0.1
 							) - (body.velocity - dir * velocity_in_dir)
 						);
-						world.voxel_tracker.write().apply_central_impulse(body_id, &Vec3::new(central_impulse.x, 0.0, central_impulse.z));
+						world.voxel_tracker.write().apply_central_impulse(tracked_voxel.body_id, &Vec3::new(central_impulse.x, 0.0, central_impulse.z));
 					}
 				}
 			}

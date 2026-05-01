@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{gpu_objects::{gpu_bvh::{self, GpuBvh}, packed_dynamic_buffer::PackedDynamicBuffer}, pose::Pose};
+use crate::world::gpu::gpu_bvh::GpuBvh;
+use crate::world::pose::Pose;
+use crate::{gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer};
 use crate::world::{physics_solver::bvh, physics_body::{PhysicsBodyId}, grid::{GridId, SubGridId}};
 
 const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
@@ -158,7 +160,7 @@ impl VoxelRenderer {
 				label: Some("BVH Beam Pipeline Layout"),
 				bind_group_layouts: &[
 					Some(&camera_bind_group_layout),
-					Some(&gpu_bvh::GpuBvh::bind_group_layout(&device)),
+					Some(&GpuBvh::bind_group_layout(&device)),
 					Some(&bvh_beam_textured_storage_bind_group_layout),
 				],
 				immediate_size: 0,
@@ -263,7 +265,7 @@ impl VoxelRenderer {
 				label: Some("Ray Casting Pipeline Layout"),
 				bind_group_layouts: &[
 					Some(&camera_bind_group_layout),
-					Some(&gpu_bvh::GpuBvh::bind_group_layout(&device)),
+					Some(&GpuBvh::bind_group_layout(&device)),
 					Some(&tree_bind_group_layout),
 					Some(&intermediate_textured_storage_bind_group_layout),
 					Some(&bvh_beam_textured_read_bind_group_layout),
@@ -295,7 +297,7 @@ impl VoxelRenderer {
 				label: Some("Coloring Pipeline Layout"),
 				bind_group_layouts: &[
 					Some(&camera_bind_group_layout),
-					Some(&gpu_bvh::GpuBvh::bind_group_layout(&device)),
+					Some(&GpuBvh::bind_group_layout(&device)),
 					Some(&voxel_bind_group_layout),
 					Some(&intermediate_textured_read_bind_group_layout),
 				],
@@ -474,7 +476,7 @@ impl VoxelRenderer {
 		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
 		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
 	) -> GpuBvh {
-		let gpu_bvh = gpu_bvh::GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_poses);
+		let gpu_bvh = GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_poses);
 		{
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
 				label: Some("Render Pass"),

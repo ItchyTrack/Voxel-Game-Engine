@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-use crate::physics::{physics_body::PhysicsBodyId, physics_engine::PhysicsEngine};
+use crate::world::{physics_body::PhysicsBodyId, world::World};
 
 pub struct ObjectPickup {
 	body_id: Option<PhysicsBodyId>

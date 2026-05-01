@@ -1,12 +1,15 @@
-use std::{cell::Ref, collections::{HashMap, VecDeque}, ops::{AddAssign, SubAssign}, pin::Pin, sync::Arc, time::Instant};
+use std::{collections::{HashMap, VecDeque}, ops::{AddAssign, SubAssign}, pin::Pin, sync::Arc, time::Instant};
+use glam::{I8Vec3, IVec3, Vec3};
 use num::Zero;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use async_priority_queue::PriorityQueue;
 use tracy_client::span;
 
+use crate::world::voxel_tracker::VoxelTracker;
+
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
-use super::{physics_solver::{voxel_tracker::VoxelTracker, ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
+use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
 use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::EntityComponentSystem};
 use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType}, physics_body_resource::PhysicsBodyResource};
 use super::{pose::Pose};
@@ -68,32 +71,24 @@ pub type AsyncTaskPriorityQueue = Arc<PriorityQueue<PriorityTask>>;
 
 macro_rules! get_bvh_macro {
 	($self:expr) => {{
-		if $self.borrow().is_none() {
+		if $self.bvh.read().is_none() {
 			let mut bounds = vec![];
 			{
 				let _zone = span!("Collect aabb");
-				for (physics_body_id, physics_body) in &$self.physics_bodies.read() {
+				for (physics_body_id, physics_body) in $self.physics_bodies.read().iter() {
 					for grid_id in physics_body.grids() {
-						let grid = $self.grid_manager.grid(*grid_id).unwrap();
-						let grid_pose = physics_body.pose * grid.pose();
+						let grid = $self.grid(*grid_id).unwrap();
 						for (sub_grid_id, sub_grid) in grid.sub_grids() {
-							let sub_grid_pose = grid_pose * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
-							let bound = {
-								let local_aabb = sub_grid.local_aabb(&sub_grid_pose.rotation);
-								let local_aabb = if let Some(local_aabb) = local_aabb { local_aabb } else { continue; };
-								(
-									sub_grid_pose.translation + local_aabb.0,
-									sub_grid_pose.translation + local_aabb.1
-								)
-							};
-							bounds.push(((*physics_body_id, *grid_id, *sub_grid_id), bound));
+							if let Some(bound) = sub_grid.local_aabb(&(physics_body.pose.rotation * grid.pose().rotation)) {
+								bounds.push(((*physics_body_id, *grid_id, *sub_grid_id), bound));
+							}
 						}
 					}
 				}
 			}
-			*$self.bvh.borrow_mut() = Some(BVH::new(bounds));
+			*$self.bvh.write() = Some(BVH::new(bounds));
 		}
-		Ref::map($self.bvh.borrow(), |bvh| bvh.as_ref().unwrap())
+		RwLockReadGuard::map($self.bvh.read(), |bvh| bvh.as_ref().unwrap())
 	}};
 }
 
@@ -243,7 +238,8 @@ impl World {
 	pub fn add_grid(&mut self, physics_body_id: PhysicsBodyId, pose: &Pose) -> Option<GridId> {
 		let physics_body_uuid = self.physics_body(physics_body_id)?.uuid().clone();
 		let grid_resource_uuid = ResourceUUID::generate();
-		let grid_resource = self.resource_manager.write().create_resource_blank(
+		let resource_manager = &mut self.resource_manager.write();
+		let grid_resource = resource_manager.create_resource_blank(
 			grid_resource_uuid.clone(),
 			ResourceInfoType::Grid { grid_resource: GridResource::new(grid_resource_uuid.clone(), physics_body_uuid) }
 		).unwrap();
@@ -269,8 +265,81 @@ impl World {
 	pub fn grid_mut(&mut self, grid_id: GridId) -> Option<MappedRwLockWriteGuard<'_, Grid>> {
 		RwLockWriteGuard::try_map(self.grid_manager.write(), |grid_manager| grid_manager.grid_mut(grid_id)).ok()
 	}
-	pub fn get_tracked_voxel(&self, track_voxel_id: ) {
-		world.voxel_tracker.read().get_tracked_voxel(tracked_voxel)
+
+	pub fn apply_central_impulse(&self, physics_body_id: PhysicsBodyId, impluse: &Vec3) {
+		self.impulses.write().entry(physics_body_id).or_default().push(Impulse::CentralImpulse { central_impluse: *impluse });
+	}
+	pub fn apply_rotational_impulse(&self, physics_body_id: PhysicsBodyId, rotational_impluse: &Vec3) {
+		self.impulses.write().entry(physics_body_id).or_default().push(Impulse::RotationalImpulse { rotational_impluse: *rotational_impluse });
+	}
+	pub fn apply_impulse(&mut self, physics_body_id: PhysicsBodyId, impluse_pos: &Vec3, impluse: &Vec3) {
+		self.impulses.write().entry(physics_body_id).or_default().push(Impulse::Impulse { impluse: *impluse, impluse_pos: *impluse_pos });
+	}
+
+	pub fn create_ball_joint_constraint(&self, physics_body_id_1: PhysicsBodyId, body_1_attachment: &Pose, physics_body_id_2: PhysicsBodyId, body_2_attachment: &Pose) {
+		self.constraints.write().insert(
+			if physics_body_id_1.0 < physics_body_id_2.0 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
+			BallJointConstraint::new(body_1_attachment, body_2_attachment, f32::INFINITY, 0.0)
+		);
+	}
+
+	pub fn create_ball_joint_spring_constraint(&self, physics_body_id_1: PhysicsBodyId, body_1_attachment: &Pose, physics_body_id_2: PhysicsBodyId, body_2_attachment: &Pose, stiffness : f32) {
+		self.constraints.write().insert(
+			if physics_body_id_1.0 < physics_body_id_2.0 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
+			BallJointConstraint::new(body_1_attachment, body_2_attachment, stiffness, 0.0)
+		);
+	}
+
+	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(PhysicsBodyId, GridId, IVec3, I8Vec3, f32)> {
+		let mut best_hit: Option<(PhysicsBodyId, GridId, IVec3, I8Vec3, f32)> = None;
+		for ((body_id, grid_id, sub_grid_id), bvh_distance) in self.get_bvh().raycast(pose, max_length) {
+			if best_hit.is_some() && bvh_distance > best_hit.unwrap().4 { break; }
+			let physics_body = &self.physics_body(body_id).unwrap();
+			let grid = self.grid(grid_id).unwrap();
+			// let sub_grid = grid.sub_grid(sub_grid_id).unwrap();
+			// if let Some((hit_pos, hit_normal, grid_distance)) = sub_grid.get_voxels().get_voxels().raycast(
+			// 	&(&Pose::from_translation(-grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()).as_vec3()) * grid.pose.inverse() * physics_body.pose.inverse() * Pose::new(
+			// 		pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
+			// 	max_length.map(|max_length| max_length - bvh_distance),
+			// 	// &(&physics_body.pose * grid.pose * Pose::from_translation(grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos().as_ivec3()).as_vec3()))
+			// ) {
+			// 	if best_hit.is_none() || grid_distance + bvh_distance < best_hit.unwrap().4 {
+			// 		best_hit = Some((body_id, grid_id, hit_pos.as_ivec3() + grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()), hit_normal, grid_distance + bvh_distance));
+			// 	}
+			// }
+		}
+		best_hit
+	}
+
+	pub fn get_bvh(&'_ self) -> MappedRwLockReadGuard<'_, BVH<(PhysicsBodyId, GridId, SubGridId)>> {
+		if self.bvh.read().is_none() {
+			let mut bounds = vec![];
+			{
+				let _zone = span!("Collect aabb");
+				for (physics_body_id, physics_body) in self.physics_bodies.read().iter() {
+					for grid_id in physics_body.grids() {
+						let grid = self.grid(*grid_id).unwrap();
+						for (sub_grid_id, sub_grid) in grid.sub_grids() {
+							if let Some(bound) = sub_grid.local_aabb(&(physics_body.pose.rotation * grid.pose().rotation)) {
+								bounds.push(((*physics_body_id, *grid_id, *sub_grid_id), bound));
+							}
+						}
+					}
+				}
+			}
+			*self.bvh.write() = Some(BVH::new(bounds));
+		}
+		RwLockReadGuard::map(self.bvh.read(), |bvh| bvh.as_ref().unwrap())
+	}
+	pub fn start_tracking(&mut self, body_id: PhysicsBodyId, grid_id: GridId, voxel_pos: IVec3) -> u64 {
+		self.voxel_tracker.write().start_tracking(body_id, grid_id, voxel_pos)
+	}
+	pub fn stop_tracking(&mut self, tracked_voxel_id: u64) {
+		self.voxel_tracker.write().stop_tracking(tracked_voxel_id);
+	}
+	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<(PhysicsBodyId, GridId, IVec3)> {
+		let tracked_voxel = self.voxel_tracker.read().get_tracked_voxel(tracked_voxel_id)?;
+		Some((tracked_voxel.body_id, tracked_voxel.grid_id, tracked_voxel.voxel_pos))
 	}
 }
 
