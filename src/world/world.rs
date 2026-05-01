@@ -6,7 +6,7 @@ use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, 
 use async_priority_queue::PriorityQueue;
 use tracy_client::span;
 
-use crate::world::voxel_tracker::VoxelTracker;
+use crate::world::voxel_tracker::{TrackedVoxelId, VoxelTracker};
 
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
 use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
@@ -219,7 +219,7 @@ impl World {
 		*self.bvh.write() = None;
 	}
 
-	pub fn add_physics_body(&mut self) -> PhysicsBodyId {
+	pub fn add_physics_body(&self) -> PhysicsBodyId {
 		let physics_body_uuid = ResourceUUID::generate();
 		let resource_manager = &mut self.resource_manager.write();
 		let physics_body_resource = resource_manager.create_resource_blank(
@@ -235,7 +235,7 @@ impl World {
 		}
 		physics_body_id
 	}
-	pub fn add_grid(&mut self, physics_body_id: PhysicsBodyId, pose: &Pose) -> Option<GridId> {
+	pub fn add_grid(&self, physics_body_id: PhysicsBodyId, pose: &Pose) -> Option<GridId> {
 		let physics_body_uuid = self.physics_body(physics_body_id)?.uuid().clone();
 		let grid_resource_uuid = ResourceUUID::generate();
 		let resource_manager = &mut self.resource_manager.write();
@@ -250,19 +250,19 @@ impl World {
 		}
 		Some(grid_id)
 	}
-	pub fn remove_grid(&mut self, grid_id: GridId) -> bool {
+	pub fn remove_grid(&self, grid_id: GridId) -> bool {
 		self.grid_manager.write().remove_grid(grid_id)
 	}
 	pub fn physics_body(&self, physics_body_id: PhysicsBodyId) -> Option<MappedRwLockReadGuard<'_, PhysicsBody>> {
 		RwLockReadGuard::try_map(self.physics_bodies.read(), |physics_bodies| physics_bodies.get(&physics_body_id)).ok()
 	}
-	pub fn physics_body_mut(&mut self, physics_body_id: PhysicsBodyId) -> Option<MappedRwLockWriteGuard<'_, PhysicsBody>> {
+	pub fn physics_body_mut(&self, physics_body_id: PhysicsBodyId) -> Option<MappedRwLockWriteGuard<'_, PhysicsBody>> {
 		RwLockWriteGuard::try_map(self.physics_bodies.write(), |physics_bodies| physics_bodies.get_mut(&physics_body_id)).ok()
 	}
 	pub fn grid(&self, grid_id: GridId) -> Option<MappedRwLockReadGuard<'_, Grid>> {
 		RwLockReadGuard::try_map(self.grid_manager.read(), |grid_manager| grid_manager.grid(grid_id)).ok()
 	}
-	pub fn grid_mut(&mut self, grid_id: GridId) -> Option<MappedRwLockWriteGuard<'_, Grid>> {
+	pub fn grid_mut(&self, grid_id: GridId) -> Option<MappedRwLockWriteGuard<'_, Grid>> {
 		RwLockWriteGuard::try_map(self.grid_manager.write(), |grid_manager| grid_manager.grid_mut(grid_id)).ok()
 	}
 
@@ -331,13 +331,13 @@ impl World {
 		}
 		RwLockReadGuard::map(self.bvh.read(), |bvh| bvh.as_ref().unwrap())
 	}
-	pub fn start_tracking(&mut self, body_id: PhysicsBodyId, grid_id: GridId, voxel_pos: IVec3) -> u64 {
+	pub fn start_tracking(&self, body_id: PhysicsBodyId, grid_id: GridId, voxel_pos: IVec3) -> TrackedVoxelId {
 		self.voxel_tracker.write().start_tracking(body_id, grid_id, voxel_pos)
 	}
-	pub fn stop_tracking(&mut self, tracked_voxel_id: u64) {
+	pub fn stop_tracking(&self, tracked_voxel_id: TrackedVoxelId) {
 		self.voxel_tracker.write().stop_tracking(tracked_voxel_id);
 	}
-	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<(PhysicsBodyId, GridId, IVec3)> {
+	pub fn get_tracked_voxel(&self, tracked_voxel_id: TrackedVoxelId) -> Option<(PhysicsBodyId, GridId, IVec3)> {
 		let tracked_voxel = self.voxel_tracker.read().get_tracked_voxel(tracked_voxel_id)?;
 		Some((tracked_voxel.body_id, tracked_voxel.grid_id, tracked_voxel.voxel_pos))
 	}
