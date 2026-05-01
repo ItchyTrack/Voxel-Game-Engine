@@ -42,20 +42,19 @@ impl PlayerTracker {
 						let voxel_body_location = grid.grid_to_physics_body(&Pose::from_translation(tracked_voxel.voxel_pos.as_vec3()));
 						let voxel_world_location = body.local_to_world(&voxel_body_location);
 
-						let (_com, mass) = body.get_global_center_of_mass_and_mass();
 						let error = player_pos - voxel_world_location.translation;
 						let error_avg = (self.error_avg.get() * 5.0 + error) / 6.0;
 						self.error_avg.set(error_avg);
 						let dir = error.normalize();
 						let velocity_in_dir = body.velocity.dot(dir);
-						let central_impulse = mass * (
+						let central_impulse = body.mass() * (
 							dir * (
 								error.length() * 0.2 -
 								velocity_in_dir / 9.0 +
 								error_avg.length() * 0.1
 							) - (body.velocity - dir * velocity_in_dir)
 						);
-						world.voxel_tracker.write().apply_central_impulse(tracked_voxel.body_id, &Vec3::new(central_impulse.x, 0.0, central_impulse.z));
+						world.apply_central_impulse(tracked_voxel.body_id, &Vec3::new(central_impulse.x, 0.0, central_impulse.z));
 					}
 				}
 			}

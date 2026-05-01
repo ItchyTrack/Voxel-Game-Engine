@@ -1,5 +1,7 @@
 use glam::{Vec3, Quat};
 
+use crate::world::physics_solver::inertia_tensor::InertiaTensor;
+
 use super::resource_manager::ResourceUUID;
 use super::{grid::GridId, pose::Pose};
 
@@ -14,6 +16,9 @@ pub struct PhysicsBody {
 	grids: Vec<GridId>,
 	id: PhysicsBodyId,
 	uuid: ResourceUUID,
+	mass: f32,
+	center_of_mass: Vec3,
+	rotational_inertia: InertiaTensor,
 }
 
 impl PhysicsBody {
@@ -26,6 +31,9 @@ impl PhysicsBody {
 			grids: vec![],
 			id: id,
 			uuid: body_uuid,
+			mass: 0.0,
+			center_of_mass: Vec3::ZERO,
+			rotational_inertia: InertiaTensor::ZERO,
 		}
 	}
 	pub fn id(&self) -> PhysicsBodyId {
@@ -34,81 +42,28 @@ impl PhysicsBody {
 	pub fn uuid(&self) -> &ResourceUUID {
 		&self.uuid
 	}
-	// pub fn mass(&self) -> f32 {
-	// 	let mut mass_sum = 0.0;
-	// 	for grid in self.grids.iter() {
-	// 		mass_sum += grid.mass();
-	// 	}
-	// 	mass_sum
-	// }
-	// pub fn get_local_center_of_mass(&self) -> Vec3 {
-	// 	let mut center_of_mass_times_mass = Vec3::ZERO;
-	// 	let mut mass_sum = 0.0;
-	// 	for grid in self.grids.iter() {
-	// 		center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
-	// 		mass_sum += grid.mass();
-	// 	}
-	// 	if mass_sum == 0.0 { return Vec3::ZERO; }
-	// 	center_of_mass_times_mass / mass_sum
-	// }
-	// pub fn get_local_center_of_mass_and_mass(&self) -> (Vec3, f32) {
-	// 	let mut center_of_mass_times_mass = Vec3::ZERO;
-	// 	let mut mass_sum = 0.0;
-	// 	for grid in self.grids.iter() {
-	// 		center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
-	// 		mass_sum += grid.mass();
-	// 	}
-	// 	if mass_sum == 0.0 { return (Vec3::ZERO, 0.0); }
-	// 	(center_of_mass_times_mass / mass_sum, mass_sum)
-	// }
-	// pub fn get_global_rotated_center_of_mass(&self) -> Vec3 {
-	// 	let mut center_of_mass_times_mass = Vec3::ZERO;
-	// 	let mut mass_sum = 0.0;
-	// 	for grid in self.grids.iter() {
-	// 		center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
-	// 		mass_sum += grid.mass();
-	// 	}
-	// 	if mass_sum == 0.0 { return Vec3::ZERO; }
-	// 	self.pose.rotation * (center_of_mass_times_mass / mass_sum)
-	// }
-	// pub fn get_global_center_of_mass(&self) -> Vec3 {
-	// 	let mut center_of_mass_times_mass = Vec3::ZERO;
-	// 	let mut mass_sum = 0.0;
-	// 	for grid in self.grids.iter() {
-	// 		center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
-	// 		mass_sum += grid.mass();
-	// 	}
-	// 	if mass_sum == 0.0 { return Vec3::ZERO; }
-	// 	self.pose * (center_of_mass_times_mass / mass_sum)
-	// }
-	// pub fn get_global_center_of_mass_and_mass(&self) -> (Vec3, f32) {
-	// 	let mut center_of_mass_times_mass = Vec3::ZERO;
-	// 	let mut mass_sum = 0.0;
-	// 	for grid in self.grids.iter() {
-	// 		center_of_mass_times_mass += grid.get_body_center_of_mass() * grid.mass();
-	// 		mass_sum += grid.mass();
-	// 	}
-	// 	if mass_sum == 0.0 { return (Vec3::ZERO, 0.0); }
-	// 	(self.pose * (center_of_mass_times_mass / mass_sum), mass_sum)
-	// }
-	// pub fn rotational_inertia(&self) -> InertiaTensor {
-	// 	let (com, mass) = self.get_local_center_of_mass_and_mass();
-	// 	let mut inertia_tensor_at_zero: InertiaTensor = InertiaTensor::ZERO;
-	// 	for grid in self.grids.iter() {
-	// 		inertia_tensor_at_zero += grid.get_inertia_tensor_at_body();
-	// 	}
-	// 	inertia_tensor_at_zero.move_to_center_of_mass(
-	// 		&com.as_dvec3(),
-	// 		mass as f64
-	// 	).get_rotated(self.pose.rotation.as_dquat())
-	// }
-	// pub fn rotational_inertia_at_zero(&self) -> InertiaTensor {
-	// 	let mut inertia_tensor_at_zero: InertiaTensor = InertiaTensor::ZERO;
-	// 	for grid in self.grids.iter() {
-	// 		inertia_tensor_at_zero += grid.get_inertia_tensor_at_body();
-	// 	}
-	// 	inertia_tensor_at_zero.get_rotated(self.pose.rotation.as_dquat())
-	// }
+	pub fn mass(&self) -> f32 {
+		self.mass
+	}
+	pub fn grids(&self) -> &Vec<GridId> {
+		&self.grids
+	}
+
+	pub fn local_center_of_mass(&self) -> Vec3 {
+		self.center_of_mass
+	}
+	pub fn global_rotated_center_of_mass(&self) -> Vec3 {
+		self.pose.rotation * self.center_of_mass
+	}
+	pub fn global_center_of_mass(&self) -> Vec3 {
+		self.pose * self.center_of_mass
+	}
+	pub fn rotational_inertia(&self) -> InertiaTensor {
+		self.rotational_inertia.get_rotated(self.pose.rotation.as_dquat())
+	}
+	pub fn global_rotational_inertia(&self) -> InertiaTensor {
+		self.rotational_inertia.get_rotated(self.pose.rotation.as_dquat())
+	}
 
 	// return true is this should be deleted
 	// pub fn clean_up(&mut self) -> bool {
@@ -169,119 +124,10 @@ impl PhysicsBody {
 
 	// pub fn grid_by_index_mut(&mut self, grid_index: u32) -> Option<&mut Grid> {
 	// 	self.grids.get_mut(grid_index as usize)
-	// }
 
-	pub fn grids(&self) -> &[GridId] {
-		&self.grids
+	pub fn render_debug_inertia_box(&self) {
+		self.global_rotational_inertia().render_debug_box(self.mass(), self.global_center_of_mass());
 	}
-
-	// pub fn aabb(&self) -> Option<(Vec3, Vec3)> {
-	// 	let mut aabb_min = Vec3::splat(f32::MAX);
-	// 	let mut aabb_max = Vec3::splat(f32::MIN);
-	// 	for grid in &self.grids {
-	// 		for sub_grid in grid.sub_grids() {
-	// 			if let Some((min, max)) = sub_grid.get_voxels().get_bounding_box() {
-	// 				let min = min.as_vec3();
-	// 				let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
-	// 				let corners = [
-	// 					min,
-	// 					Vec3::new(max.x, min.y, min.z),
-	// 					Vec3::new(min.x, max.y, min.z),
-	// 					Vec3::new(min.x, min.y, max.z),
-	// 					Vec3::new(max.x, max.y, min.z),
-	// 					Vec3::new(max.x, min.y, max.z),
-	// 					Vec3::new(min.x, max.y, max.z),
-	// 					max,
-	// 				];
-	// 				let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3();
-	// 				let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
-	// 				aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
-	// 				aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
-	// 			}
-	// 		}
-	// 	}
-	// 	if aabb_min.x == f32::MAX { return None; }
-	// 	Some((aabb_min, aabb_max))
-	// }
-
-	// pub fn grid_aabb(&self, grid_index: u32) -> Option<(Vec3, Vec3)> {
-	// 	let mut aabb_min = Vec3::splat(f32::MAX);
-	// 	let mut aabb_max = Vec3::splat(f32::MIN);
-	// 	let grid = self.grids.get(grid_index as usize)?;
-	// 	for sub_grid in grid.sub_grids() {
-	// 		if let Some((min, max)) = sub_grid.get_voxels().get_bounding_box() {
-	// 			let min = min.as_vec3();
-	// 			let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
-	// 			let corners = [
-	// 				min,
-	// 				Vec3::new(max.x, min.y, min.z),
-	// 				Vec3::new(min.x, max.y, min.z),
-	// 				Vec3::new(min.x, min.y, max.z),
-	// 				Vec3::new(max.x, max.y, min.z),
-	// 				Vec3::new(max.x, min.y, max.z),
-	// 				Vec3::new(min.x, max.y, max.z),
-	// 				max,
-	// 			];
-	// 			let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3();
-	// 			let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
-	// 			aabb_min = aabb_min.min(rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)));
-	// 			aabb_max = aabb_max.max(rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)));
-	// 		}
-	// 	}
-	// 	Some((aabb_min, aabb_max))
-	// }
-
-	// pub fn sub_grid_aabb(&self, grid_id: GridId, sub_grid_id: SubGridId) -> Option<(Vec3, Vec3)> {
-	// 	let grid = self.grid(grid_id)?;
-	// 	let sub_grid = grid.sub_grid(sub_grid_id)?;
-	// 	let (min, max) = sub_grid.get_voxels().get_bounding_box()?;
-	// 	let min = min.as_vec3();
-	// 	let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
-	// 	let corners = [
-	// 		min,
-	// 		Vec3::new(max.x, min.y, min.z),
-	// 		Vec3::new(min.x, max.y, min.z),
-	// 		Vec3::new(min.x, min.y, max.z),
-	// 		Vec3::new(max.x, max.y, min.z),
-	// 		Vec3::new(max.x, min.y, max.z),
-	// 		Vec3::new(min.x, max.y, max.z),
-	// 		max,
-	// 	];
-	// 	let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3();
-	// 	let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
-	// 	Some((
-	// 		rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
-	// 		rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))
-	// 	))
-	// }
-
-	// pub fn sub_grid_aabb_by_index(&self, grid_index: u32, sub_grid_index: u32) -> Option<(Vec3, Vec3)> {
-	// 	let grid = self.grids.get(grid_index as usize)?;
-	// 	let sub_grid = grid.sub_grid_by_index(sub_grid_index)?;
-	// 	let (min, max) = sub_grid.get_voxels().get_bounding_box()?;
-	// 	let min = min.as_vec3();
-	// 	let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
-	// 	let corners = [
-	// 		min,
-	// 		Vec3::new(max.x, min.y, min.z),
-	// 		Vec3::new(min.x, max.y, min.z),
-	// 		Vec3::new(min.x, min.y, max.z),
-	// 		Vec3::new(max.x, max.y, min.z),
-	// 		Vec3::new(max.x, min.y, max.z),
-	// 		Vec3::new(min.x, max.y, max.z),
-	// 		max,
-	// 	];
-	// 	let sub_grid_grid_pos = grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3();
-	// 	let rotated_corners = corners.map(|c| self.pose * grid.pose * (c + sub_grid_grid_pos));
-	// 	Some((
-	// 		rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
-	// 		rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))
-	// 	))
-	// }
-
-	// pub fn render_debug_inertia_box(&self) {
-	// 	self.rotational_inertia().render_debug_box(self.mass(), self.get_global_center_of_mass());
-	// }
 
 	pub fn world_to_local(&self, other: &Pose) -> Pose { self.pose.inverse() * other }
 	pub fn local_to_world(&self, other: &Pose) -> Pose { self.pose * other }

@@ -59,27 +59,27 @@ impl Solver {
 		constraints.iter_mut().for_each(|((physics_body_id_1, physics_body_id_2), constraint)| {
 			if let Some(physics_body_1) = physics_bodies.get(physics_body_id_1) {
 				if let Some(physics_body_2) = physics_bodies.get(physics_body_id_2) {
-					constraint.update_attachment_com(&physics_body_1.get_local_center_of_mass(), &physics_body_2.get_local_center_of_mass());
+					constraint.update_attachment_com(&physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
 				}
 			}
 		});
 		let initial_all: SparseSet<PhysicsBodyId, Pose> = SparseSet::from_iter(
 			physics_bodies.iter().map(|(physics_body_id, physics_body)| (
 				*physics_body_id,
-				Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose
+				Pose::new(physics_body.global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose
 			))
 		);
 		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(physics_bodies, grids, &bvh).iter().map(
 			|c| {
-				let body1 = &physics_bodies.get(&c.part1.body_id);
-				let body2 = &physics_bodies.get(&c.part2.body_id);
+				let body1 = &physics_bodies.get(&c.part1.body_id).unwrap();
+				let body2 = &physics_bodies.get(&c.part2.body_id).unwrap();
 				let collision = collision::Collision {
 					part1: collision::HalfCollision {
-						local_collision: c.part1.local_collision - body1.get_local_center_of_mass(),
+						local_collision: c.part1.local_collision - body1.local_center_of_mass(),
 						..c.part1
 					},
 					part2: collision::HalfCollision {
-						local_collision: c.part2.local_collision - body2.get_local_center_of_mass(),
+						local_collision: c.part2.local_collision - body2.local_center_of_mass(),
 						..c.part2
 					},
 				};
@@ -102,14 +102,14 @@ impl Solver {
 		self.collisions_kl_map.clear();
 		let y_all: SparseSet<PhysicsBodyId, Pose> = SparseSet::from_iter(physics_bodies.iter().map(|(physics_body_id, physics_body)| {
 			if physics_body.is_static || physics_body.mass() < f32::EPSILON {
-				return (*physics_body_id, Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose);
+				return (*physics_body_id, Pose::new(physics_body.global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose);
 			}
 			let mut velocity = physics_body.velocity;
 			let mut angular_velocity = physics_body.angular_velocity;
 			{
 				let body_mass = physics_body.mass();
 				let body_rotational_inertia_inverse = physics_body.rotational_inertia().mat.as_mat3().inverse();
-				let body_global_center_of_mass = physics_body.get_global_center_of_mass();
+				let body_global_center_of_mass = physics_body.global_center_of_mass();
 				if let Some(body_impulses) = impulses.get(&physics_body.id()) {
 					for impulse in body_impulses {
 						match impulse {
@@ -128,7 +128,7 @@ impl Solver {
 				}
 			}
 			let gravity = -300.0;
-			let pos = physics_body.pose.translation + velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.get_global_rotated_center_of_mass();
+			let pos = physics_body.pose.translation + velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.global_rotated_center_of_mass();
 			let orientation = (Quat::from_scaled_axis(angular_velocity * dt) * physics_body.pose.rotation).normalize();
 			(*physics_body_id, Pose::new(pos, orientation))
 		}));
@@ -138,7 +138,7 @@ impl Solver {
 		for iteration in 0..total_iterations {
 			let _zone = span!("Solve Iteration");
 			let alpha = (iteration < iterations) as i32 as f32 * 0.999;
-			for (physics_body_id, physics_body) in physics_bodies {
+			for (physics_body_id, physics_body) in physics_bodies.iter() {
 				if physics_body.is_static { continue; }
 
 				let m = Mat6::from_mat3(physics_body.mass() * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, physics_body.rotational_inertia().mat.as_mat3());
@@ -179,8 +179,8 @@ impl Solver {
 				let mats = h.to_mat3();
 				let solved = solve(mats[0], mats[3], mats[1], -f.upper_vec3(), -f.lower_vec3());
 				let x_change = Vec6::from_vec3(solved.0, solved.1);
-				x_guess.get(physics_body_id).unwrap().translation += x_change.upper_vec3();
-				x_guess.get(physics_body_id).unwrap().rotation = (
+				x_guess.get_mut(physics_body_id).unwrap().translation += x_change.upper_vec3();
+				x_guess.get_mut(physics_body_id).unwrap().rotation = (
 					x_guess.get(physics_body_id).unwrap().rotation +
 					Quat::from_xyzw(x_change.get(3) * 0.5, x_change.get(4) * 0.5, x_change.get(5) * 0.5, 0.0) * x_guess.get(physics_body_id).unwrap().rotation
 				).normalize();
@@ -202,16 +202,16 @@ impl Solver {
 				}
 			}
 			if iteration == iterations - 1 { // before post stabilize
-				for (physics_body_id, physics_body) in physics_bodies {
+				for (physics_body_id, physics_body) in physics_bodies.iter_mut() {
 					physics_body.velocity = (x_guess.get(physics_body_id).unwrap().translation - initial_all.get(physics_body_id).unwrap().translation) / dt;
 					physics_body.angular_velocity = (x_guess.get(physics_body_id).unwrap().rotation * initial_all.get(physics_body_id).unwrap().rotation.inverse()).normalize().to_scaled_axis() / dt;
 				}
 			}
 		}
 		// after post stabilize
-		for (physics_body_id, physics_body) in physics_bodies {
+		for (physics_body_id, physics_body) in physics_bodies.iter_mut() {
 			physics_body.pose.rotation = x_guess.get(physics_body_id).unwrap().rotation;
-			physics_body.pose.translation = x_guess.get(physics_body_id).unwrap().translation - physics_body.get_global_rotated_center_of_mass();
+			physics_body.pose.translation = x_guess.get(physics_body_id).unwrap().translation - physics_body.global_rotated_center_of_mass();
 		}
 		// save K and L
 		for collision_constraint in collision_constraints {

@@ -33,10 +33,10 @@ impl ObjectPickup {
 	pub fn hold_at_pos(&self, pos: &Vec3, _dt: f32, world: &mut World) {
 		if let Some(body_id) = self.body_id {
 			if let Some(body) = world.physics_body_mut(body_id) {
-				let (com, mass) = body.get_global_center_of_mass_and_mass();
+				let com = body.global_center_of_mass();
 				let dir = (pos - com).normalize();
 				let velocity_in_dir = body.velocity.dot(dir);
-				let central_impulse = mass * (
+				let central_impulse = body.mass() * (
 					dir * (
 						(pos - com).length() * 4.0 -
 						velocity_in_dir * 0.5
