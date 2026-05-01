@@ -580,7 +580,7 @@ impl State {
 		// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
 		// }
 		if self.debug_enables.inertia_boxes {
-			for (physics_body_id, physics_body) in self.world.physics_bodies.read().iter() {
+			for (_physics_body_id, physics_body) in self.world.physics_bodies.read().iter() {
 				if !physics_body.is_static {
 					physics_body.render_debug_inertia_box();
 				}
@@ -595,21 +595,21 @@ impl State {
 			let world_gpu_data = {
 				// let _zone = span!("Collect Voxels");
 				let view_frustum = player_camera.frustum();
-				// for (physics_body_id, physics_body) in self.world.physics_bodies.iter() {
-				// 	for (key, value) in physics_body.update_gpu_grid_tree(
-				// 		&mut self.renderer.voxel_renderer.packed_64_tree_dynamic_buffer,
-				// 		&mut self.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer,
-				// 		&mut self.resource_manager,
-				// 		&self.physics_engine,
-				// 		&mut self.async_task_priority_queue,
-				// 		&mut self.task_queue,
-				// 		&id_to_hit_count,
-				// 		&view_frustum,
-				// 		player_camera.pose(),
-				// 	) {
-				// 		gpu_grid_tree_id_to_id_poses.insert((physics_body.id(), key.0, key.1), value);
-				// 	}
-				// }
+				for (physics_body_id, physics_body) in self.world.physics_bodies.iter() {
+					for (key, value) in physics_body.update_gpu_grid_tree(
+						&mut self.renderer.voxel_renderer.packed_64_tree_dynamic_buffer,
+						&mut self.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer,
+						&mut self.resource_manager,
+						&self.physics_engine,
+						&mut self.async_task_priority_queue,
+						&mut self.task_queue,
+						&id_to_hit_count,
+						&view_frustum,
+						player_camera.pose(),
+					) {
+						gpu_grid_tree_id_to_id_poses.insert((physics_body.id(), key.0, key.1), value);
+					}
+				}
 
 				let world_gpu_data = self.world.get_rendering_buffers(id_to_hit_count, &view_frustum, player_camera.pose());
 				world_gpu_data

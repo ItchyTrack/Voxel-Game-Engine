@@ -7,7 +7,7 @@ use async_priority_queue::PriorityQueue;
 use tracy_client::span;
 use wgpu::Device;
 
-use crate::player::camera::ViewFrustum;
+use crate::{player::camera::ViewFrustum, world::physics_body};
 
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
 use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
@@ -349,81 +349,95 @@ impl World {
 
 	pub fn get_rendering_buffers(
 		&self,
-		id_to_hit_count: HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
-		view_frustum: &ViewFrustum,
-		player_camera: Pose
 	) -> RwLockReadGuard<'_, WorldGpuData> {
 		self.world_gpu_data.read()
 	}
+
+	pub fn update_gpu_grid_tree(
+		&self,
+		id_to_hit_count: &HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
+		view_frustum: &ViewFrustum,
+		camera_pose: Pose,
+	) -> Vec<(PhysicsBodyId, GridId, SubGridId, (u32, u32, Pose))> {
+		let mapping: Vec<(PhysicsBodyId, GridId, SubGridId, (u32, u32, Pose))> = vec![];
+		for (physics_body_id, physics_body) in self.physics_bodies.read().iter() {
+			for grid_id in physics_body.grids() {
+				let grid = self.grid(*grid_id).unwrap();
+				for (sub_grid_id, sub_grid) in grid.sub_grids() {
+					let hit_count = id_to_hit_count.get(&(*physics_body_id, *grid_id, *sub_grid_id)).unwrap_or(&1);
+					let grid_pose = physics_body.pose * grid.pose() * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
+					mapping.push(Some((
+						sub_grid.id(),
+						{
+							let priority = 0.0;
+							let lod_level = 0.0;
+							let aabb = sub_grid.local_aabb(&grid_pose.rotation)?;
+							let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
+							let center = (aabb.0 + aabb.1) / 2.0;
+							let in_view = view_frustum.compare_sphere(center, radius);
+							// if !in_view { return None; }
+							let priority = if in_view { priority + 5.0 } else { priority };
+							let lod_level = if *hit_count > 0 { lod_level } else { lod_level + 3.0 };
+							// let sub_grid_resource = if let Some(resource) = self.resource_manager.read().resource(&sub_grid.uuid) {
+							// 	match resource.info() {
+							// 		ResourceInfoType::SubGrid { sub_grid_resource } => { sub_grid_resource },
+							// 		_ => {
+							// 			println!("The UUID was not referencing a sub grid");
+							// 			return None;
+							// 		}
+							// 	}
+							// } else {
+							// 	println!("The UUID was found in the ResourceManager");
+							// 	return None;
+							// };
+							// if self.reupload_gpu_grid.get() || (lod_level != sub_grid_resource.gpu_state().lod_level() && lod_level == 0.0) || ((sub_grid_resource.gpu_state().lod_level() - lod_level).abs() > 0.25) {
+							// 	self.reupload_gpu_grid.set(false);
+							// 	sub_grid_resource.request_gpu_state(async_task_priority_queue, task_queue, physics_engine, resource_manager, SubGridGpuUploadingState{ lod_level: lod_level }, priority);
+							// 	if !sub_grid_resource.gpu_state().on_gpu() { return None; }
+							// }
+							Some((
+								self.world_gpu_data.read().packed_64_tree_dynamic_buffer.get_held_buffer(sub_grid_resource.gpu_state().tree_id())?.offset(),
+								self.world_gpu_data.read().packed_voxel_data_dynamic_buffer.get_held_buffer(sub_grid_resource.gpu_state().voxels_id())?.offset(),
+								pose * Pose::from_translation(self.voxels.get_voxels().get_internals().1.as_vec3()
+							)))
+						}?
+					)));
+				}
+			}
+		}
+		mapping
+	}
+
+	// pub fn update_gpu_grid_tree(
+	// 	&self,
+	// 	packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
+	// 	packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
+	// 	resource_manager: &mut ResourceManager,
+	// 	physics_engine: &PhysicsEngine,
+	// 	async_task_priority_queue: &AsyncTaskPriorityQueue,
+	// 	task_queue: &TaskQueue,
+	// 	id_to_hit_count: &HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
+	// 	view_frustum: &camera::ViewFrustum,
+	// 	camera_pose: Pose,
+	// ) -> Vec<((GridId, SubGridId), (u32, u32, Pose))> {
+	// 	let mut gpu_grid_tree_id_to_id_poses = vec![];
+	// 	for grid in self.grids.iter() {
+	// 		for (sub_grid_id, data) in grid.update_gpu_grid_tree(
+	// 			packed_64_tree_dynamic_buffer,
+	// 			packed_voxel_data_dynamic_buffer,
+	// 			resource_manager,
+	// 			physics_engine,
+	// 			async_task_priority_queue,
+	// 			task_queue,
+	// 			id_to_hit_count,
+	// 			self.id(),
+	// 			view_frustum,
+	// 			camera_pose,
+	// 			&self.pose
+	// 		) {
+	// 			gpu_grid_tree_id_to_id_poses.push(((grid.id(), sub_grid_id), data));
+	// 		}
+	// 	}
+	// 	gpu_grid_tree_id_to_id_poses
+	// }
 }
-
-// pub fn update_gpu_grid_tree(
-// 	&self,
-// 	packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
-// 	packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
-// 	resource_manager: &mut ResourceManager,
-// 	physics_engine: &PhysicsEngine,
-// 	async_task_priority_queue: &AsyncTaskPriorityQueue,
-// 	task_queue: &TaskQueue,
-// 	id_to_hit_count: &HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
-// 	physics_body_id: PhysicsBodyId,
-// 	view_frustum: &camera::ViewFrustum,
-// 	camera_pose: Pose,
-// 	pose: &Pose
-// ) -> Vec<(SubGridId, (u32, u32, Pose))> {
-// 	self.sub_grids.iter().filter_map(|sub_grid| {
-// 		let hit_count = id_to_hit_count.get(&(physics_body_id, self.id, sub_grid.id)).unwrap_or(&1);
-// 		let grid_pose = pose * self.pose * Pose::from_translation(self.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos.as_ivec3()).as_vec3());
-// 		Some((
-// 			sub_grid.id(),
-// 			(sub_grid.update_gpu_grid_tree(
-// 				packed_64_tree_dynamic_buffer,
-// 				packed_voxel_data_dynamic_buffer,
-// 				resource_manager,
-// 				physics_engine,
-// 				async_task_priority_queue,
-// 				task_queue,
-// 				*hit_count,
-// 				view_frustum,
-// 				f32::max(camera_pose.translation.distance(grid_pose.translation) - 1000.0, 0.0) / 1000.0,
-// 				-camera_pose.translation.distance(grid_pose.translation) / 1000.0,
-// 				grid_pose
-// 			)?)
-// 		))}
-// 	).collect()
-// }
-
-// pub fn update_gpu_grid_tree(
-// 	&self,
-// 	packed_64_tree_dynamic_buffer: &mut PackedDynamicBuffer,
-// 	packed_voxel_data_dynamic_buffer: &mut PackedDynamicBuffer,
-// 	resource_manager: &mut ResourceManager,
-// 	physics_engine: &PhysicsEngine,
-// 	async_task_priority_queue: &AsyncTaskPriorityQueue,
-// 	task_queue: &TaskQueue,
-// 	id_to_hit_count: &HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
-// 	view_frustum: &camera::ViewFrustum,
-// 	camera_pose: Pose,
-// ) -> Vec<((GridId, SubGridId), (u32, u32, Pose))> {
-// 	let mut gpu_grid_tree_id_to_id_poses = vec![];
-// 	for grid in self.grids.iter() {
-// 		for (sub_grid_id, data) in grid.update_gpu_grid_tree(
-// 			packed_64_tree_dynamic_buffer,
-// 			packed_voxel_data_dynamic_buffer,
-// 			resource_manager,
-// 			physics_engine,
-// 			async_task_priority_queue,
-// 			task_queue,
-// 			id_to_hit_count,
-// 			self.id(),
-// 			view_frustum,
-// 			camera_pose,
-// 			&self.pose
-// 		) {
-// 			gpu_grid_tree_id_to_id_poses.push(((grid.id(), sub_grid_id), data));
-// 		}
-// 	}
-// 	gpu_grid_tree_id_to_id_poses
-// }
-
-
