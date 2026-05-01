@@ -5,14 +5,13 @@ use std::vec;
 use tracy_client::span;
 use winit::{window::Window};
 
-use crate::gpu_objects::gpu_bvh::GpuBvh;
+use crate::world::{pose::Pose, gpu::gpu_bvh::GpuBvh};
 use crate::gpu_objects::matrix;
 use crate::world::physics_solver::bvh;
 use crate::world::physics_body::PhysicsBodyId;
 use crate::world::grid::GridId;
 use crate::world::grid::SubGridId;
 use crate::player::camera;
-use crate::pose::Pose;
 use crate::render::{crosshair_renderer, debug_draw_renderer, voxel_renderer};
 use crate::state::DebugEnables;
 

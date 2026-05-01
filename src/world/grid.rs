@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::atomic::{AtomicBool, Ordering}};
 
-use crate::{pose::Pose};
+use super::{pose::Pose};
 use super::{physics_body::PhysicsBodyId, physics_solver::inertia_tensor::InertiaTensor, sparse_set::SparseSet, resource_manager::ResourceUUID, voxels::{Voxels, Voxel}};
 use glam::{I16Vec3, IVec3, Quat, Vec3, I64Vec3};
 
@@ -136,7 +136,7 @@ impl Grid {
 		})
 	}
 	pub fn sub_grid(&self, sub_grid_id: SubGridId) -> Option<&SubGrid> {
-		self.sub_grids.get(sub_grid_id)
+		self.sub_grids.get(&sub_grid_id)
 	}
 	pub fn sub_grids(&self) -> &SparseSet<SubGridId, SubGrid> {
 		&self.sub_grids

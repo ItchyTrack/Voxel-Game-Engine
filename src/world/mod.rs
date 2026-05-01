@@ -9,3 +9,7 @@ pub mod voxels;
 pub mod grid_tree;
 pub mod entity_component_system;
 pub mod physics_body_resource;
+pub mod gpu {
+	pub mod gpu_bvh;
+	pub mod gpu_grid_tree;
+}

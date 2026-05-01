@@ -1,7 +1,7 @@
 use glam::{Mat3, Vec3};
 
 use super::math::{Vec6, Mat6};
-use crate::pose::Pose;
+use super::super::pose::Pose;
 use super::{physics_constraint::{PhysicsConstraint, GAMMA}, solver::Solver};
 
 pub struct BallJointConstraint {

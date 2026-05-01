@@ -43,6 +43,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-macros = "2.7.0"
 uuid = { version = "1.23.1", features = [ "v4", "js" ] }
 async-priority-queue = "0.1.1"
+parking_lot = "0.12.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"

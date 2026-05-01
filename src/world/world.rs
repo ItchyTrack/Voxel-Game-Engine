@@ -1,4 +1,6 @@
-use std::{cell::{Ref, RefCell}, collections::{HashMap, VecDeque}, pin::Pin, sync::{Arc, Mutex, RwLock}, time::Instant};
+use std::{cell::Ref, collections::{HashMap, VecDeque}, ops::{AddAssign, SubAssign}, pin::Pin, sync::Arc, time::Instant};
+use num::Zero;
+use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use async_priority_queue::PriorityQueue;
 use tracy_client::span;
@@ -10,16 +12,16 @@ use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType},
 use super::{pose::Pose};
 
 pub struct Task {
-	task_func: Box<dyn FnOnce(&mut World) + Send + 'static>,
+	task_func: Box<dyn FnOnce(&World) + Send + 'static>,
 }
 
 impl Task {
-	pub fn new<F: FnOnce(&mut World) + Send + 'static>(function: F) -> Self {
+	pub fn new<F: FnOnce(&World) + Send + 'static>(function: F) -> Self {
 		Self {
 			task_func: Box::new(function),
 		}
 	}
-	pub fn run(self, world: &mut World) {
+	pub fn run(self, world: &World) {
 		(self.task_func)(world);
 	}
 }
@@ -66,11 +68,11 @@ pub type AsyncTaskPriorityQueue = Arc<PriorityQueue<PriorityTask>>;
 
 macro_rules! get_bvh_macro {
 	($self:expr) => {{
-		if $self.bvh.borrow().is_none() {
+		if $self.borrow().is_none() {
 			let mut bounds = vec![];
 			{
 				let _zone = span!("Collect aabb");
-				for (physics_body_id, physics_body) in &$self.physics_bodies {
+				for (physics_body_id, physics_body) in &$self.physics_bodies.read() {
 					for grid_id in physics_body.grids() {
 						let grid = $self.grid_manager.grid(*grid_id).unwrap();
 						let grid_pose = physics_body.pose * grid.pose();
@@ -108,7 +110,7 @@ pub struct World {
 	pub solver: RwLock<Solver>,
 	pub leaky_bucket: RwLock<f32>,
 
-	pub bvh: RwLock<RefCell<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>>,
+	pub bvh: RwLock<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
 
 	pub ecs: RwLock<EntityComponentSystem>,
 
@@ -145,7 +147,7 @@ impl World {
 			solver: RwLock::new(Solver::new()),
 			leaky_bucket: RwLock::new(0.0),
 
-			bvh: RwLock::new(RefCell::new(None)),
+			bvh: RwLock::new(None),
 
 			ecs: RwLock::new(EntityComponentSystem::new()),
 
@@ -158,11 +160,11 @@ impl World {
 	}
 
 	// called at any rate (faster is better and should be at least once per frame)
-	pub fn update(&mut self, dt: f32) {
+	pub fn update(&self, dt: f32) {
 		let _zone = span!("World Update");
 		// if !self.debug_enables.freeze_gpu_grids {
 			let _zone = span!("Do tasks");
-			while let Some(task) = { self.task_queue.lock().unwrap().pop_front() } {
+			while let Some(task) = { self.task_queue.lock().pop_front() } {
 				task.run(self);
 			}
 		// }
@@ -177,23 +179,23 @@ impl World {
 			// 		index += 1;
 			// 	}
 			// }
-			*self.bvh.borrow_mut() = None; // have to clear afer cleanup
+			*self.bvh.write() = None; // have to clear afer cleanup
 		}
-
-		self.leaky_bucket += dt;
+		let leaky_bucket = &mut self.leaky_bucket.write();
+		leaky_bucket.add_assign(dt);
 		let time_step = 1.0 / 100.0;
 		let current_time = Instant::now();
-		while self.leaky_bucket >= time_step {
+		while leaky_bucket.ge(&time_step) {
 			self.physics_update(time_step);
-			self.leaky_bucket -= time_step;
+			leaky_bucket.sub_assign(time_step);
 			let elapsed = current_time.elapsed().as_secs_f32(); // timeout should maybe be removed at some point
 			if elapsed > 1.0 / 60.0 {
-				self.leaky_bucket = 0.0;
+				leaky_bucket.set_zero();
 			}
 		}
 	}
 
-	fn physics_update(&mut self, dt: f32) {
+	fn physics_update(&self, dt: f32) {
 		// self.ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
 		// 	if object_pickup.is_holding() {
 		// 		object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), time_step, &mut self.physics_engine);
@@ -209,21 +211,29 @@ impl World {
 		let _zone = span!("PhysicsEngine update physics");
 		{
 			let bvh = &get_bvh_macro!(self);
-			self.solver.solve(&mut self.physics_bodies, &self.grid_manager.grids(), &mut self.constraints, &self.impulses, dt, bvh);
-			self.impulses.clear();
+			self.solver.write().solve(
+				&mut self.physics_bodies.write(),
+				&self.grid_manager.read().grids(),
+				&mut self.constraints.write(),
+				&self.impulses.read(),
+				dt,
+				bvh
+			);
+			self.impulses.write().clear();
 		}
-		*self.bvh.borrow_mut() = None;
+		*self.bvh.write() = None;
 	}
 
 	pub fn add_physics_body(&mut self) -> PhysicsBodyId {
 		let physics_body_uuid = ResourceUUID::generate();
-		let physics_body_resource = self.resource_manager.create_resource_blank(
+		let resource_manager = &mut self.resource_manager.write();
+		let physics_body_resource = resource_manager.create_resource_blank(
 			physics_body_uuid.clone(),
 			ResourceInfoType::PhysicsBody { physics_body_resource: PhysicsBodyResource::new(physics_body_uuid.clone()) }
 		).unwrap();
-		let physics_body_id = self.next_physics_body_id;
-		self.next_physics_body_id.0 += 1;
-		self.physics_bodies.insert(physics_body_id, PhysicsBody::new(physics_body_uuid, physics_body_id));
+		let physics_body_id = self.next_physics_body_id.read().clone();
+		self.next_physics_body_id.write().0 += 1;
+		self.physics_bodies.write().insert(physics_body_id, PhysicsBody::new(physics_body_uuid, physics_body_id));
 		match physics_body_resource.info_mut() {
 			ResourceInfoType::PhysicsBody { physics_body_resource } => physics_body_resource.set_physics_body_id(Some(physics_body_id)),
 			_ => unreachable!()
@@ -233,11 +243,11 @@ impl World {
 	pub fn add_grid(&mut self, physics_body_id: PhysicsBodyId, pose: &Pose) -> Option<GridId> {
 		let physics_body_uuid = self.physics_body(physics_body_id)?.uuid().clone();
 		let grid_resource_uuid = ResourceUUID::generate();
-		let grid_resource = self.resource_manager.create_resource_blank(
+		let grid_resource = self.resource_manager.write().create_resource_blank(
 			grid_resource_uuid.clone(),
 			ResourceInfoType::Grid { grid_resource: GridResource::new(grid_resource_uuid.clone(), physics_body_uuid) }
 		).unwrap();
-		let grid_id = self.grid_manager.add_grid(physics_body_id, pose, grid_resource_uuid);
+		let grid_id = self.grid_manager.write().add_grid(physics_body_id, pose, grid_resource_uuid);
 		match grid_resource.info_mut() {
 			ResourceInfoType::Grid { grid_resource } => grid_resource.set_physics_body_grid_id(Some(grid_id)),
 			_ => unreachable!()
@@ -245,19 +255,19 @@ impl World {
 		Some(grid_id)
 	}
 	pub fn remove_grid(&mut self, grid_id: GridId) -> bool {
-		self.grid_manager.remove_grid(grid_id)
+		self.grid_manager.write().remove_grid(grid_id)
 	}
-	pub fn physics_body(&self, physics_body_id: PhysicsBodyId) -> Option<&PhysicsBody> {
-		self.physics_bodies.get(&physics_body_id)
+	pub fn physics_body(&self, physics_body_id: PhysicsBodyId) -> Option<MappedRwLockReadGuard<'_, PhysicsBody>> {
+		RwLockReadGuard::try_map(self.physics_bodies.read(), |physics_bodies| physics_bodies.get(&physics_body_id)).ok()
 	}
-	pub fn physics_body_mut(&mut self, physics_body_id: PhysicsBodyId) -> Option<&mut PhysicsBody> {
-		self.physics_bodies.get_mut(&physics_body_id)
+	pub fn physics_body_mut(&mut self, physics_body_id: PhysicsBodyId) -> Option<MappedRwLockWriteGuard<'_, PhysicsBody>> {
+		RwLockWriteGuard::try_map(self.physics_bodies.write(), |physics_bodies| physics_bodies.get_mut(&physics_body_id)).ok()
 	}
-	pub fn grid(&self, grid_id: GridId) -> Option<&Grid> {
-		self.grid_manager.grid(grid_id)
+	pub fn grid(&self, grid_id: GridId) -> Option<MappedRwLockReadGuard<'_, Grid>> {
+		RwLockReadGuard::try_map(self.grid_manager.read(), |grid_manager| grid_manager.grid(grid_id)).ok()
 	}
-	pub fn grid_mut(&mut self, grid_id: GridId) -> Option<&mut Grid> {
-		self.grid_manager.grid_mut(grid_id)
+	pub fn grid_mut(&mut self, grid_id: GridId) -> Option<MappedRwLockWriteGuard<'_, Grid>> {
+		RwLockWriteGuard::try_map(self.grid_manager.write(), |grid_manager| grid_manager.grid_mut(grid_id)).ok()
 	}
 }
 

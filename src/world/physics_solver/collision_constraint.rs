@@ -1,6 +1,6 @@
 use glam::{Mat3, Vec2, Vec3};
 
-use crate::pose::Pose;
+use super::super::pose::Pose;
 
 use super::{math::{Mat6, Vec6}, physics_constraint::{PhysicsConstraint, GAMMA}, solver::Solver, collision};
 

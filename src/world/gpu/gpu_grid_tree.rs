@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 
 use parry3d;
 
-use crate::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
+use super::super::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
 
 use rand::{seq::IteratorRandom};
 

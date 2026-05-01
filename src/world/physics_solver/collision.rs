@@ -2,7 +2,7 @@ use std::vec;
 
 use glam::{I16Vec3, IVec3, Quat, U8Vec3, Vec3};
 use super::super::sparse_set::SparseSet;
-use crate::{pose::Pose, voxels};
+use super::super::{pose::Pose, voxels};
 use super::{bvh::BVH};
 use super::super::physics_body::{PhysicsBody, PhysicsBodyId};
 use super::super::grid::{Grid, GridId, SubGridId};

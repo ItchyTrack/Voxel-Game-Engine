@@ -4,7 +4,7 @@ use std::{collections::HashMap};
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use crate::pose::Pose;
+use super::super::pose::Pose;
 use super::math::{Mat6, Vec6};
 use super::super::{physics_body::PhysicsBody, physics_body::PhysicsBodyId, grid::{GridId, Grid, SubGridId}, sparse_set::SparseSet};
 use super::{collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};

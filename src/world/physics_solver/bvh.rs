@@ -4,7 +4,8 @@ use glam::{Vec3, Vec4};
 
 use tracy_client::span;
 
-use crate::{debug_draw, pose::Pose};
+use crate::debug_draw;
+use super::super::pose::Pose;
 
 #[derive(Debug)]
 pub enum BVHInternal {

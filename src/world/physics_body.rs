@@ -1,8 +1,7 @@
 use glam::{Vec3, Quat};
 
-use crate::pose::Pose;
 use super::resource_manager::ResourceUUID;
-use super::{grid::GridId};
+use super::{grid::GridId, pose::Pose};
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct PhysicsBodyId(pub u32);
