@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
+use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
 use crate::world::gpu::gpu_bvh::GpuBvh;
 use crate::world::pose::Pose;
-use crate::{gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer};
 use crate::world::{physics_solver::bvh, physics_body::{PhysicsBodyId}, grid::{GridId, SubGridId}};
 
 const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
@@ -15,10 +15,8 @@ pub struct VoxelRenderer {
 	pub bvh_beam_textured_read_bind_group_layout: wgpu::BindGroupLayout,
 	pub bvh_beam_textured_read_bind_group: wgpu::BindGroup,
 	// 64 tree
-	pub packed_64_tree_dynamic_buffer: PackedDynamicBuffer,
 	pub tree_bind_group_layout: wgpu::BindGroupLayout,
 	// voxel data
-	pub packed_voxel_data_dynamic_buffer: PackedDynamicBuffer,
 	pub voxel_bind_group_layout: wgpu::BindGroupLayout,
 	// intermediate textured
 	pub intermediate_textured: wgpu::Texture,
@@ -34,12 +32,6 @@ pub struct VoxelRenderer {
 
 impl VoxelRenderer {
 	pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, camera_bind_group_layout: &wgpu::BindGroupLayout) -> anyhow::Result<Self> {
-		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(&device, 12, wgpu::BufferUsages::STORAGE);
-		if let Err(err) = packed_64_tree_dynamic_buffer {
-			println!("{}", err);
-			return Err(anyhow::Error::msg(err));
-		}
-		let packed_64_tree_dynamic_buffer = packed_64_tree_dynamic_buffer.unwrap();
 		let tree_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[wgpu::BindGroupLayoutEntry {
 				binding: 0,
@@ -54,12 +46,6 @@ impl VoxelRenderer {
 			label: Some("tree_bind_group_layout"),
 		});
 
-		let packed_voxel_data_dynamic_buffer = PackedDynamicBuffer::new(&device, 4, wgpu::BufferUsages::STORAGE);
-		if let Err(err) = packed_voxel_data_dynamic_buffer {
-			println!("{}", err);
-			return Err(anyhow::Error::msg(err));
-		}
-		let packed_voxel_data_dynamic_buffer = packed_voxel_data_dynamic_buffer.unwrap();
 		let voxel_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[wgpu::BindGroupLayoutEntry {
 				binding: 0,
@@ -354,10 +340,8 @@ impl VoxelRenderer {
 			bvh_beam_textured_read_bind_group,
 			bvh_beam_pipeline,
 			// 64 tree
-			packed_64_tree_dynamic_buffer,
 			tree_bind_group_layout,
 			// voxel data
-			packed_voxel_data_dynamic_buffer,
 			voxel_bind_group_layout,
 			// intermediate textured
 			intermediate_textured,
@@ -475,6 +459,8 @@ impl VoxelRenderer {
 		camera_transform_bind_group: &wgpu::BindGroup,
 		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
 		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
+		packed_64_tree_dynamic_buffer: &PackedDynamicBuffer,
+		packed_voxel_data_dynamic_buffer: &PackedDynamicBuffer,
 	) -> GpuBvh {
 		let gpu_bvh = GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_poses);
 		{
@@ -495,7 +481,7 @@ impl VoxelRenderer {
 				entries: &[wgpu::BindGroupEntry {
 					binding: 0,
 					resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: &self.packed_64_tree_dynamic_buffer.get_buffer(),
+						buffer: &packed_64_tree_dynamic_buffer.get_buffer(),
 						offset: 0,
 						size: None,
 					}),
@@ -521,7 +507,7 @@ impl VoxelRenderer {
 				entries: &[wgpu::BindGroupEntry {
 					binding: 0,
 					resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: &self.packed_voxel_data_dynamic_buffer.get_buffer(),
+						buffer: &packed_voxel_data_dynamic_buffer.get_buffer(),
 						offset: 0,
 						size: None,
 					}),

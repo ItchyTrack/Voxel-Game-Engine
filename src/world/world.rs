@@ -5,14 +5,15 @@ use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, 
 
 use async_priority_queue::PriorityQueue;
 use tracy_client::span;
+use wgpu::Device;
 
-use crate::world::voxel_tracker::{TrackedVoxelId, VoxelTracker};
+use crate::player::camera::ViewFrustum;
 
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
 use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
 use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::EntityComponentSystem};
 use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType}, physics_body_resource::PhysicsBodyResource};
-use super::{pose::Pose};
+use super::{pose::Pose, gpu::world_gpu_data::WorldGpuData, voxel_tracker::{TrackedVoxelId, VoxelTracker}};
 
 pub struct Task {
 	task_func: Box<dyn FnOnce(&World) + Send + 'static>,
@@ -114,10 +115,12 @@ pub struct World {
 	pub task_queue: TaskQueue,
 	pub async_task_priority_queue: AsyncTaskPriorityQueue,
 	pub async_task_priority_queue_threads: Vec<tokio::task::JoinHandle<()>>,
+
+	pub world_gpu_data: RwLock<WorldGpuData>,
 }
 
 impl World {
-	pub fn new() -> Self {
+	pub fn new(device: &Device) -> Self {
 		let async_task_priority_queue = Arc::new(PriorityQueue::<PriorityTask>::new());
 		let async_task_priority_queue_threads = (0..8).map(|_| {
 			let async_task_priority_queue = async_task_priority_queue.clone();
@@ -151,6 +154,8 @@ impl World {
 			task_queue: TaskQueue::new(Mutex::new(VecDeque::new())),
 			async_task_priority_queue,
 			async_task_priority_queue_threads,
+
+			world_gpu_data: RwLock::new(WorldGpuData::new(device).unwrap())
 		}
 	}
 
@@ -340,6 +345,15 @@ impl World {
 	pub fn get_tracked_voxel(&self, tracked_voxel_id: TrackedVoxelId) -> Option<(PhysicsBodyId, GridId, IVec3)> {
 		let tracked_voxel = self.voxel_tracker.read().get_tracked_voxel(tracked_voxel_id)?;
 		Some((tracked_voxel.body_id, tracked_voxel.grid_id, tracked_voxel.voxel_pos))
+	}
+
+	pub fn get_rendering_buffers(
+		&self,
+		id_to_hit_count: HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
+		view_frustum: &ViewFrustum,
+		player_camera: Pose
+	) -> RwLockReadGuard<'_, WorldGpuData> {
+		self.world_gpu_data.read()
 	}
 }
 

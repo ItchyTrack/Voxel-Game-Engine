@@ -5,6 +5,7 @@ use std::vec;
 use tracy_client::span;
 use winit::{window::Window};
 
+use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
 use crate::world::{pose::Pose, gpu::gpu_bvh::GpuBvh};
 use crate::gpu_objects::matrix;
 use crate::world::physics_solver::bvh;
@@ -187,15 +188,17 @@ impl Renderer {
 	}
 
 	pub fn render(
-			&mut self,
-			camera: &camera::Camera,
-			bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
-			gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
-			debug_enables: &mut DebugEnables,
-		) -> Result<(), wgpu::CurrentSurfaceTexture> {
+		&mut self,
+		camera: &camera::Camera,
+		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
+		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
+		debug_enables: &mut DebugEnables,
+		packed_64_tree_dynamic_buffer: &PackedDynamicBuffer,
+		packed_voxel_data_dynamic_buffer: &PackedDynamicBuffer
+	) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
-		tracy_client::plot!("64 tree bytes", self.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() as f64);
-		tracy_client::plot!("voxel data bytes", self.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() as f64);
+		tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
+		tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
 
 		if !self.is_surface_configured { return Ok(()); }
 		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&camera.build_view_projection_matrix())]));
@@ -236,7 +239,16 @@ impl Renderer {
 		let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
-		self.last_gpu_bvh = Some(self.voxel_renderer.render(&self.device, &mut encoder, &view, &self.camera_transform_bind_group, bvh, gpu_grid_tree_id_to_id_poses));
+		self.last_gpu_bvh = Some(self.voxel_renderer.render(
+			&self.device,
+			&mut encoder,
+			&view,
+			&self.camera_transform_bind_group,
+			bvh,
+			gpu_grid_tree_id_to_id_poses,
+			packed_64_tree_dynamic_buffer,
+			packed_voxel_data_dynamic_buffer
+		));
 		self.debug_draw_renderer.render(&self.device, &mut encoder, &self.camera_bind_group, &view);
 		self.crosshair_renderer.render(&self.config, &mut encoder, &self.queue, &output);
 		// imgui
@@ -247,8 +259,8 @@ impl Renderer {
 			ui.window("Debug").position([0.0, 0.0], imgui::Condition::FirstUseEver).size([175.0, 200.0], imgui::Condition::FirstUseEver).build(|| {
 					ui.text(format!("FPS: {:.2}", 1.0 / self.dt_avg));
 					ui.separator();
-					ui.text(format!("64 tree bytes: {:}KB", self.voxel_renderer.packed_64_tree_dynamic_buffer.held_bytes() / 1000));
-					ui.text(format!("Voxel bytes: {:}KB", self.voxel_renderer.packed_voxel_data_dynamic_buffer.held_bytes() / 1000));
+					ui.text(format!("64 tree bytes: {:}KB", packed_64_tree_dynamic_buffer.held_bytes() / 1000));
+					ui.text(format!("Voxel bytes: {:}KB", packed_voxel_data_dynamic_buffer.held_bytes() / 1000));
 					ui.text(format!("BVH bytes: {:}KB", self.last_gpu_bvh.as_ref().map_or(0, |bvh| bvh.bvh_buffer.size()) / 1000));
 					ui.text(format!("BVH leaf bytes: {:}KB", self.last_gpu_bvh.as_ref().map_or(0, |bvh| bvh.items_buffer.size()) / 1000));
 					ui.separator();

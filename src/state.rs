@@ -6,7 +6,7 @@ use glam::{IVec3, Quat, Vec3};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, world::physics_solver::bvh::BVH};
+use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, world::{gpu::world_gpu_data::WorldGpuData, physics_solver::bvh::BVH}};
 use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
 use crate::render::renderer::Renderer;
@@ -313,7 +313,7 @@ impl State {
 	pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
 		let renderer = Renderer::new(window).await?;
 
-		let world = World::new();
+		let world = World::new(&renderer.device);
 		let player_id = {
 			let ecs = &mut world.ecs.write();
 			// create player entity
@@ -592,7 +592,7 @@ impl State {
 				id_to_hit_count.insert(*id, *hit_count);
 			}
 			let mut gpu_grid_tree_id_to_id_poses: HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> = HashMap::new();
-			{
+			let world_gpu_data = {
 				// let _zone = span!("Collect Voxels");
 				let view_frustum = player_camera.frustum();
 				// for (physics_body_id, physics_body) in self.world.physics_bodies.iter() {
@@ -610,8 +610,10 @@ impl State {
 				// 		gpu_grid_tree_id_to_id_poses.insert((physics_body.id(), key.0, key.1), value);
 				// 	}
 				// }
-				self.world.get_rendering_buffers(id_to_hit_count, &view_frustum, player_camera.pose());
-			}
+
+				let world_gpu_data = self.world.get_rendering_buffers(id_to_hit_count, &view_frustum, player_camera.pose());
+				world_gpu_data
+			};
 			let bvh = {
 				let mut bounds = vec![];
 				{
@@ -628,7 +630,14 @@ impl State {
 				}
 				BVH::new(bounds)
 			};
-			return self.renderer.render(&player_camera, &bvh, &gpu_grid_tree_id_to_id_poses, &mut self.debug_enables);
+			return self.renderer.render(
+				&player_camera,
+				&bvh,
+				&gpu_grid_tree_id_to_id_poses,
+				&mut self.debug_enables,
+				&world_gpu_data.packed_64_tree_dynamic_buffer,
+				&world_gpu_data.packed_voxel_data_dynamic_buffer
+			);
 		} else {
 			println!("Error: could not find player camera!");
 			return Ok(());
