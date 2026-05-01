@@ -64,7 +64,10 @@ impl Solver {
 			}
 		});
 		let initial_all: SparseSet<PhysicsBodyId, Pose> = SparseSet::from_iter(
-			physics_bodies.iter().map(|(physics_body_id, physics_body)| (*physics_body_id, Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose))
+			physics_bodies.iter().map(|(physics_body_id, physics_body)| (
+				*physics_body_id,
+				Pose::new(physics_body.get_global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.pose
+			))
 		);
 		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(physics_bodies, grids, &bvh).iter().map(
 			|c| {
