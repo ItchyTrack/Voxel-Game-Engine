@@ -5,7 +5,7 @@ use num::Integer;
 use tracy_client::span;
 use wgpu::{Device, Queue, RenderPass};
 
-use crate::{gpu_objects::{matrix::MatrixUniform, mesh::MeshVertex, packed_buffer::{PackedBufferGroup, PackedBufferGroupId}}, pose::Pose};
+use crate::{gpu_objects::{matrix::MatrixUniform, mesh::MeshVertex, packed_buffer::{PackedBufferGroup, PackedBufferGroupId}}, world::pose::Pose};
 
 struct PackedMeshInfo {
 	pub vertex_data_count: u32,

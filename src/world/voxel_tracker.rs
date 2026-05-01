@@ -2,12 +2,16 @@ use std::collections::HashMap;
 
 use glam::IVec3;
 
-use super::super::{physics_body::PhysicsBodyId, grid::GridId};
+use super::{physics_body::PhysicsBodyId, grid::GridId};
 
+#[derive(Debug, Clone, Copy)]
+pub struct TrackedVoxelId(u64);
+
+#[derive(Debug, Clone, Copy)]
 pub struct TrackedVoxel {
 	pub body_id: PhysicsBodyId,
 	pub grid_id: GridId,
-	pub voxel: IVec3,
+	pub voxel_pos: IVec3,
 }
 
 pub struct VoxelTracker {
@@ -19,11 +23,11 @@ impl VoxelTracker {
 	pub fn new() -> Self {
 		Self { tracked_voxels: HashMap::new(), next_id: 0 }
 	}
-	pub fn start_tracking(&mut self, body_id: PhysicsBodyId, grid_id: GridId, voxel: IVec3) -> u64 {
+	pub fn start_tracking(&mut self, body_id: PhysicsBodyId, grid_id: GridId, voxel_pos: IVec3) -> u64 {
 		self.tracked_voxels.insert(self.next_id, TrackedVoxel {
 			body_id,
 			grid_id,
-			voxel,
+			voxel_pos,
 		});
 		self.next_id += 1;
 		self.next_id - 1
@@ -31,7 +35,7 @@ impl VoxelTracker {
 	pub fn stop_tracking(&mut self, tracked_voxel_id: u64) {
 		self.tracked_voxels.remove(&tracked_voxel_id);
 	}
-	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<&TrackedVoxel> {
-		self.tracked_voxels.get(&tracked_voxel_id)
+	pub fn get_tracked_voxel(&self, tracked_voxel_id: u64) -> Option<TrackedVoxel> {
+		self.tracked_voxels.get(&tracked_voxel_id).cloned()
 	}
 }

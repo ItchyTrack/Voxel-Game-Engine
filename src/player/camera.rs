@@ -4,7 +4,7 @@ use glam::{Mat4, Quat, Vec3};
 use winit::keyboard::KeyCode;
 
 use crate::player;
-use crate::pose::Pose;
+use crate::world::pose::Pose;
 
 #[derive(Copy, Clone)]
 pub struct ViewFrustum {

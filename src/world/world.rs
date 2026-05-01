@@ -269,6 +269,9 @@ impl World {
 	pub fn grid_mut(&mut self, grid_id: GridId) -> Option<MappedRwLockWriteGuard<'_, Grid>> {
 		RwLockWriteGuard::try_map(self.grid_manager.write(), |grid_manager| grid_manager.grid_mut(grid_id)).ok()
 	}
+	pub fn get_tracked_voxel(&self, track_voxel_id: ) {
+		world.voxel_tracker.read().get_tracked_voxel(tracked_voxel)
+	}
 }
 
 // pub fn update_gpu_grid_tree(

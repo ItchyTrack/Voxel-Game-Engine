@@ -1,9 +1,9 @@
 use glam::Quat;
 
-use crate::physics::physics_engine::PhysicsEngine;
+use crate::{world::{voxel_tracker::TrackedVoxelId, world::World}};
 
 pub struct Orientator {
-	tracked_voxel: Option<u64>
+	tracked_voxel: Option<TrackedVoxelId>
 }
 
 impl Orientator {
@@ -13,7 +13,7 @@ impl Orientator {
 		}
 	}
 
-	pub fn set(&mut self, tracked_voxel: u64) {
+	pub fn set(&mut self, tracked_voxel: TrackedVoxelId) {
 		self.tracked_voxel = Some(tracked_voxel);
 	}
 
@@ -25,14 +25,14 @@ impl Orientator {
 		self.tracked_voxel.is_some()
 	}
 
-	pub fn get_tracked_voxel(&self) -> Option<u64> {
+	pub fn get_tracked_voxel(&self) -> Option<TrackedVoxelId> {
 		self.tracked_voxel
 	}
 
-	pub fn hold_at_orientation(&self, orientation: &Quat, _dt: f32, physics_engine: &mut PhysicsEngine) {
+	pub fn hold_at_orientation(&self, orientation: &Quat, _dt: f32, world: &World) {
 		if let Some(tracked_voxel) = self.tracked_voxel {
-			if let Some((body_id, grid_id, _voxel_pos)) = physics_engine.get_tracked_voxel(tracked_voxel) {
-				if let Some(body) = physics_engine.physics_body_mut(body_id) {
+			if let Some((body_id, grid_id, _voxel_pos)) = world.voxel_tracker.read().get_tracked_voxel(tracked_voxel) {
+				if let Some(body) = world.physics_body_mut(body_id) {
 					if let Some(grid) = body.grid(grid_id) {
 						let (axis, angle) = ((body.pose.rotation * grid.pose.rotation) * orientation.inverse()).to_axis_angle();
 						let angular_velocity_in_dir = body.angular_velocity.dot(axis);
@@ -42,7 +42,7 @@ impl Orientator {
 								angular_velocity_in_dir * 2.0
 							) - (body.angular_velocity - axis * angular_velocity_in_dir)
 						);
-						physics_engine.apply_rotational_impulse(body_id, &rotational_impulse);
+						world.apply_rotational_impulse(body_id, &rotational_impulse);
 					}
 				}
 			} else {

@@ -30,9 +30,9 @@ impl ObjectPickup {
 	}
 
 	// this trys to move the COM of the body to pose
-	pub fn hold_at_pos(&self, pos: &Vec3, _dt: f32, physics_engine: &mut PhysicsEngine) {
+	pub fn hold_at_pos(&self, pos: &Vec3, _dt: f32, world: &mut World) {
 		if let Some(body_id) = self.body_id {
-			if let Some(body) = physics_engine.physics_body_mut(body_id) {
+			if let Some(body) = world.physics_body_mut(body_id) {
 				let (com, mass) = body.get_global_center_of_mass_and_mass();
 				let dir = (pos - com).normalize();
 				let velocity_in_dir = body.velocity.dot(dir);
@@ -50,7 +50,7 @@ impl ObjectPickup {
 				// 		angular_velocity_in_dir * 0.5
 				// 	) - (body.angular_velocity - axis * angular_velocity_in_dir)
 				// );
-				physics_engine.apply_central_impulse(body_id, &central_impulse);
+				world.apply_central_impulse(body_id, &central_impulse);
 				// physics_engine.apply_rotational_impulse(body_id, &rotational_impulse);
 			}
 		}
