@@ -1,7 +1,7 @@
 use glam::{IVec3, IVec2};
 use noise::{NoiseFn, SuperSimplex};
 
-use crate::{world::{grid::Grid}, voxels::Voxel};
+use crate::{world::{grid::Grid, voxels::Voxel}};
 pub struct WorldGenerator {
 	noise: SuperSimplex,
 }

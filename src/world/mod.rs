@@ -4,5 +4,8 @@ pub mod resource_manager;
 pub mod physics_body;
 pub mod physics_solver;
 pub mod grid;
+pub mod pose;
+pub mod voxels;
+pub mod grid_tree;
 pub mod entity_component_system;
 pub mod physics_body_resource;

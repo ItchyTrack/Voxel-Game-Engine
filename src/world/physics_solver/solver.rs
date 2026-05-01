@@ -5,10 +5,8 @@ use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
 use crate::pose::Pose;
-use crate::world::grid::Grid;
-use crate::world::grid::SubGrid;
 use super::math::{Mat6, Vec6};
-use super::super::{physics_body::PhysicsBody, physics_body::PhysicsBodyId, grid::GridId, grid::SubGridId, sparse_set::SparseSet};
+use super::super::{physics_body::PhysicsBody, physics_body::PhysicsBodyId, grid::{GridId, Grid, SubGridId}, sparse_set::SparseSet};
 use super::{collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
 
 type CollisionKlMapKey = (PhysicsBodyId, GridId, IVec3, collision::CubeFeature, PhysicsBodyId, GridId, IVec3, collision::CubeFeature);

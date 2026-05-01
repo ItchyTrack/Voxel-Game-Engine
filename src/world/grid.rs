@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::atomic::{AtomicBool, Ordering}};
 
-use crate::{pose::Pose, voxels::{self, Voxel}};
-use super::{physics_body::PhysicsBodyId, physics_solver::inertia_tensor::InertiaTensor, sparse_set::SparseSet, resource_manager::ResourceUUID};
+use crate::{pose::Pose};
+use super::{physics_body::PhysicsBodyId, physics_solver::inertia_tensor::InertiaTensor, sparse_set::SparseSet, resource_manager::ResourceUUID, voxels::{Voxels, Voxel}};
 use glam::{I16Vec3, IVec3, Quat, Vec3, I64Vec3};
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
@@ -9,7 +9,7 @@ pub struct SubGridId(pub u32);
 pub struct SubGridVersionId(pub u64);
 
 pub struct SubGrid {
-	voxels: voxels::Voxels,
+	voxels: Voxels,
 	sub_grid_pos: IVec3,
 	version_id: SubGridVersionId,
 	reupload_gpu_grid: AtomicBool,
@@ -18,7 +18,7 @@ pub struct SubGrid {
 impl SubGrid {
 	pub fn new(sub_grid_pos: IVec3) -> Self {
 		Self {
-			voxels: voxels::Voxels::new(),
+			voxels: Voxels::new(),
 			sub_grid_pos,
 			version_id: SubGridVersionId(0),
 			reupload_gpu_grid: AtomicBool::new(false),
@@ -27,16 +27,16 @@ impl SubGrid {
 	pub fn sub_grid_pos(&self) -> IVec3 {
 		self.sub_grid_pos
 	}
-	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: voxels::Voxel) -> Option<voxels::Voxel> {
+	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<Voxel> {
 		self.reupload_gpu_grid.store(true, Ordering::Relaxed);
 		self.voxels.add_voxel(pos, voxel)
 	}
-	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<voxels::Voxel> {
+	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
 		self.reupload_gpu_grid.store(true, Ordering::Relaxed);
 		self.voxels.remove_voxel(pos)
 	}
-	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&voxels::Voxel> { self.voxels.get_voxel(pos) }
-	pub fn get_voxels(&self) -> &voxels::Voxels { &self.voxels }
+	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> { self.voxels.get_voxel(pos) }
+	pub fn get_voxels(&self) -> &Voxels { &self.voxels }
 
 	// pub fn set_updated_gpu_grid_tree(&self, tree_id: u32, voxel_id: u32, lod: f32) {
 		// self.gpu_grid_tree_id.set(Some((tree_id, voxel_id, lod)));
@@ -135,12 +135,15 @@ impl Grid {
 			sub_grid_id
 		})
 	}
+	pub fn sub_grid(&self, sub_grid_id: SubGridId) -> Option<&SubGrid> {
+		self.sub_grids.get(sub_grid_id)
+	}
 	pub fn sub_grids(&self) -> &SparseSet<SubGridId, SubGrid> {
 		&self.sub_grids
 	}
 
 	// voxels
-	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) -> Option<voxels::Voxel> {
+	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) -> Option<Voxel> {
 		self.mass += voxel.mass as u64;
 		self.voxel_center_of_mass_times_mass += voxel.mass as i64 * voxel_pos.as_i64vec3();
 		self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
@@ -152,7 +155,7 @@ impl Grid {
 		self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
 		Some(old_voxel)
 	}
-	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) -> Option<voxels::Voxel> {
+	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) -> Option<Voxel> {
 		let sub_grid_id = self.map_position_to_sub_grid_id(voxel_pos)?;
 		let sub_grid = self.sub_grids.get_mut(&sub_grid_id)?;
 		let voxel = sub_grid.remove_voxel(&voxel_pos.rem_euclid(IVec3::splat( Self::CHUNK_SIZE)).as_i16vec3())?;
@@ -164,7 +167,7 @@ impl Grid {
 		}
 		Some(voxel)
 	}
-	pub fn get_voxel(&self, voxel_pos: &IVec3) -> Option<&voxels::Voxel> {
+	pub fn get_voxel(&self, voxel_pos: &IVec3) -> Option<&Voxel> {
 		let sub_grid_id = self.map_position_to_sub_grid_id(voxel_pos)?;
 		let sub_grid = self.sub_grids.get(&sub_grid_id)?;
 		sub_grid.get_voxel(&voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3())

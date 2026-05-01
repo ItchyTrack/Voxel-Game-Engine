@@ -1,4 +1,4 @@
-use std::{cell::{Ref, RefCell}, collections::{HashMap, VecDeque}, pin::Pin, sync::{Arc, Mutex}, time::Instant};
+use std::{cell::{Ref, RefCell}, collections::{HashMap, VecDeque}, pin::Pin, sync::{Arc, Mutex, RwLock}, time::Instant};
 
 use async_priority_queue::PriorityQueue;
 use tracy_client::span;
@@ -7,7 +7,7 @@ use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, Gri
 use super::{physics_solver::{voxel_tracker::VoxelTracker, ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
 use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::EntityComponentSystem};
 use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType}, physics_body_resource::PhysicsBodyResource};
-use crate::{pose::Pose};
+use super::{pose::Pose};
 
 pub struct Task {
 	task_func: Box<dyn FnOnce(&mut World) + Send + 'static>,
@@ -96,23 +96,23 @@ macro_rules! get_bvh_macro {
 }
 
 pub struct World {
-	pub physics_bodies: SparseSet<PhysicsBodyId, PhysicsBody>,
-	pub grid_manager: GridManager,
-	pub next_physics_body_id: PhysicsBodyId,
-	pub next_grid_id: GridId,
-	pub next_sub_grid_id: SubGridId,
-	pub voxel_tracker: VoxelTracker,
+	pub physics_bodies: RwLock<SparseSet<PhysicsBodyId, PhysicsBody>>,
+	pub grid_manager: RwLock<GridManager>,
+	pub next_physics_body_id: RwLock<PhysicsBodyId>,
+	pub next_grid_id: RwLock<GridId>,
+	pub next_sub_grid_id: RwLock<SubGridId>,
+	pub voxel_tracker: RwLock<VoxelTracker>,
 
-	pub constraints: HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
-	pub impulses: SparseSet<PhysicsBodyId, Vec<Impulse>>,
-	pub solver: Solver,
-	pub leaky_bucket: f32,
+	pub constraints: RwLock<HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>>,
+	pub impulses: RwLock<SparseSet<PhysicsBodyId, Vec<Impulse>>>,
+	pub solver: RwLock<Solver>,
+	pub leaky_bucket: RwLock<f32>,
 
-	pub bvh: RefCell<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
+	pub bvh: RwLock<RefCell<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>>,
 
-	pub ecs: EntityComponentSystem,
+	pub ecs: RwLock<EntityComponentSystem>,
 
-	pub resource_manager: ResourceManager,
+	pub resource_manager: RwLock<ResourceManager>,
 
 	pub task_queue: TaskQueue,
 	pub async_task_priority_queue: AsyncTaskPriorityQueue,
@@ -133,23 +133,23 @@ impl World {
 		}).collect();
 
 		Self {
-			physics_bodies: SparseSet::new(),
-			grid_manager: GridManager::new(),
-			next_physics_body_id: PhysicsBodyId(0),
-			next_grid_id: GridId(0),
-			next_sub_grid_id: SubGridId(0),
-			voxel_tracker: VoxelTracker::new(),
+			physics_bodies: RwLock::new(SparseSet::new()),
+			grid_manager: RwLock::new(GridManager::new()),
+			next_physics_body_id: RwLock::new(PhysicsBodyId(0)),
+			next_grid_id: RwLock::new(GridId(0)),
+			next_sub_grid_id: RwLock::new(SubGridId(0)),
+			voxel_tracker: RwLock::new(VoxelTracker::new()),
 
-			constraints: HashMap::new(),
-			impulses: SparseSet::new(),
-			solver: Solver::new(),
-			leaky_bucket: 0.0,
+			constraints: RwLock::new(HashMap::new()),
+			impulses: RwLock::new(SparseSet::new()),
+			solver: RwLock::new(Solver::new()),
+			leaky_bucket: RwLock::new(0.0),
 
-			bvh: RefCell::new(None),
+			bvh: RwLock::new(RefCell::new(None)),
 
-			ecs: EntityComponentSystem::new(),
+			ecs: RwLock::new(EntityComponentSystem::new()),
 
-			resource_manager: ResourceManager::new(),
+			resource_manager: RwLock::new(ResourceManager::new()),
 
 			task_queue: TaskQueue::new(Mutex::new(VecDeque::new())),
 			async_task_priority_queue,

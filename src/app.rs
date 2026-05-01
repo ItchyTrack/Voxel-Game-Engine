@@ -158,7 +158,7 @@ impl ApplicationHandler<State> for App {
 			DeviceEvent::MouseMotion { delta: (dx, dy) } => {
 				// state.handle_mouse_motion(dx, dy)
 				if state.mouse_captured && !state.renderer.imgui.io().want_capture_mouse {
-					state.world.ecs.run_on_single_component_pair_mut::<camera::Camera, camera::CameraController, _>(state.player_id, |_entity_id, player_camera, player_camera_controller|
+					state.world.ecs.get_mut().unwrap().run_on_single_component_pair_mut::<camera::Camera, camera::CameraController, _>(state.player_id, |_entity_id, player_camera, player_camera_controller|
 						player_camera_controller.handle_mouse_motion(player_camera, dx, dy)
 					);
 				}

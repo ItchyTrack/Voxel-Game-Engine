@@ -1,7 +1,7 @@
 use glam::{Vec3, Vec4};
 use std::cell::RefCell;
 
-use crate::pose::Pose;
+use crate::world::pose::Pose;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

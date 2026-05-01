@@ -1,17 +1,16 @@
-#[cfg(not(target_arch = "wasm32"))]
-use uuid::Uuid;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
-use std::{collections::{HashMap}, f32, sync::Arc};
+use std::{collections::HashMap, f32, sync::Arc};
 
 use glam::{IVec3, Quat, Vec3};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, pose::Pose, physics_solver::bvh::BVH};
+use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}};
 use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
-use crate::{voxels::{self}, render::renderer::Renderer, world::{self, grid::{GridId, SubGridId}}};
+use crate::{voxels::{self}, render::renderer::Renderer};
+use crate::world::{self, grid::{GridId, SubGridId}, voxels, pose::Pose},
 
 const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
 const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
@@ -331,8 +330,8 @@ impl State {
 			#[cfg(target_arch = "wasm32")]
 			zfar: 900.0,
 		});
-		ecs.add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
-		ecs.add_component_to_entity(player_id, ObjectPickup::new());
+		ecs.get_mut().unwrap().add_component_to_entity(player_id, CameraController::new(30.0, 1.5, 0.0015));
+		ecs.get_mut().unwrap().add_component_to_entity(player_id, ObjectPickup::new());
 
 		match crate::resources::load_binary("Church_Of_St_Sophia.vox").await {
 			Ok(bytes) => {
@@ -850,9 +849,12 @@ impl State {
 				{
 					let _zone = span!("Collect aabb for rendering");
 					for ((body_id, grid_id, sub_grid_id), _) in gpu_grid_tree_id_to_id_poses.iter() {
-						let physics_body = &self.world.physics_body(*body_id).unwrap();
-						if let Some(bound) = physics_body.sub_grid_aabb(*grid_id, *sub_grid_id) {
-							bounds.push(((*body_id, *grid_id, *sub_grid_id), bound));
+						if let Some(grid) = self.world.grid_manager.get_mut().unwrap().grid(*grid_id) && let Some(body) = self.world.physics_body(*body_id) {
+							if let Some(sub_gid) = grid.sub_grid(*sub_grid_id) {
+								if let Some(bound) = sub_gid.local_aabb(&(body.pose.rotation * grid.pose().rotation)) {
+									bounds.push(((*body_id, *grid_id, *sub_grid_id), bound));
+								}
+							}
 						}
 					}
 				}
