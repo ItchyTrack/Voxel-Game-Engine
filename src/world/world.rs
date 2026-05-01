@@ -358,16 +358,16 @@ impl World {
 		id_to_hit_count: &HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
 		view_frustum: &ViewFrustum,
 		camera_pose: Pose,
-	) -> Vec<(PhysicsBodyId, GridId, SubGridId, (u32, u32, Pose))> {
-		let mapping: Vec<(PhysicsBodyId, GridId, SubGridId, (u32, u32, Pose))> = vec![];
+	) -> HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> {
+		let mapping: Vec<((PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose))> = vec![];
 		for (physics_body_id, physics_body) in self.physics_bodies.read().iter() {
 			for grid_id in physics_body.grids() {
 				let grid = self.grid(*grid_id).unwrap();
 				for (sub_grid_id, sub_grid) in grid.sub_grids() {
 					let hit_count = id_to_hit_count.get(&(*physics_body_id, *grid_id, *sub_grid_id)).unwrap_or(&1);
 					let grid_pose = physics_body.pose * grid.pose() * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
-					mapping.push(Some((
-						sub_grid.id(),
+					mapping.insert(Some((
+						(physics_body_id, grid_id, sub_grid_id),
 						{
 							let priority = 0.0;
 							let lod_level = 0.0;
@@ -398,7 +398,7 @@ impl World {
 							Some((
 								self.world_gpu_data.read().packed_64_tree_dynamic_buffer.get_held_buffer(sub_grid_resource.gpu_state().tree_id())?.offset(),
 								self.world_gpu_data.read().packed_voxel_data_dynamic_buffer.get_held_buffer(sub_grid_resource.gpu_state().voxels_id())?.offset(),
-								pose * Pose::from_translation(self.voxels.get_voxels().get_internals().1.as_vec3()
+								pose * Pose::from_translation(sub_grid.get_voxels().get_voxels().get_internals().1.as_vec3()
 							)))
 						}?
 					)));

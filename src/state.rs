@@ -6,7 +6,7 @@ use glam::{IVec3, Quat, Vec3};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, world::{gpu::world_gpu_data::WorldGpuData, physics_solver::bvh::BVH}};
+use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, player::camera, world::{gpu::world_gpu_data::WorldGpuData, physics_solver::bvh::BVH}};
 use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
 use crate::render::renderer::Renderer;
@@ -591,29 +591,9 @@ impl State {
 			for (id, hit_count) in self.renderer.bvh_item_ids.iter().zip(self.renderer.bvh_item_hit_counts.iter()) {
 				id_to_hit_count.insert(*id, *hit_count);
 			}
-			let mut gpu_grid_tree_id_to_id_poses: HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> = HashMap::new();
-			let world_gpu_data = {
-				// let _zone = span!("Collect Voxels");
-				let view_frustum = player_camera.frustum();
-				for (physics_body_id, physics_body) in self.world.physics_bodies.iter() {
-					for (key, value) in physics_body.update_gpu_grid_tree(
-						&mut self.renderer.voxel_renderer.packed_64_tree_dynamic_buffer,
-						&mut self.renderer.voxel_renderer.packed_voxel_data_dynamic_buffer,
-						&mut self.resource_manager,
-						&self.physics_engine,
-						&mut self.async_task_priority_queue,
-						&mut self.task_queue,
-						&id_to_hit_count,
-						&view_frustum,
-						player_camera.pose(),
-					) {
-						gpu_grid_tree_id_to_id_poses.insert((physics_body.id(), key.0, key.1), value);
-					}
-				}
-
-				let world_gpu_data = self.world.get_rendering_buffers(id_to_hit_count, &view_frustum, player_camera.pose());
-				world_gpu_data
-			};
+			let view_frustum = player_camera.frustum();
+			let gpu_grid_tree_id_to_id_poses = self.world.update_gpu_grid_tree(&id_to_hit_count, &view_frustum, player_camera.pose());
+			let world_gpu_data = self.world.get_rendering_buffers();
 			let bvh = {
 				let mut bounds = vec![];
 				{
