@@ -20,7 +20,6 @@ pub struct State {
 	pub mouse_captured: bool,
 	pub audio_engine: AudioEngine,
 	pub player_id: EntityId,
-	pub raycast_pose: Option<Pose>,
 	pub place_sound_cooldown: f32,
 	pub break_sound_cooldown: f32,
 	pub debug_enables: DebugEnables,
@@ -31,6 +30,7 @@ pub struct DebugEnables {
 	pub freeze_gpu_grids: bool,
 	pub freeze_physics: bool,
 	pub inertia_boxes: bool,
+	pub raycast_pose: Option<Pose>,
 }
 
 impl DebugEnables {
@@ -39,6 +39,7 @@ impl DebugEnables {
 			freeze_gpu_grids: false,
 			freeze_physics: false,
 			inertia_boxes: false,
+			raycast_pose: None,
 		}
 	}
 }
@@ -70,7 +71,7 @@ impl State {
 	}
 
 	pub fn update(&mut self, dt: f32) {
-		self.world.update(dt);
+		self.world.update(dt, self.player_id, &mut self.debug_enables);
 		// let _zone = span!("State Update");
 		// if !self.debug_enables.freeze_gpu_grids {
 		// 	let _zone = span!("Do tasks");
@@ -582,7 +583,6 @@ impl State {
 			mouse_captured: false,
 			audio_engine: AudioEngine::new(),
 			player_id,
-			raycast_pose: None,
 			place_sound_cooldown: 0.0,
 			break_sound_cooldown: 0.0,
 			debug_enables: DebugEnables::new(),

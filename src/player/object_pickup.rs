@@ -30,7 +30,7 @@ impl ObjectPickup {
 	}
 
 	// this trys to move the COM of the body to pose
-	pub fn hold_at_pos(&self, pos: &Vec3, _dt: f32, world: &mut World) {
+	pub fn hold_at_pos(&self, pos: &Vec3, _dt: f32, world: &World) {
 		if let Some(body_id) = self.body_id {
 			if let Some(body) = world.physics_body_mut(body_id) {
 				let com = body.global_center_of_mass();
