@@ -290,7 +290,7 @@ impl GridManager {
 		world: &World,
 		id_to_hit_count: &HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
 		view_frustum: &ViewFrustum,
-		_camera_pose: &Pose,
+		camera_pose: &Pose,
 	) -> HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> {
 		let mut mapping: HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> = HashMap::new();
 		for (physics_body_id, physics_body) in world.physics_bodies.read().iter() {
@@ -303,15 +303,15 @@ impl GridManager {
 					mapping.insert(
 						(*physics_body_id, grid_id, *sub_grid_id),
 						{
-							let priority = 0.0;
-							let lod_level = 0.0;
 							let aabb = if let Some(aabb) = sub_grid.aabb(&sub_grid_pose) { aabb } else { continue; };
 							let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
 							let center = (aabb.0 + aabb.1) / 2.0;
 							let in_view = view_frustum.compare_sphere(center, radius);
 							// if !in_view { return None; }
+							let priority = -camera_pose.translation.distance(grid_pose.translation) / 1000.0;
 							let priority = if in_view { priority + 5.0 } else { priority };
-							// let lod_level = if *hit_count > 0 { lod_level } else { lod_level + 3.0 };
+							let lod_level = f32::max(camera_pose.translation.distance(grid_pose.translation) - 1000.0, 0.0) / 1000.0;
+							let lod_level = if *hit_count > 0 { lod_level } else { lod_level + 3.0 };
 							if
 								sub_grid.reupload_gpu_grid() ||
 								(lod_level != sub_grid.gpu_state().lod_level() && lod_level == 0.0) ||

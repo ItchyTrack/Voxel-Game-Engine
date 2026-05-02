@@ -12,7 +12,7 @@ use crate::player::camera::{Camera, CameraController, ViewFrustum};
 use crate::player::{object_pickup::ObjectPickup, orientator::Orientator, player_input::PlayerInput, player_tracker::PlayerTracker};
 use crate::{state::DebugEnables};
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
-use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
+use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH, inertia_tensor::InertiaTensor}};
 use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::{EntityComponentSystem, EntityId}};
 use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType}, physics_body_resource::PhysicsBodyResource};
 use super::{pose::Pose, gpu::world_gpu_data::WorldGpuData, voxel_tracker::{TrackedVoxelId, VoxelTracker}};
@@ -161,6 +161,43 @@ impl World {
 		}
 	}
 
+	fn update_physics_body_stats(&self) {
+		let grid_manager = self.grid_manager.read();
+		for (physics_body_id, physics_body) in self.physics_bodies.write().iter_mut() {
+			let mut total_mass = 0.0f32;
+			let mut weighted_com = Vec3::ZERO;
+			let mut total_inertia = InertiaTensor::ZERO;
+
+			for grid_id in grid_manager.physics_body_grid_ids(*physics_body_id) {
+				let grid = match grid_manager.grid(*grid_id) {
+					Some(g) => g,
+					None => continue,
+				};
+
+				let grid_mass = grid.mass();
+				if grid_mass == 0.0 { continue; }
+
+				// Center of mass in physics body space
+				let com_in_body = grid.physics_body_center_of_mass();
+				weighted_com += com_in_body * grid_mass;
+				total_mass += grid_mass;
+
+				// Inertia tensor already rotated and translated to physics body origin
+				total_inertia += grid.inertia_tensor();
+			}
+
+			if total_mass > 0.0 {
+				physics_body.mass = total_mass;
+				physics_body.center_of_mass = weighted_com / total_mass;
+				physics_body.rotational_inertia = total_inertia;
+			} else {
+				physics_body.mass = 0.0;
+				physics_body.center_of_mass = Vec3::ZERO;
+				physics_body.rotational_inertia = InertiaTensor::ZERO;
+			}
+		}
+	}
+
 	// called at any rate (faster is better and should be at least once per frame)
 	pub fn update(&self, dt: f32, player_id: EntityId, debug_enables: &mut DebugEnables) {
 		let _zone = span!("World Update");
@@ -273,21 +310,24 @@ impl World {
 			});
 		}
 
-		let leaky_bucket = &mut self.leaky_bucket.write();
-		leaky_bucket.add_assign(dt);
-		let time_step = 1.0 / 100.0;
-		let current_time = Instant::now();
-		while leaky_bucket.ge(&time_step) {
-			self.physics_update(time_step, player_id);
-			leaky_bucket.sub_assign(time_step);
-			let elapsed = current_time.elapsed().as_secs_f32(); // timeout should maybe be removed at some point
-			if elapsed > 1.0 / 60.0 {
-				leaky_bucket.set_zero();
+		if !debug_enables.freeze_physics {
+			let leaky_bucket = &mut self.leaky_bucket.write();
+			leaky_bucket.add_assign(dt);
+			let time_step = 1.0 / 100.0;
+			let current_time = Instant::now();
+			while leaky_bucket.ge(&time_step) {
+				self.physics_update(time_step, player_id);
+				leaky_bucket.sub_assign(time_step);
+				let elapsed = current_time.elapsed().as_secs_f32(); // timeout should maybe be removed at some point
+				if elapsed > 1.0 / 60.0 {
+					leaky_bucket.set_zero();
+				}
 			}
 		}
 	}
 
 	fn physics_update(&self, dt: f32, player_id: EntityId) {
+		self.update_physics_body_stats();
 		self.ecs.write().run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
 			if object_pickup.is_holding() {
 				object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), dt, self);

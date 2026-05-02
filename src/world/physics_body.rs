@@ -16,9 +16,9 @@ pub struct PhysicsBody {
 	grids: Vec<GridId>,
 	id: PhysicsBodyId,
 	uuid: ResourceUUID,
-	mass: f32,
-	center_of_mass: Vec3,
-	rotational_inertia: InertiaTensor,
+	pub mass: f32,
+	pub center_of_mass: Vec3,
+	pub rotational_inertia: InertiaTensor,
 }
 
 impl PhysicsBody {
