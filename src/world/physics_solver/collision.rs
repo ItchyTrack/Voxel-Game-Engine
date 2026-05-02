@@ -65,11 +65,11 @@ pub fn get_collisions(
 			for (_sub_grid_id_a, sub_grid_a) in grid_a.sub_grids() {
 				let sub_grid_pose_a = grid_pose_a * Pose::from_translation(sub_grid_a.sub_grid_pos().as_vec3());
 				let bound = {
-					let local_aabb = sub_grid_a.local_aabb(&sub_grid_pose_a.rotation);
-					let local_aabb = if let Some(local_aabb) = local_aabb { local_aabb } else { continue; };
+					let aabb = sub_grid_a.aabb(&sub_grid_pose_a);
+					let aabb = if let Some(aabb) = aabb { aabb } else { continue; };
 					(
-						sub_grid_pose_a.translation + local_aabb.0,
-						sub_grid_pose_a.translation + local_aabb.1
+						sub_grid_pose_a.translation + aabb.0,
+						sub_grid_pose_a.translation + aabb.1
 					)
 				};
 				for (physics_body_id_b, grid_id_b, sub_grid_id_b) in bvh.get_collisions(&bound) {

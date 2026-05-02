@@ -614,8 +614,8 @@ impl State {
 					let _zone = span!("Collect aabb for rendering");
 					for ((body_id, grid_id, sub_grid_id), _) in gpu_grid_tree_id_to_id_poses.iter() {
 						if let Some(grid) = self.world.grid_manager.read().grid(*grid_id) && let Some(body) = self.world.physics_body(*body_id) {
-							if let Some(sub_gid) = grid.sub_grid(*sub_grid_id) {
-								if let Some(bound) = sub_gid.local_aabb(&(body.pose.rotation * grid.pose().rotation)) {
+							if let Some(sub_grid) = grid.sub_grid(*sub_grid_id) {
+								if let Some(bound) = sub_grid.aabb(&(body.pose * grid.pose() * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3()))) {
 									bounds.push(((*body_id, *grid_id, *sub_grid_id), bound));
 								}
 							}

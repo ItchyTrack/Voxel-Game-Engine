@@ -60,7 +60,7 @@ impl SubGrid {
 		self.get_voxels().get_voxels().is_empty()
 	}
 
-	pub fn local_aabb(&self, quat: &Quat) -> Option<(Vec3, Vec3)> {
+	pub fn aabb(&self, pose: &Pose) -> Option<(Vec3, Vec3)> {
 		let (min, max) = self.voxels.get_bounding_box()?;
 		let min = min.as_vec3();
 		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
@@ -74,7 +74,7 @@ impl SubGrid {
 			Vec3::new(min.x, max.y, max.z),
 			max,
 		];
-		let rotated_corners = corners.map(|c| quat * c);
+		let rotated_corners = corners.map(|c| pose * c);
 		Some((
 			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
 			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))
@@ -135,13 +135,13 @@ impl Grid {
 		self.sub_grids.remove(&sub_grid_id).is_some()
 	}
 	fn map_position_to_sub_grid_id(&self, pos: &IVec3) -> Option<SubGridId> {
-		self.position_mapping.get(&(pos / Self::CHUNK_SIZE)).copied()
+		self.position_mapping.get(&(pos.div_euclid(IVec3::splat(Self::CHUNK_SIZE)))).copied()
 	}
 	fn map_position_to_sub_grid_id_create(&mut self, pos: &IVec3) -> SubGridId {
-		*self.position_mapping.entry(pos / Self::CHUNK_SIZE).or_insert_with(|| {
+		*self.position_mapping.entry(pos.div_euclid(IVec3::splat(Self::CHUNK_SIZE))).or_insert_with(|| {
 			let sub_grid_id = self.next_sub_grid_id;
 			self.next_sub_grid_id.0 += 1;
-			self.sub_grids.insert(sub_grid_id, SubGrid::new((pos / Self::CHUNK_SIZE) * Self::CHUNK_SIZE));
+			self.sub_grids.insert(sub_grid_id, SubGrid::new((pos.div_euclid(IVec3::splat(Self::CHUNK_SIZE))) * Self::CHUNK_SIZE));
 			sub_grid_id
 		})
 	}
@@ -162,7 +162,7 @@ impl Grid {
 		self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
 		let sub_grid_id = self.map_position_to_sub_grid_id_create(voxel_pos);
 		let sub_grid = self.sub_grids.get_mut(&sub_grid_id)?;
-		let old_voxel = sub_grid.add_voxel(voxel_pos.rem_euclid(IVec3::splat( Self::CHUNK_SIZE)).as_i16vec3(), *voxel)?;
+		let old_voxel = sub_grid.add_voxel(voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3(), *voxel)?;
 		self.mass -= old_voxel.mass as u64;
 		self.voxel_center_of_mass_times_mass -= old_voxel.mass as i64 * voxel_pos.as_i64vec3();
 		self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
@@ -171,7 +171,7 @@ impl Grid {
 	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) -> Option<Voxel> {
 		let sub_grid_id = self.map_position_to_sub_grid_id(voxel_pos)?;
 		let sub_grid = self.sub_grids.get_mut(&sub_grid_id)?;
-		let voxel = sub_grid.remove_voxel(&voxel_pos.rem_euclid(IVec3::splat( Self::CHUNK_SIZE)).as_i16vec3())?;
+		let voxel = sub_grid.remove_voxel(&voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3())?;
 		self.mass -= voxel.mass as u64;
 		self.voxel_center_of_mass_times_mass -= voxel.mass as i64 * voxel_pos.as_i64vec3();
 		self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
@@ -249,7 +249,7 @@ impl GridManager {
 	pub fn new() -> Self {
 		Self {
 			grids: SparseSet::new(),
-			body_to_grids: HashMap::new(),
+			body_to_grids: SparseSet::new(),
 			next_grid_id: GridId(0),
 		}
 	}
@@ -299,19 +299,19 @@ impl GridManager {
 				let grid_pose = *grid.pose();
 				for (sub_grid_id, sub_grid) in grid.sub_grids.iter_mut() {
 					let hit_count = id_to_hit_count.get(&(*physics_body_id, grid_id, *sub_grid_id)).unwrap_or(&1);
-					let grid_pose = physics_body.pose * grid_pose * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
+					let sub_grid_pose = physics_body.pose * grid_pose * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
 					mapping.insert(
 						(*physics_body_id, grid_id, *sub_grid_id),
 						{
 							let priority = 0.0;
 							let lod_level = 0.0;
-							let aabb = if let Some(aabb) = sub_grid.local_aabb(&grid_pose.rotation) { aabb } else { continue; };
+							let aabb = if let Some(aabb) = sub_grid.aabb(&sub_grid_pose) { aabb } else { continue; };
 							let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
 							let center = (aabb.0 + aabb.1) / 2.0;
 							let in_view = view_frustum.compare_sphere(center, radius);
 							// if !in_view { return None; }
 							let priority = if in_view { priority + 5.0 } else { priority };
-							let lod_level = if *hit_count > 0 { lod_level } else { lod_level + 3.0 };
+							// let lod_level = if *hit_count > 0 { lod_level } else { lod_level + 3.0 };
 							if
 								sub_grid.reupload_gpu_grid() ||
 								(lod_level != sub_grid.gpu_state().lod_level() && lod_level == 0.0) ||
@@ -326,7 +326,9 @@ impl GridManager {
 									*sub_grid_id,
 									&sub_grid.voxels
 								);
-								if !sub_grid.gpu_state().on_gpu() { continue; }
+								if !sub_grid.gpu_state().on_gpu() {
+									continue;
+								}
 							}
 							let world_gpu_data = world.world_gpu_data.read();
 							let packed_64_tree_dynamic_buffer = world_gpu_data.packed_64_tree_dynamic_buffer.read();
@@ -338,7 +340,7 @@ impl GridManager {
 							(
 								info_64_tree.offset(),
 								info_voxel_data.offset(),
-								grid_pose * Pose::from_translation(sub_grid.get_voxels().get_voxels().get_internals().1.as_vec3())
+								sub_grid_pose * Pose::from_translation(sub_grid.get_voxels().get_voxels().get_internals().1.as_vec3())
 							)
 						}
 					);

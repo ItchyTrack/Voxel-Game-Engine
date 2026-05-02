@@ -8,11 +8,12 @@ use tracy_client::span;
 use wgpu::{Device, Queue};
 use winit::keyboard::KeyCode;
 
-use crate::{player::{camera::{Camera, CameraController, ViewFrustum}, object_pickup::ObjectPickup, orientator::Orientator, player_input::PlayerInput, player_tracker::PlayerTracker}, state::DebugEnables, world::{entity_component_system::entity_component_system::EntityId, physics_body}};
-
+use crate::player::camera::{Camera, CameraController, ViewFrustum};
+use crate::player::{object_pickup::ObjectPickup, orientator::Orientator, player_input::PlayerInput, player_tracker::PlayerTracker};
+use crate::{state::DebugEnables};
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
 use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH}};
-use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::EntityComponentSystem};
+use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::{EntityComponentSystem, EntityId}};
 use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType}, physics_body_resource::PhysicsBodyResource};
 use super::{pose::Pose, gpu::world_gpu_data::WorldGpuData, voxel_tracker::{TrackedVoxelId, VoxelTracker}};
 
@@ -81,7 +82,7 @@ macro_rules! get_bvh_macro {
 					for grid_id in $self.grid_manager.read().physics_body_grid_ids(*physics_body_id) {
 						let grid = $self.grid(*grid_id).unwrap();
 						for (sub_grid_id, sub_grid) in grid.sub_grids() {
-							if let Some(bound) = sub_grid.local_aabb(&(physics_body.pose.rotation * grid.pose().rotation)) {
+							if let Some(bound) = sub_grid.aabb(&(physics_body.pose * grid.pose() * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3()))) {
 								bounds.push(((*physics_body_id, *grid_id, *sub_grid_id), bound));
 							}
 						}
@@ -416,7 +417,7 @@ impl World {
 					for grid_id in self.grid_manager.read().physics_body_grid_ids(*physics_body_id) {
 						let grid = self.grid(*grid_id).unwrap();
 						for (sub_grid_id, sub_grid) in grid.sub_grids() {
-							if let Some(bound) = sub_grid.local_aabb(&(physics_body.pose.rotation * grid.pose().rotation)) {
+							if let Some(bound) = sub_grid.aabb(&(physics_body.pose * grid.pose() * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3()))) {
 								bounds.push(((*physics_body_id, *grid_id, *sub_grid_id), bound));
 							}
 						}
