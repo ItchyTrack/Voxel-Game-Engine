@@ -45,10 +45,6 @@ impl PhysicsBody {
 	pub fn mass(&self) -> f32 {
 		self.mass
 	}
-	pub fn grids(&self) -> &Vec<GridId> {
-		&self.grids
-	}
-
 	pub fn local_center_of_mass(&self) -> Vec3 {
 		self.center_of_mass
 	}

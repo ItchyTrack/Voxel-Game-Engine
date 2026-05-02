@@ -5,7 +5,7 @@ use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, 
 
 use async_priority_queue::PriorityQueue;
 use tracy_client::span;
-use wgpu::Device;
+use wgpu::{Device, Queue};
 
 use crate::{player::camera::ViewFrustum, world::physics_body};
 
@@ -77,7 +77,7 @@ macro_rules! get_bvh_macro {
 			{
 				let _zone = span!("Collect aabb");
 				for (physics_body_id, physics_body) in $self.physics_bodies.read().iter() {
-					for grid_id in physics_body.grids() {
+					for grid_id in $self.grid_manager.read().physics_body_grid_ids(*physics_body_id) {
 						let grid = $self.grid(*grid_id).unwrap();
 						for (sub_grid_id, sub_grid) in grid.sub_grids() {
 							if let Some(bound) = sub_grid.local_aabb(&(physics_body.pose.rotation * grid.pose().rotation)) {
@@ -120,7 +120,7 @@ pub struct World {
 }
 
 impl World {
-	pub fn new(device: &Device) -> Self {
+	pub fn new(device: Device, queue: Queue) -> Self {
 		let async_task_priority_queue = Arc::new(PriorityQueue::<PriorityTask>::new());
 		let async_task_priority_queue_threads = (0..8).map(|_| {
 			let async_task_priority_queue = async_task_priority_queue.clone();
@@ -155,7 +155,7 @@ impl World {
 			async_task_priority_queue,
 			async_task_priority_queue_threads,
 
-			world_gpu_data: RwLock::new(WorldGpuData::new(device).unwrap())
+			world_gpu_data: RwLock::new(WorldGpuData::new(device, queue).unwrap())
 		}
 	}
 
@@ -213,7 +213,7 @@ impl World {
 			let bvh = &get_bvh_macro!(self);
 			self.solver.write().solve(
 				&mut self.physics_bodies.write(),
-				&self.grid_manager.read().grids(),
+				&self.grid_manager.read(),
 				&mut self.constraints.write(),
 				&self.impulses.read(),
 				dt,
@@ -322,7 +322,7 @@ impl World {
 			{
 				let _zone = span!("Collect aabb");
 				for (physics_body_id, physics_body) in self.physics_bodies.read().iter() {
-					for grid_id in physics_body.grids() {
+					for grid_id in self.grid_manager.read().physics_body_grid_ids(*physics_body_id) {
 						let grid = self.grid(*grid_id).unwrap();
 						for (sub_grid_id, sub_grid) in grid.sub_grids() {
 							if let Some(bound) = sub_grid.local_aabb(&(physics_body.pose.rotation * grid.pose().rotation)) {
@@ -357,55 +357,14 @@ impl World {
 		&self,
 		id_to_hit_count: &HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
 		view_frustum: &ViewFrustum,
-		camera_pose: Pose,
+		camera_pose: &Pose,
 	) -> HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> {
-		let mapping: Vec<((PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose))> = vec![];
-		for (physics_body_id, physics_body) in self.physics_bodies.read().iter() {
-			for grid_id in physics_body.grids() {
-				let grid = self.grid(*grid_id).unwrap();
-				for (sub_grid_id, sub_grid) in grid.sub_grids() {
-					let hit_count = id_to_hit_count.get(&(*physics_body_id, *grid_id, *sub_grid_id)).unwrap_or(&1);
-					let grid_pose = physics_body.pose * grid.pose() * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
-					mapping.insert(Some((
-						(physics_body_id, grid_id, sub_grid_id),
-						{
-							let priority = 0.0;
-							let lod_level = 0.0;
-							let aabb = sub_grid.local_aabb(&grid_pose.rotation)?;
-							let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
-							let center = (aabb.0 + aabb.1) / 2.0;
-							let in_view = view_frustum.compare_sphere(center, radius);
-							// if !in_view { return None; }
-							let priority = if in_view { priority + 5.0 } else { priority };
-							let lod_level = if *hit_count > 0 { lod_level } else { lod_level + 3.0 };
-							// let sub_grid_resource = if let Some(resource) = self.resource_manager.read().resource(&sub_grid.uuid) {
-							// 	match resource.info() {
-							// 		ResourceInfoType::SubGrid { sub_grid_resource } => { sub_grid_resource },
-							// 		_ => {
-							// 			println!("The UUID was not referencing a sub grid");
-							// 			return None;
-							// 		}
-							// 	}
-							// } else {
-							// 	println!("The UUID was found in the ResourceManager");
-							// 	return None;
-							// };
-							// if self.reupload_gpu_grid.get() || (lod_level != sub_grid_resource.gpu_state().lod_level() && lod_level == 0.0) || ((sub_grid_resource.gpu_state().lod_level() - lod_level).abs() > 0.25) {
-							// 	self.reupload_gpu_grid.set(false);
-							// 	sub_grid_resource.request_gpu_state(async_task_priority_queue, task_queue, physics_engine, resource_manager, SubGridGpuUploadingState{ lod_level: lod_level }, priority);
-							// 	if !sub_grid_resource.gpu_state().on_gpu() { return None; }
-							// }
-							Some((
-								self.world_gpu_data.read().packed_64_tree_dynamic_buffer.get_held_buffer(sub_grid_resource.gpu_state().tree_id())?.offset(),
-								self.world_gpu_data.read().packed_voxel_data_dynamic_buffer.get_held_buffer(sub_grid_resource.gpu_state().voxels_id())?.offset(),
-								pose * Pose::from_translation(sub_grid.get_voxels().get_voxels().get_internals().1.as_vec3()
-							)))
-						}?
-					)));
-				}
-			}
-		}
-		mapping
+		self.grid_manager.write().update_gpu_grid_tree(
+			&self,
+			id_to_hit_count,
+			view_frustum,
+			camera_pose
+		)
 	}
 
 	// pub fn update_gpu_grid_tree(

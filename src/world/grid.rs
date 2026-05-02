@@ -1,6 +1,8 @@
-use std::{collections::HashMap, sync::atomic::{AtomicBool, Ordering}};
+use std::{collections::{HashMap, HashSet}, sync::atomic::{AtomicBool, Ordering}};
 
-use super::{pose::Pose};
+use crate::player::camera::ViewFrustum;
+
+use super::{pose::Pose, gpu::sub_grid_gpu_state::{SubGridGpuState, SubGridGpuUploadingState}, world::World};
 use super::{physics_body::PhysicsBodyId, physics_solver::inertia_tensor::InertiaTensor, sparse_set::SparseSet, resource_manager::ResourceUUID, voxels::{Voxels, Voxel}};
 use glam::{I16Vec3, IVec3, Quat, Vec3, I64Vec3};
 
@@ -13,6 +15,7 @@ pub struct SubGrid {
 	sub_grid_pos: IVec3,
 	version_id: SubGridVersionId,
 	reupload_gpu_grid: AtomicBool,
+	sub_grid_gpu_state: SubGridGpuState,
 }
 
 impl SubGrid {
@@ -22,17 +25,18 @@ impl SubGrid {
 			sub_grid_pos,
 			version_id: SubGridVersionId(0),
 			reupload_gpu_grid: AtomicBool::new(false),
+			sub_grid_gpu_state: SubGridGpuState::new(),
 		}
 	}
 	pub fn sub_grid_pos(&self) -> IVec3 {
 		self.sub_grid_pos
 	}
 	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<Voxel> {
-		self.reupload_gpu_grid.store(true, Ordering::Relaxed);
+		self.reupload_gpu_grid.store(true, Ordering::Release);
 		self.voxels.add_voxel(pos, voxel)
 	}
 	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
-		self.reupload_gpu_grid.store(true, Ordering::Relaxed);
+		self.reupload_gpu_grid.store(true, Ordering::Release);
 		self.voxels.remove_voxel(pos)
 	}
 	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> { self.voxels.get_voxel(pos) }
@@ -41,8 +45,14 @@ impl SubGrid {
 	// pub fn set_updated_gpu_grid_tree(&self, tree_id: u32, voxel_id: u32, lod: f32) {
 		// self.gpu_grid_tree_id.set(Some((tree_id, voxel_id, lod)));
 	// }
+	pub fn gpu_state(&self) -> &SubGridGpuState {
+		&self.sub_grid_gpu_state
+	}
+	pub fn gpu_state_mut(&mut self) -> &mut SubGridGpuState {
+		&mut self.sub_grid_gpu_state
+	}
 	pub fn reupload_gpu_grid(&self) -> bool {
-		self.reupload_gpu_grid.load(Ordering::Relaxed)
+		self.reupload_gpu_grid.load(Ordering::Acquire)
 	}
 
 	// return true is this should be deleted
@@ -138,6 +148,9 @@ impl Grid {
 	pub fn sub_grid(&self, sub_grid_id: SubGridId) -> Option<&SubGrid> {
 		self.sub_grids.get(&sub_grid_id)
 	}
+	pub fn sub_grid_mut(&mut self, sub_grid_id: SubGridId) -> Option<&mut SubGrid> {
+		self.sub_grids.get_mut(&sub_grid_id)
+	}
 	pub fn sub_grids(&self) -> &SparseSet<SubGridId, SubGrid> {
 		&self.sub_grids
 	}
@@ -228,6 +241,7 @@ impl Grid {
 
 pub struct GridManager {
 	grids: SparseSet<GridId, Grid>,
+	body_to_grids: SparseSet<PhysicsBodyId, HashSet<GridId>>,
 	next_grid_id: GridId,
 }
 
@@ -235,6 +249,7 @@ impl GridManager {
 	pub fn new() -> Self {
 		Self {
 			grids: SparseSet::new(),
+			body_to_grids: HashMap::new(),
 			next_grid_id: GridId(0),
 		}
 	}
@@ -243,10 +258,20 @@ impl GridManager {
 		let grid_id = self.next_grid_id;
 		self.next_grid_id.0 += 1;
 		self.grids.insert(grid_id, Grid::new(physics_body_id, pose, resource_uuid));
+		self.body_to_grids.entry(physics_body_id).or_default().insert(grid_id);
 		grid_id
 	}
 	pub fn remove_grid(&mut self, grid_id: GridId) -> bool {
-		self.grids.remove(&grid_id).is_some()
+		if let Some(grid) = self.grids.remove(&grid_id) {
+			let grids = &mut self.body_to_grids.get_mut(&grid.physics_body_id()).unwrap();
+			if grids.len() == 1 {
+				assert!(grids.contains(&grid_id));
+				self.body_to_grids.remove(&grid.physics_body_id);
+			} else {
+				grids.remove(&grid_id);
+			}
+			true
+		} else { false }
 	}
 	pub fn grid(&self, grid_id: GridId) -> Option<&Grid> {
 		self.grids.get(&grid_id)
@@ -256,5 +281,70 @@ impl GridManager {
 	}
 	pub fn grids(&self) -> &SparseSet<GridId, Grid> {
 		&self.grids
+	}
+	pub fn physics_body_grid_ids(&self, physics_body_id: PhysicsBodyId) -> &HashSet<GridId> {
+		self.body_to_grids.get(&physics_body_id).unwrap()
+	}
+	pub fn update_gpu_grid_tree(
+		&mut self,
+		world: &World,
+		id_to_hit_count: &HashMap<(PhysicsBodyId, GridId, SubGridId), u32>,
+		view_frustum: &ViewFrustum,
+		_camera_pose: &Pose,
+	) -> HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> {
+		let mut mapping: HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)> = HashMap::new();
+		for (physics_body_id, physics_body) in world.physics_bodies.read().iter() {
+			for grid_id in self.physics_body_grid_ids(*physics_body_id).clone() {
+				let grid = self.grid_mut(grid_id).unwrap();
+				let grid_pose = *grid.pose();
+				for (sub_grid_id, sub_grid) in grid.sub_grids.iter_mut() {
+					let hit_count = id_to_hit_count.get(&(*physics_body_id, grid_id, *sub_grid_id)).unwrap_or(&1);
+					let grid_pose = physics_body.pose * grid_pose * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3());
+					mapping.insert(
+						(*physics_body_id, grid_id, *sub_grid_id),
+						{
+							let priority = 0.0;
+							let lod_level = 0.0;
+							let aabb = if let Some(aabb) = sub_grid.local_aabb(&grid_pose.rotation) { aabb } else { continue; };
+							let radius = aabb.0.distance(aabb.1) / 2.0 + 1.0;
+							let center = (aabb.0 + aabb.1) / 2.0;
+							let in_view = view_frustum.compare_sphere(center, radius);
+							// if !in_view { return None; }
+							let priority = if in_view { priority + 5.0 } else { priority };
+							let lod_level = if *hit_count > 0 { lod_level } else { lod_level + 3.0 };
+							if
+								sub_grid.reupload_gpu_grid() ||
+								(lod_level != sub_grid.gpu_state().lod_level() && lod_level == 0.0) ||
+								((sub_grid.gpu_state().lod_level() - lod_level).abs() > 0.25)
+							{
+								sub_grid.reupload_gpu_grid.store(false, Ordering::Release);
+								sub_grid.sub_grid_gpu_state.request_gpu_state(
+									world,
+									SubGridGpuUploadingState{ lod_level: lod_level },
+									priority,
+									grid_id,
+									*sub_grid_id,
+									&sub_grid.voxels
+								);
+								if !sub_grid.gpu_state().on_gpu() { continue; }
+							}
+							let world_gpu_data = world.world_gpu_data.read();
+							let packed_64_tree_dynamic_buffer = world_gpu_data.packed_64_tree_dynamic_buffer.read();
+							let info_64_tree = packed_64_tree_dynamic_buffer.get_held_buffer(sub_grid.gpu_state().tree_id());
+							let info_64_tree = if let Some(info_64_tree) = info_64_tree { info_64_tree } else { continue; };
+							let packed_voxel_data_dynamic_buffer = world_gpu_data.packed_voxel_data_dynamic_buffer.read();
+							let info_voxel_data = packed_voxel_data_dynamic_buffer.get_held_buffer(sub_grid.gpu_state().voxels_id());
+							let info_voxel_data = if let Some(info_voxel_data) = info_voxel_data { info_voxel_data } else { continue; };
+							(
+								info_64_tree.offset(),
+								info_voxel_data.offset(),
+								grid_pose * Pose::from_translation(sub_grid.get_voxels().get_voxels().get_internals().1.as_vec3())
+							)
+						}
+					);
+				}
+			}
+		}
+		mapping
 	}
 }

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, ops::*};
 
 use num::Integer;
-use wgpu::CommandEncoderDescriptor;
+use wgpu::{CommandEncoderDescriptor, Device, Queue};
 
 pub struct HeldBuffer {
 	offset: u32,
@@ -19,10 +19,12 @@ pub struct PackedDynamicBuffer {
 	held_bytes_alignment: u32,
 	alignment: u32,
 	held_buffers: BTreeMap<u32, HeldBuffer>,
+	device: Device,
+	queue: Queue,
 }
 
 impl PackedDynamicBuffer {
-	pub fn new(device: &wgpu::Device, alignment: u32, usage: wgpu::BufferUsages) -> Result<Self, &'static str> {
+	pub fn new(device: wgpu::Device, queue: wgpu::Queue, alignment: u32, usage: wgpu::BufferUsages) -> Result<Self, &'static str> {
 		let alignment = alignment.lcm(&(wgpu::COPY_BUFFER_ALIGNMENT as u32));
 		let size = (1u32.shl(20u32)).next_multiple_of(alignment as u32);
 		let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -37,6 +39,8 @@ impl PackedDynamicBuffer {
 			held_bytes_alignment: 0,
 			alignment: alignment,
 			held_buffers: BTreeMap::new(),
+			device,
+			queue,
 		})
 	}
 
@@ -48,25 +52,25 @@ impl PackedDynamicBuffer {
 		self.held_bytes
 	}
 
-	pub fn add_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, data_buffer: &[u8]) -> Result<u32, &'static str> {
+	pub fn add_buffer(&mut self, data_buffer: &[u8]) -> Result<u32, &'static str> {
 		if data_buffer.len() == 0 {
 			return Err("Buffer size can't be 0.");
 		}
 		if data_buffer.len() as u32 > self.buffer.size() as u32 - self.held_bytes_alignment {
-			if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > device.limits().max_storage_buffer_binding_size {
+			if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > self.device.limits().max_storage_buffer_binding_size {
 				return Err("Buffer max size hit!");
 			}
-			let new_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+			let new_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
 				label: Some("PackedBuffer"),
 				size: self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64),
 				usage: self.buffer.usage(),
 				mapped_at_creation: false,
 			});
-			let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+			let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
 				label: Some("e"),
 			});
 			encoder.copy_buffer_to_buffer(&self.buffer, 0, &new_buffer, 0, self.buffer.size());
-			queue.submit(std::iter::once(encoder.finish()));
+			self.queue.submit(std::iter::once(encoder.finish()));
 			self.buffer = new_buffer;
 		}
 		let mut placement_location = 0;
@@ -79,23 +83,23 @@ impl PackedDynamicBuffer {
 				placement_location = held_buffer.offset + held_buffer.size.next_multiple_of(self.alignment as u32);
 				assert!(placement_location.is_multiple_of(self.alignment as u32));
 				if (placement_location + data_buffer.len() as u32) > (self.buffer.size() as u32) {
-					if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > device.limits().max_storage_buffer_binding_size {
+					if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > self.device.limits().max_storage_buffer_binding_size {
 				return Err("Buffer max size hit!");
 			}
-					let new_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+					let new_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
 						label: Some("PackedBuffer"),
 						size: self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64),
 						usage: self.buffer.usage(),
 						mapped_at_creation: false,
 					});
-					let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+					let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
 						label: Some("e"),
 					});
 					encoder.copy_buffer_to_buffer(&self.buffer, 0, &new_buffer, 0, self.buffer.size());
-					queue.submit(std::iter::once(encoder.finish()));
+					self.queue.submit(std::iter::once(encoder.finish()));
 					placement_location = self.buffer.size() as u32;
 					self.buffer = new_buffer;
-					queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
+					self.queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
 					self.held_bytes += data_buffer.len() as u32;
 					self.held_bytes_alignment += (data_buffer.len() as u32).next_multiple_of(self.alignment as u32);
 					let id = placement_location / self.alignment as u32;
@@ -106,7 +110,7 @@ impl PackedDynamicBuffer {
 				break;
 			}
 		}
-		queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
+		self.queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
 		self.held_bytes += data_buffer.len() as u32;
 		self.held_bytes_alignment += (data_buffer.len() as u32).next_multiple_of(self.alignment as u32);
 		let id = placement_location / self.alignment as u32;
@@ -125,7 +129,7 @@ impl PackedDynamicBuffer {
 	}
 
 	// If the new buffer does not fit the old buffer will still be removed
-	pub fn replace_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
+	pub fn replace_buffer(&mut self, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
 			if held_buffer.size == buffer.len() as u32 {
 				self.held_bytes -= held_buffer.size;
@@ -133,11 +137,11 @@ impl PackedDynamicBuffer {
 				self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
 				self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
 				held_buffer.size = buffer.len() as u32;
-				queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
+				self.queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
 				Ok(id)
 			} else {
 				self.remove_buffer(id)?;
-				self.add_buffer(device, queue, buffer)
+				self.add_buffer(buffer)
 			}
 		} else {
 			Err("Could not find id.")

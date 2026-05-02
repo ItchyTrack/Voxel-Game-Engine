@@ -193,8 +193,8 @@ impl Renderer {
 		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
 		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
 		debug_enables: &mut DebugEnables,
-		packed_64_tree_dynamic_buffer: &PackedDynamicBuffer,
-		packed_voxel_data_dynamic_buffer: &PackedDynamicBuffer
+		packed_64_tree_dynamic_buffer: &parking_lot::RwLockReadGuard<'_, PackedDynamicBuffer>,
+		packed_voxel_data_dynamic_buffer: &parking_lot::RwLockReadGuard<'_, PackedDynamicBuffer>
 	) -> Result<(), wgpu::CurrentSurfaceTexture> {
 		self.window.request_redraw();
 		tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);

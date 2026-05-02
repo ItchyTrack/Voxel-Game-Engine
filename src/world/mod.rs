@@ -14,4 +14,5 @@ pub mod gpu {
 	pub mod gpu_bvh;
 	pub mod gpu_grid_tree;
 	pub mod world_gpu_data;
+	pub mod sub_grid_gpu_state;
 }

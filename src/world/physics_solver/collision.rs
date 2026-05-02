@@ -1,11 +1,12 @@
 use std::vec;
 
 use glam::{I16Vec3, IVec3, Quat, U8Vec3, Vec3};
+
 use super::super::sparse_set::SparseSet;
 use super::super::{pose::Pose, voxels};
 use super::{bvh::BVH};
 use super::super::physics_body::{PhysicsBody, PhysicsBodyId};
-use super::super::grid::{Grid, GridId, SubGridId};
+use super::super::grid::{GridId, SubGridId, GridManager};
 
 use tracy_client::span;
 
@@ -49,7 +50,7 @@ static mut CHECK_COUNTER: u32 = 0;
 
 pub fn get_collisions(
 	physics_bodies: &SparseSet<PhysicsBodyId, PhysicsBody>,
-	grids: &SparseSet<GridId, Grid>,
+	grid_manager: &GridManager,
 	bvh: &BVH<(PhysicsBodyId, GridId, SubGridId)>
 ) -> Vec<Collision> {
 	unsafe { CHECK_COUNTER = 0; }
@@ -58,8 +59,8 @@ pub fn get_collisions(
 	let mut collisions: Vec<Collision> = vec![];
 	for (physics_body_id_a, physics_body_a) in physics_bodies {
 		if physics_body_a.is_static { continue; }
-		for grid_id_a in physics_body_a.grids() {
-			let grid_a = grids.get(grid_id_a).unwrap();
+		for grid_id_a in grid_manager.physics_body_grid_ids(*physics_body_id_a) {
+			let grid_a = grid_manager.grid(*grid_id_a).unwrap();
 			let grid_pose_a = physics_body_a.pose * grid_a.pose();
 			for (_sub_grid_id_a, sub_grid_a) in grid_a.sub_grids() {
 				let sub_grid_pose_a = grid_pose_a * Pose::from_translation(sub_grid_a.sub_grid_pos().as_vec3());
@@ -75,7 +76,7 @@ pub fn get_collisions(
 					if physics_body_id_b == *physics_body_id_a { continue; }
 					let physics_body_b = physics_bodies.get(&physics_body_id_b).unwrap();
 					if !physics_body_b.is_static && physics_body_id_a.0 < physics_body_id_b.0 { continue; }
-					let grid_b = grids.get(&grid_id_b).unwrap();
+					let grid_b = grid_manager.grid(grid_id_b).unwrap();
 					let sub_grid_b = grid_b.sub_grids().get(&sub_grid_id_b).unwrap();
 					let no_swap = sub_grid_a.get_voxels().get_voxels().len() < sub_grid_b.get_voxels().get_voxels().len();
 					let (physics_body1, grid_1, sub_grid_1, physics_body2, grid_2, sub_grid_2) = {
