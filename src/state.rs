@@ -9,7 +9,7 @@ use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabM
 use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, player::camera, world::physics_solver::bvh::BVH};
 use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
-use crate::render::renderer::Renderer;
+use crate::render::{renderer::Renderer, graphics_settings::GraphicsSettings};
 use crate::world::{voxels, pose::Pose};
 
 const BLOCK_PLACE_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (18.0 * 2.0);
@@ -23,6 +23,7 @@ pub struct State {
 	pub place_sound_cooldown: f32,
 	pub break_sound_cooldown: f32,
 	pub debug_enables: DebugEnables,
+	pub graphics_settings: GraphicsSettings,
 	pub world: World,
 }
 
@@ -586,6 +587,7 @@ impl State {
 			place_sound_cooldown: 0.0,
 			break_sound_cooldown: 0.0,
 			debug_enables: DebugEnables::new(),
+			graphics_settings: GraphicsSettings::new(),
 			world,
 		})
 	}
@@ -630,6 +632,7 @@ impl State {
 				&bvh,
 				&gpu_grid_tree_id_to_id_poses,
 				&mut self.debug_enables,
+				&mut self.graphics_settings,
 				&world_gpu_data.packed_64_tree_dynamic_buffer.read(),
 				&world_gpu_data.packed_voxel_data_dynamic_buffer.read()
 			);
