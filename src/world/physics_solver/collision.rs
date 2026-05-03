@@ -64,14 +64,7 @@ pub fn get_collisions(
 			let grid_pose_a = physics_body_a.pose * grid_a.pose();
 			for (_sub_grid_id_a, sub_grid_a) in grid_a.sub_grids() {
 				let sub_grid_pose_a = grid_pose_a * Pose::from_translation(sub_grid_a.sub_grid_pos().as_vec3());
-				let bound = {
-					let aabb = sub_grid_a.aabb(&sub_grid_pose_a);
-					let aabb = if let Some(aabb) = aabb { aabb } else { continue; };
-					(
-						sub_grid_pose_a.translation + aabb.0,
-						sub_grid_pose_a.translation + aabb.1
-					)
-				};
+				let bound = if let Some(aabb) = sub_grid_a.aabb(&sub_grid_pose_a) { aabb } else { continue; };
 				for (physics_body_id_b, grid_id_b, sub_grid_id_b) in bvh.get_collisions(&bound) {
 					if physics_body_id_b == *physics_body_id_a { continue; }
 					let physics_body_b = physics_bodies.get(&physics_body_id_b).unwrap();
@@ -93,166 +86,166 @@ pub fn get_collisions(
 							for y in 0..voxel.1 {
 								for z in 0..voxel.1 {
 									collisions.extend(get_collision(
-										&(&pose_of_1_in_2 * Pose::new((voxel.0 + I16Vec3::new(x as i16,  y as i16,  z as i16)).as_vec3() + Vec3::new(0.5, 0.5, 0.5), Quat::IDENTITY)),
+										&(&pose_of_1_in_2 * Pose::new((voxel.0 + I16Vec3::new(x as i16, y as i16, z as i16)).as_vec3() + Vec3::new(0.5, 0.5, 0.5), Quat::IDENTITY)),
 										sub_grid_2.get_voxels(),
 										&separating_axis,
 										&(physics_body2.pose * grid_2.pose()),
 									).iter().filter_map(|c| {
-										let mut first_edge_covered = false;
 										let collision_grid_pos_1 = voxel.0.as_ivec3() + sub_grid_1.sub_grid_pos();
 										let collision_grid_pos_2 = c.4.as_ivec3() + sub_grid_2.sub_grid_pos();
-										match c.1 {
-											CubeFeature::Vertex { xyz } => {
-												for i in 1..8 {
-													if grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															get_bit(i, 0) as i32 * (get_bit(xyz, 0) as i32 * 2 - 1),
-															get_bit(i, 1) as i32 * (get_bit(xyz, 1) as i32 * 2 - 1),
-															get_bit(i, 2) as i32 * (get_bit(xyz, 2) as i32 * 2 - 1)
-														))).is_some() { return None; }
-												}
-											},
-											CubeFeature::Edge { vertex_vertex } => {
-												if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
-													if
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															0,
-															get_bit(vertex_vertex, 1) as i32 * 2 - 1,
-															0
-														))).is_some() ||
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															0,
-															0,
-															get_bit(vertex_vertex, 2) as i32 * 2 - 1
-														))).is_some() ||
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															0,
-															get_bit(vertex_vertex, 1) as i32 * 2 - 1,
-															get_bit(vertex_vertex, 2) as i32 * 2 - 1
-														))).is_some()
-													{ first_edge_covered = true; }
-												} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
-													if
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															get_bit(vertex_vertex, 0) as i32 * 2 - 1,
-															0,
-															0
-														))).is_some() ||
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															0,
-															0,
-															get_bit(vertex_vertex, 2) as i32 * 2 - 1
-														))).is_some() ||
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															get_bit(vertex_vertex, 0) as i32 * 2 - 1,
-															0,
-															get_bit(vertex_vertex, 2) as i32 * 2 - 1
-														))).is_some()
-													{ first_edge_covered = true; }
-												} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
-													if
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															get_bit(vertex_vertex, 0) as i32 * 2 - 1,
-															0,
-															0
-														))).is_some() ||
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															0,
-															get_bit(vertex_vertex, 1) as i32 * 2 - 1,
-															0
-														))).is_some() ||
-														grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
-															get_bit(vertex_vertex, 0) as i32 * 2 - 1,
-															get_bit(vertex_vertex, 1) as i32 * 2 - 1,
-															0
-														))).is_some()
-													{ first_edge_covered = true; }
-												}
-											},
-											CubeFeature::Face { xyzs } => {
-												if grid_1.get_voxel(&(
-													U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32
-												))).is_some() {
-													return None;
-												}
-											},
-										};
-										match c.3 {
-											CubeFeature::Vertex { xyz } => {
-												for i in 1..8 {
-													if grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-															get_bit(i, 0) as i32 * (get_bit(xyz, 0) as i32 * 2 - 1),
-															get_bit(i, 1) as i32 * (get_bit(xyz, 1) as i32 * 2 - 1),
-															get_bit(i, 2) as i32 * (get_bit(xyz, 2) as i32 * 2 - 1)
-														))).is_some() { return None; }
-												}
-											},
-											CubeFeature::Edge { vertex_vertex } => {
-												if first_edge_covered { // only if both edges are covered
-													if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
-														if
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																0,
-																get_bit(vertex_vertex, 1) as i32 * 2 - 1,
-																0
-															))).is_some() ||
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																0,
-																0,
-																get_bit(vertex_vertex, 2) as i32 * 2 - 1
-															))).is_some() ||
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																0,
-																get_bit(vertex_vertex, 1) as i32 * 2 - 1,
-																get_bit(vertex_vertex, 2) as i32 * 2 - 1
-															))).is_some()
-														{ return None; }
-													} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
-														if
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																get_bit(vertex_vertex, 0) as i32 * 2 - 1,
-																0,
-																0
-															))).is_some() ||
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																0,
-																0,
-																get_bit(vertex_vertex, 2) as i32 * 2 - 1
-															))).is_some() ||
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																get_bit(vertex_vertex, 0) as i32 * 2 - 1,
-																0,
-																get_bit(vertex_vertex, 2) as i32 * 2 - 1
-															))).is_some()
-														{ return None; }
-													} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
-														if
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																get_bit(vertex_vertex, 0) as i32 * 2 - 1,
-																0,
-																0
-															))).is_some() ||
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																0,
-																get_bit(vertex_vertex, 1) as i32 * 2 - 1,
-																0
-															))).is_some() ||
-															grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
-																get_bit(vertex_vertex, 0) as i32 * 2 - 1,
-																get_bit(vertex_vertex, 1) as i32 * 2 - 1,
-																0
-															))).is_some()
-														{ return None; }
-													}
-												}
-											},
-											CubeFeature::Face { xyzs } => {
-												if grid_2.get_voxel(&(
-													U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32
-												))).is_some() {
-													return None;
-												}
-											},
-										};
+										// let mut first_edge_covered = false;
+										// match c.1 {
+										// 	CubeFeature::Vertex { xyz } => {
+										// 		for i in 1..8 {
+										// 			if grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					get_bit(i, 0) as i32 * (get_bit(xyz, 0) as i32 * 2 - 1),
+										// 					get_bit(i, 1) as i32 * (get_bit(xyz, 1) as i32 * 2 - 1),
+										// 					get_bit(i, 2) as i32 * (get_bit(xyz, 2) as i32 * 2 - 1)
+										// 				))).is_some() { return None; }
+										// 		}
+										// 	},
+										// 	CubeFeature::Edge { vertex_vertex } => {
+										// 		if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
+										// 			if
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					0,
+										// 					get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										// 					0
+										// 				))).is_some() ||
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					0,
+										// 					0,
+										// 					get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										// 				))).is_some() ||
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					0,
+										// 					get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										// 					get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										// 				))).is_some()
+										// 			{ first_edge_covered = true; }
+										// 		} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
+										// 			if
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										// 					0,
+										// 					0
+										// 				))).is_some() ||
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					0,
+										// 					0,
+										// 					get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										// 				))).is_some() ||
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										// 					0,
+										// 					get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										// 				))).is_some()
+										// 			{ first_edge_covered = true; }
+										// 		} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
+										// 			if
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										// 					0,
+										// 					0
+										// 				))).is_some() ||
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					0,
+										// 					get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										// 					0
+										// 				))).is_some() ||
+										// 				grid_1.get_voxel(&(collision_grid_pos_1 + IVec3::new(
+										// 					get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										// 					get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										// 					0
+										// 				))).is_some()
+										// 			{ first_edge_covered = true; }
+										// 		}
+										// 	},
+										// 	CubeFeature::Face { xyzs } => {
+										// 		if grid_1.get_voxel(&(
+										// 			U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32
+										// 		))).is_some() {
+										// 			return None;
+										// 		}
+										// 	},
+										// };
+										// match c.3 {
+										// 	CubeFeature::Vertex { xyz } => {
+										// 		for i in 1..8 {
+										// 			if grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 					get_bit(i, 0) as i32 * (get_bit(xyz, 0) as i32 * 2 - 1),
+										// 					get_bit(i, 1) as i32 * (get_bit(xyz, 1) as i32 * 2 - 1),
+										// 					get_bit(i, 2) as i32 * (get_bit(xyz, 2) as i32 * 2 - 1)
+										// 				))).is_some() { return None; }
+										// 		}
+										// 	},
+										// 	CubeFeature::Edge { vertex_vertex } => {
+										// 		if first_edge_covered { // only if both edges are covered
+										// 			if get_bit(vertex_vertex, 0) ^ get_bit(vertex_vertex, 0 + 3) == 1 {
+										// 				if
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						0,
+										// 						get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										// 						0
+										// 					))).is_some() ||
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						0,
+										// 						0,
+										// 						get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										// 					))).is_some() ||
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						0,
+										// 						get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										// 						get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										// 					))).is_some()
+										// 				{ return None; }
+										// 			} else if get_bit(vertex_vertex, 1) ^ get_bit(vertex_vertex, 1 + 3) == 1 {
+										// 				if
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										// 						0,
+										// 						0
+										// 					))).is_some() ||
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						0,
+										// 						0,
+										// 						get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										// 					))).is_some() ||
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										// 						0,
+										// 						get_bit(vertex_vertex, 2) as i32 * 2 - 1
+										// 					))).is_some()
+										// 				{ return None; }
+										// 			} else if get_bit(vertex_vertex, 2) ^ get_bit(vertex_vertex, 2 + 3) == 1 {
+										// 				if
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										// 						0,
+										// 						0
+										// 					))).is_some() ||
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						0,
+										// 						get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										// 						0
+										// 					))).is_some() ||
+										// 					grid_2.get_voxel(&(collision_grid_pos_2 + IVec3::new(
+										// 						get_bit(vertex_vertex, 0) as i32 * 2 - 1,
+										// 						get_bit(vertex_vertex, 1) as i32 * 2 - 1,
+										// 						0
+										// 					))).is_some()
+										// 				{ return None; }
+										// 			}
+										// 		}
+										// 	},
+										// 	CubeFeature::Face { xyzs } => {
+										// 		if grid_2.get_voxel(&(
+										// 			U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_ivec3() * (1 - 2 * get_bit(xyzs, 3) as i32
+										// 		))).is_some() {
+										// 			return None;
+										// 		}
+										// 	},
+										// };
 
 										Some(Collision {
 											part1: HalfCollision{
@@ -282,8 +275,8 @@ pub fn get_collisions(
 		}
 	}
 	// for collision in collisions.iter() {
-	// 	let e1 = &physics_bodies[collision.part1.body_index as usize];
-	// 	let e2 = &physics_bodies[collision.part2.body_index as usize];
+	// 	let e1 = &physics_bodies.get(&collision.part1.body_id).unwrap();
+	// 	let e2 = &physics_bodies.get(&collision.part2.body_id).unwrap();
 
 	// 	debug_draw::line(collision.part1.collision, collision.part2.collision, &Vec4::new(1.0, 0.0, 0.0, 1.0));
 	// 	debug_draw::point(collision.part1.collision, &Vec4::new(1.0, 1.0, 1.0, 1.0), 0.1);
@@ -293,8 +286,8 @@ pub fn get_collisions(
 	// 		CubeFeature::Vertex { xyz } => {
 	// 			let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3();
 	// 			debug_draw::aabb(
-	// 				e1.pose * e1.grids()[collision.part1.grid_index as usize].pose * (v + collision.part1.voxel_pos.as_vec3()) + Vec3::splat(0.01),
-	// 				e1.pose * e1.grids()[collision.part1.grid_index as usize].pose * (v + collision.part1.voxel_pos.as_vec3()) + Vec3::splat(0.01),
+	// 				e1.pose * grid_manager.grid(collision.part1.grid_id).unwrap().pose() * (v + collision.part1.voxel_pos.as_vec3()) + Vec3::splat(0.01),
+	// 				e1.pose * grid_manager.grid(collision.part1.grid_id).unwrap().pose() * (v + collision.part1.voxel_pos.as_vec3()) + Vec3::splat(0.01),
 	// 				&Vec4::ONE
 	// 			);
 	// 		},
@@ -302,16 +295,16 @@ pub fn get_collisions(
 	// 			let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3();
 	// 			let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3();
 	// 			debug_draw::line(
-	// 				e1.pose * e1.grids()[collision.part1.grid_index as usize].pose * (v1 + collision.part1.voxel_pos.as_vec3()),
-	// 				e1.pose * e1.grids()[collision.part1.grid_index as usize].pose * (v2 + collision.part1.voxel_pos.as_vec3()),
+	// 				e1.pose * grid_manager.grid(collision.part1.grid_id).unwrap().pose() * (v1 + collision.part1.voxel_pos.as_vec3()),
+	// 				e1.pose * grid_manager.grid(collision.part1.grid_id).unwrap().pose() * (v2 + collision.part1.voxel_pos.as_vec3()),
 	// 				&Vec4::ONE
 	// 			);
 	// 		},
 	// 		CubeFeature::Face { xyzs } => {
 	// 			let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
 	// 			debug_draw::aabb(
-	// 				e1.pose * e1.grids()[collision.part1.grid_index as usize].pose * (v + collision.part1.voxel_pos.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-	// 				e1.pose * e1.grids()[collision.part1.grid_index as usize].pose * (v + collision.part1.voxel_pos.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+	// 				e1.pose * grid_manager.grid(collision.part1.grid_id).unwrap().pose() * (v + collision.part1.voxel_pos.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+	// 				e1.pose * grid_manager.grid(collision.part1.grid_id).unwrap().pose() * (v + collision.part1.voxel_pos.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 	// 				&Vec4::W
 	// 			);
 	// 		},
@@ -320,8 +313,8 @@ pub fn get_collisions(
 	// 		CubeFeature::Vertex { xyz } => {
 	// 			let v = U8Vec3::new(get_bit(xyz, 0), get_bit(xyz, 1), get_bit(xyz, 2)).as_vec3();
 	// 			debug_draw::aabb(
-	// 				e2.pose * e2.grids()[collision.part2.grid_index as usize].pose * (v + collision.part2.voxel_pos.as_vec3()) - Vec3::splat(0.01),
-	// 				e2.pose * e2.grids()[collision.part2.grid_index as usize].pose * (v + collision.part2.voxel_pos.as_vec3()) + Vec3::splat(0.01),
+	// 				e2.pose * grid_manager.grid(collision.part2.grid_id).unwrap().pose() * (v + collision.part2.voxel_pos.as_vec3()) - Vec3::splat(0.01),
+	// 				e2.pose * grid_manager.grid(collision.part2.grid_id).unwrap().pose() * (v + collision.part2.voxel_pos.as_vec3()) + Vec3::splat(0.01),
 	// 				&Vec4::ONE
 	// 			);
 	// 		},
@@ -329,16 +322,16 @@ pub fn get_collisions(
 	// 			let v1 = U8Vec3::new(get_bit(vertex_vertex, 0), get_bit(vertex_vertex, 1), get_bit(vertex_vertex, 2)).as_vec3();
 	// 			let v2 = U8Vec3::new(get_bit(vertex_vertex, 3), get_bit(vertex_vertex, 4), get_bit(vertex_vertex, 5)).as_vec3();
 	// 			debug_draw::line(
-	// 				e2.pose * e2.grids()[collision.part2.grid_index as usize].pose * (v1 + collision.part2.voxel_pos.as_vec3()),
-	// 				e2.pose * e2.grids()[collision.part2.grid_index as usize].pose * (v2 + collision.part2.voxel_pos.as_vec3()),
+	// 				e2.pose * grid_manager.grid(collision.part2.grid_id).unwrap().pose() * (v1 + collision.part2.voxel_pos.as_vec3()),
+	// 				e2.pose * grid_manager.grid(collision.part2.grid_id).unwrap().pose() * (v2 + collision.part2.voxel_pos.as_vec3()),
 	// 				&Vec4::ONE
 	// 			);
 	// 		},
 	// 		CubeFeature::Face { xyzs } => {
 	// 			let v = U8Vec3::new(get_bit(xyzs, 0), get_bit(xyzs, 1), get_bit(xyzs, 2)).as_vec3() * (0.5 - get_bit(xyzs, 3) as f32);
 	// 			debug_draw::aabb(
-	// 				e2.pose * e2.grids()[collision.part2.grid_index as usize].pose * (v + collision.part2.voxel_pos.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
-	// 				e2.pose * e2.grids()[collision.part2.grid_index as usize].pose * (v + collision.part2.voxel_pos.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
+	// 				e2.pose * grid_manager.grid(collision.part2.grid_id).unwrap().pose() * (v + collision.part2.voxel_pos.as_vec3() + Vec3::splat(0.5)) - Vec3::splat(0.01),
+	// 				e2.pose * grid_manager.grid(collision.part2.grid_id).unwrap().pose() * (v + collision.part2.voxel_pos.as_vec3() + Vec3::splat(0.5)) + Vec3::splat(0.01),
 	// 				&Vec4::W
 	// 			);
 	// 		},
