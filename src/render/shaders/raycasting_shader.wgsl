@@ -13,6 +13,11 @@ struct CameraUniform {
 }
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 
+struct RenderSettings {
+	values: vec4<u32>,
+}
+@group(0) @binding(1) var<uniform> render_settings: RenderSettings;
+
 @compute
 @workgroup_size(8, 4)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
@@ -85,10 +90,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 		return;
 	}
 
-	// let hit_pos = ray_start + (hit.total_dist + beam_min_dist - 0.01) * ray_dir;
-	// let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
-	// let light_visible = sky_hit.normal == 0;
-	let light_visible = true;
+	var light_visible = true;
+	if render_settings.values.x != 0u {
+		let hit_pos = ray_start + (hit.total_dist + beam_min_dist - 0.01) * ray_dir;
+		let sky_hit = full_raycast(hit_pos, sun_dir, 1e38);
+		light_visible = sky_hit.normal == 0;
+	}
 	textureStore(intermediate_textured, pixel, vec4<u32>(
 		hit.normal + 256u * u32(light_visible),
 		hit.bvh_item_idx,

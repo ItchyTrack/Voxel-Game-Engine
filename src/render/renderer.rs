@@ -13,7 +13,7 @@ use crate::world::physics_body::PhysicsBodyId;
 use crate::world::grid::GridId;
 use crate::world::grid::SubGridId;
 use crate::player::camera;
-use crate::render::{crosshair_renderer, debug_draw_renderer, voxel_renderer};
+use crate::render::{crosshair_renderer, debug_draw_renderer, graphics_settings::{GraphicsSettings, RenderSettingsUniform}, voxel_renderer};
 use crate::state::DebugEnables;
 
 pub struct Renderer {
@@ -29,7 +29,8 @@ pub struct Renderer {
 	pub camera_buffer: wgpu::Buffer,
 	pub camera_bind_group: wgpu::BindGroup,
 	pub camera_transform_buffer: wgpu::Buffer,
-	pub camera_transform_bind_group: wgpu::BindGroup,
+	pub camera_render_bind_group: wgpu::BindGroup,
+	pub render_settings_buffer: wgpu::Buffer,
 	pub voxel_renderer: voxel_renderer::VoxelRenderer,
 	pub crosshair_renderer: crosshair_renderer::CrosshairRenderer,
 	pub debug_draw_renderer: debug_draw_renderer::DebugDrawRenderer,
@@ -156,10 +157,60 @@ impl Renderer {
 		// ----------------------------- Camera setup -----------------------------
 
 		let camera_buffer = matrix::MatrixUniform::get_buffer(&device, 0);
-		let camera_transform_buffer = camera::CameraUniform::get_buffer(&device, 0);
+		let camera_transform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+				label: Some("camera_transform_buffer"),
+				size: std::mem::size_of::<camera::CameraUniform>() as u64,
+				usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+				mapped_at_creation: false,
+			});
+		let render_settings_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+				label: Some("render_settings_buffer"),
+				size: std::mem::size_of::<RenderSettingsUniform>() as u64,
+				usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+				mapped_at_creation: false,
+			});
+		let camera_render_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+				entries: &[
+					wgpu::BindGroupLayoutEntry {
+						binding: 0,
+						visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+						ty: wgpu::BindingType::Buffer {
+							ty: wgpu::BufferBindingType::Uniform,
+							has_dynamic_offset: false,
+							min_binding_size: None,
+						},
+						count: None,
+					},
+					wgpu::BindGroupLayoutEntry {
+						binding: 1,
+						visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+						ty: wgpu::BindingType::Buffer {
+							ty: wgpu::BufferBindingType::Uniform,
+							has_dynamic_offset: false,
+							min_binding_size: None,
+						},
+						count: None,
+					},
+				],
+				label: Some("Camera Transform + Render Settings Bind Group Layout"),
+			});
+		let camera_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+				layout: &camera_render_bind_group_layout,
+				entries: &[
+					wgpu::BindGroupEntry {
+						binding: 0,
+						resource: camera_transform_buffer.as_entire_binding(),
+					},
+					wgpu::BindGroupEntry {
+						binding: 1,
+						resource: render_settings_buffer.as_entire_binding(),
+					},
+				],
+				label: Some("Camera Transform + Render Settings Bind Group"),
+			});
 
 		// ----------------------------- Renderers setup -----------------------------
-		let voxel_renderer = voxel_renderer::VoxelRenderer::new(&device, &config, &camera_transform_buffer.2)?;
+		let voxel_renderer = voxel_renderer::VoxelRenderer::new(&device, &config, &camera_render_bind_group_layout)?;
 		let crosshair_renderer = crosshair_renderer::CrosshairRenderer::new(&device, &config)?;
 		let debug_draw_renderer = debug_draw_renderer::DebugDrawRenderer::new(&device, &config, &camera_buffer.2)?;
 
@@ -175,8 +226,9 @@ impl Renderer {
 			imgui_platform,
 			camera_buffer: camera_buffer.0,
 			camera_bind_group: camera_buffer.1,
-			camera_transform_buffer: camera_transform_buffer.0,
-			camera_transform_bind_group: camera_transform_buffer.1,
+			camera_transform_buffer,
+			camera_render_bind_group,
+			render_settings_buffer,
 			voxel_renderer,
 			crosshair_renderer,
 			debug_draw_renderer,
@@ -193,6 +245,7 @@ impl Renderer {
 		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
 		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
 		debug_enables: &mut DebugEnables,
+		graphics_settings: &mut GraphicsSettings,
 		packed_64_tree_dynamic_buffer: &parking_lot::RwLockReadGuard<'_, PackedDynamicBuffer>,
 		packed_voxel_data_dynamic_buffer: &parking_lot::RwLockReadGuard<'_, PackedDynamicBuffer>
 	) -> Result<(), wgpu::CurrentSurfaceTexture> {
@@ -203,6 +256,7 @@ impl Renderer {
 		if !self.is_surface_configured { return Ok(()); }
 		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&camera.build_view_projection_matrix())]));
 		self.queue.write_buffer(&self.camera_transform_buffer, 0, bytemuck::cast_slice(&[camera::CameraUniform::from_camera(camera)]));
+		self.queue.write_buffer(&self.render_settings_buffer, 0, bytemuck::cast_slice(&[RenderSettingsUniform::from_graphics_settings(graphics_settings)]));
 
 		let output = {
 			let _zone = span!("Finish Last Render");
@@ -243,7 +297,7 @@ impl Renderer {
 			&self.device,
 			&mut encoder,
 			&view,
-			&self.camera_transform_bind_group,
+			&self.camera_render_bind_group,
 			bvh,
 			gpu_grid_tree_id_to_id_poses,
 			packed_64_tree_dynamic_buffer,
@@ -264,6 +318,10 @@ impl Renderer {
 					ui.text(format!("BVH bytes: {:}KB", self.last_gpu_bvh.as_ref().map_or(0, |bvh| bvh.bvh_buffer.size()) / 1000));
 					ui.text(format!("BVH leaf bytes: {:}KB", self.last_gpu_bvh.as_ref().map_or(0, |bvh| bvh.items_buffer.size()) / 1000));
 					ui.separator();
+					ui.text("Graphics");
+					ui.checkbox("shadows", &mut graphics_settings.shadows);
+					ui.separator();
+					ui.text("Debug");
 					ui.checkbox("freeze upload", &mut debug_enables.freeze_gpu_grids);
 					ui.checkbox("freeze physics", &mut debug_enables.freeze_physics);
 					ui.checkbox("inertia boxes", &mut debug_enables.inertia_boxes);
