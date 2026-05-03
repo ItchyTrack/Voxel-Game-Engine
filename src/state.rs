@@ -577,6 +577,97 @@ impl State {
 			// }
 
 			player_id
+
+			ecs.add_system("camera_movement", |ecs| {
+				ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
+					CameraController::update_camera(camera_controller, camera, player_input, dt)
+				);
+			});
+			{
+
+				// if let Some(camera) = self.ecs.read().get_component::<Camera>(player_id) {
+				// 	let (forward, right, _) = camera.forward_right_up();
+				// 	self.audio_engine.set_listener(ListenerState {
+				// 		position: camera.position,
+				// 		forward,
+				// 		right,
+				// 	});
+				// 	if let Some(player_input) = self.ecs.read().get_component::<PlayerInput>(player_id) {
+				// 		if player_input.key(KeyCode::KeyM).just_pressed {
+				// 			self.audio_engine.play_sound(SoundEffect::DebugBeep, camera.position + forward * 20.0);
+				// 		}
+				// 	}
+				// }
+
+				self.ecs.write().run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
+					let ray_start = if debug_enables.raycast_pose.is_none() {
+						Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch))
+					} else {
+						debug_enables.raycast_pose.unwrap()
+					};
+					if player_input.key(KeyCode::KeyH).just_pressed {
+						if debug_enables.raycast_pose.is_none() {
+							debug_enables.raycast_pose = Some(Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch)));
+						} else {
+							debug_enables.raycast_pose = None;
+						}
+					}
+					let started_holding = object_pickup.is_holding();
+					if let Some((body_id, grid_id, hit_pos, hit_normal, distance)) = self.raycast(&ray_start, None) {
+						let physics_body = self.physics_body(body_id).unwrap();
+						let grid_pose = { let grid = self.grid(grid_id).unwrap(); grid.pose().clone() };
+						let globle_hit_normal = physics_body.pose.rotation * grid_pose.rotation * hit_normal.as_vec3();
+						let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
+						let globle_hit_pos_snap = physics_body.pose * grid_pose * hit_pos.as_vec3();
+						let place_voxel_pos = hit_pos + hit_normal.as_ivec3();
+						let break_voxel_pos = hit_pos;
+						// let place_sound_pos = physics_body.pose * grid_pose * (place_voxel_pos.as_vec3() + Vec3::splat(0.5));
+						// let break_sound_pos = physics_body.pose * grid_pose * (break_voxel_pos.as_vec3() + Vec3::splat(0.5));
+						debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
+						debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid_pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
+						if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
+							self.grid_mut(grid_id).unwrap().add_voxel(&place_voxel_pos, &Voxel{ color: [100, 100, 100, 1], mass: 100 });
+							// if self.place_sound_cooldown <= 0.0 {
+							// 	self.audio_engine.play_sound(SoundEffect::BlockPlace, place_sound_pos);
+							// 	self.place_sound_cooldown = BLOCK_PLACE_SOUND_INTERVAL_SECONDS;
+							// }
+						}
+						if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
+							self.grid_mut(grid_id).unwrap().remove_voxel(&break_voxel_pos);
+							// if self.break_sound_cooldown <= 0.0 {
+							// 	self.audio_engine.play_sound(SoundEffect::BlockBreak, break_sound_pos);
+							// 	self.break_sound_cooldown = BLOCK_BREAK_SOUND_INTERVAL_SECONDS;
+							// }
+						}
+						if player_input.key(KeyCode::KeyR).just_pressed {
+							self.apply_impulse(
+								self.physics_body(body_id).unwrap().id(),
+								&globle_hit_pos,
+								&(ray_start.rotation * Vec3::Z * 1600000.0)
+							);
+						}
+						if player_input.key(KeyCode::KeyF).just_pressed {
+							if !started_holding {
+								let body = self.physics_body(body_id).unwrap();
+								if !body.is_static {
+									object_pickup.set(body.id());
+								}
+							}
+						}
+					}
+					if player_input.key(KeyCode::KeyF).just_pressed {
+						if started_holding {
+							object_pickup.reset();
+						}
+					}
+					if player_input.key(KeyCode::KeyT).just_pressed {
+						debug_enables.freeze_gpu_grids ^= true;
+					}
+					if player_input.key(KeyCode::KeyP).just_pressed {
+						debug_enables.freeze_physics ^= true;
+					}
+				});
+			}
 		};
 
 		Ok(Self {
