@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, VecDeque}, ops::{AddAssign, SubAssign}, pin::Pin, sync::Arc, time::Instant};
-use glam::{I8Vec3, IVec3, Quat, Vec3};
+use glam::{I8Vec3, IVec3, Quat, Vec3, Vec4};
 use num::Zero;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -8,7 +8,7 @@ use tracy_client::span;
 use wgpu::{Device, Queue};
 use winit::keyboard::KeyCode;
 
-use crate::player::camera::{Camera, CameraController, ViewFrustum};
+use crate::{audio::audio_engine::SoundEffect, debug_draw, player::camera::{Camera, CameraController, ViewFrustum}, world::voxels::Voxel};
 use crate::player::{object_pickup::ObjectPickup, orientator::Orientator, player_input::PlayerInput, player_tracker::PlayerTracker};
 use crate::{state::DebugEnables};
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
@@ -254,48 +254,48 @@ impl World {
 					}
 				}
 				let started_holding = object_pickup.is_holding();
-				// if let Some((body_id, grid_id, hit_pos, hit_normal, distance)) = self.raycast(&ray_start, None) {
-				// 	let physics_body = self.physics_body(body_id).unwrap();
-				// 	let grid = physics_body.grid(grid_id).unwrap();
-				// 	let globle_hit_normal = physics_body.pose.rotation * grid.pose.rotation * hit_normal.as_vec3();
-				// 	let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
-				// 	let globle_hit_pos_snap = physics_body.pose * grid.pose * hit_pos.as_vec3();
-				// 	let place_voxel_pos = hit_pos + hit_normal.as_ivec3();
-				// 	let break_voxel_pos = hit_pos;
-				// 	let place_sound_pos = physics_body.pose * grid.pose * (place_voxel_pos.as_vec3() + Vec3::splat(0.5));
-				// 	let break_sound_pos = physics_body.pose * grid.pose * (break_voxel_pos.as_vec3() + Vec3::splat(0.5));
-				// 	debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
-				// 	debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid.pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
-				// 	if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
-				// 		self.physics_engine.physics_body_mut(body_id).unwrap().grid_mut(grid_id).unwrap().add_voxel(place_voxel_pos, Voxel{ color: [100, 100, 100, 1], mass: 100 }, &mut self.resource_manager);
-				// 		if self.place_sound_cooldown <= 0.0 {
-				// 			self.audio_engine.play_sound(SoundEffect::BlockPlace, place_sound_pos);
-				// 			self.place_sound_cooldown = BLOCK_PLACE_SOUND_INTERVAL_SECONDS;
-				// 		}
-				// 	}
-				// 	if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
-				// 		self.physics_engine.physics_body_mut(body_id).unwrap().grid_mut(grid_id).unwrap().remove_voxel(&break_voxel_pos);
-				// 		if self.break_sound_cooldown <= 0.0 {
-				// 			self.audio_engine.play_sound(SoundEffect::BlockBreak, break_sound_pos);
-				// 			self.break_sound_cooldown = BLOCK_BREAK_SOUND_INTERVAL_SECONDS;
-				// 		}
-				// 	}
-				// 	if player_input.key(KeyCode::KeyR).just_pressed {
-				// 		self.physics_engine.apply_impulse(
-				// 			self.physics_engine.physics_body(body_id).unwrap().id(),
-				// 			&globle_hit_pos,
-				// 			&(ray_start.rotation * Vec3::Z * 1600000.0)
-				// 		);
-				// 	}
-				// 	if player_input.key(KeyCode::KeyF).just_pressed {
-				// 		if !started_holding {
-				// 			let body = self.physics_engine.physics_body(body_id).unwrap();
-				// 			if !body.is_static {
-				// 				object_pickup.set(body.id());
-				// 			}
-				// 		}
-				// 	}
-				// }
+				if let Some((body_id, grid_id, hit_pos, hit_normal, distance)) = self.raycast(&ray_start, None) {
+					let physics_body = self.physics_body(body_id).unwrap();
+					let grid_pose = { let grid = self.grid(grid_id).unwrap(); grid.pose().clone() };
+					let globle_hit_normal = physics_body.pose.rotation * grid_pose.rotation * hit_normal.as_vec3();
+					let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
+					let globle_hit_pos_snap = physics_body.pose * grid_pose * hit_pos.as_vec3();
+					let place_voxel_pos = hit_pos + hit_normal.as_ivec3();
+					let break_voxel_pos = hit_pos;
+					// let place_sound_pos = physics_body.pose * grid_pose * (place_voxel_pos.as_vec3() + Vec3::splat(0.5));
+					// let break_sound_pos = physics_body.pose * grid_pose * (break_voxel_pos.as_vec3() + Vec3::splat(0.5));
+					debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
+					debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid_pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
+					if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
+						self.grid_mut(grid_id).unwrap().add_voxel(&place_voxel_pos, &Voxel{ color: [100, 100, 100, 1], mass: 100 });
+						// if self.place_sound_cooldown <= 0.0 {
+						// 	self.audio_engine.play_sound(SoundEffect::BlockPlace, place_sound_pos);
+						// 	self.place_sound_cooldown = BLOCK_PLACE_SOUND_INTERVAL_SECONDS;
+						// }
+					}
+					if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
+						self.grid_mut(grid_id).unwrap().remove_voxel(&break_voxel_pos);
+						// if self.break_sound_cooldown <= 0.0 {
+						// 	self.audio_engine.play_sound(SoundEffect::BlockBreak, break_sound_pos);
+						// 	self.break_sound_cooldown = BLOCK_BREAK_SOUND_INTERVAL_SECONDS;
+						// }
+					}
+					if player_input.key(KeyCode::KeyR).just_pressed {
+						self.apply_impulse(
+							self.physics_body(body_id).unwrap().id(),
+							&globle_hit_pos,
+							&(ray_start.rotation * Vec3::Z * 1600000.0)
+						);
+					}
+					if player_input.key(KeyCode::KeyF).just_pressed {
+						if !started_holding {
+							let body = self.physics_body(body_id).unwrap();
+							if !body.is_static {
+								object_pickup.set(body.id());
+							}
+						}
+					}
+				}
 				if player_input.key(KeyCode::KeyF).just_pressed {
 					if started_holding {
 						object_pickup.reset();
@@ -409,7 +409,7 @@ impl World {
 	pub fn apply_rotational_impulse(&self, physics_body_id: PhysicsBodyId, rotational_impluse: &Vec3) {
 		self.impulses.write().entry(physics_body_id).or_default().push(Impulse::RotationalImpulse { rotational_impluse: *rotational_impluse });
 	}
-	pub fn apply_impulse(&mut self, physics_body_id: PhysicsBodyId, impluse_pos: &Vec3, impluse: &Vec3) {
+	pub fn apply_impulse(&self, physics_body_id: PhysicsBodyId, impluse_pos: &Vec3, impluse: &Vec3) {
 		self.impulses.write().entry(physics_body_id).or_default().push(Impulse::Impulse { impluse: *impluse, impluse_pos: *impluse_pos });
 	}
 
@@ -433,17 +433,17 @@ impl World {
 			if best_hit.is_some() && bvh_distance > best_hit.unwrap().4 { break; }
 			let physics_body = &self.physics_body(body_id).unwrap();
 			let grid = self.grid(grid_id).unwrap();
-			// let sub_grid = grid.sub_grid(sub_grid_id).unwrap();
-			// if let Some((hit_pos, hit_normal, grid_distance)) = sub_grid.get_voxels().get_voxels().raycast(
-			// 	&(&Pose::from_translation(-grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()).as_vec3()) * grid.pose.inverse() * physics_body.pose.inverse() * Pose::new(
-			// 		pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
-			// 	max_length.map(|max_length| max_length - bvh_distance),
-			// 	// &(&physics_body.pose * grid.pose * Pose::from_translation(grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos().as_ivec3()).as_vec3()))
-			// ) {
-			// 	if best_hit.is_none() || grid_distance + bvh_distance < best_hit.unwrap().4 {
-			// 		best_hit = Some((body_id, grid_id, hit_pos.as_ivec3() + grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()), hit_normal, grid_distance + bvh_distance));
-			// 	}
-			// }
+			let sub_grid = grid.sub_grid(sub_grid_id).unwrap();
+			if let Some((hit_pos, hit_normal, grid_distance)) = sub_grid.get_voxels().get_voxels().raycast(
+				&((physics_body.pose * grid.pose() * Pose::from_translation(sub_grid.sub_grid_pos().as_vec3())).inverse() * Pose::new(
+					pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
+				max_length.map(|max_length| max_length - bvh_distance),
+				// &(&physics_body.pose * grid.pose * Pose::from_translation(grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos().as_ivec3()).as_vec3()))
+			) {
+				if best_hit.is_none() || grid_distance + bvh_distance < best_hit.unwrap().4 {
+					best_hit = Some((body_id, grid_id, hit_pos.as_ivec3() + sub_grid.sub_grid_pos(), hit_normal, grid_distance + bvh_distance));
+				}
+			}
 		}
 		best_hit
 	}
