@@ -8,14 +8,14 @@ use super::{component_storage::ComponentStorage, system::System, message_queue::
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct EntityId(u32);
 
-pub struct EntityComponentSystem {
+pub struct EntityComponentSystem<D: 'static> {
 	component_sets: HashMap<TypeId, ComponentStorage>,
 	message_queues: HashMap<TypeId, MessageQueue>,
-	systems: HashMap<String, System>,
+	systems: HashMap<String, System<D>>,
 	next_entity_id: EntityId,
 }
 
-impl EntityComponentSystem {
+impl<D: 'static> EntityComponentSystem<D> {
 	pub fn new() -> Self {
 		Self {
 			component_sets: HashMap::new(),
@@ -24,6 +24,8 @@ impl EntityComponentSystem {
 			next_entity_id: EntityId(0),
 		}
 	}
+
+	// ------------- entities -------------
 
 	pub fn add_entity(&mut self) -> EntityId {
 		self.next_entity_id.0 += 1;
@@ -35,6 +37,8 @@ impl EntityComponentSystem {
 			storage.remove(entity_id);
 		}
 	}
+
+	// ------------- components -------------
 
 	pub fn add_component_to_entity<T: 'static>(&mut self, entity_id: EntityId, component: T) {
 		self.component_sets
@@ -196,20 +200,7 @@ impl EntityComponentSystem {
 		}
 	}
 
-	pub fn add_system<F>(&mut self, name: impl Into<String>, func: F)
-	where
-		F: FnMut(&mut EntityComponentSystem) + 'static,
-	{
-		let name = name.into();
-		self.systems.insert(name.clone(), System::new(name, func));
-	}
-
-	pub fn run_system(&mut self, name: &str) {
-		if let Some(mut system) = self.systems.remove(name) {
-			system.run(self);
-			self.systems.insert(system.name().to_string(), system);
-		}
-	}
+	// ------------- messaging -------------
 
 	pub fn post_message<T: 'static>(&mut self, message: T) {
 		self.message_queues
@@ -237,6 +228,23 @@ impl EntityComponentSystem {
 	pub fn clear_messages<T: 'static>(&mut self) {
 		if let Some(queue) = self.message_queues.get_mut(&TypeId::of::<T>()) {
 			queue.clear();
+		}
+	}
+
+	// ------------- systems -------------
+
+	pub fn add_system<F>(&mut self, name: impl Into<String>, func: F)
+	where
+		F: FnMut(&mut EntityComponentSystem<D>, &D) + 'static,
+	{
+		let name = name.into();
+		self.systems.insert(name.clone(), System::new(name, func));
+	}
+
+	pub fn run_system<'a>(&mut self, name: &str, data: &'a D) {
+		if let Some(mut system) = self.systems.remove(name) {
+			system.run(self, data);
+			self.systems.insert(system.name().to_string(), system);
 		}
 	}
 }

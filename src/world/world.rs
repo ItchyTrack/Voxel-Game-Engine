@@ -6,10 +6,9 @@ use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, 
 use async_priority_queue::PriorityQueue;
 use tracy_client::span;
 use wgpu::{Device, Queue};
-use winit::keyboard::KeyCode;
 
-use crate::{audio::audio_engine::SoundEffect, debug_draw, player::camera::{Camera, CameraController, ViewFrustum}, world::voxels::Voxel};
-use crate::player::{object_pickup::ObjectPickup, orientator::Orientator, player_input::PlayerInput, player_tracker::PlayerTracker};
+use crate::{player::camera::{Camera, ViewFrustum}};
+use crate::player::{object_pickup::ObjectPickup, orientator::Orientator, player_tracker::PlayerTracker};
 use crate::{state::DebugEnables};
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
 use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH, inertia_tensor::InertiaTensor}};
@@ -103,6 +102,11 @@ pub enum UpdatePhases {
 	PhysicsUpdatePost,
 }
 
+pub struct UpdateData {
+	pub world: Arc<World>,
+	pub dt: f32,
+}
+
 pub struct World {
 	pub physics_bodies: RwLock<SparseSet<PhysicsBodyId, PhysicsBody>>,
 	pub grid_manager: RwLock<GridManager>,
@@ -118,7 +122,7 @@ pub struct World {
 
 	pub bvh: RwLock<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
 
-	pub ecs: RwLock<EntityComponentSystem>,
+	pub ecs: RwLock<EntityComponentSystem<UpdateData>>,
 	pub system_updates: RwLock<HashMap<UpdatePhases, Vec<String>>>,
 
 	pub resource_manager: RwLock<ResourceManager>,
@@ -209,17 +213,21 @@ impl World {
 	}
 
 	// called at any rate (faster is better and should be at least once per frame)
-	pub fn update(&self, dt: f32, player_id: EntityId, debug_enables: &mut DebugEnables) {
+	pub fn update(world: &Arc<World>, dt: f32, player_id: EntityId, debug_enables: &mut DebugEnables) {
 		let _zone = span!("World Update");
+		let update_data = UpdateData {
+			world: world.clone(),
+			dt: dt
+		};
 		if !debug_enables.freeze_gpu_grids {
 			let _zone = span!("Do tasks");
-			while let Some(task) = { self.task_queue.lock().pop_front() } {
-				task.run(self);
+			while let Some(task) = { world.task_queue.lock().pop_front() } {
+				task.run(world);
 			}
 		}
-		if let Some(systems) = self.system_updates.read().get(&UpdatePhases::UpdatePre) {
+		if let Some(systems) = world.system_updates.read().get(&UpdatePhases::UpdatePre) {
 			for system_name in systems {
-				self.ecs.write().run_system(system_name);
+				world.ecs.write().run_system(system_name, &update_data);
 			}
 		}
 		{
@@ -236,12 +244,12 @@ impl World {
 		}
 
 		if !debug_enables.freeze_physics {
-			let leaky_bucket = &mut self.leaky_bucket.write();
+			let leaky_bucket = &mut world.leaky_bucket.write();
 			leaky_bucket.add_assign(dt);
 			let time_step = 1.0 / 100.0;
 			let current_time = Instant::now();
 			while leaky_bucket.ge(&time_step) {
-				self.physics_update(time_step, player_id);
+				World::physics_update(world, time_step, player_id);
 				leaky_bucket.sub_assign(time_step);
 				let elapsed = current_time.elapsed().as_secs_f32(); // timeout should maybe be removed at some point
 				if elapsed > 1.0 / 60.0 {
@@ -250,49 +258,41 @@ impl World {
 			}
 		}
 
-		if let Some(systems) = self.system_updates.read().get(&UpdatePhases::UpdatePost) {
+		if let Some(systems) = world.system_updates.read().get(&UpdatePhases::UpdatePost) {
 			for system_name in systems {
-				self.ecs.write().run_system(system_name);
+				world.ecs.write().run_system(system_name, &update_data);
 			}
 		}
 	}
 
-	fn physics_update(&self, dt: f32, player_id: EntityId) {
-		self.update_physics_body_stats();
-		if let Some(systems) = self.system_updates.read().get(&UpdatePhases::PhysicsUpdatePre) {
+	fn physics_update(world: &Arc<World>, dt: f32, player_id: EntityId) {
+		let update_data = UpdateData {
+			world: world.clone(),
+			dt: dt
+		};
+		world.update_physics_body_stats();
+		if let Some(systems) = world.system_updates.read().get(&UpdatePhases::PhysicsUpdatePre) {
 			for system_name in systems {
-				self.ecs.write().run_system(system_name);
+				world.ecs.write().run_system(system_name, &update_data);
 			}
 		}
-		self.ecs.write().run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
-			if object_pickup.is_holding() {
-				object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), dt, self);
-			}
-		});
-		self.ecs.write().run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
-			orientator.hold_at_orientation(&Quat::IDENTITY, dt, &self);
-		});
-		let player_position = self.ecs.read().get_component::<Camera>(player_id).unwrap().position;
-		self.ecs.write().run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
-			player_tracker.track_pos(&player_position, dt, &self);
-		});
 		let _zone = span!("PhysicsEngine update physics");
 		{
-			let bvh = &get_bvh_macro!(self);
-			self.solver.write().solve(
-				&mut self.physics_bodies.write(),
-				&self.grid_manager.read(),
-				&mut self.constraints.write(),
-				&self.impulses.read(),
+			let bvh = &get_bvh_macro!(world);
+			world.solver.write().solve(
+				&mut world.physics_bodies.write(),
+				&world.grid_manager.read(),
+				&mut world.constraints.write(),
+				&world.impulses.read(),
 				dt,
 				bvh
 			);
-			self.impulses.write().clear();
+			world.impulses.write().clear();
 		}
-		*self.bvh.write() = None;
-		if let Some(systems) = self.system_updates.read().get(&UpdatePhases::PhysicsUpdatePost) {
+		*world.bvh.write() = None;
+		if let Some(systems) = world.system_updates.read().get(&UpdatePhases::PhysicsUpdatePost) {
 			for system_name in systems {
-				self.ecs.write().run_system(system_name);
+				world.ecs.write().run_system(system_name, &update_data);
 			}
 		}
 	}

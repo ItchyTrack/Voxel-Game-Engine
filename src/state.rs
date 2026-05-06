@@ -2,11 +2,11 @@
 use web_time::Instant;
 use std::{collections::HashMap, f32, sync::Arc};
 
-use glam::{IVec3, Quat, Vec3};
+use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, player::camera, world::physics_solver::bvh::BVH};
+use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, debug_draw, player::camera, world::{physics_solver::bvh::BVH, voxels::Voxel, world::{UpdateData, UpdatePhases}}};
 use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
 use crate::render::{renderer::Renderer, graphics_settings::GraphicsSettings};
@@ -24,7 +24,7 @@ pub struct State {
 	pub break_sound_cooldown: f32,
 	pub debug_enables: DebugEnables,
 	pub graphics_settings: GraphicsSettings,
-	pub world: World,
+	pub world: Arc<World>,
 }
 
 pub struct DebugEnables {
@@ -72,7 +72,7 @@ impl State {
 	}
 
 	pub fn update(&mut self, dt: f32) {
-		self.world.update(dt, self.player_id, &mut self.debug_enables);
+		World::update(&self.world, dt, self.player_id, &mut self.debug_enables);
 		// let _zone = span!("State Update");
 		// if !self.debug_enables.freeze_gpu_grids {
 		// 	let _zone = span!("Do tasks");
@@ -576,14 +576,12 @@ impl State {
 			// 	physics_body.pose.translation.y = -10.0;
 			// }
 
-			player_id
-
-			ecs.add_system("camera_movement", |ecs| {
+			ecs.add_system("camera_movement", |ecs, update_data: &UpdateData| {
 				ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
-					CameraController::update_camera(camera_controller, camera, player_input, dt)
+					CameraController::update_camera(camera_controller, camera, player_input, update_data.dt)
 				);
 			});
-			{
+			ecs.add_system("other", |ecs, update_data: &UpdateData| {
 
 				// if let Some(camera) = self.ecs.read().get_component::<Camera>(player_id) {
 				// 	let (forward, right, _) = camera.forward_right_up();
@@ -599,23 +597,23 @@ impl State {
 				// 	}
 				// }
 
-				self.ecs.write().run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
-					let ray_start = if debug_enables.raycast_pose.is_none() {
-						Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch))
-					} else {
-						debug_enables.raycast_pose.unwrap()
-					};
+				ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
+					let ray_start = //if debug_enables.raycast_pose.is_none() {
+						Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
+					// } else {
+					// 	debug_enables.raycast_pose.unwrap()
+					// };
 					if player_input.key(KeyCode::KeyH).just_pressed {
-						if debug_enables.raycast_pose.is_none() {
-							debug_enables.raycast_pose = Some(Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch)));
-						} else {
-							debug_enables.raycast_pose = None;
-						}
+						// if debug_enables.raycast_pose.is_none() {
+						// 	debug_enables.raycast_pose = Some(Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch)));
+						// } else {
+						// 	debug_enables.raycast_pose = None;
+						// }
 					}
 					let started_holding = object_pickup.is_holding();
-					if let Some((body_id, grid_id, hit_pos, hit_normal, distance)) = self.raycast(&ray_start, None) {
-						let physics_body = self.physics_body(body_id).unwrap();
-						let grid_pose = { let grid = self.grid(grid_id).unwrap(); grid.pose().clone() };
+					if let Some((body_id, grid_id, hit_pos, hit_normal, distance)) = update_data.world.raycast(&ray_start, None) {
+						let physics_body = update_data.world.physics_body(body_id).unwrap();
+						let grid_pose = { let grid = update_data.world.grid(grid_id).unwrap(); grid.pose().clone() };
 						let globle_hit_normal = physics_body.pose.rotation * grid_pose.rotation * hit_normal.as_vec3();
 						let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
 						let globle_hit_pos_snap = physics_body.pose * grid_pose * hit_pos.as_vec3();
@@ -626,29 +624,29 @@ impl State {
 						debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
 						debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid_pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
 						if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
-							self.grid_mut(grid_id).unwrap().add_voxel(&place_voxel_pos, &Voxel{ color: [100, 100, 100, 1], mass: 100 });
+							update_data.world.grid_mut(grid_id).unwrap().add_voxel(&place_voxel_pos, &Voxel{ color: [100, 100, 100, 1], mass: 100 });
 							// if self.place_sound_cooldown <= 0.0 {
 							// 	self.audio_engine.play_sound(SoundEffect::BlockPlace, place_sound_pos);
 							// 	self.place_sound_cooldown = BLOCK_PLACE_SOUND_INTERVAL_SECONDS;
 							// }
 						}
 						if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
-							self.grid_mut(grid_id).unwrap().remove_voxel(&break_voxel_pos);
+							update_data.world.grid_mut(grid_id).unwrap().remove_voxel(&break_voxel_pos);
 							// if self.break_sound_cooldown <= 0.0 {
 							// 	self.audio_engine.play_sound(SoundEffect::BlockBreak, break_sound_pos);
 							// 	self.break_sound_cooldown = BLOCK_BREAK_SOUND_INTERVAL_SECONDS;
 							// }
 						}
 						if player_input.key(KeyCode::KeyR).just_pressed {
-							self.apply_impulse(
-								self.physics_body(body_id).unwrap().id(),
+							update_data.world.apply_impulse(
+								update_data.world.physics_body(body_id).unwrap().id(),
 								&globle_hit_pos,
 								&(ray_start.rotation * Vec3::Z * 1600000.0)
 							);
 						}
 						if player_input.key(KeyCode::KeyF).just_pressed {
 							if !started_holding {
-								let body = self.physics_body(body_id).unwrap();
+								let body = update_data.world.physics_body(body_id).unwrap();
 								if !body.is_static {
 									object_pickup.set(body.id());
 								}
@@ -660,15 +658,58 @@ impl State {
 							object_pickup.reset();
 						}
 					}
-					if player_input.key(KeyCode::KeyT).just_pressed {
-						debug_enables.freeze_gpu_grids ^= true;
-					}
-					if player_input.key(KeyCode::KeyP).just_pressed {
-						debug_enables.freeze_physics ^= true;
+					// if player_input.key(KeyCode::KeyT).just_pressed {
+					// 	debug_enables.freeze_gpu_grids ^= true;
+					// }
+					// if player_input.key(KeyCode::KeyP).just_pressed {
+					// 	debug_enables.freeze_physics ^= true;
+					// }
+				});
+			});
+
+			ecs.add_system("object_pickup", |ecs, update_data: &UpdateData| {
+				let world_ref = update_data.world.as_ref();
+				ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
+					if object_pickup.is_holding() {
+						object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), update_data.dt, world_ref);
 					}
 				});
-			}
+			});
+			ecs.add_system("orientator", |ecs, update_data: &UpdateData| {
+				let world_ref = update_data.world.as_ref();
+				ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
+					orientator.hold_at_orientation(&Quat::IDENTITY, update_data.dt, world_ref);
+				});
+			});
+			// ecs.add_system("player_tracker", |ecs, update_data: &UpdateData| {`
+			// 	let world_ref = update_data.world.as_ref();
+			// 	let player_position = world.ecs.read().get_component::<Camera>(player_id).unwrap().position;
+			// 	ecs.run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
+			// 		player_tracker.track_pos(&player_position, update_data.dt, &world_ref);
+			// 	});
+			// });`
+			player_id
 		};
+		{
+			let system_updates = &mut world.system_updates.write();
+			{
+				let update_vec = system_updates.entry(UpdatePhases::UpdatePre).or_default();
+				update_vec.push("camera_movement".into());
+				update_vec.push("other".into());
+			}
+			{
+				let update_vec = system_updates.entry(UpdatePhases::UpdatePost).or_default();
+				update_vec.push("object_pickup".into());
+				update_vec.push("orientator".into());
+				update_vec.push("player_tracker".into());
+			}
+			{
+				let _update_vec = system_updates.entry(UpdatePhases::PhysicsUpdatePre).or_default();
+			}
+			{
+				let _update_vec = system_updates.entry(UpdatePhases::PhysicsUpdatePost).or_default();
+			}
+		}
 
 		Ok(Self {
 			renderer,
@@ -679,7 +720,7 @@ impl State {
 			break_sound_cooldown: 0.0,
 			debug_enables: DebugEnables::new(),
 			graphics_settings: GraphicsSettings::new(),
-			world,
+			world: Arc::new(world),
 		})
 	}
 
