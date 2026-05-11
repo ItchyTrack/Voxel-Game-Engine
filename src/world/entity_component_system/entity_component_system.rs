@@ -1,26 +1,22 @@
 use std::collections::HashMap;
 use std::any::TypeId;
 
-use super::{component_storage::ComponentStorage, system::System, message_queue::MessageQueue};
+use super::{component_storage::ComponentStorage};
 
 // Yes, I know this is slow and I do not care. There are so many more things for me to work on.
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct EntityId(u32);
 
-pub struct EntityComponentSystem<D: 'static> {
+pub struct EntityComponentSystem<> {
 	component_sets: HashMap<TypeId, ComponentStorage>,
-	message_queues: HashMap<TypeId, MessageQueue>,
-	systems: HashMap<String, System<D>>,
 	next_entity_id: EntityId,
 }
 
-impl<D: 'static> EntityComponentSystem<D> {
+impl EntityComponentSystem {
 	pub fn new() -> Self {
 		Self {
 			component_sets: HashMap::new(),
-			message_queues: HashMap::new(),
-			systems: HashMap::new(),
 			next_entity_id: EntityId(0),
 		}
 	}
@@ -197,54 +193,6 @@ impl<D: 'static> EntityComponentSystem<D> {
 					}
 				}
 			}
-		}
-	}
-
-	// ------------- messaging -------------
-
-	pub fn post_message<T: 'static>(&mut self, message: T) {
-		self.message_queues
-			.entry(TypeId::of::<T>())
-			.or_insert_with(|| MessageQueue::new::<T>())
-			.push(message);
-	}
-
-	pub fn handle_messages<T: 'static, F: FnMut(&mut Self, T)>(&mut self, mut f: F) {
-		let Some(mut queue) = self.message_queues.remove(&TypeId::of::<T>()) else { return };
-		while let Some(msg) = queue.pop::<T>() {
-			f(self, msg);
-		}
-		self.message_queues.entry(TypeId::of::<T>()).or_insert(queue);
-	}
-
-	pub fn peek_messages<T: 'static, F: Fn(&T)>(&self, f: F) {
-		if let Some(queue) = self.message_queues.get(&TypeId::of::<T>()) {
-			for msg in queue.iter::<T>() {
-				f(msg);
-			}
-		}
-	}
-
-	pub fn clear_messages<T: 'static>(&mut self) {
-		if let Some(queue) = self.message_queues.get_mut(&TypeId::of::<T>()) {
-			queue.clear();
-		}
-	}
-
-	// ------------- systems -------------
-
-	pub fn add_system<F>(&mut self, name: impl Into<String>, func: F)
-	where
-		F: FnMut(&mut EntityComponentSystem<D>, &D) + 'static,
-	{
-		let name = name.into();
-		self.systems.insert(name.clone(), System::new(name, func));
-	}
-
-	pub fn run_system<'a>(&mut self, name: &str, data: &'a D) {
-		if let Some(mut system) = self.systems.remove(name) {
-			system.run(self, data);
-			self.systems.insert(system.name().to_string(), system);
 		}
 	}
 }

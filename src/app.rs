@@ -140,7 +140,7 @@ impl ApplicationHandler<State> for App {
 			}
 			WindowEvent::MouseInput { state: button_state, .. } if button_state.is_pressed() => {
 				if !state.renderer.imgui.io().want_capture_mouse {
-					state.audio_engine.resume();
+					state.audio_engine.lock().unwrap().resume();
 					state.set_mouse_captured(true);
 				}
 			}

@@ -1,12 +1,12 @@
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
-use std::{collections::HashMap, f32, sync::Arc};
+use std::{collections::HashMap, f32, sync::{Arc, Mutex}};
 
 use glam::{IVec3, Quat, Vec3, Vec4};
 use tracy_client::span;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::{CursorGrabMode, Window}};
 
-use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, debug_draw, player::camera, world::{physics_solver::bvh::BVH, voxels::Voxel, world::{UpdateData, UpdatePhases}}};
+use crate::{audio::audio_engine::{AudioEngine, ListenerState, SoundEffect}, debug_draw, player::camera, world::{physics_solver::bvh::BVH, voxels::Voxel, world::UpdatePhases}};
 use crate::world::{world::World, entity_component_system::entity_component_system::EntityId, physics_body::PhysicsBodyId};
 use crate::player::{camera::{Camera, CameraController}, player_input::PlayerInput, object_pickup::ObjectPickup, player_tracker::PlayerTracker, orientator::Orientator};
 use crate::render::{renderer::Renderer, graphics_settings::GraphicsSettings};
@@ -18,12 +18,12 @@ const BLOCK_BREAK_SOUND_INTERVAL_SECONDS: f32 = 1.0 / (14.0 * 2.0);
 pub struct State {
 	pub renderer: Renderer,
 	pub mouse_captured: bool,
-	pub audio_engine: AudioEngine,
+	pub audio_engine: Arc<Mutex<AudioEngine>>,
 	pub player_id: EntityId,
 	pub place_sound_cooldown: f32,
 	pub break_sound_cooldown: f32,
-	pub debug_enables: DebugEnables,
-	pub graphics_settings: GraphicsSettings,
+	pub debug_enables: Arc<Mutex<DebugEnables>>,
+	pub graphics_settings: Arc<Mutex<GraphicsSettings>>,
 	pub world: Arc<World>,
 }
 
@@ -43,6 +43,19 @@ impl DebugEnables {
 			raycast_pose: None,
 		}
 	}
+}
+
+macro_rules! auto_clone {
+    // Match the pattern of the macro
+    ( $($var:ident),* in $($tt:tt)*) => {{
+        // Clone variables and declare them within the scope of the closure
+        $(
+            let $var = $var.clone();
+        )*
+
+        // Create a closure that captures cloned variables
+        $($tt)*
+    }};
 }
 
 impl State {
@@ -72,7 +85,11 @@ impl State {
 	}
 
 	pub fn update(&mut self, dt: f32) {
-		World::update(&self.world, dt, self.player_id, &mut self.debug_enables);
+		let (freeze_physics, freeze_gpu_grids) = {
+			let debug_enables = self.debug_enables.lock().unwrap();
+			(debug_enables.freeze_physics, debug_enables.freeze_gpu_grids)
+		};
+		World::update(&self.world, dt, freeze_gpu_grids, freeze_physics);
 		// let _zone = span!("State Update");
 		// if !self.debug_enables.freeze_gpu_grids {
 		// 	let _zone = span!("Do tasks");
@@ -314,8 +331,11 @@ impl State {
 
 	pub async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
 		let renderer = Renderer::new(window).await?;
-
 		let world = World::new(renderer.device.clone(), renderer.queue.clone());
+		let audio_engine = Arc::new(Mutex::new(AudioEngine::new()));
+		let debug_enables = Arc::new(Mutex::new(DebugEnables::new()));
+		let graphics_settings = Arc::new(Mutex::new(GraphicsSettings::new()));
+
 		let player_id = {
 			let ecs = &mut world.ecs.write();
 			// create player entity
@@ -576,77 +596,79 @@ impl State {
 			// 	physics_body.pose.translation.y = -10.0;
 			// }
 
-			ecs.add_system("camera_movement", |ecs, update_data: &UpdateData| {
-				ecs.run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
-					CameraController::update_camera(camera_controller, camera, player_input, update_data.dt)
+			player_id
+		};
+		{
+			world.system_updater.add_system("camera_movement", |dt, world| {
+				world.ecs.write().run_on_components_tripl_mut::<PlayerInput, CameraController, Camera, _>(&mut |_entity_id, player_input, camera_controller, camera|
+					CameraController::update_camera(camera_controller, camera, player_input, dt)
 				);
 			});
-			ecs.add_system("other", |ecs, update_data: &UpdateData| {
+			world.system_updater.add_system("other", auto_clone!(audio_engine, debug_enables in move |_dt, world| {
+				if let Some(camera) = world.ecs.read().get_component::<Camera>(player_id) {
+					let (forward, right, _) = camera.forward_right_up();
+					audio_engine.lock().unwrap().set_listener(ListenerState {
+						position: camera.position,
+						forward,
+						right,
+					});
+					if let Some(player_input) = world.ecs.read().get_component::<PlayerInput>(player_id) {
+						if player_input.key(KeyCode::KeyM).just_pressed {
+							audio_engine.lock().unwrap().play_sound(SoundEffect::DebugBeep, camera.position + forward * 20.0);
+						}
+					}
+				}
 
-				// if let Some(camera) = self.ecs.read().get_component::<Camera>(player_id) {
-				// 	let (forward, right, _) = camera.forward_right_up();
-				// 	self.audio_engine.set_listener(ListenerState {
-				// 		position: camera.position,
-				// 		forward,
-				// 		right,
-				// 	});
-				// 	if let Some(player_input) = self.ecs.read().get_component::<PlayerInput>(player_id) {
-				// 		if player_input.key(KeyCode::KeyM).just_pressed {
-				// 			self.audio_engine.play_sound(SoundEffect::DebugBeep, camera.position + forward * 20.0);
-				// 		}
-				// 	}
-				// }
-
-				ecs.run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
-					let ray_start = //if debug_enables.raycast_pose.is_none() {
-						Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch));
-					// } else {
-					// 	debug_enables.raycast_pose.unwrap()
-					// };
+				world.ecs.write().run_on_components_tripl_mut::<PlayerInput, Camera, ObjectPickup, _>(&mut |_entity_id, player_input, camera, object_pickup| {
+					let ray_start = if debug_enables.lock().unwrap().raycast_pose.is_none() {
+						Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch))
+					} else {
+						debug_enables.lock().unwrap().raycast_pose.unwrap()
+					};
 					if player_input.key(KeyCode::KeyH).just_pressed {
-						// if debug_enables.raycast_pose.is_none() {
-						// 	debug_enables.raycast_pose = Some(Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch)));
-						// } else {
-						// 	debug_enables.raycast_pose = None;
-						// }
+						if debug_enables.lock().unwrap().raycast_pose.is_none() {
+							debug_enables.lock().unwrap().raycast_pose = Some(Pose::new(camera.position, Quat::from_euler(glam::EulerRot::ZYX, 0.0, camera.yaw, camera.pitch)));
+						} else {
+							debug_enables.lock().unwrap().raycast_pose = None;
+						}
 					}
 					let started_holding = object_pickup.is_holding();
-					if let Some((body_id, grid_id, hit_pos, hit_normal, distance)) = update_data.world.raycast(&ray_start, None) {
-						let physics_body = update_data.world.physics_body(body_id).unwrap();
-						let grid_pose = { let grid = update_data.world.grid(grid_id).unwrap(); grid.pose().clone() };
+					if let Some((body_id, grid_id, hit_pos, hit_normal, distance)) = world.raycast(&ray_start, None) {
+						let physics_body = world.physics_body(body_id).unwrap();
+						let grid_pose = { let grid = world.grid(grid_id).unwrap(); grid.pose().clone() };
 						let globle_hit_normal = physics_body.pose.rotation * grid_pose.rotation * hit_normal.as_vec3();
 						let globle_hit_pos = ray_start.translation + ray_start.rotation * Vec3::Z * distance;
 						let globle_hit_pos_snap = physics_body.pose * grid_pose * hit_pos.as_vec3();
 						let place_voxel_pos = hit_pos + hit_normal.as_ivec3();
 						let break_voxel_pos = hit_pos;
-						// let place_sound_pos = physics_body.pose * grid_pose * (place_voxel_pos.as_vec3() + Vec3::splat(0.5));
-						// let break_sound_pos = physics_body.pose * grid_pose * (break_voxel_pos.as_vec3() + Vec3::splat(0.5));
+						let place_sound_pos = physics_body.pose * grid_pose * (place_voxel_pos.as_vec3() + Vec3::splat(0.5));
+						let break_sound_pos = physics_body.pose * grid_pose * (break_voxel_pos.as_vec3() + Vec3::splat(0.5));
 						debug_draw::line(globle_hit_pos, globle_hit_pos + globle_hit_normal, &Vec4::new(1.0, 0.0, 0.0, 1.0));
 						debug_draw::rectangular_prism(&Pose::new(globle_hit_pos_snap, physics_body.pose.rotation * grid_pose.rotation), Vec3::splat(1.0), &Vec4::new(1.0, 0.0, 1.0, 0.1), true);
 						if player_input.key(KeyCode::Space).just_pressed || player_input.key(KeyCode::KeyC).is_pressed {
-							update_data.world.grid_mut(grid_id).unwrap().add_voxel(&place_voxel_pos, &Voxel{ color: [100, 100, 100, 1], mass: 100 });
-							// if self.place_sound_cooldown <= 0.0 {
-							// 	self.audio_engine.play_sound(SoundEffect::BlockPlace, place_sound_pos);
-							// 	self.place_sound_cooldown = BLOCK_PLACE_SOUND_INTERVAL_SECONDS;
+							world.grid_mut(grid_id).unwrap().add_voxel(&place_voxel_pos, &Voxel{ color: [100, 100, 100, 1], mass: 100 });
+							// if place_sound_cooldown <= 0.0 {
+								audio_engine.lock().unwrap().play_sound(SoundEffect::BlockPlace, place_sound_pos);
+							// 	place_sound_cooldown = BLOCK_PLACE_SOUND_INTERVAL_SECONDS;
 							// }
 						}
 						if player_input.key(KeyCode::KeyX).just_pressed || player_input.key(KeyCode::KeyZ).is_pressed {
-							update_data.world.grid_mut(grid_id).unwrap().remove_voxel(&break_voxel_pos);
-							// if self.break_sound_cooldown <= 0.0 {
-							// 	self.audio_engine.play_sound(SoundEffect::BlockBreak, break_sound_pos);
-							// 	self.break_sound_cooldown = BLOCK_BREAK_SOUND_INTERVAL_SECONDS;
+							world.grid_mut(grid_id).unwrap().remove_voxel(&break_voxel_pos);
+							// if break_sound_cooldown <= 0.0 {
+								audio_engine.lock().unwrap().play_sound(SoundEffect::BlockBreak, break_sound_pos);
+								// break_sound_cooldown = BLOCK_BREAK_SOUND_INTERVAL_SECONDS;
 							// }
 						}
 						if player_input.key(KeyCode::KeyR).just_pressed {
-							update_data.world.apply_impulse(
-								update_data.world.physics_body(body_id).unwrap().id(),
+							world.apply_impulse(
+								world.physics_body(body_id).unwrap().id(),
 								&globle_hit_pos,
 								&(ray_start.rotation * Vec3::Z * 1600000.0)
 							);
 						}
 						if player_input.key(KeyCode::KeyF).just_pressed {
 							if !started_holding {
-								let body = update_data.world.physics_body(body_id).unwrap();
+								let body = world.physics_body(body_id).unwrap();
 								if !body.is_static {
 									object_pickup.set(body.id());
 								}
@@ -658,38 +680,34 @@ impl State {
 							object_pickup.reset();
 						}
 					}
-					// if player_input.key(KeyCode::KeyT).just_pressed {
-					// 	debug_enables.freeze_gpu_grids ^= true;
-					// }
-					// if player_input.key(KeyCode::KeyP).just_pressed {
-					// 	debug_enables.freeze_physics ^= true;
-					// }
+					if player_input.key(KeyCode::KeyT).just_pressed {
+						debug_enables.lock().unwrap().freeze_gpu_grids ^= true;
+					}
+					if player_input.key(KeyCode::KeyP).just_pressed {
+						debug_enables.lock().unwrap().freeze_physics ^= true;
+					}
 				});
-			});
+			}));
 
-			ecs.add_system("object_pickup", |ecs, update_data: &UpdateData| {
-				let world_ref = update_data.world.as_ref();
-				ecs.run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
+			world.system_updater.add_system("object_pickup", |dt, world| {
+				world.ecs.write().run_on_components_pair_mut::<Camera, ObjectPickup, _>(&mut |_entity_id, camera, object_pickup| {
 					if object_pickup.is_holding() {
-						object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), update_data.dt, world_ref);
+						object_pickup.hold_at_pos(&(camera.position + camera.forward() * 40.0), dt, world);
 					}
 				});
 			});
-			ecs.add_system("orientator", |ecs, update_data: &UpdateData| {
-				let world_ref = update_data.world.as_ref();
-				ecs.run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
-					orientator.hold_at_orientation(&Quat::IDENTITY, update_data.dt, world_ref);
+			world.system_updater.add_system("orientator", |dt, world| {
+				world.ecs.write().run_on_components_mut::<Orientator, _>(&mut |_entity_id, orientator| {
+					orientator.hold_at_orientation(&Quat::IDENTITY, dt, world);
 				});
 			});
-			// ecs.add_system("player_tracker", |ecs, update_data: &UpdateData| {`
-			// 	let world_ref = update_data.world.as_ref();
-			// 	let player_position = world.ecs.read().get_component::<Camera>(player_id).unwrap().position;
-			// 	ecs.run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
-			// 		player_tracker.track_pos(&player_position, update_data.dt, &world_ref);
-			// 	});
-			// });`
-			player_id
-		};
+			world.system_updater.add_system("player_tracker", auto_clone!(player_id in move |dt, world| {
+				let player_position = world.ecs.read().get_component::<Camera>(player_id).unwrap().position;
+				world.ecs.write().run_on_components_mut::<PlayerTracker, _>(&mut |_entity_id, player_tracker| {
+					player_tracker.track_pos(&player_position, dt, &world);
+				});
+			}));
+		}
 		{
 			let system_updates = &mut world.system_updates.write();
 			{
@@ -714,12 +732,12 @@ impl State {
 		Ok(Self {
 			renderer,
 			mouse_captured: false,
-			audio_engine: AudioEngine::new(),
+			audio_engine,
 			player_id,
 			place_sound_cooldown: 0.0,
 			break_sound_cooldown: 0.0,
-			debug_enables: DebugEnables::new(),
-			graphics_settings: GraphicsSettings::new(),
+			debug_enables,
+			graphics_settings,
 			world: Arc::new(world),
 		})
 	}
@@ -728,7 +746,7 @@ impl State {
 		// for grid in physics_body.grids() {
 		// 	grid.get_voxels().render_debug(&(physics_body.pose * grid.pose));
 		// }
-		if self.debug_enables.inertia_boxes {
+		if self.debug_enables.lock().unwrap().inertia_boxes {
 			for (_physics_body_id, physics_body) in self.world.physics_bodies.read().iter() {
 				if !physics_body.is_static {
 					physics_body.render_debug_inertia_box();
@@ -763,8 +781,8 @@ impl State {
 				&player_camera,
 				&bvh,
 				&gpu_grid_tree_id_to_id_poses,
-				&mut self.debug_enables,
-				&mut self.graphics_settings,
+				&mut self.debug_enables.lock().unwrap(),
+				&mut self.graphics_settings.lock().unwrap(),
 				&world_gpu_data.packed_64_tree_dynamic_buffer.read(),
 				&world_gpu_data.packed_voxel_data_dynamic_buffer.read()
 			);

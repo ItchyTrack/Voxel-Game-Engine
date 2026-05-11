@@ -1,5 +1,5 @@
 use std::any::{Any, TypeId};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 trait MessageQueueDyn {
     fn as_any(&self) -> &dyn Any;
@@ -79,4 +79,39 @@ impl MessageQueue {
     pub fn held_type_id(&self) -> TypeId {
         self.internal.held_type_id()
     }
+}
+
+pub struct MessagerManager {
+	message_queues: HashMap<TypeId, MessageQueue>,
+}
+
+impl MessagerManager {
+	pub fn post_message<T: 'static>(&mut self, message: T) {
+		self.message_queues
+			.entry(TypeId::of::<T>())
+			.or_insert_with(|| MessageQueue::new::<T>())
+			.push(message);
+	}
+
+	pub fn handle_messages<T: 'static, F: FnMut(&mut Self, T)>(&mut self, mut f: F) {
+		let Some(mut queue) = self.message_queues.remove(&TypeId::of::<T>()) else { return };
+		while let Some(msg) = queue.pop::<T>() {
+			f(self, msg);
+		}
+		self.message_queues.entry(TypeId::of::<T>()).or_insert(queue);
+	}
+
+	pub fn peek_messages<T: 'static, F: Fn(&T)>(&self, f: F) {
+		if let Some(queue) = self.message_queues.get(&TypeId::of::<T>()) {
+			for msg in queue.iter::<T>() {
+				f(msg);
+			}
+		}
+	}
+
+	pub fn clear_messages<T: 'static>(&mut self) {
+		if let Some(queue) = self.message_queues.get_mut(&TypeId::of::<T>()) {
+			queue.clear();
+		}
+	}
 }

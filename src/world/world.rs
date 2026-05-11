@@ -8,13 +8,13 @@ use tracy_client::span;
 use wgpu::{Device, Queue};
 
 use crate::{player::camera::{Camera, ViewFrustum}};
-use crate::player::{object_pickup::ObjectPickup, orientator::Orientator, player_tracker::PlayerTracker};
 use crate::{state::DebugEnables};
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
 use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH, inertia_tensor::InertiaTensor}};
-use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::{EntityComponentSystem, EntityId}};
+use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::{EntityComponentSystem}};
 use super::{resource_manager::{ResourceManager, ResourceUUID, ResourceInfoType}, physics_body_resource::PhysicsBodyResource};
 use super::{pose::Pose, gpu::world_gpu_data::WorldGpuData, voxel_tracker::{TrackedVoxelId, VoxelTracker}};
+use super::{entity_component_system::{messages::MessagerManager}};
 
 pub struct Task {
 	task_func: Box<dyn FnOnce(&World) + Send + 'static>,
@@ -101,11 +101,7 @@ pub enum UpdatePhases {
 	PhysicsUpdatePre,
 	PhysicsUpdatePost,
 }
-
-pub struct UpdateData {
-	pub world: Arc<World>,
-	pub dt: f32,
-}
+crate::make_system_manager!(UpdateSystemManager, (dt: f32, world: &World));
 
 pub struct World {
 	pub physics_bodies: RwLock<SparseSet<PhysicsBodyId, PhysicsBody>>,
@@ -122,7 +118,8 @@ pub struct World {
 
 	pub bvh: RwLock<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
 
-	pub ecs: RwLock<EntityComponentSystem<UpdateData>>,
+	pub ecs: RwLock<EntityComponentSystem>,
+	pub system_updater: UpdateSystemManager,
 	pub system_updates: RwLock<HashMap<UpdatePhases, Vec<String>>>,
 
 	pub resource_manager: RwLock<ResourceManager>,
@@ -163,6 +160,7 @@ impl World {
 			bvh: RwLock::new(None),
 
 			ecs: RwLock::new(EntityComponentSystem::new()),
+			system_updater: UpdateSystemManager::new(),
 			system_updates: RwLock::new(HashMap::new()),
 
 			resource_manager: RwLock::new(ResourceManager::new()),
@@ -213,13 +211,9 @@ impl World {
 	}
 
 	// called at any rate (faster is better and should be at least once per frame)
-	pub fn update(world: &Arc<World>, dt: f32, player_id: EntityId, debug_enables: &mut DebugEnables) {
+	pub fn update(world: &Arc<World>, dt: f32, freeze_gpu_grids: bool, freeze_physics: bool) {
 		let _zone = span!("World Update");
-		let update_data = UpdateData {
-			world: world.clone(),
-			dt: dt
-		};
-		if !debug_enables.freeze_gpu_grids {
+		if !freeze_gpu_grids {
 			let _zone = span!("Do tasks");
 			while let Some(task) = { world.task_queue.lock().pop_front() } {
 				task.run(world);
@@ -227,7 +221,7 @@ impl World {
 		}
 		if let Some(systems) = world.system_updates.read().get(&UpdatePhases::UpdatePre) {
 			for system_name in systems {
-				world.ecs.write().run_system(system_name, &update_data);
+				world.system_updater.run_system(system_name, dt, world.as_ref());
 			}
 		}
 		{
@@ -243,13 +237,13 @@ impl World {
 			// *self.bvh.write() = None; // have to clear afer cleanup
 		}
 
-		if !debug_enables.freeze_physics {
+		if !freeze_physics {
 			let leaky_bucket = &mut world.leaky_bucket.write();
 			leaky_bucket.add_assign(dt);
 			let time_step = 1.0 / 100.0;
 			let current_time = Instant::now();
 			while leaky_bucket.ge(&time_step) {
-				World::physics_update(world, time_step, player_id);
+				World::physics_update(world, time_step);
 				leaky_bucket.sub_assign(time_step);
 				let elapsed = current_time.elapsed().as_secs_f32(); // timeout should maybe be removed at some point
 				if elapsed > 1.0 / 60.0 {
@@ -260,20 +254,16 @@ impl World {
 
 		if let Some(systems) = world.system_updates.read().get(&UpdatePhases::UpdatePost) {
 			for system_name in systems {
-				world.ecs.write().run_system(system_name, &update_data);
+				world.system_updater.run_system(system_name, dt, world.as_ref());
 			}
 		}
 	}
 
-	fn physics_update(world: &Arc<World>, dt: f32, player_id: EntityId) {
-		let update_data = UpdateData {
-			world: world.clone(),
-			dt: dt
-		};
+	fn physics_update(world: &Arc<World>, dt: f32) {
 		world.update_physics_body_stats();
 		if let Some(systems) = world.system_updates.read().get(&UpdatePhases::PhysicsUpdatePre) {
 			for system_name in systems {
-				world.ecs.write().run_system(system_name, &update_data);
+				world.system_updater.run_system(system_name, dt, world.as_ref());
 			}
 		}
 		let _zone = span!("PhysicsEngine update physics");
@@ -292,7 +282,7 @@ impl World {
 		*world.bvh.write() = None;
 		if let Some(systems) = world.system_updates.read().get(&UpdatePhases::PhysicsUpdatePost) {
 			for system_name in systems {
-				world.ecs.write().run_system(system_name, &update_data);
+				world.system_updater.run_system(system_name, dt, world.as_ref());
 			}
 		}
 	}
