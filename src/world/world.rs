@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, VecDeque}, ops::{AddAssign, SubAssign}, pin::Pin, sync::Arc, time::Instant};
-use glam::{I8Vec3, IVec3, Quat, Vec3, Vec4};
+use glam::{I8Vec3, IVec3, Vec3};
 use num::Zero;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -7,8 +7,7 @@ use async_priority_queue::PriorityQueue;
 use tracy_client::span;
 use wgpu::{Device, Queue};
 
-use crate::{player::camera::{Camera, ViewFrustum}};
-use crate::{state::DebugEnables};
+use crate::{player::camera::ViewFrustum};
 use super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::{Grid, GridId, GridManager, SubGridId}, physics_body_resource::GridResource};
 use super::{physics_solver::{ball_joint_constraint::BallJointConstraint, solver::{Solver, Impulse}, bvh::BVH, inertia_tensor::InertiaTensor}};
 use super::{sparse_set::SparseSet, entity_component_system::entity_component_system::{EntityComponentSystem}};
@@ -101,7 +100,7 @@ pub enum UpdatePhases {
 	PhysicsUpdatePre,
 	PhysicsUpdatePost,
 }
-crate::make_system_manager!(UpdateSystemManager, (dt: f32, world: &World));
+crate::make_system_manager!(SystemUpdater, (dt: f32, world: &World));
 
 pub struct World {
 	pub physics_bodies: RwLock<SparseSet<PhysicsBodyId, PhysicsBody>>,
@@ -119,7 +118,8 @@ pub struct World {
 	pub bvh: RwLock<Option<BVH<(PhysicsBodyId, GridId, SubGridId)>>>,
 
 	pub ecs: RwLock<EntityComponentSystem>,
-	pub system_updater: UpdateSystemManager,
+	pub messager_manager: Mutex<MessagerManager>,
+	pub system_updater: SystemUpdater,
 	pub system_updates: RwLock<HashMap<UpdatePhases, Vec<String>>>,
 
 	pub resource_manager: RwLock<ResourceManager>,
@@ -160,7 +160,8 @@ impl World {
 			bvh: RwLock::new(None),
 
 			ecs: RwLock::new(EntityComponentSystem::new()),
-			system_updater: UpdateSystemManager::new(),
+			messager_manager: Mutex::new(MessagerManager::new()),
+			system_updater: SystemUpdater::new(),
 			system_updates: RwLock::new(HashMap::new()),
 
 			resource_manager: RwLock::new(ResourceManager::new()),

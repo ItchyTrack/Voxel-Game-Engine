@@ -86,6 +86,12 @@ pub struct MessagerManager {
 }
 
 impl MessagerManager {
+	pub fn new() -> Self {
+		Self {
+			message_queues: HashMap::new(),
+		}
+	}
+
 	pub fn post_message<T: 'static>(&mut self, message: T) {
 		self.message_queues
 			.entry(TypeId::of::<T>())

@@ -310,7 +310,7 @@ impl Renderer {
 			let io = self.imgui.io_mut();
 			self.imgui_platform.prepare_frame(io, &*self.window).unwrap();
 			let ui = self.imgui.frame();
-			ui.window("Debug").position([0.0, 0.0], imgui::Condition::FirstUseEver).size([175.0, 200.0], imgui::Condition::FirstUseEver).build(|| {
+			ui.window("Debug").position([0.0, 0.0], imgui::Condition::FirstUseEver).size([175.0, 260.0], imgui::Condition::FirstUseEver).build(|| {
 					ui.text(format!("FPS: {:.2}", 1.0 / self.dt_avg));
 					ui.separator();
 					ui.text(format!("64 tree bytes: {:}KB", packed_64_tree_dynamic_buffer.held_bytes() / 1000));
