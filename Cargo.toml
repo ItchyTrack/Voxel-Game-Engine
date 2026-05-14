@@ -1,75 +1,13 @@
-[package]
-name = "voxel-game-engine"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "3"
 
-[profile.release]
-strip = true
+members = [
+	"crates/voxel-data",
+	"crates/voxel-physics",
+	"crates/voxel-renderer",
+	"crates/voxel-app",
+]
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = []
-tracy = ["tracy-client/enable"]
-gpu_profiling = []
-
-[dependencies]
-anyhow = "1.0"
-image = "0.23"
-glam = "0.32.0"
-winit = { version = "0.30", features = ["android-native-activity"] }
-env_logger = "0.10"
-itertools = "0.9.0"
-dot_vox = "5.2.0"
-nalgebra = "0.34.1"
-bimap = "0.6.3"
-log = "0.4"
-pollster = "0.3"
-wgpu = "29.0.0"
-tobj = { version = "3.2", default-features = false, features = ["async"]}
-bytemuck = { version = "1.24", features = [ "derive" ] }
-tracy-client = { version = "0.18.4", default-features = false }
-noise = "0.9.0"
-rand = "0.10.1"
-clone_cell = "0.4.2"
-num = "0.4.3"
-rtrb = "0.3.2"
-imgui = "0.12"
-imgui-wgpu = "0.28"
-imgui-winit-support = "0.13"
-parry3d = "0.26.0"
-tokio = { version = "1", features = ["full"] }
-tokio-macros = "2.7.0"
-uuid = { version = "1.23.1", features = [ "v4", "js" ] }
-async-priority-queue = "0.1.1"
-parking_lot = "0.12.5"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-cpal = "0.16"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-cpal = { version = "0.16", features = ["wasm-bindgen"] }
-getrandom = { version = "0.4", features = ["wasm_js"] } # dep of rand
-getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] } # dep of dot_vox
-console_error_panic_hook = "0.1.7"
-console_log = "1.0"
-wgpu = { version = "29.0.0", features = ["webgpu"]}
-imgui = { version = "0.12", features = ["wasm"] }
-wasm-bindgen = "0.2.114"
-wasm-bindgen-futures = "0.4.64"
-reqwest = { version = "0.13.2" }
-web-sys = { version = "0.3.91", features = [
-	"Window",
-	"Element",
-	"Location",
-]}
-web-time = "1.1.0"
-
-[build-dependencies]
-anyhow = "1.0"
-fs_extra = "1.2"
-glob = "0.3"
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+default-members = [
+	"crates/voxel-app",
+]
