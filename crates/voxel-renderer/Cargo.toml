@@ -17,7 +17,7 @@ gpu_profiling = []
 [dependencies]
 anyhow = "1.0"
 image = "0.23"
-glam = "0.32.0"
+glam = "0.30.10"
 winit = { version = "0.30", features = ["android-native-activity"] }
 env_logger = "0.10"
 itertools = "0.9.0"

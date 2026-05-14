@@ -1,7 +1,7 @@
 use glam::{Vec3, Vec4};
 use std::cell::RefCell;
 
-use crate::world::pose::Pose;
+use bevy::transform::components::Transform;;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -100,53 +100,53 @@ pub fn quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: &Vec4, filled: bool) {
 	}
 }
 
-pub fn rectangular_prism(pose: &Pose, size: Vec3, color: &Vec4, filled: bool) {
-	rectangular_prism_from_vec(&pose.translation, &(pose.rotation * Vec3::X * size.x, pose.rotation * Vec3::Y * size.y, pose.rotation * Vec3::Z * size.z), color, filled);
+pub fn rectangular_prism(transform: &Transform, size: Vec3, color: &Vec4, filled: bool) {
+	rectangular_prism_from_vec(&transform.translation, &(transform.rotation * Vec3::X * size.x, transform.rotation * Vec3::Y * size.y, transform.rotation * Vec3::Z * size.z), color, filled);
 	// quad(
-	// 	pose.translation,
-	// 	pose * Vec3::X * size.x,
-	// 	pose * (Vec3::X * size.x + Vec3::Y * size.y),
-	// 	pose * Vec3::Y * size.y,
+	// 	transform.translation,
+	// 	transform * Vec3::X * size.x,
+	// 	transform * (Vec3::X * size.x + Vec3::Y * size.y),
+	// 	transform * Vec3::Y * size.y,
 	// 	color,
 	// 	filled
 	// );
 	// quad(
-	// 	pose.translation,
-	// 	pose * Vec3::X * size.x,
-	// 	pose * (Vec3::X * size.x + Vec3::Z * size.z),
-	// 	pose * Vec3::Z * size.z,
+	// 	transform.translation,
+	// 	transform * Vec3::X * size.x,
+	// 	transform * (Vec3::X * size.x + Vec3::Z * size.z),
+	// 	transform * Vec3::Z * size.z,
 	// 	color,
 	// 	filled
 	// );
 	// quad(
-	// 	pose.translation,
-	// 	pose * Vec3::Y * size.y,
-	// 	pose * (Vec3::Y * size.y + Vec3::Z * size.z),
-	// 	pose * Vec3::Z * size.z,
+	// 	transform.translation,
+	// 	transform * Vec3::Y * size.y,
+	// 	transform * (Vec3::Y * size.y + Vec3::Z * size.z),
+	// 	transform * Vec3::Z * size.z,
 	// 	color,
 	// 	filled
 	// );
 	// quad(
-	// 	pose * size,
-	// 	pose * (Vec3::Z * size.z + Vec3::Y * size.y),
-	// 	pose * Vec3::Z * size.z,
-	// 	pose * (Vec3::Z * size.z + Vec3::X * size.x),
+	// 	transform * size,
+	// 	transform * (Vec3::Z * size.z + Vec3::Y * size.y),
+	// 	transform * Vec3::Z * size.z,
+	// 	transform * (Vec3::Z * size.z + Vec3::X * size.x),
 	// 	color,
 	// 	filled
 	// );
 	// quad(
-	// 	pose * size,
-	// 	pose * (Vec3::Z * size.z + Vec3::Y * size.y),
-	// 	pose * Vec3::Y * size.y,
-	// 	pose * (Vec3::X * size.x + Vec3::Y * size.y),
+	// 	transform * size,
+	// 	transform * (Vec3::Z * size.z + Vec3::Y * size.y),
+	// 	transform * Vec3::Y * size.y,
+	// 	transform * (Vec3::X * size.x + Vec3::Y * size.y),
 	// 	color,
 	// 	filled
 	// );
 	// quad(
-	// 	pose * size,
-	// 	pose * (Vec3::Z * size.z + Vec3::X * size.x),
-	// 	pose * Vec3::X * size.x,
-	// 	pose * (Vec3::X * size.x + Vec3::Y * size.y),
+	// 	transform * size,
+	// 	transform * (Vec3::Z * size.z + Vec3::X * size.x),
+	// 	transform * Vec3::X * size.x,
+	// 	transform * (Vec3::X * size.x + Vec3::Y * size.y),
 	// 	color,
 	// 	filled
 	// );

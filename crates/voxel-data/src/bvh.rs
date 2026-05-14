@@ -3,9 +3,9 @@ use std::{cmp::Ordering, collections::BinaryHeap, fmt::Debug};
 use glam::{Vec3, Vec4};
 
 use tracy_client::span;
+use bevy::transform::components::Transform;
 
-use crate::debug_draw;
-use super::super::pose::Pose;
+// use crate::debug_draw;
 
 #[derive(Debug)]
 pub enum BVHInternal {
@@ -338,9 +338,9 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 		Some(tmin)
 	}
 
-	pub fn raycast(&'_ self, pose: &Pose, max_length: Option<f32>) -> BVHRaycastIterator<'_, Index> {
-		let start     = pose.translation;
-		let direction = pose.rotation * Vec3::Z;
+	pub fn raycast(&'_ self, transform: &Transform, max_length: Option<f32>) -> BVHRaycastIterator<'_, Index> {
+		let start     = transform.translation;
+		let direction = transform.rotation * Vec3::Z;
 		let mut heap  = BinaryHeap::new();
 		let root      = &self.nodes[0];
 		if let Some(length) = Self::ray_aabb_intersection(&start, &direction, &(root.min_corner, root.max_corner)) {
@@ -351,25 +351,25 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 		BVHRaycastIterator { bvh: self, start, direction, max_length, heap }
 	}
 
-	pub fn render_debug(&self) {
-		let mut stack = vec![0];
+	// pub fn render_debug(&self) {
+	// 	let mut stack = vec![0];
 
-		while let Some(idx) = stack.pop() {
-			let node = &self.nodes[idx as usize];
-			match node.sub_nodes {
-				BVHInternal::SubNodes { sub1, sub2 } => {
-					debug_draw::aabb(node.min_corner, node.max_corner, &Vec4::ONE);
-					stack.push(sub1);
-					stack.push(sub2);
-				}
-				BVHInternal::Leaf { start, count } => {
-					for item in self.items[start as usize..(start + count) as usize].iter() {
-						debug_draw::aabb(item.1.0, item.1.1, &Vec4::W);
-					}
-				}
-			}
-		}
-	}
+	// 	while let Some(idx) = stack.pop() {
+	// 		let node = &self.nodes[idx as usize];
+	// 		match node.sub_nodes {
+	// 			BVHInternal::SubNodes { sub1, sub2 } => {
+	// 				debug_draw::aabb(node.min_corner, node.max_corner, &Vec4::ONE);
+	// 				stack.push(sub1);
+	// 				stack.push(sub2);
+	// 			}
+	// 			BVHInternal::Leaf { start, count } => {
+	// 				for item in self.items[start as usize..(start + count) as usize].iter() {
+	// 					debug_draw::aabb(item.1.0, item.1.1, &Vec4::W);
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	pub fn get_internals(&self) -> (&Vec<BVHNode>, &Vec<(Index, (Vec3, Vec3))>) {
 		(&self.nodes, &self.items)

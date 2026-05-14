@@ -4,7 +4,7 @@ use glam::{Mat4, Quat, Vec3};
 use winit::keyboard::KeyCode;
 
 use crate::player;
-use crate::world::pose::Pose;
+use bevy::transform::components::Transform;;
 
 #[derive(Copy, Clone)]
 pub struct ViewFrustum {
@@ -77,8 +77,8 @@ impl Camera {
 		)
 	}
 
-	pub fn pose(&self) -> Pose {
-		Pose::new(self.position, self.quat())
+	pub fn transform(&self) -> Transform {
+		Transform::new(self.position, self.quat())
 	}
 
 	pub fn frustum(&self) -> ViewFrustum {

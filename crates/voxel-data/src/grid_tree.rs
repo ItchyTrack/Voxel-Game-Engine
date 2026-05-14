@@ -2,9 +2,8 @@ use std::fmt::Debug;
 use std::hint::unreachable_unchecked;
 use std::u16;
 
+use bevy::transform::components::Transform;
 use glam::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3};
-
-use super::pose::Pose;
 
 pub const LOG_SIZE: u8 = 2;
 pub const SIZE: u8 = 1u8 << LOG_SIZE;
@@ -527,13 +526,13 @@ impl GridTree {
 		Some(tmin)
 	}
 
-	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>/*, debug_pose: &Pose*/) -> Option<(I16Vec3, I8Vec3, f32)> {
+	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>/*, debug_transform: &Transform*/) -> Option<(I16Vec3, I8Vec3, f32)> {
 		let max_length = max_length.unwrap_or(f32::MAX);
 
-		let origin = pose.translation;
-		let dir = pose.rotation * Vec3::Z;
+		let origin = transform.translation;
+		let dir = transform.rotation * Vec3::Z;
 
-		// debug_draw::line(debug_pose * (origin), debug_pose * (origin + dir * 30.0), &Vec4::new(0.0, 0.0, 0.0, 1.0));
+		// debug_draw::line(debug_transform * (origin), debug_transform * (origin + dir * 30.0), &Vec4::new(0.0, 0.0, 0.0, 1.0));
 
 		let root_min = self.root_pos.as_vec3();
 		let root_max = root_min + Vec3::splat(GridTreeNode::size(self.root_depth) as f32);
@@ -556,10 +555,10 @@ impl GridTree {
 			if step.y > 0 { root_relative_post_aabb_origin.y.ceil() } else { root_relative_post_aabb_origin.y.floor() } - root_relative_post_aabb_origin.y,
 			if step.z > 0 { root_relative_post_aabb_origin.z.ceil() } else { root_relative_post_aabb_origin.z.floor() } - root_relative_post_aabb_origin.z,
 		) + distance_to_aabb;
-		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.025, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.025, 0.0) + dir * axis_distances.x), &Vec4::new(1.0, 0.2, 0.2, 1.0));
-		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.05, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.05, 0.0) + dir * axis_distances.y), &Vec4::new(0.2, 1.0, 0.2, 1.0));
-		// debug_draw::line(debug_pose * (origin + Vec3::new(0.0, 0.075, 0.0)), debug_pose * (origin + Vec3::new(0.0, 0.075, 0.0) + dir * axis_distances.z), &Vec4::new(0.2, 0.2, 1.0, 1.0));
-		// debug_draw::point(debug_pose * (root_relative_post_aabb_origin + self.root_pos.as_vec3()), &Vec4::W, 1.0);
+		// debug_draw::line(debug_transform * (origin + Vec3::new(0.0, 0.025, 0.0)), debug_transform * (origin + Vec3::new(0.0, 0.025, 0.0) + dir * axis_distances.x), &Vec4::new(1.0, 0.2, 0.2, 1.0));
+		// debug_draw::line(debug_transform * (origin + Vec3::new(0.0, 0.05, 0.0)), debug_transform * (origin + Vec3::new(0.0, 0.05, 0.0) + dir * axis_distances.y), &Vec4::new(0.2, 1.0, 0.2, 1.0));
+		// debug_draw::line(debug_transform * (origin + Vec3::new(0.0, 0.075, 0.0)), debug_transform * (origin + Vec3::new(0.0, 0.075, 0.0) + dir * axis_distances.z), &Vec4::new(0.2, 0.2, 1.0, 1.0));
+		// debug_draw::point(debug_transform * (root_relative_post_aabb_origin + self.root_pos.as_vec3()), &Vec4::W, 1.0);
 		let mut root_relative_grid_pos = root_relative_post_aabb_origin.as_u16vec3();
 		let mut last_step_axis = (post_aabb_origin_pre_shift - post_aabb_origin).abs().max_position() as u8;
 		let mut current_node_index = 0u32;
@@ -568,9 +567,9 @@ impl GridTree {
 		if max_length < last_distance { return None; }
 		loop {
 			let mut current_node = &self.nodes[current_node_index as usize];
-			// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::ONE, false);
+			// debug_draw::rectangular_prism(&(debug_transform * Transform::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::ONE, false);
 			let node_relative_grid_pos = root_relative_grid_pos % GridTreeNode::size(current_depth);
-			// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((
+			// debug_draw::rectangular_prism(&(debug_transform * Transform::from_translation((
 			// 	self.root_pos + root_relative_grid_pos.as_i16vec3() - node_relative_grid_pos.as_i16vec3()
 			// ).as_vec3())), Vec3::splat(current_node.size() as f32), &Vec4::new(0.0, 0.0, 1.0, 1.0), false);
 			let contents_pos = (node_relative_grid_pos / GridTreeNode::child_size(current_depth)).as_u8vec3();
@@ -603,7 +602,7 @@ impl GridTree {
 						}
 						axis_distances += delta * step_amount.as_vec3();
 						root_relative_grid_pos = (root_relative_grid_pos.as_i16vec3() + step_amount.as_i16vec3() * step.as_i16vec3()).as_u16vec3();
-						// debug_draw::rectangular_prism(&(debug_pose * Pose::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::W, false);
+						// debug_draw::rectangular_prism(&(debug_transform * Transform::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::W, false);
 						// println!("{root_relative_grid_pos}");
 					}
 					match axis_distances.min_position() {

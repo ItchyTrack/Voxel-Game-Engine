@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use glam::Vec3;
 use wgpu::{Device, util::DeviceExt};
+use bevy::transform::components::Transform;
 
-use super::super::{physics_solver::bvh, physics_body::PhysicsBodyId, grid::GridId, grid::SubGridId, pose::Pose};
+use crate::{bvh, grid::GridId, grid::SubGridId};
 
 
 // -- GPU node layout -----------------------------------------------------------
@@ -113,14 +114,14 @@ pub struct GpuBvh {
 	pub item_hit_count_staging_buffer: wgpu::Buffer,
 	pub item_count: usize,
 	pub bind_group_layout: wgpu::BindGroupLayout,
-	pub item_ids: Vec<(PhysicsBodyId, GridId, SubGridId)>,
+	pub item_ids: Vec<(GridId, SubGridId)>,
 }
 
 impl GpuBvh {
 	pub fn from_bvh(
 		device: &Device,
-		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose, )>,
+		bvh: &bvh::BVH<(GridId, SubGridId)>,
+		gpu_grid_tree_id_to_id_transforms: &HashMap<(GridId, SubGridId), (u32, u32, Transform, )>,
 	) -> Self {
 		let (nodes, items) = bvh.get_internals();
 
@@ -170,15 +171,15 @@ impl GpuBvh {
 		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
 		let mut item_ids: Vec<_> = Vec::with_capacity(items.len());
 		for item in items {
-			if let Some((tree_offset, voxels_offset, pose)) = gpu_grid_tree_id_to_id_poses.get(&item.0) {
+			if let Some((tree_offset, voxels_offset, transform)) = gpu_grid_tree_id_to_id_transforms.get(&item.0) {
 				item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
 					min_corner:   item.1.0.to_array(),
 					aabb_size:    (item.1.1 - item.1.0).ceil().as_u8vec3().to_array(),
 					_padding:     0,
 					item_index:   *tree_offset,
 					item_index_2: *voxels_offset,
-					pos:          pose.translation.to_array(),
-					quat:         pose.rotation.to_array(),
+					pos:          transform.translation.to_array(),
+					quat:         transform.rotation.to_array(),
 				}));
 				item_ids.push(item.0);
 			} else {

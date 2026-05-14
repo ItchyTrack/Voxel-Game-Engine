@@ -29,7 +29,7 @@ impl ObjectPickup {
 		self.body_id
 	}
 
-	// this trys to move the COM of the body to pose
+	// this trys to move the COM of the body to transform
 	pub fn hold_at_pos(&self, pos: &Vec3, _dt: f32, world: &World) {
 		if let Some(body_id) = self.body_id {
 			if let Some(body) = world.physics_body_mut(body_id) {
@@ -42,7 +42,7 @@ impl ObjectPickup {
 						velocity_in_dir * 0.5
 					) - (body.velocity - dir * velocity_in_dir)
 				);
-				// let (axis, angle) = body.pose.rotation.to_axis_angle();
+				// let (axis, angle) = body.transform.rotation.to_axis_angle();
 				// let angular_velocity_in_dir = body.angular_velocity.dot(axis);
 				// let rotational_impulse = body.rotational_inertia().mat.as_mat3() * (
 				// 	axis * (

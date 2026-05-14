@@ -1,8 +1,9 @@
 use std::cell::Cell;
 
 use glam::Vec3;
+use bevy::transform::components::Transform;
 
-use crate::world::{pose::Pose, world::World, voxel_tracker::TrackedVoxelId};
+use crate::world::{transformworld::World, voxel_tracker::TrackedVoxelId};
 
 pub struct PlayerTracker {
 	voxel_to_move: Option<TrackedVoxelId>,
@@ -33,13 +34,13 @@ impl PlayerTracker {
 		self.voxel_to_move
 	}
 
-	// this trys to move the COM of the body to pose
+	// this trys to move the COM of the body to transform
 	pub fn track_pos(&self, player_pos: &Vec3, _dt: f32, world: &World) {
 		if let Some(voxel_to_move) = self.voxel_to_move {
 			if let Some(tracked_voxel) = world.voxel_tracker.read().get_tracked_voxel(voxel_to_move) {
 				if let Some(body) = world.physics_body_mut(tracked_voxel.body_id) {
 					if let Some(grid) = world.grid(tracked_voxel.grid_id) {
-						let voxel_body_location = grid.grid_to_physics_body(&Pose::from_translation(tracked_voxel.voxel_pos.as_vec3()));
+						let voxel_body_location = grid.grid_to_physics_body(&Transform::from_translation(tracked_voxel.voxel_pos.as_vec3()));
 						let voxel_world_location = body.local_to_world(&voxel_body_location);
 
 						let error = player_pos - voxel_world_location.translation;

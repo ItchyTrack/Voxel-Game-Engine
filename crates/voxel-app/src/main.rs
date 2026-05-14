@@ -1,5 +1,3 @@
-use voxel_game_engine::run;
-
 use bevy::prelude::*;
 
 use tracy_client::{Client};
@@ -12,8 +10,4 @@ async fn main() {
 		.add_plugin(voxel_physics::VoxelPhysicsPlugin)
 		.add_plugin(voxel_renderer::VoxelRendererPlugin)
 		.run();
-
-	Client::start();
-
-	let _ = run();
 }

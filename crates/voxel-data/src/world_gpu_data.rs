@@ -1,8 +1,7 @@
 use parking_lot::RwLock;
 use wgpu::{Device, Queue};
 
-use crate::{gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer};
-
+use crate::packed_dynamic_buffer::PackedDynamicBuffer;
 pub struct WorldGpuData {
 	pub packed_64_tree_dynamic_buffer: RwLock<PackedDynamicBuffer>,
 	pub packed_voxel_data_dynamic_buffer: RwLock<PackedDynamicBuffer>,

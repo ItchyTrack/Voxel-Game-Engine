@@ -4,8 +4,9 @@ use glam::Mat4;
 use num::Integer;
 use tracy_client::span;
 use wgpu::{Device, Queue, RenderPass};
+use bevy::transform::components::Transform;
 
-use crate::{gpu_objects::{matrix::MatrixUniform, mesh::MeshVertex, packed_buffer::{PackedBufferGroup, PackedBufferGroupId}}, world::pose::Pose};
+use crate::{gpu_objects::{matrix::MatrixUniform, mesh::MeshVertex, packed_buffer::{PackedBufferGroup, PackedBufferGroupId}}};
 
 struct PackedMeshInfo {
 	pub vertex_data_count: u32,
@@ -88,7 +89,7 @@ impl PackedMeshBuffer {
 		Ok(new_id)
 	}
 
-	pub fn render(&mut self, device: &Device, queue: &Queue, render_pass: &mut RenderPass, camera_bind_group: &wgpu::BindGroup, to_render: &[(PackedBufferGroupId, Pose)]) {
+	pub fn render(&mut self, device: &Device, queue: &Queue, render_pass: &mut RenderPass, camera_bind_group: &wgpu::BindGroup, to_render: &[(PackedBufferGroupId, Transform)]) {
 		let _zone = span!("Render Packed Mesh Buffer");
 		if to_render.is_empty() { return; }
 		// bind camera once
@@ -123,10 +124,10 @@ impl PackedMeshBuffer {
 			if let Some(single_packed_buffer) = self.packed_buffer.get_packed_buffer(chunk.first().unwrap().0.buffer_index()) {
 				let _zone = span!("Render Mesh Chunk");
 				let mut mats: Vec<u8> = vec![];
-				let held_buffers: Vec<_> = chunk.iter().filter_map(|(id, pose)| {
+				let held_buffers: Vec<_> = chunk.iter().filter_map(|(id, transform)| {
 					let held_buffer = single_packed_buffer.get_held_buffer(id.internal_id())?;
 					let buffer_info = self.buffer_infos.get(id)?;
-					mats.extend_from_slice(bytemuck::cast_slice(&[MatrixUniform::from_mat4(&Mat4::from_rotation_translation(pose.rotation, pose.translation))]));
+					mats.extend_from_slice(bytemuck::cast_slice(&[MatrixUniform::from_mat4(&Mat4::from_rotation_translation(transform.rotation, transform.translation))]));
 					mats.resize(mats.len().next_multiple_of(mat_alignment), 0);
 					Some((held_buffer, buffer_info))
 				}).collect();

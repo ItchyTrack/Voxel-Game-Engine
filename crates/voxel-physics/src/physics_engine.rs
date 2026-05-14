@@ -2,10 +2,10 @@ use std::{cell::{Ref, RefCell}, collections::HashMap};
 
 use glam::{I8Vec3, Vec3, IVec3};
 use tracy_client::span;
+use bevy::transform::components::Transform;
 
 use super::{bvh::BVH, solver::{Solver, Impulse}, ball_joint_constraint::BallJointConstraint, voxel_tracker::VoxelTracker};
 use super::super::{physics_body::{PhysicsBody, PhysicsBodyId}, grid::GridId, sub_grid::SubGridId, resource_manager::ResourceUUID};
-use crate::pose::Pose;
 
 pub struct PhysicsEngine {
 	physics_bodies: Vec<PhysicsBody>,
@@ -143,7 +143,7 @@ impl PhysicsEngine {
 		self.impulses.entry(physics_body_id).or_default().push(Impulse::Impulse { impluse: *impluse, impluse_pos: *impluse_pos });
 	}
 
-	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: PhysicsBodyId, body_1_attachment: &Pose, physics_body_id_2: PhysicsBodyId, body_2_attachment: &Pose) {
+	pub fn create_ball_joint_constraint(&mut self, physics_body_id_1: PhysicsBodyId, body_1_attachment: &Transform, physics_body_id_2: PhysicsBodyId, body_2_attachment: &Transform) {
 		if self.physics_body_id_to_index.contains_key(&physics_body_id_1) && self.physics_body_id_to_index.contains_key(&physics_body_id_2) {
 			self.constraints.insert(
 				if physics_body_id_1.0 < physics_body_id_2.0 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
@@ -152,7 +152,7 @@ impl PhysicsEngine {
 		}
 	}
 
-	pub fn create_ball_joint_spring_constraint(&mut self, physics_body_id_1: PhysicsBodyId, body_1_attachment: &Pose, physics_body_id_2: PhysicsBodyId, body_2_attachment: &Pose, stiffness : f32) {
+	pub fn create_ball_joint_spring_constraint(&mut self, physics_body_id_1: PhysicsBodyId, body_1_attachment: &Transform, physics_body_id_2: PhysicsBodyId, body_2_attachment: &Transform, stiffness : f32) {
 		if self.physics_body_id_to_index.contains_key(&physics_body_id_1) && self.physics_body_id_to_index.contains_key(&physics_body_id_2) {
 			self.constraints.insert(
 				if physics_body_id_1.0 < physics_body_id_2.0 { (physics_body_id_1, physics_body_id_2) } else { (physics_body_id_2, physics_body_id_1) },
@@ -161,18 +161,18 @@ impl PhysicsEngine {
 		}
 	}
 
-	pub fn raycast(&self, pose: &Pose, max_length: Option<f32>) -> Option<(PhysicsBodyId, GridId, IVec3, I8Vec3, f32)> {
+	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(PhysicsBodyId, GridId, IVec3, I8Vec3, f32)> {
 		let mut best_hit: Option<(PhysicsBodyId, GridId, IVec3, I8Vec3, f32)> = None;
-		for ((body_id, grid_id, sub_grid_id), bvh_distance) in self.get_bvh().raycast(pose, max_length) {
+		for ((body_id, grid_id, sub_grid_id), bvh_distance) in self.get_bvh().raycast(transform, max_length) {
 			if best_hit.is_some() && bvh_distance > best_hit.unwrap().4 { break; }
 			let physics_body = &self.physics_body(body_id).unwrap();
 			let grid = physics_body.grid(grid_id).unwrap();
 			let sub_grid = grid.sub_grid(sub_grid_id).unwrap();
 			if let Some((hit_pos, hit_normal, grid_distance)) = sub_grid.get_voxels().get_voxels().raycast(
-				&(&Pose::from_translation(-grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()).as_vec3()) * grid.pose.inverse() * physics_body.pose.inverse() * Pose::new(
-					pose.translation + pose.rotation * Vec3::Z * bvh_distance, pose.rotation)),
+				&(&Transform::from_translation(-grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()).as_vec3()) * grid.transform.inverse() * physics_body.transform.inverse() * Transform::new(
+					transform.translation + transform.rotation * Vec3::Z * bvh_distance, transform.rotation)),
 				max_length.map(|max_length| max_length - bvh_distance),
-				// &(&physics_body.pose * grid.pose * Pose::from_translation(grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos().as_ivec3()).as_vec3()))
+				// &(&physics_body.transform * grid.transform * Transform::from_translation(grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_pos().as_ivec3()).as_vec3()))
 			) {
 				if best_hit.is_none() || grid_distance + bvh_distance < best_hit.unwrap().4 {
 					best_hit = Some((body_id, grid_id, hit_pos.as_ivec3() + grid.sub_grid_pos_to_grid_pos(&sub_grid.sub_grid_ipos()), hit_normal, grid_distance + bvh_distance));

@@ -7,3 +7,14 @@ pub mod collision;
 pub mod solver;
 pub mod math;
 pub mod bvh;
+
+use bevy::prelude::*;
+
+#[derive(Default)]
+pub struct VoxelPhysicsPlugin;
+
+impl Plugin for VoxelPhysicsPlugin {
+	fn build(&self, _app: &mut App) {
+
+	}
+}

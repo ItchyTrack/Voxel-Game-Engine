@@ -34,7 +34,7 @@ impl Orientator {
 			if let Some(tracked_voxel) = world.voxel_tracker.read().get_tracked_voxel(tracked_voxel) {
 				if let Some(body) = world.physics_body_mut(tracked_voxel.body_id) {
 					if let Some(grid) = world.grid(tracked_voxel.grid_id) {
-						let (axis, angle) = ((body.pose.rotation * grid.pose().rotation) * orientation.inverse()).to_axis_angle();
+						let (axis, angle) = ((body.transform.rotation * grid.transform().rotation) * orientation.inverse()).to_axis_angle();
 						let angular_velocity_in_dir = body.angular_velocity.dot(axis);
 						let rotational_impulse = body.rotational_inertia().mat.as_mat3() * (
 							axis * (

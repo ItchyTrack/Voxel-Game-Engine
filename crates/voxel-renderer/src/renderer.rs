@@ -6,7 +6,7 @@ use tracy_client::span;
 use winit::{window::Window};
 
 use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
-use crate::world::{pose::Pose, gpu::gpu_bvh::GpuBvh};
+use crate::world::gpu::gpu_bvh::GpuBvh;
 use crate::gpu_objects::matrix;
 use crate::world::physics_solver::bvh;
 use crate::world::physics_body::PhysicsBodyId;
@@ -243,7 +243,7 @@ impl Renderer {
 		&mut self,
 		camera: &camera::Camera,
 		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
+		gpu_grid_tree_id_to_id_transforms: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Transform)>,
 		debug_enables: &mut DebugEnables,
 		graphics_settings: &mut GraphicsSettings,
 		packed_64_tree_dynamic_buffer: &parking_lot::RwLockReadGuard<'_, PackedDynamicBuffer>,
@@ -299,7 +299,7 @@ impl Renderer {
 			&view,
 			&self.camera_render_bind_group,
 			bvh,
-			gpu_grid_tree_id_to_id_poses,
+			gpu_grid_tree_id_to_id_transforms,
 			packed_64_tree_dynamic_buffer,
 			packed_voxel_data_dynamic_buffer
 		));

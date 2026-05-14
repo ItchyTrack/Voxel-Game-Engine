@@ -1,7 +1,7 @@
-use crate::world::voxels::Voxels;
+use crate::voxels::Voxels;
 
-use super::super::{grid::{GridId, SubGridId}, world::{PriorityTask, Task, World}};
-use super::gpu_grid_tree::make_gpu_grid_tree;
+use ctate::grid::{GridId, SubGridId};
+use crate::gpu_grid_tree::make_gpu_grid_tree;
 
 // ------- SubGridGpuState -------
 #[derive(Clone, Copy, Debug)]

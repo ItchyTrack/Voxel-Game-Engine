@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
 use crate::world::gpu::gpu_bvh::GpuBvh;
-use crate::world::pose::Pose;
+use bevy::transform::components::Transform;;
 use crate::world::{physics_solver::bvh, physics_body::{PhysicsBodyId}, grid::{GridId, SubGridId}};
 
 const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
@@ -458,11 +458,11 @@ impl VoxelRenderer {
 		view: &wgpu::TextureView,
 		camera_transform_bind_group: &wgpu::BindGroup,
 		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_poses: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Pose)>,
+		gpu_grid_tree_id_to_id_transforms: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Transform)>,
 		packed_64_tree_dynamic_buffer: &PackedDynamicBuffer,
 		packed_voxel_data_dynamic_buffer: &PackedDynamicBuffer,
 	) -> GpuBvh {
-		let gpu_bvh = GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_poses);
+		let gpu_bvh = GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_transforms);
 		{
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
 				label: Some("Render Pass"),

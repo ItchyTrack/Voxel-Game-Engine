@@ -120,8 +120,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	var normal_vec = vec3<f32>(0.0);
 	normal_vec[(normal >> 3u) & 0xF] = -f32((normal & (1u << ((normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;
 	let item = bvh_items[bvh_item_idx];
-	let pose_quat = vec4<f32>(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
-	let color = shade(base_color, quat_rotate(pose_quat, normal_vec), light_visible);
+	let transform_quat = vec4<f32>(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
+	let color = shade(base_color, quat_rotate(transform_quat, normal_vec), light_visible);
 
 	return vec4<f32>(color, 1.0);
 }

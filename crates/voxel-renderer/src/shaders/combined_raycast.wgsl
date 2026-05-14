@@ -23,12 +23,12 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
 		if !candidate.valid { break; }
 
 		let item = bvh_items[candidate.bvh_item_idx];
-		let pose_pos = vec3<f32>(item.pos_x,  item.pos_y,  item.pos_z);
-		let pose_quat = vec4<f32>(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
+		let transform_pos = vec3<f32>(item.pos_x,  item.pos_y,  item.pos_z);
+		let transform_quat = vec4<f32>(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
 
 		let entry_world = ray_pos + ray_dir * candidate.dist;
-		let local_pos = quat_inv_rotate(pose_quat, entry_world - pose_pos);
-		let local_dir = quat_inv_rotate(pose_quat, ray_dir);
+		let local_pos = quat_inv_rotate(transform_quat, entry_world - transform_pos);
+		let local_dir = quat_inv_rotate(transform_quat, ray_dir);
 		let remaining = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
 		let dda = dda_raycast(local_pos, local_dir, remaining, item.item_index);
 
