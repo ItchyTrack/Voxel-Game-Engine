@@ -14,7 +14,7 @@ impl DebugDrawRenderer {
 		let debug_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Debug Pipeline Layout"),
 			bind_group_layouts: &[Some(&camera_bind_group_layout)],
-			immediate_size: 0,
+			push_constant_ranges: [],
 		});
 
 		let make_debug_pipeline = |label: &str, topology: wgpu::PrimitiveTopology| -> wgpu::RenderPipeline {
@@ -48,7 +48,7 @@ impl DebugDrawRenderer {
 				},
 				depth_stencil: None, // overlay - no depth test
 				multisample: wgpu::MultisampleState::default(),
-				multiview_mask: None,
+				multiview: None,
 				cache: None,
 			})
 		};
@@ -79,7 +79,6 @@ impl DebugDrawRenderer {
 				depth_stencil_attachment: None,
 				occlusion_query_set: None,
 				timestamp_writes: None,
-				multiview_mask: None,
 			});
 
 			if has_lines && (bytemuck::cast_slice::<_, u8>(&batch.lines).len() as u64) < (device.limits().max_buffer_size) {

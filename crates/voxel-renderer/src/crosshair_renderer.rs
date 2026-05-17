@@ -34,7 +34,7 @@ impl CrosshairRenderer {
 		let crosshair_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Crosshair Pipeline Layout"),
 			bind_group_layouts: &[Some(&crosshair_bgl)],
-			immediate_size: 0,
+			push_constant_ranges: [],
 		});
 		let crosshair_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: Some("Crosshair Pipeline"),
@@ -65,7 +65,7 @@ impl CrosshairRenderer {
 			primitive: wgpu::PrimitiveState::default(),
 			depth_stencil: None,
 			multisample: wgpu::MultisampleState::default(),
-			multiview_mask: None,
+			multiview: None,
 			cache: None,
 		});
 
@@ -94,7 +94,6 @@ impl CrosshairRenderer {
 			depth_stencil_attachment: None,
 			occlusion_query_set: None,
 			timestamp_writes: None,
-			multiview_mask: None,
 		});
 		pass.set_pipeline(&self.crosshair_pipeline);
 		pass.set_bind_group(0, &self.crosshair_bind_group, &[]);

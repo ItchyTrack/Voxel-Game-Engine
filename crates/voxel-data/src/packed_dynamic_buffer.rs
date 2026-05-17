@@ -1,8 +1,10 @@
 use std::{collections::BTreeMap, ops::*};
 
+use bevy::render::{renderer::{RenderDevice, RenderQueue}};
 use num::Integer;
-use wgpu::{CommandEncoderDescriptor, Device, Queue};
+use wgpu::{CommandEncoderDescriptor, Device};
 
+#[derive(Debug)]
 pub struct HeldBuffer {
 	offset: u32,
 	size: u32,
@@ -20,17 +22,30 @@ pub struct PackedDynamicBuffer {
 	alignment: u32,
 	held_buffers: BTreeMap<u32, HeldBuffer>,
 	device: Device,
-	queue: Queue,
+    queue: RenderQueue,
+}
+
+impl std::fmt::Debug for PackedDynamicBuffer {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("PackedDynamicBuffer")
+			.field("buffer", &self.buffer)
+			.field("held_bytes", &self.held_bytes)
+			.field("held_bytes_alignment", &self.held_bytes_alignment)
+			.field("alignment", &self.alignment)
+			.field("held_buffers", &self.held_buffers)
+			.field("device", &self.device)
+			.field("queue", &self.queue.0).finish()
+	}
 }
 
 impl PackedDynamicBuffer {
-	pub fn new(device: wgpu::Device, queue: wgpu::Queue, alignment: u32, usage: wgpu::BufferUsages) -> Result<Self, &'static str> {
+	pub fn new(device: &RenderDevice, queue: &RenderQueue, alignment: u32, usage: wgpu::BufferUsages) -> Result<Self, &'static str> {
 		let alignment = alignment.lcm(&(wgpu::COPY_BUFFER_ALIGNMENT as u32));
 		let size = (1u32.shl(20u32)).next_multiple_of(alignment as u32);
-		let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-			label: Some("PackedBuffer"),
+		let buffer = device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
+			label: Some("packed_dynamic_buffer"),
 			size: size as u64,
-			usage: usage | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+			usage,
 			mapped_at_creation: false,
 		});
 		Ok(Self {
@@ -39,8 +54,8 @@ impl PackedDynamicBuffer {
 			held_bytes_alignment: 0,
 			alignment: alignment,
 			held_buffers: BTreeMap::new(),
-			device,
-			queue,
+			device: device.wgpu_device().clone(),
+			queue: queue.clone(),
 		})
 	}
 
@@ -57,7 +72,7 @@ impl PackedDynamicBuffer {
 			return Err("Buffer size can't be 0.");
 		}
 		if data_buffer.len() as u32 > self.buffer.size() as u32 - self.held_bytes_alignment {
-			if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > self.device.limits().max_storage_buffer_binding_size {
+			if (self.buffer.size() as u32).shl(1u32).next_multiple_of(self.alignment) > self.device.limits().max_storage_buffer_binding_size {
 				return Err("Buffer max size hit!");
 			}
 			let new_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -83,9 +98,9 @@ impl PackedDynamicBuffer {
 				placement_location = held_buffer.offset + held_buffer.size.next_multiple_of(self.alignment as u32);
 				assert!(placement_location.is_multiple_of(self.alignment as u32));
 				if (placement_location + data_buffer.len() as u32) > (self.buffer.size() as u32) {
-					if self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64) > self.device.limits().max_storage_buffer_binding_size {
-				return Err("Buffer max size hit!");
-			}
+					if (self.buffer.size() as u32).shl(1u32).next_multiple_of(self.alignment as u32) > self.device.limits().max_storage_buffer_binding_size {
+						return Err("Buffer max size hit!");
+					}
 					let new_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
 						label: Some("PackedBuffer"),
 						size: self.buffer.size().shl(1u32).next_multiple_of(self.alignment as u64),

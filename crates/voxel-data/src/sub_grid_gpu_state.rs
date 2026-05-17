@@ -1,6 +1,6 @@
 use crate::voxels::Voxels;
 
-use ctate::grid::{GridId, SubGridId};
+use crate::grid::{GridId, SubGridId};
 use crate::gpu_grid_tree::make_gpu_grid_tree;
 
 // ------- SubGridGpuState -------

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
 use crate::world::gpu::gpu_bvh::GpuBvh;
-use bevy::transform::components::Transform;;
+use bevy::transform::components::Transform;
 use crate::world::{physics_solver::bvh, physics_body::{PhysicsBodyId}, grid::{GridId, SubGridId}};
 
 const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
@@ -149,7 +149,7 @@ impl VoxelRenderer {
 					Some(&GpuBvh::bind_group_layout(&device)),
 					Some(&bvh_beam_textured_storage_bind_group_layout),
 				],
-				immediate_size: 0,
+				push_constant_ranges: [],
 			});
 			device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 				label: Some("BVH Beam Pipeline"),
@@ -256,7 +256,7 @@ impl VoxelRenderer {
 					Some(&intermediate_textured_storage_bind_group_layout),
 					Some(&bvh_beam_textured_read_bind_group_layout),
 				],
-				immediate_size: 0,
+				push_constant_ranges: [],
 			});
 			device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 				label: Some("Ray Casting Pipeline"),
@@ -287,7 +287,7 @@ impl VoxelRenderer {
 					Some(&voxel_bind_group_layout),
 					Some(&intermediate_textured_read_bind_group_layout),
 				],
-				immediate_size: 0,
+				push_constant_ranges: [],
 			});
 			device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 				label: Some("Coloring Pipeline"),
@@ -326,7 +326,7 @@ impl VoxelRenderer {
 					mask: !0,
 					alpha_to_coverage_enabled: false,
 				},
-				multiview_mask: None,
+				multiview: None,
 				cache: None,
 			})
 		};
@@ -525,7 +525,6 @@ impl VoxelRenderer {
 				depth_stencil_attachment: None,
 				occlusion_query_set: None,
 				timestamp_writes: None,
-				multiview_mask: None,
 			});
 
 			render_pass.set_bind_group(0, camera_transform_bind_group, &[]);

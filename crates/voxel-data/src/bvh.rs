@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, collections::BinaryHeap, fmt::Debug};
 
-use glam::{Vec3, Vec4};
+use glam::Vec3;
 
 use tracy_client::span;
 use bevy::transform::components::Transform;

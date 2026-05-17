@@ -1,6 +1,6 @@
 use glam::I16Vec3;
 use tracy_client::span;
-use std::cell::Cell;
+use std::{sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
 
 use crate::grid_tree::GridTree;
@@ -39,11 +39,12 @@ impl VoxelPalette {
 	}
 }
 
+#[derive(Debug)]
 pub struct Voxels {
 	voxels: GridTree,
 	voxel_palette: VoxelPalette,
-	bounding_box: Cell<Option<(I16Vec3, I16Vec3)>>,
-	bounding_box_dirty: Cell<bool>,
+	bounding_box: Mutex<Option<(I16Vec3, I16Vec3)>>,
+	bounding_box_dirty: AtomicBool,
 }
 
 impl Voxels {
@@ -51,26 +52,25 @@ impl Voxels {
 		Self {
 			voxels: GridTree::new(),
 			voxel_palette: VoxelPalette::new(),
-			bounding_box: Cell::new(None),
-			bounding_box_dirty: Cell::new(false)
+			bounding_box: Mutex::new(None),
+			bounding_box_dirty: AtomicBool::new(false)
 		}
 	}
 	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<Voxel> {
-		match self.bounding_box.get() {
-			Some((min, max)) => {
-				self.bounding_box.set(Some((min.min(pos), max.max(pos))));
-			},
-			None => {
-				self.bounding_box.set(Some((pos, pos)));
-			}
-		}
+		let bounding_box = self.bounding_box.lock().unwrap().clone();
+		*self.bounding_box.get_mut().unwrap() = Some(if let Some(bounding_box) = bounding_box {
+			(bounding_box.0.min(pos), bounding_box.1.max(pos))
+		} else {
+			(pos, pos)
+		});
 		let out = self.voxels.insert(&pos, self.voxel_palette.get_palette_id(&voxel))?;
 		self.voxel_palette.get_voxel(out).cloned()
 	}
 
 	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
-		self.bounding_box_dirty.set(true);
-		self.voxel_palette.get_voxel(self.voxels.remove(pos)?).cloned()
+		let out = self.voxel_palette.get_voxel(self.voxels.remove(pos)?).cloned();
+		self.bounding_box_dirty.store(true, Ordering::Release);
+		out
 	}
 
 	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> {
@@ -80,16 +80,16 @@ impl Voxels {
 	pub fn get_palette(&self) -> &VoxelPalette { &self.voxel_palette }
 
 	pub fn get_bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
-		if self.bounding_box_dirty.get() {
+		if self.bounding_box_dirty.load(Ordering::Acquire) {
 			let _zone = span!("rebuild voxel bounding box");
-			self.bounding_box_dirty.set(false);
-			self.bounding_box.set(self.voxels.iter().fold(None, |bb, (p, size, _)| {
+			self.bounding_box_dirty.store(false, Ordering::Release);
+			*(self.bounding_box.lock()).unwrap() = self.voxels.iter().fold(None, |bb, (p, size, _)| {
 				match bb {
 					Some((min, max)) => Some((min.min(p), max.max(p + size as i16 - 1))),
 					None => Some((p, p + size as i16 - 1))
 				}
-			}));
+			});
 		}
-		self.bounding_box.get()
+		self.bounding_box.lock().unwrap().clone()
 	}
 }

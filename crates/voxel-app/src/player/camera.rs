@@ -4,7 +4,7 @@ use glam::{Mat4, Quat, Vec3};
 use winit::keyboard::KeyCode;
 
 use crate::player;
-use bevy::transform::components::Transform;;
+use bevy::transform::components::Transform;
 
 #[derive(Copy, Clone)]
 pub struct ViewFrustum {

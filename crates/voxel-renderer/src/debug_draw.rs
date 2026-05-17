@@ -1,7 +1,7 @@
 use glam::{Vec3, Vec4};
 use std::cell::RefCell;
 
-use bevy::transform::components::Transform;;
+use bevy::transform::components::Transform;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

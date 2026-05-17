@@ -6,7 +6,7 @@ use rand::{seq::IteratorRandom};
 use crate::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
 
 
-const SLOT_BYTES:   usize = 4;
+const SLOT_BYTES: usize = 4;
 
 fn get_header_bytes(bitmap: u64) -> u32 {
 	4 * (1 + ((bitmap & 0xFFFFFFFF) != 0) as u32 + ((bitmap & 0xFFFFFFFF00000000) != 0) as u32)

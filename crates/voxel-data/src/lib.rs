@@ -13,11 +13,13 @@ mod sub_grid_gpu_state;
 
 use bevy::prelude::*;
 
+use crate::world_gpu_data::WorldGpuData;
+
 #[derive(Default)]
 pub struct VoxelDataPlugin;
 
 impl Plugin for VoxelDataPlugin {
-	fn build(&self, _app: &mut App) {
-
+	fn build(&self, app: &mut App) {
+		app.init_resource::<WorldGpuData>();
 	}
 }

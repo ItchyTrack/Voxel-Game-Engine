@@ -340,7 +340,6 @@ impl Renderer {
 				depth_stencil_attachment: None,
 				timestamp_writes: None,
 				occlusion_query_set: None,
-				multiview_mask: None,
 			});
 			self.imgui_renderer.render(draw_data, &self.queue, &self.device, &mut rpass).unwrap();
 		}

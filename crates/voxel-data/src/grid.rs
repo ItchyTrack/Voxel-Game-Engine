@@ -1,9 +1,9 @@
-use std::{collections::{HashMap, HashSet}, sync::atomic::{AtomicBool, Ordering}};
+use std::{collections::{HashMap}, sync::atomic::{AtomicBool, Ordering}};
 
-use bevy::{transform::components::Transform, ecs::storage::{SparseSet, SparseSetIndex}};
+use bevy::{ecs::{component::Component, storage::{SparseSet, SparseSetIndex}}, transform::components::Transform};
 use glam::{I16Vec3, IVec3, Quat, Vec3};
 
-use crate::sub_grid_gpu_state::{SubGridGpuState, SubGridGpuUploadingState};
+use crate::sub_grid_gpu_state::{SubGridGpuState};
 use crate::voxels::{Voxels, Voxel};
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
@@ -14,8 +14,10 @@ impl SparseSetIndex for SubGridId {
 	fn get_sparse_set_index(index: usize) -> Self { Self(index as u32) }
 }
 
+#[derive(Debug)]
 pub struct SubGridVersionId(pub u64);
 
+#[derive(Debug)]
 pub struct SubGrid {
 	voxels: Voxels,
 	sub_grid_pos: IVec3,
@@ -89,8 +91,14 @@ impl SubGrid {
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
-pub struct GridId(pub u32);
+pub struct GridId(pub usize);
 
+// impl SparseSetIndex for GridId {
+// 	fn sparse_set_index(&self) -> usize { self.0 as usize }
+// 	fn get_sparse_set_index(index: usize) -> Self { Self(index as u32) }
+// }
+
+#[derive(Debug, Component)]
 pub struct Grid {
 	transform: Transform,
 	global_transform: Option<Transform>,
@@ -236,12 +244,12 @@ impl Grid {
 	// }
 
 	// reference frame
-	pub fn physics_body_to_grid(&self, other: &Transform) -> Transform { self.transform * other }
-	pub fn grid_to_physics_body(&self, other: &Transform) -> Transform { self.transform * other }
-	pub fn physics_body_to_grid_vec(&self, pos: &Vec3) -> Vec3 { self.transform.inverse() * pos }
-	pub fn grid_to_physics_body_vec(&self, pos: &Vec3) -> Vec3 { self.transform * pos }
-	pub fn physics_body_to_grid_rot(&self, rot: &Quat) -> Quat { self.transform.inverse() * rot }
-	pub fn grid_to_physics_body_rot(&self, rot: &Quat) -> Quat { self.transform * rot }
+	// pub fn physics_body_to_grid(&self, other: &Transform) -> Transform { self.transform.inverse() * *other }
+	pub fn grid_to_physics_body(&self, other: &Transform) -> Transform { self.transform * *other }
+	// pub fn physics_body_to_grid_vec(&self, pos: &Vec3) -> Vec3 { self.transform.inverse() * *pos }
+	pub fn grid_to_physics_body_vec(&self, pos: &Vec3) -> Vec3 { self.transform * *pos }
+	pub fn physics_body_to_grid_rot(&self, rot: &Quat) -> Quat { self.transform.rotation.inverse() * *rot }
+	pub fn grid_to_physics_body_rot(&self, rot: &Quat) -> Quat { self.transform.rotation * *rot }
 }
 
 // pub struct GridManager {

@@ -1,31 +1,38 @@
-use parking_lot::RwLock;
-use wgpu::{Device, Queue};
+use bevy::ecs::{resource::Resource, world::FromWorld};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
 
 use crate::packed_dynamic_buffer::PackedDynamicBuffer;
+
+#[derive(Resource, Debug)]
 pub struct WorldGpuData {
-	pub packed_64_tree_dynamic_buffer: RwLock<PackedDynamicBuffer>,
-	pub packed_voxel_data_dynamic_buffer: RwLock<PackedDynamicBuffer>,
+    pub packed_64_tree_dynamic_buffer: PackedDynamicBuffer,
+    pub packed_voxel_data_dynamic_buffer: PackedDynamicBuffer,
 }
 
-impl WorldGpuData {
-	pub fn new(device: Device, queue: Queue) -> anyhow::Result<Self> {
-		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(device.clone(), queue.clone(), 12, wgpu::BufferUsages::STORAGE);
-		if let Err(err) = packed_64_tree_dynamic_buffer {
-			println!("{}", err);
-			return Err(anyhow::Error::msg(err));
-		}
-		let packed_64_tree_dynamic_buffer = packed_64_tree_dynamic_buffer.unwrap();
+impl FromWorld for WorldGpuData {
+    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let render_queue = world.resource::<RenderQueue>();
 
-		let packed_voxel_data_dynamic_buffer = PackedDynamicBuffer::new(device, queue, 4, wgpu::BufferUsages::STORAGE);
-		if let Err(err) = packed_voxel_data_dynamic_buffer {
-			println!("{}", err);
-			return Err(anyhow::Error::msg(err));
-		}
-		let packed_voxel_data_dynamic_buffer = packed_voxel_data_dynamic_buffer.unwrap();
+        let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(
+            render_device,
+            render_queue,
+            12,
+            wgpu::BufferUsages::STORAGE,
+        )
+        .expect("Failed to create packed_64_tree_dynamic_buffer");
 
-		Ok(Self {
-			packed_64_tree_dynamic_buffer: RwLock::new(packed_64_tree_dynamic_buffer),
-			packed_voxel_data_dynamic_buffer: RwLock::new(packed_voxel_data_dynamic_buffer),
-		})
-	}
+        let packed_voxel_data_dynamic_buffer = PackedDynamicBuffer::new(
+            render_device,
+            render_queue,
+            4,
+            wgpu::BufferUsages::STORAGE,
+        )
+        .expect("Failed to create packed_voxel_data_dynamic_buffer");
+
+        Self {
+            packed_64_tree_dynamic_buffer: packed_64_tree_dynamic_buffer,
+            packed_voxel_data_dynamic_buffer: packed_voxel_data_dynamic_buffer,
+        }
+    }
 }
