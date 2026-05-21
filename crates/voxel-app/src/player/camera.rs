@@ -4,7 +4,7 @@ use glam::{Mat4, Quat, Vec3};
 use winit::keyboard::KeyCode;
 
 use crate::player;
-use bevy::transform::components::Transform;
+use bevy::{ecs::component::Component, transform::components::Transform};
 
 #[derive(Copy, Clone)]
 pub struct ViewFrustum {
@@ -31,6 +31,7 @@ impl ViewFrustum {
 	}
 }
 
+#[derive(Debug, Component)]
 pub struct Camera {
 	pub position: Vec3,
 	pub yaw: f32,

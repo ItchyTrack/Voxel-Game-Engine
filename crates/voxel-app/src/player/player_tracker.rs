@@ -5,6 +5,7 @@ use bevy::transform::components::Transform;
 
 use crate::world::{transformworld::World, voxel_tracker::TrackedVoxelId};
 
+#[derive(Debug, Component)]
 pub struct PlayerTracker {
 	voxel_to_move: Option<TrackedVoxelId>,
 	error_avg: Cell<Vec3>,

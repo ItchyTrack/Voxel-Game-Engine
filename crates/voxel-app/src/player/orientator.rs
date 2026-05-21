@@ -2,6 +2,7 @@ use glam::Quat;
 
 use crate::{world::{voxel_tracker::TrackedVoxelId, world::World}};
 
+#[derive(Debug, Component)]
 pub struct Orientator {
 	tracked_voxel: Option<TrackedVoxelId>
 }

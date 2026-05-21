@@ -9,5 +9,6 @@ async fn main() {
 		.add_plugin(voxel_data::VoxelDataPlugin)
 		.add_plugin(voxel_physics::VoxelPhysicsPlugin)
 		.add_plugin(voxel_renderer::VoxelRendererPlugin)
+		.add_system(FixedUpdate, voxel_physics::)
 		.run();
 }

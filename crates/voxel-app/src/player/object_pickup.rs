@@ -2,6 +2,7 @@ use glam::Vec3;
 
 use crate::world::{physics_body::PhysicsBodyId, world::World};
 
+#[derive(Debug, Component)]
 pub struct ObjectPickup {
 	body_id: Option<PhysicsBodyId>
 }

@@ -7,6 +7,7 @@ pub struct KeyState {
 	pub just_released: bool,
 }
 
+#[derive(Debug, Component)]
 pub struct PlayerInput {
 	keys: Vec<KeyState>,
 	updated: Vec<KeyCode>,
