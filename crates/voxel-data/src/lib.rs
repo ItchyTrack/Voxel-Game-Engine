@@ -10,6 +10,7 @@ mod bvh;
 mod gpu_bvh;
 mod world_gpu_data;
 mod sub_grid_gpu_state;
+mod task_queue;
 
 use bevy::prelude::*;
 
@@ -21,5 +22,6 @@ pub struct VoxelDataPlugin;
 impl Plugin for VoxelDataPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<WorldGpuData>();
+		app.add_systems(PreUpdate, sub_grid_gpu_state::request_gpu_state);
 	}
 }
