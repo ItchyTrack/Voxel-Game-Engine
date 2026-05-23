@@ -46,7 +46,6 @@ async-priority-queue = "0.1.1"
 parking_lot = "0.12.5"
 bevy = "0.18.1"
 voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
-voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

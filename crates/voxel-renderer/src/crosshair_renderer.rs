@@ -33,8 +33,8 @@ impl CrosshairRenderer {
 		});
 		let crosshair_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Crosshair Pipeline Layout"),
-			bind_group_layouts: &[Some(&crosshair_bgl)],
-			push_constant_ranges: [],
+			bind_group_layouts: &[&crosshair_bgl],
+			push_constant_ranges: &[],
 		});
 		let crosshair_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: Some("Crosshair Pipeline"),

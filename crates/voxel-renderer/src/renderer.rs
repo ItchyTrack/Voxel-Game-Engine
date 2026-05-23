@@ -2,19 +2,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::vec;
 
+use bevy::{transform::components::Transform, camera::Projection};
 use tracy_client::span;
 use winit::{window::Window};
 
-use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
-use crate::world::gpu::gpu_bvh::GpuBvh;
-use crate::gpu_objects::matrix;
-use crate::world::physics_solver::bvh;
-use crate::world::physics_body::PhysicsBodyId;
-use crate::world::grid::GridId;
-use crate::world::grid::SubGridId;
-use crate::player::camera;
-use crate::render::{crosshair_renderer, debug_draw_renderer, graphics_settings::{GraphicsSettings, RenderSettingsUniform}, voxel_renderer};
-use crate::state::DebugEnables;
+use voxel_data::packed_dynamic_buffer::PackedDynamicBuffer;
+use voxel_data::{gpu_bvh::GpuBvh, bvh, matrix};
+use voxel_data::grid::{GridId, SubGridId};
+use crate::camera;
+use crate::{crosshair_renderer, debug_draw_renderer, graphics_settings::{GraphicsSettings, RenderSettingsUniform}, voxel_renderer};
 
 pub struct Renderer {
 	pub surface: wgpu::Surface<'static>,
@@ -35,7 +31,7 @@ pub struct Renderer {
 	pub crosshair_renderer: crosshair_renderer::CrosshairRenderer,
 	pub debug_draw_renderer: debug_draw_renderer::DebugDrawRenderer,
 	pub dt_avg: f32,
-	pub bvh_item_ids: Vec<(PhysicsBodyId, GridId, SubGridId)>,
+	pub bvh_item_ids: Vec<(GridId, SubGridId)>,
 	pub bvh_item_hit_counts: Vec<u32>,
 	last_gpu_bvh: Option<GpuBvh>
 }
@@ -96,10 +92,10 @@ impl Renderer {
 
 		// The instance is a handle to our GPU
 		// BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
-		let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+		let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
 			backends: INSTANCE_BACKENDS,
 			flags: INSTANCE_FLAGS,
-			..wgpu::InstanceDescriptor::new_without_display_handle()
+			..wgpu::InstanceDescriptor::default()
 		});
 
 		let surface = instance.create_surface(window.clone()).unwrap();
@@ -241,33 +237,29 @@ impl Renderer {
 
 	pub fn render(
 		&mut self,
-		camera: &camera::Camera,
-		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_transforms: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Transform)>,
-		debug_enables: &mut DebugEnables,
+		camera_transform: &Transform,
+		camera_projection: &Projection,
+		bvh: &bvh::BVH<(GridId, SubGridId)>,
+		gpu_grid_tree_id_to_id_transforms: &HashMap<(GridId, SubGridId), (u32, u32, Transform)>,
+		// debug_enables: &mut DebugEnables,
 		graphics_settings: &mut GraphicsSettings,
 		packed_64_tree_dynamic_buffer: &parking_lot::RwLockReadGuard<'_, PackedDynamicBuffer>,
 		packed_voxel_data_dynamic_buffer: &parking_lot::RwLockReadGuard<'_, PackedDynamicBuffer>
-	) -> Result<(), wgpu::CurrentSurfaceTexture> {
+	) -> Result<(), wgpu::SurfaceError> {
 		self.window.request_redraw();
 		tracy_client::plot!("64 tree bytes", packed_64_tree_dynamic_buffer.held_bytes() as f64);
 		tracy_client::plot!("voxel data bytes", packed_voxel_data_dynamic_buffer.held_bytes() as f64);
 
 		if !self.is_surface_configured { return Ok(()); }
-		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&camera.build_view_projection_matrix())]));
-		self.queue.write_buffer(&self.camera_transform_buffer, 0, bytemuck::cast_slice(&[camera::CameraUniform::from_camera(camera)]));
+		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[matrix::MatrixUniform::from_mat4(&camera_projection.get_clip_from_view())]));
+		self.queue.write_buffer(&self.camera_transform_buffer, 0, bytemuck::cast_slice(&[camera::CameraUniform::from_camera(camera_transform, camera_projection).unwrap()]));
 		self.queue.write_buffer(&self.render_settings_buffer, 0, bytemuck::cast_slice(&[RenderSettingsUniform::from_graphics_settings(graphics_settings)]));
 
 		let output = {
 			let _zone = span!("Finish Last Render");
 			match self.surface.get_current_texture() {
-				wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
-				wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => return Err(wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture)),
-				wgpu::CurrentSurfaceTexture::Timeout => 					return Err(wgpu::CurrentSurfaceTexture::Timeout),
-				wgpu::CurrentSurfaceTexture::Occluded => 					return Err(wgpu::CurrentSurfaceTexture::Occluded),
-				wgpu::CurrentSurfaceTexture::Outdated => 					return Err(wgpu::CurrentSurfaceTexture::Outdated),
-				wgpu::CurrentSurfaceTexture::Lost => 						return Err(wgpu::CurrentSurfaceTexture::Lost),
-				wgpu::CurrentSurfaceTexture::Validation => 					return Err(wgpu::CurrentSurfaceTexture::Validation),
+				Ok(surface_texture) => surface_texture,
+				Err(err) => return Err(err),
 			}
 		};
 
@@ -322,9 +314,9 @@ impl Renderer {
 					ui.checkbox("shadows", &mut graphics_settings.shadows);
 					ui.separator();
 					ui.text("Debug");
-					ui.checkbox("freeze upload", &mut debug_enables.freeze_gpu_grids);
-					ui.checkbox("freeze physics", &mut debug_enables.freeze_physics);
-					ui.checkbox("inertia boxes", &mut debug_enables.inertia_boxes);
+					// ui.checkbox("freeze upload", &mut debug_enables.freeze_gpu_grids);
+					// ui.checkbox("freeze physics", &mut debug_enables.freeze_physics);
+					// ui.checkbox("inertia boxes", &mut debug_enables.inertia_boxes);
 				});
 
 			self.imgui_platform.prepare_render(ui, &*self.window);

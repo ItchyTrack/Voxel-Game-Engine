@@ -6,16 +6,16 @@ use bevy::ecs::{resource::Resource, world::World};
 // --------------------- TaskQueue ---------------------
 
 pub struct Task {
-	task_func: Box<dyn FnOnce(&World) + Send + 'static>,
+	task_func: Box<dyn FnOnce(&mut World) + Send + 'static>,
 }
 
 impl Task {
-	pub fn new<F: FnOnce(&World) + Send + 'static>(function: F) -> Self {
+	pub fn new<F: FnOnce(&mut World) + Send + 'static>(function: F) -> Self {
 		Self {
 			task_func: Box::new(function),
 		}
 	}
-	pub fn run(self, world: &World) {
+	pub fn run(self, world: &mut World) {
 		(self.task_func)(world);
 	}
 }
@@ -37,6 +37,14 @@ impl TaskQueueResource {
 	pub fn push_back(&self, task: Task) {
 		self.queue.lock().unwrap().push_back(task);
 	}
+
+	pub fn pop_front(&self) -> Option<Task> {
+		self.queue.lock().unwrap().pop_front()
+	}
+}
+
+impl Default for TaskQueueResource {
+	fn default() -> Self { Self::new() }
 }
 
 // --------------------- AsyncTaskPriorityQueue ---------------------
@@ -83,7 +91,7 @@ type AsyncTaskPriorityQueue = Arc<PriorityQueue<PriorityTask>>;
 #[derive(Resource)]
 pub struct AsyncTaskPriorityQueueResource {
 	queue: AsyncTaskPriorityQueue,
-	threads: Vec<tokio::task::JoinHandle<()>>,
+	_threads: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl AsyncTaskPriorityQueueResource {
@@ -100,10 +108,14 @@ impl AsyncTaskPriorityQueueResource {
 		}).collect();
 		Self {
 			queue: async_task_priority_queue,
-			threads: async_task_priority_queue_threads,
+			_threads: async_task_priority_queue_threads,
 		}
 	}
 	pub fn push(&self, task: PriorityTask) {
 		self.queue.push(task);
 	}
+}
+
+impl Default for AsyncTaskPriorityQueueResource {
+	fn default() -> Self { Self::new() }
 }

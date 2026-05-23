@@ -13,8 +13,8 @@ impl DebugDrawRenderer {
 		});
 		let debug_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Debug Pipeline Layout"),
-			bind_group_layouts: &[Some(&camera_bind_group_layout)],
-			push_constant_ranges: [],
+			bind_group_layouts: &[&camera_bind_group_layout],
+			push_constant_ranges: &[],
 		});
 
 		let make_debug_pipeline = |label: &str, topology: wgpu::PrimitiveTopology| -> wgpu::RenderPipeline {

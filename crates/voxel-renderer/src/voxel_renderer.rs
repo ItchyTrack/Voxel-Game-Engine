@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
-use crate::gpu_objects::packed_dynamic_buffer::PackedDynamicBuffer;
-use crate::world::gpu::gpu_bvh::GpuBvh;
+use voxel_data::packed_dynamic_buffer::PackedDynamicBuffer;
+use voxel_data::{gpu_bvh::GpuBvh, bvh, grid::{GridId, SubGridId}};
 use bevy::transform::components::Transform;
-use crate::world::{physics_solver::bvh, physics_body::{PhysicsBodyId}, grid::{GridId, SubGridId}};
 
 const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
 
@@ -145,11 +144,11 @@ impl VoxelRenderer {
 			let bvh_beam_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("BVH Beam Pipeline Layout"),
 				bind_group_layouts: &[
-					Some(&camera_bind_group_layout),
-					Some(&GpuBvh::bind_group_layout(&device)),
-					Some(&bvh_beam_textured_storage_bind_group_layout),
+					&camera_bind_group_layout,
+					&GpuBvh::bind_group_layout(&device),
+					&bvh_beam_textured_storage_bind_group_layout,
 				],
-				push_constant_ranges: [],
+				push_constant_ranges: &[],
 			});
 			device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 				label: Some("BVH Beam Pipeline"),
@@ -250,13 +249,13 @@ impl VoxelRenderer {
 			let ray_marching_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Ray Casting Pipeline Layout"),
 				bind_group_layouts: &[
-					Some(&camera_bind_group_layout),
-					Some(&GpuBvh::bind_group_layout(&device)),
-					Some(&tree_bind_group_layout),
-					Some(&intermediate_textured_storage_bind_group_layout),
-					Some(&bvh_beam_textured_read_bind_group_layout),
+					&camera_bind_group_layout,
+					&GpuBvh::bind_group_layout(&device),
+					&tree_bind_group_layout,
+					&intermediate_textured_storage_bind_group_layout,
+					&bvh_beam_textured_read_bind_group_layout,
 				],
-				push_constant_ranges: [],
+				push_constant_ranges: &[],
 			});
 			device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 				label: Some("Ray Casting Pipeline"),
@@ -282,12 +281,12 @@ impl VoxelRenderer {
 			let coloring_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Coloring Pipeline Layout"),
 				bind_group_layouts: &[
-					Some(&camera_bind_group_layout),
-					Some(&GpuBvh::bind_group_layout(&device)),
-					Some(&voxel_bind_group_layout),
-					Some(&intermediate_textured_read_bind_group_layout),
+					&camera_bind_group_layout,
+					&GpuBvh::bind_group_layout(&device),
+					&voxel_bind_group_layout,
+					&intermediate_textured_read_bind_group_layout,
 				],
-				push_constant_ranges: [],
+				push_constant_ranges: &[],
 			});
 			device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 				label: Some("Coloring Pipeline"),
@@ -457,8 +456,8 @@ impl VoxelRenderer {
 		encoder: &mut wgpu::CommandEncoder,
 		view: &wgpu::TextureView,
 		camera_transform_bind_group: &wgpu::BindGroup,
-		bvh: &bvh::BVH<(PhysicsBodyId, GridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_transforms: &HashMap<(PhysicsBodyId, GridId, SubGridId), (u32, u32, Transform)>,
+		bvh: &bvh::BVH<(GridId, SubGridId)>,
+		gpu_grid_tree_id_to_id_transforms: &HashMap<(GridId, SubGridId), (u32, u32, Transform)>,
 		packed_64_tree_dynamic_buffer: &PackedDynamicBuffer,
 		packed_voxel_data_dynamic_buffer: &PackedDynamicBuffer,
 	) -> GpuBvh {
