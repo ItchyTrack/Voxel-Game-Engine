@@ -21,9 +21,11 @@ pub struct VoxelDataPlugin;
 
 impl Plugin for VoxelDataPlugin {
 	fn build(&self, app: &mut App) {
-		app.init_resource::<WorldGpuData>()
-			.init_resource::<TaskQueueResource>()
+		app.init_resource::<TaskQueueResource>()
 			.init_resource::<AsyncTaskPriorityQueueResource>();
 		app.add_systems(PreUpdate, sub_grid_gpu_state::request_gpu_state);
+
+		let render_app = app.sub_app_mut(bevy::render::RenderApp);
+		render_app.init_resource::<WorldGpuData>(); // FromWorld runs here, RenderDevice exists
 	}
 }

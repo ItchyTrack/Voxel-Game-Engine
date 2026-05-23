@@ -6,13 +6,15 @@ pub mod graphics_settings;
 pub mod voxel_renderer;
 pub mod debug_draw;
 
-use bevy::prelude::*;
+use bevy::{Update, prelude::*};
 
 #[derive(Default)]
 pub struct VoxelRendererPlugin;
 
 impl Plugin for VoxelRendererPlugin{
-	fn build(&self, _app: &mut App) {
-
+	fn build(&self, app: &mut App) {
+		app.add_systems(ScheduleLabel, systems)
 	}
 }
+
+
