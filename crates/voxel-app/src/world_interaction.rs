@@ -7,7 +7,7 @@ use bevy_egui::input::EguiWantsInput;
 
 use voxel_data::grid::{Grid, SubGrid};
 use voxel_data::voxels::Voxel;
-use voxel_physics::{CenterOfMass, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet, Velocity};
+use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet, Velocity};
 
 use crate::audio_plugin::PlaySfx;
 
@@ -19,9 +19,14 @@ impl Plugin for WorldInteractionPlugin {
 			.add_systems(Update, (
 				voxel_place_break_system,
 				pickup_toggle_system,
-				push_system,
+				push_system.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
 			))
-			.add_systems(FixedUpdate, hold_held_body_system.in_set(PhysicsSet::Apply));
+			.add_systems(
+				FixedUpdate,
+				hold_held_body_system
+					.in_set(PhysicsSet::Apply)
+					.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
+			);
 	}
 }
 

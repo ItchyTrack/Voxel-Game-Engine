@@ -7,7 +7,7 @@ use voxel_data::grid::Grid;
 use voxel_data::voxels::Voxel;
 use voxel_physics::{
 	AngularVelocity, BallJointConstraint, BallJointConstraints, CenterOfMass,
-	ComputeMassProperties, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet,
+	ComputeMassProperties, FreezePhysics, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet,
 	RigidBody, RotationalInertia, Velocity,
 };
 
@@ -16,7 +16,12 @@ pub struct ScenePlugin;
 impl Plugin for ScenePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_systems(Startup, setup_scene)
-			.add_systems(FixedUpdate, drive_orientation.in_set(PhysicsSet::Apply));
+			.add_systems(
+				FixedUpdate,
+				drive_orientation
+					.in_set(PhysicsSet::Apply)
+					.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
+			);
 	}
 }
 
