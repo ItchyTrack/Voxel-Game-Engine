@@ -1,11 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
 use glam::Vec3;
 use wgpu::{Device, util::DeviceExt};
 use bevy::transform::components::Transform;
-use bevy::ecs::entity::Entity;
 
-use crate::{bvh, grid::SubGridId};
+use super::bvh;
 
 
 // -- GPU node layout -----------------------------------------------------------
@@ -107,7 +106,7 @@ struct GpuBVHItem {
 	quat:         [f32; 4],
 }
 
-pub struct GpuBvh {
+pub struct GpuBvh<Id> {
 	pub bvh_buffer: wgpu::Buffer,
 	pub items_buffer: wgpu::Buffer,
 	pub bind_group: wgpu::BindGroup,
@@ -115,14 +114,14 @@ pub struct GpuBvh {
 	pub item_hit_count_staging_buffer: wgpu::Buffer,
 	pub item_count: usize,
 	pub bind_group_layout: wgpu::BindGroupLayout,
-	pub item_ids: Vec<(Entity, SubGridId)>,
+	pub item_ids: Vec<Id>,
 }
 
-impl GpuBvh {
+impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 	pub fn from_bvh(
 		device: &Device,
-		bvh: &bvh::BVH<(Entity, SubGridId)>,
-		gpu_grid_tree_id_to_id_transforms: &HashMap<(Entity, SubGridId), (u32, u32, Transform, )>,
+		bvh: &bvh::BVH<Id>,
+		gpu_grid_tree_id_to_id_transforms: &HashMap<Id, (u32, u32, Transform, )>,
 	) -> Self {
 		let (nodes, items) = bvh.get_internals();
 

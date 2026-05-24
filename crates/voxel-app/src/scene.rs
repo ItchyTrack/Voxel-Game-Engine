@@ -4,7 +4,7 @@ use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
-use voxel_data::voxels::Voxel;
+use voxel_data::voxels::voxels::Voxel;
 use voxel_physics::{
 	AngularVelocity, BallJointConstraint, BallJointConstraints, CenterOfMass,
 	ComputeMassProperties, FreezePhysics, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet,

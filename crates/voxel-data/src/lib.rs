@@ -1,16 +1,22 @@
+pub mod voxels {
+	pub mod grid_tree;
+	pub mod gpu_grid_tree;
+	pub mod voxels;
+}
+pub mod bvh {
+	pub mod bvh;
+	pub mod gpu_bvh;
+}
+pub mod buffers {
+	pub mod packed_buffer;
+	pub mod packed_dynamic_buffer;
+}
 pub mod grid;
-pub mod grid_tree;
-pub mod gpu_grid_tree;
-pub mod matrix;
-pub mod packed_buffer;
-pub mod packed_dynamic_buffer;
-pub mod voxel_tracker;
-pub mod voxels;
-pub mod bvh;
-pub mod gpu_bvh;
 pub mod world_gpu_data;
 pub mod sub_grid_gpu_state;
+pub mod matrix;
 pub mod task_queue;
+pub mod transform_ext;
 
 use bevy::prelude::*;
 

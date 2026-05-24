@@ -3,7 +3,7 @@ use std::collections::{HashMap};
 use parry3d;
 use rand::{seq::IteratorRandom};
 
-use crate::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
+use super::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
 
 
 const SLOT_BYTES: usize = 4;

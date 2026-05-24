@@ -8,7 +8,7 @@ use bevy::math::Vec3;
 use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
 
-use voxel_data::bvh::BVH;
+use voxel_data::bvh::bvh::BVH;
 use voxel_data::grid::{Grid, SubGridId};
 use voxel_data::world_gpu_data::WorldGpuData;
 

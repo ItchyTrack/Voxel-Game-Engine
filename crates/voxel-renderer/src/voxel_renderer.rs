@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use voxel_data::{gpu_bvh::GpuBvh, bvh, grid::SubGridId};
+use voxel_data::{bvh::{gpu_bvh::GpuBvh, bvh}, grid::SubGridId};
 use bevy::transform::components::Transform;
 use bevy::ecs::entity::Entity;
 
@@ -153,7 +153,7 @@ impl VoxelRenderer {
 				label: Some("BVH Beam Pipeline Layout"),
 				bind_group_layouts: &[
 					&camera_bind_group_layout,
-					&GpuBvh::bind_group_layout(&device),
+					&GpuBvh::<(Entity, SubGridId)>::bind_group_layout(&device),
 					&bvh_beam_textured_storage_bind_group_layout,
 				],
 				push_constant_ranges: &[],
@@ -258,7 +258,7 @@ impl VoxelRenderer {
 				label: Some("Ray Casting Pipeline Layout"),
 				bind_group_layouts: &[
 					&camera_bind_group_layout,
-					&GpuBvh::bind_group_layout(&device),
+					&GpuBvh::<(Entity, SubGridId)>::bind_group_layout(&device),
 					&tree_bind_group_layout,
 					&intermediate_textured_storage_bind_group_layout,
 					&bvh_beam_textured_read_bind_group_layout,
@@ -290,7 +290,7 @@ impl VoxelRenderer {
 				label: Some("Coloring Pipeline Layout"),
 				bind_group_layouts: &[
 					&camera_bind_group_layout,
-					&GpuBvh::bind_group_layout(&device),
+					&GpuBvh::<(Entity, SubGridId)>::bind_group_layout(&device),
 					&voxel_bind_group_layout,
 					&intermediate_textured_read_bind_group_layout,
 				],
@@ -472,7 +472,7 @@ impl VoxelRenderer {
 		tree_buffer: &wgpu::Buffer,
 		voxel_buffer: &wgpu::Buffer,
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
-	) -> GpuBvh {
+	) -> GpuBvh::<(Entity, SubGridId)> {
 		let gpu_bvh = GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_transforms);
 		{
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {

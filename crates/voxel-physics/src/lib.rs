@@ -8,21 +8,20 @@ pub mod physics_body;
 pub mod physics_constraint;
 pub mod solver;
 pub mod sparse_set;
-pub mod transform_ext;
 
 use std::collections::HashMap;
 
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
-use voxel_data::bvh::BVH;
+use voxel_data::bvh::bvh::BVH;
 use voxel_data::grid::Grid;
+use voxel_data::transform_ext;
 
 pub use ball_joint_constraint::BallJointConstraint;
 pub use components::{AngularVelocity, CenterOfMass, ComputeMassProperties, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
 pub use physics_body::{GridId, PhysicsBody, PhysicsBodyId};
-pub use transform_ext::TransformExt;
 use crate::solver::{Impulse, Solver};
 use crate::sparse_set::SparseSet;
 

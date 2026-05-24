@@ -3,7 +3,7 @@ use tracy_client::span;
 use std::{sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
 
-use crate::grid_tree::GridTree;
+use super::grid_tree::GridTree;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Voxel {

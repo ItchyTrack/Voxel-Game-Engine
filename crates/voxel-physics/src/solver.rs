@@ -4,7 +4,7 @@ use std::{collections::HashMap};
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use voxel_data::bvh::BVH;
+use voxel_data::bvh::bvh::BVH;
 use voxel_data::grid::{Grid, SubGridId};
 
 use bevy::transform::components::Transform;

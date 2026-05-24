@@ -4,7 +4,8 @@ use bevy::{ecs::{component::Component, storage::{SparseSet, SparseSetIndex}}, tr
 use glam::{I16Vec3, IVec3, Quat, Vec3};
 
 use crate::sub_grid_gpu_state::{SubGridGpuState};
-use crate::voxels::{Voxels, Voxel};
+use crate::voxels::voxels::{Voxels, Voxel};
+use crate::transform_ext::TransformExt;
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct SubGridId(pub u32);
@@ -15,13 +16,9 @@ impl SparseSetIndex for SubGridId {
 }
 
 #[derive(Debug)]
-pub struct SubGridVersionId(pub u64);
-
-#[derive(Debug)]
 pub struct SubGrid {
 	voxels: Voxels,
 	sub_grid_pos: IVec3,
-	version_id: SubGridVersionId,
 	reupload_gpu_grid: AtomicBool,
 	sub_grid_gpu_state: SubGridGpuState,
 }
@@ -31,7 +28,6 @@ impl SubGrid {
 		Self {
 			voxels: Voxels::new(),
 			sub_grid_pos,
-			version_id: SubGridVersionId(0),
 			reupload_gpu_grid: AtomicBool::new(false),
 			sub_grid_gpu_state: SubGridGpuState::new(),
 		}
@@ -152,24 +148,15 @@ impl Grid {
 
 	// voxels
 	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) -> Option<Voxel> {
-		// self.mass += voxel.mass as u64;
-		// self.voxel_center_of_mass_times_mass += voxel.mass as i64 * voxel_pos.as_i64vec3();
-		// self.inertia_tensor_at_zero += InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
 		let sub_grid_id = self.map_position_to_sub_grid_id_create(voxel_pos);
 		let sub_grid = self.sub_grids.get_mut(sub_grid_id)?;
 		let old_voxel = sub_grid.add_voxel(voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3(), *voxel)?;
-		// self.mass -= old_voxel.mass as u64;
-		// self.voxel_center_of_mass_times_mass -= old_voxel.mass as i64 * voxel_pos.as_i64vec3();
-		// self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(old_voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
 		Some(old_voxel)
 	}
 	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) -> Option<Voxel> {
 		let sub_grid_id = self.map_position_to_sub_grid_id(voxel_pos)?;
 		let sub_grid = self.sub_grids.get_mut(sub_grid_id)?;
 		let voxel = sub_grid.remove_voxel(&voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3())?;
-		// self.mass -= voxel.mass as u64;
-		// self.voxel_center_of_mass_times_mass -= voxel.mass as i64 * voxel_pos.as_i64vec3();
-		// self.inertia_tensor_at_zero -= InertiaTensor::get_inertia_tensor_for_cube_at_pos(voxel.mass as f64, 1.0, &(voxel_pos.as_dvec3() + 0.5));
 		if sub_grid.get_voxels().get_voxels().len() == 0 {
 			self.sub_grids.remove(sub_grid_id);
 		}
@@ -188,12 +175,8 @@ impl Grid {
 		self.global_transform = Some(*physics_body_transform * self.transform);
 	}
 
-	// pub fn get_inertia_tensor_at_center_of_mass(&self) -> InertiaTensor {
-	// 	self.inertia_tensor_at_zero.move_to_center_of_mass(&(self.voxel_center_of_mass_times_mass.as_dvec3() / self.mass as f64), self.mass as f64)
-	// }
-
 	// reference frame
-	// pub fn physics_body_to_grid(&self, other: &Transform) -> Transform { self.transform.inverse() * *other }
+	pub fn physics_body_to_grid(&self, other: &Transform) -> Transform { self.transform.inverse() * *other }
 	pub fn grid_to_physics_body(&self, other: &Transform) -> Transform { self.transform * *other }
 	// pub fn physics_body_to_grid_vec(&self, pos: &Vec3) -> Vec3 { self.transform.inverse() * *pos }
 	pub fn grid_to_physics_body_vec(&self, pos: &Vec3) -> Vec3 { self.transform * *pos }

@@ -2,12 +2,12 @@ use std::vec;
 
 use glam::{I16Vec3, IVec3, Quat, U8Vec3, Vec3};
 
-use voxel_data::bvh::BVH;
+use voxel_data::bvh::bvh::BVH;
 use voxel_data::grid::{Grid, SubGridId};
-use voxel_data::voxels;
+use voxel_data::voxels::voxels;
 
 use bevy::transform::components::Transform;
-use crate::transform_ext::TransformExt;
+use voxel_data::transform_ext::TransformExt;
 use crate::sparse_set::SparseSet;
 use crate::physics_body::{GridId, PhysicsBody, PhysicsBodyId};
 

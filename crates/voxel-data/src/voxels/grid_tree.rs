@@ -117,12 +117,12 @@ impl GridTreeNode {
 	pub fn parent_size(node_depth: u8) -> u16 {
 		1 << (LOG_SIZE * (node_depth + 2))
 	}
-	fn child_relative_pos(&self, node_depth: u8, child_contents_pos: U8Vec3) -> U16Vec3 {
-		Self::child_size(node_depth) * child_contents_pos.as_u16vec3()
-	}
-	fn parent_relative_pos(&self, node_depth: u8, this_contents_pos: U8Vec3) -> U16Vec3 {
-		Self::size(node_depth) * this_contents_pos.as_u16vec3()
-	}
+	// fn child_relative_pos(&self, node_depth: u8, child_contents_pos: U8Vec3) -> U16Vec3 {
+	// 	Self::child_size(node_depth) * child_contents_pos.as_u16vec3()
+	// }
+	// fn parent_relative_pos(&self, node_depth: u8, this_contents_pos: U8Vec3) -> U16Vec3 {
+	// 	Self::size(node_depth) * this_contents_pos.as_u16vec3()
+	// }
 	// (type, value)
 	fn get_child_cell_from_index(&self, contents_index: u8) -> (u8, u16) {
 		let cell: GridTreeCell = self.contents[contents_index as usize];
@@ -132,12 +132,12 @@ impl GridTreeNode {
 	fn get_child_cell(&self, contents_pos: U8Vec3) -> (u8, u16) {
 		self.get_child_cell_from_index(get_child_contents_index(contents_pos))
 	}
-	fn get_child_cell_raw_from_index(&self, contents_index: u8) -> u16 {
-		self.contents[contents_index as usize].value_raw()
-	}
-	fn get_child_cell_raw(&self, contents_pos: U8Vec3) -> u16 {
-		self.get_child_cell_raw_from_index(get_child_contents_index(contents_pos))
-	}
+	// fn get_child_cell_raw_from_index(&self, contents_index: u8) -> u16 {
+	// 	self.contents[contents_index as usize].value_raw()
+	// }
+	// fn get_child_cell_raw(&self, contents_pos: U8Vec3) -> u16 {
+	// 	self.get_child_cell_raw_from_index(get_child_contents_index(contents_pos))
+	// }
 	fn get_child_cell_type_and_raw_from_index(&self, contents_index: u8) -> (u8, u16) {
 		let cell: GridTreeCell = self.contents[contents_index as usize];
 		(cell.value_type(), cell.value_raw())
@@ -188,14 +188,14 @@ impl GridTree {
 			item_count: 0,
 		}
 	}
-	fn add_child_node(&mut self, parent_index: u32, contents_pos: U8Vec3) -> u16 {
-		let next_node_offset = (self.nodes.len() as u32 - parent_index) as u16;
-		let parent = &mut self.nodes[parent_index as usize];
-		assert!(next_node_offset != 0);
-		parent.set_child_cell_to_node(contents_pos, next_node_offset);
-		self.nodes.push(GridTreeNode::new(next_node_offset));
-		next_node_offset
-	}
+	// fn add_child_node(&mut self, parent_index: u32, contents_pos: U8Vec3) -> u16 {
+	// 	let next_node_offset = (self.nodes.len() as u32 - parent_index) as u16;
+	// 	let parent = &mut self.nodes[parent_index as usize];
+	// 	assert!(next_node_offset != 0);
+	// 	parent.set_child_cell_to_node(contents_pos, next_node_offset);
+	// 	self.nodes.push(GridTreeNode::new(next_node_offset));
+	// 	next_node_offset
+	// }
 	fn make_new_root(&mut self, contents_pos_of_old_root: U8Vec3) {
 		let old_root = &mut self.nodes[0];
 		old_root.set_parent_offset(Some(1));

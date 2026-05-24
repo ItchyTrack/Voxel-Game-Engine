@@ -5,7 +5,7 @@ use bevy::ecs::world::World;
 
 use crate::task_queue::{AsyncTaskPriorityQueueResource, PriorityTask, Task, TaskQueueResource};
 use crate::grid::{Grid, SubGridId};
-use crate::gpu_grid_tree::make_gpu_grid_tree;
+use crate::voxels::gpu_grid_tree::make_gpu_grid_tree;
 use crate::world_gpu_data::WorldGpuData;
 
 #[derive(Clone, Copy, Debug)]

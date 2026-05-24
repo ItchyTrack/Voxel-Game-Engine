@@ -6,7 +6,7 @@ use bevy::transform::components::{GlobalTransform, Transform};
 use bevy_egui::input::EguiWantsInput;
 
 use voxel_data::grid::{Grid, SubGrid};
-use voxel_data::voxels::Voxel;
+use voxel_data::voxels::voxels::Voxel;
 use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet, Velocity};
 
 use crate::audio_plugin::PlaySfx;
