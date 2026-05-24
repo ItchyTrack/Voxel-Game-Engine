@@ -116,15 +116,15 @@ impl Grid {
 	}
 
 	// sub grids
-	fn add_sub_grid(&mut self, sub_grid_pos: &IVec3) -> SubGridId {
-		let sub_grid_id = self.next_sub_grid_id;
-		self.next_sub_grid_id.0 += 1;
-		self.sub_grids.insert(sub_grid_id, SubGrid::new(*sub_grid_pos));
-		sub_grid_id
-	}
-	fn remove_sub_grid(&mut self, sub_grid_id: SubGridId) -> bool {
-		self.sub_grids.remove(sub_grid_id).is_some()
-	}
+	// fn add_sub_grid(&mut self, sub_grid_pos: &IVec3) -> SubGridId {
+	// 	let sub_grid_id = self.next_sub_grid_id;
+	// 	self.next_sub_grid_id.0 += 1;
+	// 	self.sub_grids.insert(sub_grid_id, SubGrid::new(*sub_grid_pos));
+	// 	sub_grid_id
+	// }
+	// fn remove_sub_grid(&mut self, sub_grid_id: SubGridId) -> bool {
+	// 	self.sub_grids.remove(sub_grid_id).is_some()
+	// }
 	fn map_position_to_sub_grid_id(&self, pos: &IVec3) -> Option<SubGridId> {
 		self.position_mapping.get(&(pos.div_euclid(IVec3::splat(Self::CHUNK_SIZE)))).copied()
 	}

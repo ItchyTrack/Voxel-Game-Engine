@@ -1,6 +1,5 @@
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
-use bevy_egui::input::EguiWantsInput;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use voxel_data::world_gpu_data::WorldGpuData;
@@ -82,16 +81,6 @@ fn debug_window(
 		});
 
 	Ok(())
-}
-
-/// Run conditions for game input systems so egui captures the click/keypress
-/// when the cursor is over (or focused on) the debug window.
-pub fn egui_blocks_pointer(egui_wants: Res<EguiWantsInput>) -> bool {
-	egui_wants.wants_any_pointer_input()
-}
-
-pub fn egui_blocks_keyboard(egui_wants: Res<EguiWantsInput>) -> bool {
-	egui_wants.wants_any_keyboard_input()
 }
 
 fn draw_inertia_boxes(

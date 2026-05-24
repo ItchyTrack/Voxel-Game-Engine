@@ -32,9 +32,9 @@ pub struct Solver {
 	collisions_kl_map: HashMap<CollisionKlMapKey, (Vec3, Vec3)>,
 }
 
-fn mat6_outer(a: Vec6, b: Vec6) -> Mat6 {
-	Mat6::from_cols(a * b.get(0), a * b.get(1), a * b.get(2), a * b.get(3), a * b.get(4), a * b.get(5))
-}
+// fn mat6_outer(a: Vec6, b: Vec6) -> Mat6 {
+// 	Mat6::from_cols(a * b.get(0), a * b.get(1), a * b.get(2), a * b.get(3), a * b.get(4), a * b.get(5))
+// }
 
 impl Solver {
 	pub fn new() -> Self {

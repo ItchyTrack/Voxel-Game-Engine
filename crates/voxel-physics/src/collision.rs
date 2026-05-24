@@ -594,24 +594,24 @@ fn compute_1x1x1_cube_separating_axes(orientation: Quat) -> Vec<((f32, f32), (f3
 	}).collect()
 }
 
-fn calc_aabb(pos: &Vec3, orientation: &Quat, local_bounding_box: &(Vec3, Vec3)) -> (Vec3, Vec3) {
-	// eventually, this will aggregate the bounding boxes of multiple voxel grids
-	let (min, max) = local_bounding_box;
-	let min = min;
-	let max = max + Vec3::new(1.0, 1.0, 1.0);
-	// rotate the 8 corners of the bounding box and find the new bounding box that contains them
-	let corners = [
-		*min,
-		Vec3::new(max.x, min.y, min.z),
-		Vec3::new(min.x, max.y, min.z),
-		Vec3::new(min.x, min.y, max.z),
-		Vec3::new(max.x, max.y, min.z),
-		Vec3::new(max.x, min.y, max.z),
-		Vec3::new(min.x, max.y, max.z),
-		max,
-	];
-	let rotated_corners = corners.map(|c| orientation * c);
-	let min = rotated_corners.iter().fold(Vec3::new(f32::MAX, f32::MAX, f32::MAX), |acc, c| acc.min(*c));
-	let max = rotated_corners.iter().fold(Vec3::new(f32::MIN, f32::MIN, f32::MIN), |acc, c| acc.max(*c));
-	(min + pos, max + pos)
-}
+// fn calc_aabb(pos: &Vec3, orientation: &Quat, local_bounding_box: &(Vec3, Vec3)) -> (Vec3, Vec3) {
+// 	// eventually, this will aggregate the bounding boxes of multiple voxel grids
+// 	let (min, max) = local_bounding_box;
+// 	let min = min;
+// 	let max = max + Vec3::new(1.0, 1.0, 1.0);
+// 	// rotate the 8 corners of the bounding box and find the new bounding box that contains them
+// 	let corners = [
+// 		*min,
+// 		Vec3::new(max.x, min.y, min.z),
+// 		Vec3::new(min.x, max.y, min.z),
+// 		Vec3::new(min.x, min.y, max.z),
+// 		Vec3::new(max.x, max.y, min.z),
+// 		Vec3::new(max.x, min.y, max.z),
+// 		Vec3::new(min.x, max.y, max.z),
+// 		max,
+// 	];
+// 	let rotated_corners = corners.map(|c| orientation * c);
+// 	let min = rotated_corners.iter().fold(Vec3::new(f32::MAX, f32::MAX, f32::MAX), |acc, c| acc.min(*c));
+// 	let max = rotated_corners.iter().fold(Vec3::new(f32::MIN, f32::MIN, f32::MIN), |acc, c| acc.max(*c));
+// 	(min + pos, max + pos)
+// }
