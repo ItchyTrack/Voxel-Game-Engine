@@ -10,6 +10,7 @@ use bevy::prelude::*;
 use bevy::render::view::{Hdr, Msaa};
 
 use audio_plugin::VoxelAudioPlugin;
+use bevy::window::WindowResolution;
 use camera_controller::{FlyCamera, FlyCameraPlugin};
 use debug_toggles::DebugTogglesPlugin;
 use debug_ui::DebugUiPlugin;
@@ -20,7 +21,13 @@ use world_interaction::WorldInteractionPlugin;
 #[tokio::main]
 async fn main() {
 	App::new()
-		.add_plugins(DefaultPlugins)
+		.add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                resolution: WindowResolution::new(800, 600),
+                ..Default::default()
+			}),
+			..Default::default()
+		}))
 		.add_plugins((
 			voxel_renderer::VoxelRendererPlugin,
 			VoxelPhysicsPlugin,
