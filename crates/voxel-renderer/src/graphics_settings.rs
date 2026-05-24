@@ -8,7 +8,7 @@ pub struct GraphicsSettings {
 
 impl Default for GraphicsSettings {
 	fn default() -> Self {
-		Self { shadows: true }
+		Self { shadows: false }
 	}
 }
 
