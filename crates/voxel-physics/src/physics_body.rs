@@ -1,17 +1,18 @@
 use glam::{Vec3, Quat};
 
-use bevy::transform::components::Transform;
+use crate::pose::Pose;
 
-use crate::world::physics_solver::inertia_tensor::InertiaTensor;
 
-use super::resource_manager::ResourceUUID;
-use super::grid::GridId;
+use crate::inertia_tensor::InertiaTensor;
+
+use crate::resource_manager::ResourceUUID;
+use crate::grid_manager::GridId;
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct PhysicsBodyId(pub u32);
 
 pub struct PhysicsBody {
-	pub transform: Transform,
+	pub transform: Pose,
 	pub velocity: Vec3,
 	pub angular_velocity: Vec3,
 	pub is_static: bool,
@@ -26,7 +27,7 @@ pub struct PhysicsBody {
 impl PhysicsBody {
 	pub fn new(body_uuid: ResourceUUID, id: PhysicsBodyId) -> Self {
 		Self {
-			transform: Transform::ZERO,
+			transform: Pose::ZERO,
 			velocity: Vec3::ZERO,
 			angular_velocity: Vec3::ZERO,
 			is_static: false,
@@ -76,7 +77,7 @@ impl PhysicsBody {
 	// 	return self.grids.is_empty();
 	// }
 
-	// pub fn add_grid(&mut self, uuid: ResourceUUID, grid_transform: Transform) -> GridId {
+	// pub fn add_grid(&mut self, uuid: ResourceUUID, grid_transform: Pose) -> GridId {
 	// 	self.grid_id_to_index.insert(self.next_grid_id, self.grids.len() as u32);
 	// 	self.grids.push(Grid::new(uuid, self.next_grid_id, &grid_transform));
 	// 	self.next_grid_id.0 += 1;
@@ -127,8 +128,8 @@ impl PhysicsBody {
 		self.global_rotational_inertia().render_debug_box(self.mass(), self.global_center_of_mass());
 	}
 
-	pub fn world_to_local(&self, other: &Transform) -> Transform { self.transform.inverse() * other }
-	pub fn local_to_world(&self, other: &Transform) -> Transform { self.transform * other }
+	pub fn world_to_local(&self, other: &Pose) -> Pose { self.transform.inverse() * other }
+	pub fn local_to_world(&self, other: &Pose) -> Pose { self.transform * other }
 	pub fn world_to_local_vec(&self, vec: &Vec3) -> Vec3 { self.transform.inverse() * vec }
 	pub fn local_to_world_vec(&self, vec: &Vec3) -> Vec3 { self.transform * vec }
 	pub fn world_to_local_rot(&self, rot: &Quat) -> Quat { self.transform.inverse() * rot }

@@ -18,7 +18,7 @@ impl FromWorld for WorldGpuData {
             render_device,
             render_queue,
             12,
-            wgpu::BufferUsages::STORAGE,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         )
         .expect("Failed to create packed_64_tree_dynamic_buffer");
 
@@ -26,7 +26,7 @@ impl FromWorld for WorldGpuData {
             render_device,
             render_queue,
             4,
-            wgpu::BufferUsages::STORAGE,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         )
         .expect("Failed to create packed_voxel_data_dynamic_buffer");
 

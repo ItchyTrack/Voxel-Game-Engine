@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use glam::Vec3;
 use wgpu::{Device, util::DeviceExt};
 use bevy::transform::components::Transform;
+use bevy::ecs::entity::Entity;
 
-use crate::{bvh, grid::GridId, grid::SubGridId};
+use crate::{bvh, grid::SubGridId};
 
 
 // -- GPU node layout -----------------------------------------------------------
@@ -114,14 +115,14 @@ pub struct GpuBvh {
 	pub item_hit_count_staging_buffer: wgpu::Buffer,
 	pub item_count: usize,
 	pub bind_group_layout: wgpu::BindGroupLayout,
-	pub item_ids: Vec<(GridId, SubGridId)>,
+	pub item_ids: Vec<(Entity, SubGridId)>,
 }
 
 impl GpuBvh {
 	pub fn from_bvh(
 		device: &Device,
-		bvh: &bvh::BVH<(GridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_transforms: &HashMap<(GridId, SubGridId), (u32, u32, Transform, )>,
+		bvh: &bvh::BVH<(Entity, SubGridId)>,
+		gpu_grid_tree_id_to_id_transforms: &HashMap<(Entity, SubGridId), (u32, u32, Transform, )>,
 	) -> Self {
 		let (nodes, items) = bvh.get_internals();
 
@@ -183,7 +184,7 @@ impl GpuBvh {
 				}));
 				item_ids.push(item.0);
 			} else {
-				println!("BVH item not found. Inserting 0 node into gpu bvh!");
+				log::warn!("BVH item missing from id_to_offsets map; inserting zero node");
 				item_data.resize(item_data.len() + size_of::<GpuBVHItem>(), 0);
 			}
 		}

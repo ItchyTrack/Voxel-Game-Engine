@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum SoundEffect {
 	BlockPlace,
 	BlockBreak,

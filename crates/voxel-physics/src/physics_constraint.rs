@@ -1,24 +1,24 @@
-use bevy::transform::components::Transform;
-use super::math::{Mat6, Vec6};
+use crate::pose::Pose;
+use crate::math::{Mat6, Vec6};
 
 pub const GAMMA: f32 = 0.99;
 
 pub trait PhysicsConstraint {
-	fn init(&mut self, _initial_state_1: &Transform, _initial_state_2: &Transform);
+	fn init(&mut self, _initial_state_1: &Pose, _initial_state_2: &Pose);
 	fn get_updated(
 			&self,
-			state_1: &Transform,
-			initial_state_1: &Transform,
-			state_2: &Transform,
-			initial_state_2: &Transform,
+			state_1: &Pose,
+			initial_state_1: &Pose,
+			state_2: &Pose,
+			initial_state_2: &Pose,
 			alpha: f32,
 			calc_1: bool) -> Option<(Vec6, Mat6)>;
 	fn update_dual(
 			&mut self,
-			state_1: &Transform,
-			initial_state_1: &Transform,
-			state_2: &Transform,
-			initial_state_2: &Transform,
+			state_1: &Pose,
+			initial_state_1: &Pose,
+			state_2: &Pose,
+			initial_state_2: &Pose,
 			alpha: f32
 		);
 }

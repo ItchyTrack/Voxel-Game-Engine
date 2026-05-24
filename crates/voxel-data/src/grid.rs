@@ -62,6 +62,9 @@ impl SubGrid {
 	pub fn reupload_gpu_grid(&self) -> bool {
 		self.reupload_gpu_grid.load(Ordering::Acquire)
 	}
+	pub fn clear_reupload_flag(&self) {
+		self.reupload_gpu_grid.store(false, Ordering::Release);
+	}
 
 	// return true is this should be deleted
 	pub fn clean_up(&mut self) -> bool {

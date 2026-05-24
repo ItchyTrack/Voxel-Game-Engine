@@ -1,20 +1,91 @@
 pub mod camera;
-pub mod renderer;
 pub mod crosshair_renderer;
-pub mod debug_draw_renderer;
 pub mod graphics_settings;
+pub mod hit_count_feedback;
+pub mod scene;
 pub mod voxel_renderer;
-pub mod debug_draw;
 
-use bevy::{Update, prelude::*};
+mod crosshair_node;
+mod extract;
+mod render_node;
+mod task_system;
+
+use bevy::app::{App, Plugin, Update};
+use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
+use bevy::render::render_graph::{RenderGraphExt, ViewNodeRunner};
+
+use voxel_data::VoxelDataPlugin;
+use voxel_data::sub_grid_gpu_state::GpuStateRequestMessage;
+
+use hit_count_feedback::{HitCountFeedback, LastGpuBvh};
 
 #[derive(Default)]
 pub struct VoxelRendererPlugin;
 
-impl Plugin for VoxelRendererPlugin{
+impl Plugin for VoxelRendererPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(ScheduleLabel, systems)
+		if !app.is_plugin_added::<VoxelDataPlugin>() {
+			app.add_plugins(VoxelDataPlugin);
+		}
+
+		let hit_count_feedback = HitCountFeedback::default();
+		app.insert_resource(hit_count_feedback.clone())
+			.add_message::<GpuStateRequestMessage>()
+			.add_systems(Update, (
+				scene::request_dirty_subgrids,
+				task_system::drain_task_queue,
+			));
+
+		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+		render_app
+			.insert_resource(hit_count_feedback)
+			.init_resource::<LastGpuBvh>()
+			.init_resource::<extract::ExtractedVoxelScene>()
+			.init_resource::<render_node::VoxelViewBindGroups>()
+			.init_resource::<crosshair_renderer::CrosshairResource>()
+			.add_systems(ExtractSchedule, extract::extract_voxel_scene)
+			.add_systems(
+				Render,
+				hit_count_feedback::read_back_hit_counts
+					.in_set(RenderSystems::PrepareResources),
+			)
+			.add_systems(
+				Render,
+				(
+					render_node::prepare_voxel_view_bind_groups,
+					crosshair_node::prepare_crosshair,
+				).in_set(RenderSystems::PrepareBindGroups),
+			)
+			.add_render_graph_node::<ViewNodeRunner<render_node::VoxelRenderNode>>(
+				Core3d,
+				render_node::VoxelRenderLabel,
+			)
+			.add_render_graph_node::<ViewNodeRunner<crosshair_node::CrosshairRenderNode>>(
+				Core3d,
+				crosshair_node::CrosshairRenderLabel,
+			)
+			.add_render_graph_edges(
+				Core3d,
+				(
+					Node3d::StartMainPass,
+					render_node::VoxelRenderLabel,
+					Node3d::MainOpaquePass,
+				),
+			)
+			.add_render_graph_edges(
+				Core3d,
+				(
+					Node3d::Tonemapping,
+					crosshair_node::CrosshairRenderLabel,
+					Node3d::EndMainPassPostProcessing,
+				),
+			);
+	}
+
+	fn finish(&self, app: &mut App) {
+		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+		render_app.init_resource::<voxel_renderer::VoxelRendererResource>();
 	}
 }
-
-

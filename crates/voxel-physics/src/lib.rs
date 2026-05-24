@@ -1,31 +1,35 @@
-pub mod ball_joint_constraint;
-pub mod collision_constraint;
-pub mod physics_constraint;
-pub mod inertia_tensor;
-pub mod physics_body;
 pub mod collision;
-pub mod solver;
+pub mod components;
+pub mod inertia_tensor;
 pub mod math;
+mod solver;
 
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::prelude::*;
 
-use crate::physics_body::PhysicsBody;
+pub use components::{AngularVelocity, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+pub use inertia_tensor::InertiaTensor;
+
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct Gravity(pub Vec3);
+
+impl Default for Gravity {
+	fn default() -> Self { Self(Vec3::new(0.0, -98.0, 0.0)) }
+}
 
 #[derive(Default)]
 pub struct VoxelPhysicsPlugin;
 
 impl Plugin for VoxelPhysicsPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_plugins(voxel_data::VoxelDataPlugin);
-
-		app.add_system(FixedUpdate, crate::update);
-
+		app.init_resource::<Gravity>()
+			.init_resource::<collision::PhysicsBvh>()
+			.init_resource::<collision::ContactList>()
+			.add_systems(FixedUpdate, (
+				solver::integrate,
+				collision::rebuild_bvh,
+				collision::detect_contacts,
+				collision::resolve_contacts,
+			).chain());
 	}
-}
-
-fn update(
-	grid_query: Query<&Grid>,
-	physics_body_query: Query<&PhysicsBody>,
-) {
-
 }

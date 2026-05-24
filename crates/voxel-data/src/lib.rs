@@ -24,8 +24,10 @@ impl Plugin for VoxelDataPlugin {
 		app.init_resource::<TaskQueueResource>()
 			.init_resource::<AsyncTaskPriorityQueueResource>();
 		app.add_systems(PreUpdate, sub_grid_gpu_state::request_gpu_state);
+	}
 
-		let render_app = app.sub_app_mut(bevy::render::RenderApp);
-		render_app.init_resource::<WorldGpuData>(); // FromWorld runs here, RenderDevice exists
+	fn finish(&self, app: &mut App) {
+		// RenderDevice/RenderQueue are inserted by RenderPlugin::finish.
+		app.init_resource::<WorldGpuData>();
 	}
 }

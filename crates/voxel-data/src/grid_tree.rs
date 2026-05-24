@@ -616,7 +616,8 @@ impl GridTree {
 									break;
 								}
 								current_depth += 1;
-								current_node_index -= current_node.get_parent_offset().unwrap() as u32;
+								let parent_offset = current_node.get_parent_offset()?;
+								current_node_index -= parent_offset as u32;
 								current_node = &self.nodes[current_node_index as usize];
 							}
 							root_relative_grid_pos.x = root_relative_grid_pos_x;
@@ -634,7 +635,8 @@ impl GridTree {
 									break;
 								}
 								current_depth += 1;
-								current_node_index -= current_node.get_parent_offset().unwrap() as u32;
+								let parent_offset = current_node.get_parent_offset()?;
+								current_node_index -= parent_offset as u32;
 								current_node = &self.nodes[current_node_index as usize];
 							}
 							root_relative_grid_pos.y = root_relative_grid_pos_y;
@@ -652,7 +654,8 @@ impl GridTree {
 									break;
 								}
 								current_depth += 1;
-								current_node_index -= current_node.get_parent_offset().unwrap() as u32;
+								let parent_offset = current_node.get_parent_offset()?;
+								current_node_index -= parent_offset as u32;
 								current_node = &self.nodes[current_node_index as usize];
 							}
 							root_relative_grid_pos.z = root_relative_grid_pos_z;

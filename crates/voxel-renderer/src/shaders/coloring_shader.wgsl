@@ -85,15 +85,20 @@ fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 	let texture_size = textureDimensions(intermediate_textured);
-	let texture_pos = vec2(u32(in.screen_pos.x * f32(texture_size.x)), u32(in.screen_pos.y * f32(texture_size.y)));
+	// WGSL storage textures have y=0 at the top, but our fullscreen-triangle's
+	// `screen_pos.y` is 0 at the bottom (NDC), so we flip Y when sampling.
+	let texture_pos = vec2(
+		u32(in.screen_pos.x * f32(texture_size.x)),
+		u32((1.0 - in.screen_pos.y) * f32(texture_size.y)),
+	);
 	let data = textureLoad(intermediate_textured, texture_pos, 0);
 
 	// Reconstruct world-space ray from the screen position.
 	let ray_start = camera.camera_transform[3].xyz;
 	let ray_dir   = normalize((camera.camera_transform * vec4<f32>(
-		(-in.screen_pos.x + 0.5) * camera.camera_view_size.x * 2.0,
-		( in.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
-		1.0,
+		(in.screen_pos.x - 0.5) * camera.camera_view_size.x * 2.0,
+		(in.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
+		-1.0,
 		0.0,
 	)).xyz);
 

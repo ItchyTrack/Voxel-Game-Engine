@@ -50,6 +50,17 @@ pub struct GpuStateRequestMessage {
     sub_grid_id: SubGridId,
 }
 
+impl GpuStateRequestMessage {
+    pub fn new(
+        request: SubGridGpuUploadingState,
+        priority: f32,
+        grid_id: Entity,
+        sub_grid_id: SubGridId,
+    ) -> Self {
+        Self { request, priority, grid_id, sub_grid_id }
+    }
+}
+
 pub fn request_gpu_state(
     mut gpu_state_request_messages: MessageReader<GpuStateRequestMessage>,
     mut grids: Query<&mut Grid>,
@@ -66,6 +77,7 @@ pub fn request_gpu_state(
         }
 
         gpu_state.currently_uploading = Some(msg.request);
+        sub_grid.clear_reupload_flag();
 
         let msg = msg.clone();
         let palette = sub_grid.get_voxels().get_palette().clone();

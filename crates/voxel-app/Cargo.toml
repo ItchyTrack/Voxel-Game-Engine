@@ -47,6 +47,7 @@ parking_lot = "0.12.5"
 bevy = "0.18.1"
 voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"

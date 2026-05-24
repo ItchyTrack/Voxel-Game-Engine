@@ -96,9 +96,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 	// World-space ray.
 	let ray_pos = camera.camera_transform[3].xyz;
 	let ray_dir = normalize((camera.camera_transform * vec4<f32>(
-		(-screen_pos.x + 0.5) * camera.camera_view_size.x * 2.0,
-		( screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
-		1.0,
+		(screen_pos.x - 0.5) * camera.camera_view_size.x * 2.0,
+		(0.5 - screen_pos.y) * camera.camera_view_size.y * 2.0,
+		-1.0,
 		0.0,
 	)).xyz);
 	let inv_dir = vec3<f32>(1.0) / ray_dir;

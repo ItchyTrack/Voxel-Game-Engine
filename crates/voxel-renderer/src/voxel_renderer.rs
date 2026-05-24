@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use voxel_data::packed_dynamic_buffer::PackedDynamicBuffer;
-use voxel_data::{gpu_bvh::GpuBvh, bvh, grid::{GridId, SubGridId}};
+use voxel_data::{gpu_bvh::GpuBvh, bvh, grid::SubGridId};
 use bevy::transform::components::Transform;
+use bevy::ecs::entity::Entity;
 
-const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
+pub const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
 
 pub struct VoxelRenderer {
 	// Beam optimisation for BVH
@@ -30,7 +30,15 @@ pub struct VoxelRenderer {
 }
 
 impl VoxelRenderer {
-	pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, camera_bind_group_layout: &wgpu::BindGroupLayout) -> anyhow::Result<Self> {
+	pub fn new(
+		device: &wgpu::Device,
+		width: u32,
+		height: u32,
+		color_format: wgpu::TextureFormat,
+		camera_bind_group_layout: &wgpu::BindGroupLayout,
+	) -> anyhow::Result<Self> {
+		struct Cfg { width: u32, height: u32 }
+		let config = Cfg { width, height };
 		let tree_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[wgpu::BindGroupLayoutEntry {
 				binding: 0,
@@ -301,7 +309,7 @@ impl VoxelRenderer {
 					module: &coloring_shader,
 					entry_point: Some("fs_main"),
 					targets: &[Some(wgpu::ColorTargetState {
-						format: config.format,
+						format: color_format,
 						blend: Some(wgpu::BlendState::REPLACE),
 						write_mask: wgpu::ColorWrites::ALL,
 					})],
@@ -354,7 +362,9 @@ impl VoxelRenderer {
 		})
 	}
 
-	pub fn resize(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
+	pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+		struct Cfg { width: u32, height: u32 }
+		let config = Cfg { width, height };
 		self.bvh_beam_textured = device.create_texture(&wgpu::TextureDescriptor {
 			label: Some("intermediate_textured"),
 			size: wgpu::Extent3d { width: config.width / BVH_BEAM_TEXTURE_FACTOR, height: config.height / BVH_BEAM_TEXTURE_FACTOR, depth_or_array_layers: 1 },
@@ -454,12 +464,14 @@ impl VoxelRenderer {
 		&self,
 		device: &wgpu::Device,
 		encoder: &mut wgpu::CommandEncoder,
-		view: &wgpu::TextureView,
+		view_width: u32,
+		view_height: u32,
 		camera_transform_bind_group: &wgpu::BindGroup,
-		bvh: &bvh::BVH<(GridId, SubGridId)>,
-		gpu_grid_tree_id_to_id_transforms: &HashMap<(GridId, SubGridId), (u32, u32, Transform)>,
-		packed_64_tree_dynamic_buffer: &PackedDynamicBuffer,
-		packed_voxel_data_dynamic_buffer: &PackedDynamicBuffer,
+		bvh: &bvh::BVH<(Entity, SubGridId)>,
+		gpu_grid_tree_id_to_id_transforms: &HashMap<(Entity, SubGridId), (u32, u32, Transform)>,
+		tree_buffer: &wgpu::Buffer,
+		voxel_buffer: &wgpu::Buffer,
+		color_attachment: wgpu::RenderPassColorAttachment<'_>,
 	) -> GpuBvh {
 		let gpu_bvh = GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_transforms);
 		{
@@ -472,7 +484,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(1, &gpu_bvh.bind_group, &[]);
 			compute_pass.set_bind_group(2, &self.bvh_beam_textured_storage_bind_group, &[]);
 			compute_pass.set_pipeline(&self.bvh_beam_pipeline);
-			compute_pass.dispatch_workgroups((view.texture().width() / BVH_BEAM_TEXTURE_FACTOR + 7) / 4, (view.texture().height() / BVH_BEAM_TEXTURE_FACTOR + 3) / 4, 1);
+			compute_pass.dispatch_workgroups((view_width / BVH_BEAM_TEXTURE_FACTOR + 7) / 4, (view_height / BVH_BEAM_TEXTURE_FACTOR + 3) / 4, 1);
 		}
 		{
 			let tree_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -480,7 +492,7 @@ impl VoxelRenderer {
 				entries: &[wgpu::BindGroupEntry {
 					binding: 0,
 					resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: &packed_64_tree_dynamic_buffer.get_buffer(),
+						buffer: tree_buffer,
 						offset: 0,
 						size: None,
 					}),
@@ -498,7 +510,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(3, &self.intermediate_textured_storage_bind_group, &[]);
 			compute_pass.set_bind_group(4, &self.bvh_beam_textured_read_bind_group, &[]);
 			compute_pass.set_pipeline(&self.ray_marching_pipeline);
-			compute_pass.dispatch_workgroups((view.texture().width() + 7) / 8, (view.texture().height() + 3) / 4, 1);
+			compute_pass.dispatch_workgroups((view_width + 7) / 8, (view_height + 3) / 4, 1);
 		}
 		{
 			let voxels_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -506,7 +518,7 @@ impl VoxelRenderer {
 				entries: &[wgpu::BindGroupEntry {
 					binding: 0,
 					resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: &packed_voxel_data_dynamic_buffer.get_buffer(),
+						buffer: voxel_buffer,
 						offset: 0,
 						size: None,
 					}),
@@ -514,13 +526,8 @@ impl VoxelRenderer {
 				label: Some("voxel_bind_group"),
 			});
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-				label: Some("Render Pass"),
-				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-					view: &view,
-					resolve_target: None,
-					depth_slice: None,
-					ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 }), store: wgpu::StoreOp::Store },
-				})],
+				label: Some("Voxel Coloring Pass"),
+				color_attachments: &[Some(color_attachment)],
 				depth_stencil_attachment: None,
 				occlusion_query_set: None,
 				timestamp_writes: None,
@@ -541,5 +548,112 @@ impl VoxelRenderer {
 		);
 
 		gpu_bvh
+	}
+}
+
+use bevy::ecs::resource::Resource;
+use bevy::ecs::world::FromWorld;
+use bevy::render::renderer::RenderDevice;
+
+#[derive(Resource)]
+pub struct VoxelRendererResource {
+	pub voxel_renderer: Option<VoxelRenderer>,
+	pub size: (u32, u32),
+	pub format: Option<wgpu::TextureFormat>,
+	pub camera_buffer: wgpu::Buffer,
+	pub render_settings_buffer: wgpu::Buffer,
+	pub camera_bind_group: wgpu::BindGroup,
+	pub camera_bind_group_layout: wgpu::BindGroupLayout,
+}
+
+impl FromWorld for VoxelRendererResource {
+	fn from_world(world: &mut bevy::ecs::world::World) -> Self {
+		let render_device = world.resource::<RenderDevice>();
+		let device = render_device.wgpu_device();
+
+		let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+			label: Some("voxel_camera_uniform"),
+			size: std::mem::size_of::<crate::camera::CameraUniform>() as u64,
+			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+			mapped_at_creation: false,
+		});
+		let render_settings_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+			label: Some("voxel_render_settings_uniform"),
+			size: std::mem::size_of::<crate::graphics_settings::RenderSettingsUniform>() as u64,
+			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+			mapped_at_creation: false,
+		});
+
+		let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+			entries: &[
+				wgpu::BindGroupLayoutEntry {
+					binding: 0,
+					visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Uniform,
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
+				},
+				wgpu::BindGroupLayoutEntry {
+					binding: 1,
+					visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Uniform,
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
+				},
+			],
+			label: Some("voxel_camera_bind_group_layout"),
+		});
+		let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+			layout: &camera_bind_group_layout,
+			entries: &[
+				wgpu::BindGroupEntry { binding: 0, resource: camera_buffer.as_entire_binding() },
+				wgpu::BindGroupEntry { binding: 1, resource: render_settings_buffer.as_entire_binding() },
+			],
+			label: Some("voxel_camera_bind_group"),
+		});
+
+		Self {
+			voxel_renderer: None,
+			size: (0, 0),
+			format: None,
+			camera_buffer,
+			render_settings_buffer,
+			camera_bind_group,
+			camera_bind_group_layout,
+		}
+	}
+}
+
+impl VoxelRendererResource {
+	pub fn ensure(&mut self, device: &wgpu::Device, width: u32, height: u32, format: wgpu::TextureFormat) {
+		if width == 0 || height == 0 { return; }
+
+		let need_rebuild = self.voxel_renderer.is_none() || self.format != Some(format);
+		if need_rebuild {
+			match VoxelRenderer::new(device, width, height, format, &self.camera_bind_group_layout) {
+				Ok(vr) => {
+					self.voxel_renderer = Some(vr);
+					self.size = (width, height);
+					self.format = Some(format);
+				},
+				Err(e) => {
+					log::error!("Failed to build VoxelRenderer: {e}");
+				}
+			}
+			return;
+		}
+
+		if self.size != (width, height) {
+			if let Some(vr) = self.voxel_renderer.as_mut() {
+				vr.resize(device, width, height);
+				self.size = (width, height);
+			}
+		}
 	}
 }

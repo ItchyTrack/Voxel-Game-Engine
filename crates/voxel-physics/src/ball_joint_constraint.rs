@@ -1,9 +1,11 @@
 use glam::{Mat3, Vec3};
 
-use super::math::{Vec6, Mat6};
-use bevy::transform::components::Transform;
+use crate::math::{Vec6, Mat6};
+use crate::pose::Pose;
 
-use super::{physics_constraint::{PhysicsConstraint, GAMMA}, solver::Solver};
+
+use crate::physics_constraint::{PhysicsConstraint, GAMMA};
+use crate::solver::Solver;
 
 pub struct BallJointConstraint {
 	c0_linear: Vec3,
@@ -12,16 +14,16 @@ pub struct BallJointConstraint {
 	penalty_angular: Vec3,
 	lambda_linear: Vec3,
 	lambda_angular: Vec3,
-	body_1_attachment: Transform,
-	body_2_attachment: Transform,
-	body_1_attachment_com: Transform,
-	body_2_attachment_com: Transform,
+	body_1_attachment: Pose,
+	body_2_attachment: Pose,
+	body_1_attachment_com: Pose,
+	body_2_attachment_com: Pose,
 	stiffness_linear: f32,
 	stiffness_angular: f32,
 }
 
 impl BallJointConstraint {
-	pub fn new(body_1_attachment: &Transform, body_2_attachment: &Transform, stiffness_linear: f32, stiffness_angular: f32) -> Self {
+	pub fn new(body_1_attachment: &Pose, body_2_attachment: &Pose, stiffness_linear: f32, stiffness_angular: f32) -> Self {
 		Self {
 			c0_linear: Vec3::ZERO,
 			c0_angular: Vec3::ZERO,
@@ -31,23 +33,23 @@ impl BallJointConstraint {
 			lambda_angular: Vec3::ZERO,
 			body_1_attachment: *body_1_attachment,
 			body_2_attachment: *body_2_attachment,
-			body_1_attachment_com: Transform::ZERO,
-			body_2_attachment_com: Transform::ZERO,
+			body_1_attachment_com: Pose::ZERO,
+			body_2_attachment_com: Pose::ZERO,
 			stiffness_linear: stiffness_linear,
 			stiffness_angular: stiffness_angular,
 		}
 	}
 
 	pub fn update_attachment_com(&mut self, body_1_com: &Vec3, body_2_com: &Vec3) {
-		self.body_1_attachment_com = self.body_1_attachment * Transform::from_translation(-*body_1_com);
-		self.body_2_attachment_com = self.body_2_attachment * Transform::from_translation(-*body_2_com);
+		self.body_1_attachment_com = self.body_1_attachment * Pose::from_translation(-*body_1_com);
+		self.body_2_attachment_com = self.body_2_attachment * Pose::from_translation(-*body_2_com);
 	}
 
-	pub fn body_1_attachment(&self) -> &Transform {
+	pub fn body_1_attachment(&self) -> &Pose {
 		&self.body_1_attachment
 	}
 
-	pub fn body_2_attachment(&self) -> &Transform {
+	pub fn body_2_attachment(&self) -> &Pose {
 		&self.body_2_attachment
 	}
 }
@@ -62,7 +64,7 @@ fn skew(r: &Vec3) -> Mat3 {
 }
 
 impl PhysicsConstraint for BallJointConstraint {
-	fn init(&mut self, initial_state_1: &Transform, initial_state_2: &Transform) {
+	fn init(&mut self, initial_state_1: &Pose, initial_state_2: &Pose) {
 		// let normal = (self.collision.collision2 - self.collision.collision1).normalize();
 		// if normal.is_nan() { return; }
 
@@ -84,10 +86,10 @@ impl PhysicsConstraint for BallJointConstraint {
 
 	fn get_updated(
 		&self,
-		state_1: &Transform,
-		_initial_state_1: &Transform,
-		state_2: &Transform,
-		_initial_state_2: &Transform,
+		state_1: &Pose,
+		_initial_state_1: &Pose,
+		state_2: &Pose,
+		_initial_state_2: &Pose,
 		alpha: f32,
 		calc_1: bool
 	) -> Option<(Vec6, Mat6)> {
@@ -130,10 +132,10 @@ impl PhysicsConstraint for BallJointConstraint {
 
 	fn update_dual(
 		&mut self,
-		state_1: &Transform,
-		_initial_state_1: &Transform,
-		state_2: &Transform,
-		_initial_state_2: &Transform,
+		state_1: &Pose,
+		_initial_state_1: &Pose,
+		state_2: &Pose,
+		_initial_state_2: &Pose,
 		alpha: f32
 	) {
 		let penalty_mat = Mat3::from_diagonal(self.penalty_linear);
