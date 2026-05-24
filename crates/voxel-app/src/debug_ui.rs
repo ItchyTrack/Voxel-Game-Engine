@@ -94,9 +94,6 @@ pub fn egui_blocks_keyboard(egui_wants: Res<EguiWantsInput>) -> bool {
 	egui_wants.wants_any_keyboard_input()
 }
 
-/// Draws an equivalent-inertia box for each non-static rigid body, matching
-/// `InertiaTensor::render_debug_box` on `main`. Uses eigen-decomposition of
-/// the inertia tensor.
 fn draw_inertia_boxes(
 	mut gizmos: Gizmos,
 	bodies: Query<
@@ -106,18 +103,20 @@ fn draw_inertia_boxes(
 ) {
 	use nalgebra::{Matrix3, SymmetricEigen};
 
+	let color = Color::srgba(1.0, 0.2, 0.2, 0.6);
+
 	for (gt, mass, com, inertia) in bodies.iter() {
 		if mass.0 <= 0.0 { continue; }
 
 		let body_t = gt.compute_transform();
-		// Rotate the body-local inertia tensor into world space.
 		let world_inertia = inertia.0.get_rotated(body_t.rotation.as_dquat());
 		let m = world_inertia.mat;
 
+		// Build a column-major Matrix3 from the (symmetric) inertia tensor.
 		let nm = Matrix3::new(
-			m.x_axis.x as f32, m.y_axis.x as f32, m.z_axis.x as f32,
-			m.x_axis.y as f32, m.y_axis.y as f32, m.z_axis.y as f32,
-			m.x_axis.z as f32, m.y_axis.z as f32, m.z_axis.z as f32,
+			m.x_axis.x as f32, m.x_axis.y as f32, m.x_axis.z as f32,
+			m.y_axis.x as f32, m.y_axis.y as f32, m.y_axis.z as f32,
+			m.z_axis.x as f32, m.z_axis.y as f32, m.z_axis.z as f32,
 		);
 		let eigen = SymmetricEigen::new(nm);
 		let (e0, e1, e2) = (eigen.eigenvalues.x, eigen.eigenvalues.y, eigen.eigenvalues.z);
@@ -125,21 +124,30 @@ fn draw_inertia_boxes(
 		let v1 = Vec3::new(eigen.eigenvectors[(0, 1)], eigen.eigenvectors[(1, 1)], eigen.eigenvectors[(2, 1)]);
 		let v2 = Vec3::new(eigen.eigenvectors[(0, 2)], eigen.eigenvectors[(1, 2)], eigen.eigenvectors[(2, 2)]);
 
-		let sx = ((6.0 / mass.0) * (e1 + e2 - e0)).max(0.0).sqrt();
-		let sy = ((6.0 / mass.0) * (e0 + e2 - e1)).max(0.0).sqrt();
-		let sz = ((6.0 / mass.0) * (e0 + e1 - e2)).max(0.0).sqrt();
+		let s0 = v0.normalize_or_zero() * ((6.0 / mass.0) * (e1 + e2 - e0)).max(0.0).sqrt();
+		let s1 = v1.normalize_or_zero() * ((6.0 / mass.0) * (e0 + e2 - e1)).max(0.0).sqrt();
+		let s2 = v2.normalize_or_zero() * ((6.0 / mass.0) * (e0 + e1 - e2)).max(0.0).sqrt();
 
-		let basis = Mat3::from_cols(v0.normalize(), v1.normalize(), v2.normalize());
-		let rot = Quat::from_mat3(&basis);
-		let center = body_t.transform_point(com.0);
+		// Corner of the box (matches main: pos + (s0+s1+s2)/-2).
+		let world_com = body_t.transform_point(com.0);
+		let origin = world_com - (s0 + s1 + s2) * 0.5;
 
-		gizmos.cube(
-			Transform {
-				translation: center,
-				rotation: rot,
-				scale: Vec3::new(sx, sy, sz),
-			},
-			Color::srgba(1.0, 0.2, 0.2, 0.6),
-		);
+		let p000 = origin;
+		let p100 = origin + s0;
+		let p010 = origin + s1;
+		let p001 = origin + s2;
+		let p110 = origin + s0 + s1;
+		let p101 = origin + s0 + s2;
+		let p011 = origin + s1 + s2;
+		let p111 = origin + s0 + s1 + s2;
+
+		// 12 edges along the three basis directions.
+		for (a, b) in [
+			(p000, p100), (p010, p110), (p001, p101), (p011, p111),
+			(p000, p010), (p100, p110), (p001, p011), (p101, p111),
+			(p000, p001), (p100, p101), (p010, p011), (p110, p111),
+		] {
+			gizmos.line(a, b, color);
+		}
 	}
 }
