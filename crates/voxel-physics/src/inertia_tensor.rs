@@ -40,14 +40,14 @@ impl InertiaTensor {
 		}
 	}
 
-	// pos is relative to the center of mass
+	/// pos is relative to the center of mass
 	pub fn move_to_center_of_mass(&self, pos: &DVec3, mass: f64) -> InertiaTensor {
 		InertiaTensor {
 			mat: self.mat - (DMat3::IDENTITY * (pos).length_squared() - self_outer_product(pos)) * mass,
 		}
 	}
 
-	// pos is relative to the center of mass
+	/// pos is relative to the center of mass
 	pub fn move_between_points(&self, start_pos_1: &DVec3, end_pos_2: &DVec3, mass: f64) -> InertiaTensor {
 		self.move_to_center_of_mass(start_pos_1, mass).move_from_center_of_mass(end_pos_2, mass)
 	}

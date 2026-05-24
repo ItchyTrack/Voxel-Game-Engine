@@ -8,7 +8,6 @@ pub mod voxel_renderer;
 mod crosshair_node;
 mod extract;
 mod render_node;
-mod task_system;
 
 use bevy::app::{App, Plugin, Update};
 use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
@@ -41,7 +40,6 @@ impl Plugin for VoxelRendererPlugin {
 			.add_message::<GpuStateRequestMessage>()
 			.add_systems(Update, (
 				scene::request_dirty_subgrids,
-				task_system::drain_task_queue,
 			));
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };

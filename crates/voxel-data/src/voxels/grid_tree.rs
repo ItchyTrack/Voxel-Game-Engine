@@ -24,13 +24,13 @@ pub struct GridTreeCell {
 impl GridTreeCell {
 	const LAST_BIT_INDEX: u8 = u16::BITS as u8 - 1;
 	pub const NONE: GridTreeCell = GridTreeCell{ value: u16::MAX };
-	// You can only use the first 15 bits
+	/// You can only use the first 15 bits
 	pub fn from_data(data: u16) -> Self {
 		Self {
 			value: data,
 		}
 	}
-	// You can only use the first 15 bits and cant be 15 ones
+	/// You can only use the first 15 bits and cant be 15 ones
 	pub fn from_node_offset(node_index: u16) -> Self {
 		Self {
 			value: node_index | 1 << Self::LAST_BIT_INDEX,
@@ -41,12 +41,12 @@ impl GridTreeCell {
 			value: value,
 		}
 	}
-	// 0: NONE, 1: DATA, 2: NODE
+	/// 0: NONE, 1: DATA, 2: NODE
 	pub fn value_type(&self) -> u8 {
 		if self.value == u16::MAX { return 0; }
 		1 + (self.value >> Self::LAST_BIT_INDEX) as u8
 	}
-	// Undefined output if NONE
+	/// Undefined output if NONE
 	pub fn value(&self) -> u16 {
 		self.value & ((1 << Self::LAST_BIT_INDEX) - 1)
 	}
@@ -319,7 +319,7 @@ impl GridTree {
 			}
 		}
 	}
-	// parent depth must be more than 0 and at pos in parent there must be a data cell containing current_cell and current_cell != cell_to_set
+	/// parent depth must be more than 0 and at pos in parent there must be a data cell containing current_cell and current_cell != cell_to_set
 	fn set_voxel_in_data_cell(&mut self, parent_node_index: u32, parent_depth: u8, current_cell: GridTreeCell, cell_to_set: GridTreeCell, pos: &U16Vec3) {
 		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
 		let parent = &mut self.nodes[parent_node_index as usize];
@@ -342,7 +342,7 @@ impl GridTree {
 			self.set_voxel_in_data_cell(parent_node_index + next_node_offset as u32, parent_depth - 1, current_cell, cell_to_set, &(pos % child_size));
 		}
 	}
-	// parent depth must be more than 0 and at pos in parent there must be a none cell and cell_to_set must be type 1
+	/// parent depth must be more than 0 and at pos in parent there must be a none cell and cell_to_set must be type 1
 	fn set_voxel_in_none_cell(&mut self, parent_node_index: u32, parent_depth: u8, cell_to_set: GridTreeCell, pos: &U16Vec3) {
 		assert!(cell_to_set.value_type() == 1);
 		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
@@ -369,7 +369,7 @@ impl GridTree {
 	pub fn get_internals(&self) -> (&Vec<GridTreeNode>, I16Vec3, u8) {
 		(&self.nodes, self.root_pos, self.root_depth)
 	}
-	// cell_to_merge cant be NODE. pos_in_node is any pos
+	/// cell_to_merge cant be NODE. pos_in_node is any pos
 	fn try_merge(&mut self, node_index: u32, data: u16, cell_index_stack: &[u8]) {
 		let node = &mut self.nodes[node_index as usize];
 		if let Some(parent_offset) = node.get_parent_offset() { // if it dont have a parent it cant be merged
@@ -400,7 +400,7 @@ impl GridTree {
 			self.try_merge_empty(parent_index, &cell_index_stack[0..(cell_index_stack.len() - 1)]);
 		}
 	}
-	// Assumes childern are dead. // Does nothing (leaks the memory)
+	/// Assumes childern are dead. // Does nothing (leaks the memory)
 	pub fn remove_node(&mut self, node_index: u32) {
 		if let Some(node) = self.nodes.get_mut(node_index as usize) {
 			node.used_cell_count = 255; // mark as deleted (does not change anything but it nice to do)

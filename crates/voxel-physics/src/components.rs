@@ -2,11 +2,7 @@ use bevy::prelude::*;
 
 use crate::inertia_tensor::InertiaTensor;
 
-/// Marker for an entity participating in the physics simulation.
-///
-/// A `RigidBody` entity is expected to also carry `Transform`, `Velocity`,
-/// `AngularVelocity`, `Mass`, `RotationalInertia`, and `CenterOfMass`. Its
-/// `Grid` children hold the voxel data attached to this body.
+/// Needs Transform, Velocity, AngularVelocity, Mass, RotationalInertia, CenterOfMass
 #[derive(Component, Default, Debug, Clone, Copy)]
 pub struct RigidBody;
 
@@ -23,7 +19,7 @@ impl Default for Mass {
 	fn default() -> Self { Self(1.0) }
 }
 
-/// Local-space rotational inertia tensor (rotated into world space by the solver).
+/// Local-space rotational
 #[derive(Component, Debug, Clone, Copy)]
 pub struct RotationalInertia(pub InertiaTensor);
 
@@ -35,7 +31,6 @@ impl Default for RotationalInertia {
 #[derive(Component, Default, Debug, Clone, Copy)]
 pub struct CenterOfMass(pub Vec3);
 
-/// Body is pinned in place: gravity, velocity, and impulses are ignored.
 #[derive(Component, Default, Debug, Clone, Copy)]
 pub struct IsStatic;
 

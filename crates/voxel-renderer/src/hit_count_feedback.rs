@@ -10,19 +10,14 @@ use voxel_data::bvh::gpu_bvh::GpuBvh;
 use voxel_data::grid::SubGridId;
 
 /// Per-sub-grid GPU ray-hit counts from the previous frame.
-///
-/// Shared between the render world (writer) and the main world (reader) via
-/// `Arc<Mutex<_>>`.
 #[derive(Resource, Clone, Default)]
 pub struct HitCountFeedback(pub Arc<Mutex<HashMap<(Entity, SubGridId), u32>>>);
 
-/// Holds the `GpuBvh` produced by the previous frame's render so that we can
-/// map its staging buffer this frame.
+/// Holds the `GpuBvh` produced by the previous frame's render so that we can map its staging buffer this frame.
 #[derive(Resource, Default)]
 pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<(Entity, SubGridId)>>>);
 
-/// GPU-side render stats published by the render world for the main world to
-/// read (e.g. for the debug UI). Sized in bytes.
+/// GPU-side render stats published by the render world for the main world to read.
 #[derive(Resource, Clone, Default)]
 pub struct RenderStats {
 	pub inner: Arc<Mutex<RenderStatsData>>,

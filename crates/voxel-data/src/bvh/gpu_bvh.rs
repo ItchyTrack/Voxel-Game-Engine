@@ -49,7 +49,7 @@ struct GpuBVHNode {
 }
 
 impl GpuBVHNode {
-	/// Internal node: both child AABBs + their shifted node indices.
+	// Internal node: both child AABBs + their shifted node indices.
 	fn internal(
 		c0_min: Vec3, c0_max: Vec3, c0_ref: u32,
 		c1_min: Vec3, c1_max: Vec3, c1_ref: u32,
@@ -66,7 +66,7 @@ impl GpuBVHNode {
 		}
 	}
 
-	/// Leaf node: own AABB + item range.
+	// Leaf node: own AABB + item range.
 	fn leaf(min: Vec3, max: Vec3, base: u32, count: u32) -> Self {
 		let [min_x, min_y, min_z] = min.to_array();
 		let [max_x, max_y, max_z] = max.to_array();
@@ -78,9 +78,9 @@ impl GpuBVHNode {
 		}
 	}
 
-	/// Sentinel at index 0: stores the world (root) AABB in the c0 slot and a
-	/// direct reference to the true root node (always at index 1).
-	/// bvh_iter_new reads this entry for the initial ray–scene AABB test.
+	// Sentinel at index 0: stores the world (root) AABB in the c0 slot and a
+	// direct reference to the true root node (always at index 1).
+	// bvh_iter_new reads this entry for the initial ray–scene AABB test.
 	fn sentinel(world_min: Vec3, world_max: Vec3, root_ref: u32) -> Self {
 		let [min_x, min_y, min_z] = world_min.to_array();
 		let [max_x, max_y, max_z] = world_max.to_array();

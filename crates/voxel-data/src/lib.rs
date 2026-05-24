@@ -17,6 +17,7 @@ pub mod sub_grid_gpu_state;
 pub mod matrix;
 pub mod task_queue;
 pub mod transform_ext;
+pub mod task_system;
 
 use bevy::prelude::*;
 
@@ -30,6 +31,7 @@ impl Plugin for VoxelDataPlugin {
 		app.init_resource::<TaskQueueResource>()
 			.init_resource::<AsyncTaskPriorityQueueResource>();
 		app.add_systems(PreUpdate, sub_grid_gpu_state::request_gpu_state);
+		app.add_systems(Update, task_system::drain_task_queue);
 	}
 
 	fn finish(&self, app: &mut App) {

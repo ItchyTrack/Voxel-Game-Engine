@@ -24,19 +24,19 @@ pub struct BVHNode {
 	pub sub_nodes: BVHInternal,
 }
 
-// SAH binning constants
-//
-// SAH (Surface Area Heuristic) produces significantly better trees than a
-// plain spatial median split. The heuristic estimates the expected cost of
-// a split by weighting each side's AABB surface area against the number of
-// primitives it contains.
-//
-// BIN_COUNT=16 gives noticeably better split planes than 8 at modest extra
-// build cost. The improvement matters most when primitives are non-uniform
-// in size or distribution.
+/// SAH binning constants
+///
+/// SAH (Surface Area Heuristic) produces significantly better trees than a
+/// plain spatial median split. The heuristic estimates the expected cost of
+/// a split by weighting each side's AABB surface area against the number of
+/// primitives it contains.
+///
+/// BIN_COUNT=16 gives noticeably better split planes than 8 at modest extra
+/// build cost. The improvement matters most when primitives are non-uniform
+/// in size or distribution.
 const BIN_COUNT: usize = 16;
 
-// Cost of traversing one BVH node relative to testing one primitive.
+/// Cost of traversing one BVH node relative to testing one primitive.
 const TRAVERSAL_COST: f32 = 1.0;
 const INTERSECT_COST: f32 = 1.0;
 

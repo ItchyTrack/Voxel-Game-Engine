@@ -143,7 +143,7 @@ impl PackedDynamicBuffer {
 		}
 	}
 
-	// If the new buffer does not fit the old buffer will still be removed
+	/// If the new buffer does not fit the old buffer will still be removed
 	pub fn replace_buffer(&mut self, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
 			if held_buffer.size == buffer.len() as u32 {
