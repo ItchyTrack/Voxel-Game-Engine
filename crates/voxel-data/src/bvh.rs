@@ -5,8 +5,6 @@ use glam::Vec3;
 use tracy_client::span;
 use bevy::transform::components::Transform;
 
-// use crate::debug_draw;
-
 #[derive(Debug)]
 pub enum BVHInternal {
 	SubNodes {
@@ -91,7 +89,7 @@ impl BVHNode {
 		let count = slice.len() as u16;
 
 		// Leaf conditions:
-		//   ≤ 4 primitives  -> forced leaf (each item is an expensive DDA call on the GPU;
+		//   <= 4 primitives  -> forced leaf (each item is an expensive DDA call on the GPU;
 		//                      small leaves mean we bail out after fewer wasted traversals)
 		//   coincident centroids -> splitting cannot separate anything
 		if count <= 4 || centroid_min == centroid_max {

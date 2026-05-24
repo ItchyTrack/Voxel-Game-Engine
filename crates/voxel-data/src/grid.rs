@@ -50,9 +50,6 @@ impl SubGrid {
 	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> { self.voxels.get_voxel(pos) }
 	pub fn get_voxels(&self) -> &Voxels { &self.voxels }
 
-	// pub fn set_updated_gpu_grid_tree(&self, tree_id: u32, voxel_id: u32, lod: f32) {
-		// self.gpu_grid_tree_id.set(Some((tree_id, voxel_id, lod)));
-	// }
 	pub fn gpu_state(&self) -> &SubGridGpuState {
 		&self.sub_grid_gpu_state
 	}
@@ -64,11 +61,6 @@ impl SubGrid {
 	}
 	pub fn clear_reupload_flag(&self) {
 		self.reupload_gpu_grid.store(false, Ordering::Release);
-	}
-
-	// return true is this should be deleted
-	pub fn clean_up(&mut self) -> bool {
-		self.get_voxels().get_voxels().is_empty()
 	}
 
 	pub fn aabb(&self, transform: &Transform) -> Option<(Vec3, Vec3)> {
@@ -117,24 +109,15 @@ impl Grid {
 		Self {
 			transform: *transform,
 			global_transform: None,
-			// physics_body_id: physics_body_id,
 			sub_grids: SparseSet::new(),
 			next_sub_grid_id: SubGridId(0),
 			position_mapping: HashMap::new(),
-			// resource_uuid: resource_uuid,
-			// mass: 0,
-			// voxel_center_of_mass_times_mass: I64Vec3::ZERO,
-			// inertia_tensor_at_zero: InertiaTensor::ZERO,
 		}
 	}
 
-	// info
 	pub fn transform(&self) -> &Transform {
 		&self.transform
 	}
-	// pub fn physics_body_id(&self) -> PhysicsBodyId {
-	// 	self.physics_body_id
-	// }
 
 	// sub grids
 	fn add_sub_grid(&mut self, sub_grid_pos: &IVec3) -> SubGridId {

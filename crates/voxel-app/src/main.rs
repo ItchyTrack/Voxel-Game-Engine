@@ -39,7 +39,6 @@ fn setup(mut commands: Commands) {
 	commands.spawn((
 		Camera3d::default(),
 		Hdr,
-		// Voxel coloring pipeline is built sample-count 1; keep the view in sync.
 		Msaa::Off,
 		Transform::from_xyz(0.0, 0.0, 60.0).looking_at(Vec3::ZERO, Vec3::Y),
 		FlyCamera::default(),

@@ -25,13 +25,10 @@ impl Plugin for WorldInteractionPlugin {
 	}
 }
 
-/// What the player is currently picking up (set by [`pickup_toggle_system`]).
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct HeldBody(pub Option<Entity>);
 
-/// Distance in front of the camera where a held body's center of mass tracks.
 const HOLD_DISTANCE: f32 = 40.0;
-/// Impulse magnitude applied when pushing a body with `KeyR`.
 const PUSH_IMPULSE: f32 = 1_600_000.0;
 
 const PLACE_VOXEL: Voxel = Voxel { color: [180, 180, 180, 255], mass: 100 };
@@ -204,8 +201,6 @@ fn hold_held_body_system(
 	if offset.length_squared() < 1e-6 { return; }
 	let dir = offset.normalize();
 	let velocity_in_dir = velocity.0.dot(dir);
-	// Mirrors `ObjectPickup::hold_at_pos` from main: an analytical impulse that
-	// drives the COM toward the target and damps the lateral velocity.
 	let impulse = mass.0 * (
 		dir * (offset.length() * 4.0 - velocity_in_dir * 0.5)
 		- (velocity.0 - dir * velocity_in_dir)

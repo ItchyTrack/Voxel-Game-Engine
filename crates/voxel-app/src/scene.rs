@@ -131,8 +131,6 @@ fn spawn_church(commands: &mut Commands) {
 		.with_child((Transform::IDENTITY, grid));
 }
 
-/// Builds the original five-ball cluster: a small center body with four
-/// satellites ringed around it, each held by a rigid ball joint.
 fn spawn_ball_cluster(commands: &mut Commands, constraints: &mut BallJointConstraints) {
 	let r = 5;
 	let base_y = 80.0;
@@ -160,8 +158,6 @@ fn spawn_ball_cluster(commands: &mut Commands, constraints: &mut BallJointConstr
 	}
 }
 
-/// A BB-8: 13x3x13 flat grey base with a red voxel on top, held upright by
-/// [`Orientation`] and rigidly joined to a sphere 12 units below.
 fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, position: Vec3) {
 	let mut base_grid = Grid::new(&Transform::IDENTITY);
 	for x in -6..=6 { for y in 0..3 { for z in -6..=6 {
@@ -197,9 +193,6 @@ fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, po
 	);
 }
 
-/// Spawns a ball as two axis-aligned voxel hemispheres on the same rigid body,
-/// the lower one rotated 45° around Y so the silhouette reads as a sphere from
-/// every angle.
 fn spawn_ball(commands: &mut Commands, position: Vec3, radius: i32) -> Entity {
 	let radius_sq = (radius as f32 - 0.5).powi(2);
 

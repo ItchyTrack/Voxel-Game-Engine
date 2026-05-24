@@ -101,7 +101,6 @@ impl Camera {
 		let ftl = far_center + up * far_h  - right * far_w;
 		let ftr = far_center + up * far_h  + right * far_w;
 		let fbl = far_center - up * far_h  - right * far_w;
-		// fbr unused
 
 		let make_plane = |a: Vec3, b: Vec3, c: Vec3| {
 			let normal = (b - a).cross(c - a).normalize();
