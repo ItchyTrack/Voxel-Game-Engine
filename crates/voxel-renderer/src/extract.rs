@@ -26,7 +26,7 @@ pub struct ExtractedVoxelScene {
 pub fn extract_voxel_scene(
 	mut extracted: ResMut<ExtractedVoxelScene>,
 	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform)>>,
-	grids: Extract<Query<(Entity, &Grid, Option<&GlobalTransform>)>>,
+	grids: Extract<Query<(Entity, &Grid, &GlobalTransform)>>,
 	world_gpu_data: Extract<bevy::ecs::system::Res<WorldGpuData>>,
 ) {
 	extracted.has_camera = false;
@@ -45,11 +45,7 @@ pub fn extract_voxel_scene(
 	let mut bvh_items: Vec<((Entity, SubGridId), (Vec3, Vec3))> = Vec::new();
 	let mut id_to_offsets: HashMap<(Entity, SubGridId), (u32, u32, Transform)> = HashMap::new();
 
-	for (entity, grid, maybe_global) in grids.iter() {
-		let grid_global = maybe_global
-			.map(|gt| gt.compute_transform() * *grid.transform())
-			.unwrap_or(*grid.transform());
-
+	for (entity, grid, grid_global_transform) in grids.iter() {
 		for (sub_grid_id, sub_grid) in grid.sub_grids().iter() {
 			let gpu_state = sub_grid.gpu_state();
 			if !gpu_state.on_gpu() { continue; }
@@ -63,7 +59,7 @@ pub fn extract_voxel_scene(
 				.packed_voxel_data_dynamic_buffer
 				.get_held_buffer(gpu_state.voxels_id()) else { continue };
 
-			let sub_world = grid_global * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
+			let sub_world = grid_global_transform.compute_transform() * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
 			let Some(aabb) = sub_grid.aabb(&sub_world) else { continue };
 
 			// The GridTree's `root_pos` shifts inside the sub-grid as voxels

@@ -42,7 +42,7 @@ fn voxel_place_break_system(
 	keys: Res<ButtonInput<KeyCode>>,
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-	mut grids: Query<(Entity, Option<&GlobalTransform>, &mut Grid)>,
+	mut grids: Query<(Entity, &GlobalTransform, &mut Grid)>,
 	mut sfx: MessageWriter<PlaySfx>,
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
@@ -50,30 +50,28 @@ fn voxel_place_break_system(
 	let destroy = keys.just_pressed(KeyCode::KeyX) || keys.pressed(KeyCode::KeyZ);
 	if !place && !destroy { return; }
 
-	let Some((_, camera_gt)) = cameras.iter().find(|(c, _)| c.is_active) else { return };
-	let camera_transform = camera_gt.compute_transform();
+	let Some((_, camera_global_transform)) = cameras.iter().find(|(c, _)| c.is_active) else { return };
+	let camera_transform = camera_global_transform.compute_transform();
 	let origin = camera_transform.translation;
 	let dir = camera_transform.forward().as_vec3();
 
 	let hit = grids.iter()
-		.filter_map(|(entity, grid_gt, grid)| {
-			let grid_world = grid_world_transform(grid_gt, &grid);
-			raycast_grid(entity, &grid_world, &grid, origin, dir)
+		.filter_map(|(entity, grid_global_transform, grid)| {
+			raycast_grid(entity, &grid_global_transform.compute_transform(), &grid, origin, dir)
 		})
 		.min_by(|a, b| a.distance.total_cmp(&b.distance));
 
 	let Some(hit) = hit else { return };
 
-	let Ok((_, grid_gt, mut grid)) = grids.get_mut(hit.grid_entity) else { return };
-	let grid_world = grid_world_transform(grid_gt, &grid);
+	let Ok((_, grid_global_transform, mut grid)) = grids.get_mut(hit.grid_entity) else { return };
 
 	if place {
 		let pos = hit.voxel_pos + hit.normal;
 		grid.add_voxel(&pos, &PLACE_VOXEL);
-		sfx.write(PlaySfx::block_place(grid_world.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
+		sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 	} else {
 		grid.remove_voxel(&hit.voxel_pos);
-		sfx.write(PlaySfx::block_break(grid_world.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
+		sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
 	}
 }
 
@@ -82,12 +80,6 @@ struct RaycastHit {
 	voxel_pos: IVec3,
 	normal: IVec3,
 	distance: f32,
-}
-
-fn grid_world_transform(grid_gt: Option<&GlobalTransform>, grid: &Grid) -> Transform {
-	grid_gt
-		.map(|gt| gt.compute_transform() * *grid.transform())
-		.unwrap_or(*grid.transform())
 }
 
 fn raycast_grid(
@@ -130,20 +122,19 @@ fn raycast_sub_grid(
 }
 
 fn camera_ray(cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>) -> Option<(Vec3, Vec3)> {
-	let (_, camera_gt) = cameras.iter().find(|(c, _)| c.is_active)?;
-	let t = camera_gt.compute_transform();
+	let (_, camera_global_transform) = cameras.iter().find(|(c, _)| c.is_active)?;
+	let t = camera_global_transform.compute_transform();
 	Some((t.translation, t.forward().as_vec3()))
 }
 
 fn raycast_bodies(
 	origin: Vec3,
 	dir: Vec3,
-	grids: &Query<(Entity, Option<&GlobalTransform>, &Grid)>,
+	grids: &Query<(Entity, &GlobalTransform, &Grid)>,
 ) -> Option<RaycastHit> {
 	grids.iter()
-		.filter_map(|(entity, grid_gt, grid)| {
-			let grid_world = grid_world_transform(grid_gt, grid);
-			raycast_grid(entity, &grid_world, grid, origin, dir)
+		.filter_map(|(entity, grid_global_transform, grid)| {
+			raycast_grid(entity, &grid_global_transform.compute_transform(), grid, origin, dir)
 		})
 		.min_by(|a, b| a.distance.total_cmp(&b.distance))
 }
@@ -152,7 +143,7 @@ fn pickup_toggle_system(
 	keys: Res<ButtonInput<KeyCode>>,
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-	grids: Query<(Entity, Option<&GlobalTransform>, &Grid)>,
+	grids: Query<(Entity, &GlobalTransform, &Grid)>,
 	parents: Query<&ChildOf>,
 	bodies: Query<Has<IsStatic>, With<voxel_physics::RigidBody>>,
 	mut held: ResMut<HeldBody>,
@@ -174,7 +165,7 @@ fn push_system(
 	keys: Res<ButtonInput<KeyCode>>,
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-	grids: Query<(Entity, Option<&GlobalTransform>, &Grid)>,
+	grids: Query<(Entity, &GlobalTransform, &Grid)>,
 	parents: Query<&ChildOf>,
 	bodies: Query<(), (With<voxel_physics::RigidBody>, Without<IsStatic>)>,
 	mut impulses: ResMut<Impulses>,

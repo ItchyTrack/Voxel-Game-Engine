@@ -7,6 +7,12 @@ pub struct InertiaTensor {
 	pub mat: DMat3
 }
 
+impl Default for InertiaTensor {
+	fn default() -> Self {
+		Self::ZERO
+	}
+}
+
 fn self_outer_product(vec: &DVec3) -> DMat3 {
 	DMat3::from_cols(
 		vec * vec.x,

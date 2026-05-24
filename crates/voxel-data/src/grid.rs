@@ -1,11 +1,10 @@
 use std::{collections::{HashMap}, sync::atomic::{AtomicBool, Ordering}};
 
 use bevy::{ecs::{component::Component, storage::{SparseSet, SparseSetIndex}}, transform::components::Transform};
-use glam::{I16Vec3, IVec3, Quat, Vec3};
+use glam::{I16Vec3, IVec3, Vec3};
 
 use crate::sub_grid_gpu_state::{SubGridGpuState};
 use crate::voxels::voxels::{Voxels, Voxel};
-use crate::transform_ext::TransformExt;
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct SubGridId(pub u32);
@@ -91,8 +90,6 @@ pub struct GridId(pub usize);
 
 #[derive(Debug, Component)]
 pub struct Grid {
-	transform: Transform,
-	global_transform: Option<Transform>,
 	sub_grids: bevy::ecs::storage::SparseSet<SubGridId, SubGrid>,
 	next_sub_grid_id: SubGridId,
 	position_mapping: HashMap<IVec3, SubGridId>,
@@ -101,18 +98,12 @@ pub struct Grid {
 impl Grid {
 	const CHUNK_SIZE: i32 = 64;
 
-	pub fn new(transform: &Transform) -> Self {
+	pub fn new() -> Self {
 		Self {
-			transform: *transform,
-			global_transform: None,
 			sub_grids: SparseSet::new(),
 			next_sub_grid_id: SubGridId(0),
 			position_mapping: HashMap::new(),
 		}
-	}
-
-	pub fn transform(&self) -> &Transform {
-		&self.transform
 	}
 
 	// sub grids
@@ -167,19 +158,4 @@ impl Grid {
 		let sub_grid = self.sub_grids.get(sub_grid_id)?;
 		sub_grid.get_voxel(&voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3())
 	}
-
-	pub fn global_transform(&self) -> &Option<Transform> {
-		&self.global_transform
-	}
-	pub fn update_physics_body_transform(&mut self, physics_body_transform: &Transform) {
-		self.global_transform = Some(*physics_body_transform * self.transform);
-	}
-
-	// reference frame
-	pub fn physics_body_to_grid(&self, other: &Transform) -> Transform { self.transform.inverse() * *other }
-	pub fn grid_to_physics_body(&self, other: &Transform) -> Transform { self.transform * *other }
-	// pub fn physics_body_to_grid_vec(&self, pos: &Vec3) -> Vec3 { self.transform.inverse() * *pos }
-	pub fn grid_to_physics_body_vec(&self, pos: &Vec3) -> Vec3 { self.transform * *pos }
-	pub fn physics_body_to_grid_rot(&self, rot: &Quat) -> Quat { self.transform.rotation.inverse() * *rot }
-	pub fn grid_to_physics_body_rot(&self, rot: &Quat) -> Quat { self.transform.rotation * *rot }
 }

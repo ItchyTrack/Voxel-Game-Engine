@@ -18,7 +18,7 @@ use crate::hit_count_feedback::HitCountFeedback;
 pub struct FreezeUploads(pub bool);
 
 pub fn request_dirty_subgrids(
-	grids: Query<(Entity, Option<&GlobalTransform>, &Grid)>,
+	grids: Query<(Entity, &Grid, &GlobalTransform)>,
 	cameras: Query<(&Camera, &GlobalTransform, &Frustum)>,
 	freeze: Option<Res<FreezeUploads>>,
 	hit_feedback: Res<HitCountFeedback>,
@@ -29,16 +29,12 @@ pub fn request_dirty_subgrids(
 	let view = cameras.iter().find(|(c, _, _)| c.is_active).map(|(_, gt, f)| (gt.translation(), f));
 	let hit_counts = hit_feedback.0.lock().ok();
 
-	for (entity, grid_gt, grid) in grids.iter() {
-		let grid_world = grid_gt
-			.map(|gt| gt.compute_transform() * *grid.transform())
-			.unwrap_or(*grid.transform());
-
+	for (entity, grid, grid_global_transform) in grids.iter() {
 		for (sub_grid_id, sub_grid) in grid.sub_grids().iter() {
 			let gpu_state = sub_grid.gpu_state();
 			if gpu_state.currently_uploading().is_some() { continue; }
 
-			let sub_world = grid_world * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
+			let sub_world = grid_global_transform.compute_transform() * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
 			let Some((aabb_min, aabb_max)) = sub_grid.aabb(&sub_world) else { continue };
 
 			let hit_count = hit_counts
@@ -54,7 +50,7 @@ pub fn request_dirty_subgrids(
 						&Sphere { center: Vec3A::from(center), radius },
 						true,
 					);
-					let distance = cam_pos.distance(grid_world.translation);
+					let distance = cam_pos.distance(grid_global_transform.translation());
 					let priority = -distance / 1000.0 + if in_view { 5.0 } else { 0.0 };
 					let lod_level = f32::max(distance - 1000.0, 0.0) / 1000.0;
 					let lod_level = if hit_count > 0 { lod_level } else { lod_level + 3.0 };

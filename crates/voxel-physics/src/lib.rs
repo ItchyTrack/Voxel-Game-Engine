@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
+use num::Zero;
 use voxel_data::bvh::bvh::BVH;
 use voxel_data::grid::Grid;
 use voxel_data::transform_ext;
@@ -22,6 +23,7 @@ pub use ball_joint_constraint::BallJointConstraint;
 pub use components::{AngularVelocity, CenterOfMass, ComputeMassProperties, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
 pub use physics_body::{GridId, PhysicsBody, PhysicsBodyId};
+use crate::components::{VoxelCollider, VoxelMass};
 use crate::solver::{Impulse, Solver};
 use crate::sparse_set::SparseSet;
 
@@ -120,7 +122,7 @@ impl Plugin for VoxelPhysicsPlugin {
 fn compute_mass_properties(
 	mut commands: Commands,
 	mut bodies: Query<(Entity, &Children, &mut Mass, &mut CenterOfMass, &mut RotationalInertia), (With<RigidBody>, With<ComputeMassProperties>)>,
-	grids: Query<&Grid>,
+	grids: Query<(&Grid, &Transform), With<VoxelMass>>,
 ) {
 	for (entity, children, mut mass, mut com, mut inertia) in bodies.iter_mut() {
 		let mut total_mass: f64 = 0.0;
@@ -128,8 +130,7 @@ fn compute_mass_properties(
 		let mut tensor_at_origin = InertiaTensor::ZERO;
 
 		for child in children.iter() {
-			let Ok(grid) = grids.get(child) else { continue };
-			let grid_pose = grid.transform();
+			let Ok((grid, grid_pose)) = grids.get(child) else { continue };
 			for (_, sub_grid) in grid.sub_grids().iter() {
 				let palette = sub_grid.get_voxels().get_palette();
 				let sub_pos = sub_grid.sub_grid_pos().as_dvec3();
@@ -174,8 +175,8 @@ fn step_physics(
 		&RotationalInertia,
 		&CenterOfMass,
 		Has<IsStatic>,
-	), With<RigidBody>>,
-	grid_entities: Query<(Entity, &Grid, &ChildOf)>,
+	), (With<RigidBody>, Without<Grid>)>,
+	grid_entities: Query<(Entity, &Grid, &Transform, &ChildOf), With<VoxelCollider>>,
 ) {
 	let dt = time.delta_secs();
 	if dt <= 0.0 { return; }
@@ -191,27 +192,27 @@ fn step_physics(
 		body.mass = mass.0;
 		body.rotational_inertia = inertia.0;
 		body.center_of_mass = com.0;
-		body.is_static = is_static;
+		body.is_static = is_static || mass.0.is_zero();
 		physics_bodies.insert(id, body);
 	}
 
 	// Attach grids to their parent body. A grid is any child entity carrying a
 	// `Grid` component whose parent is a `RigidBody`.
-	let mut grids: SparseSet<GridId, &Grid> = SparseSet::with_capacity(grid_entities.iter().count());
-	for (grid_entity, grid, child_of) in grid_entities.iter() {
+	let mut grids: SparseSet<GridId, (&Grid, &Transform)> = SparseSet::with_capacity(grid_entities.iter().count());
+	for (grid_entity, grid, transform, child_of) in grid_entities.iter() {
 		let parent_id = PhysicsBodyId(child_of.parent());
 		let Some(body) = physics_bodies.get_mut(&parent_id) else { continue };
 		let grid_id = GridId(grid_entity);
 		body.push_grid(grid_id);
-		grids.insert(grid_id, grid);
+		grids.insert(grid_id, (grid, transform));
 	}
 
 	// Build a broadphase BVH over every sub-grid AABB.
 	let mut bounds = Vec::new();
 	for (body_id, body) in physics_bodies.iter() {
 		for grid_id in body.grids() {
-			let grid = *grids.get(grid_id).unwrap();
-			let grid_transform = body.transform * *grid.transform();
+			let (grid, transform) = *grids.get(grid_id).unwrap();
+			let grid_transform = body.transform * *transform;
 			for (sub_grid_id, sub_grid) in grid.sub_grids().iter() {
 				let sub_grid_transform = grid_transform * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
 				if let Some(aabb) = sub_grid.aabb(&sub_grid_transform) {

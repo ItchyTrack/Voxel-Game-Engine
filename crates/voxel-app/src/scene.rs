@@ -5,6 +5,7 @@ use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
 use voxel_data::voxels::voxels::Voxel;
+use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_physics::{
 	AngularVelocity, BallJointConstraint, BallJointConstraints, CenterOfMass,
 	ComputeMassProperties, FreezePhysics, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet,
@@ -72,7 +73,7 @@ fn spawn_church(commands: &mut Commands) {
 	let Some(bytes) = candidate_paths.iter().find_map(|p| std::fs::read(p).ok()) else { return };
 	let Ok(dot_vox_data) = dot_vox::load_bytes(&bytes) else { return };
 
-	let mut grid = Grid::new(&Transform::IDENTITY);
+	let mut grid = Grid::new();
 
 	#[derive(Clone, Copy)]
 	struct Frame { translation: Vec3, rotation: Quat, flip: IVec3 }
@@ -133,7 +134,7 @@ fn spawn_church(commands: &mut Commands) {
 			IsStatic,
 			Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
 		))
-		.with_child((Transform::IDENTITY, grid));
+		.with_child((Transform::IDENTITY, grid, VoxelCollider));
 }
 
 fn spawn_ball_cluster(commands: &mut Commands, constraints: &mut BallJointConstraints) {
@@ -164,7 +165,7 @@ fn spawn_ball_cluster(commands: &mut Commands, constraints: &mut BallJointConstr
 }
 
 fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, position: Vec3) {
-	let mut base_grid = Grid::new(&Transform::IDENTITY);
+	let mut base_grid = Grid::new();
 	for x in -6..=6 { for y in 0..3 { for z in -6..=6 {
 		base_grid.add_voxel(&IVec3::new(x, y, z), &Voxel { color: [128, 128, 128, 255], mass: 200 });
 	}}}
@@ -181,7 +182,7 @@ fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, po
 		Orientation::default(),
 		Transform::from_translation(position),
 	))
-		.with_child((Transform::IDENTITY, base_grid))
+		.with_child((Transform::IDENTITY, base_grid, VoxelCollider, VoxelMass))
 		.id();
 
 	let ball = spawn_ball(commands, position - Vec3::new(0.0, 12.0, 0.0), 10);
@@ -201,7 +202,7 @@ fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, po
 fn spawn_ball(commands: &mut Commands, position: Vec3, radius: i32) -> Entity {
 	let radius_sq = (radius as f32 - 0.5).powi(2);
 
-	let mut top = Grid::new(&Transform::from_translation(Vec3::new(-0.5, -0.5, -0.5)));
+	let mut top = Grid::new();
 	for x in -radius..=radius {
 		for y in 0..=radius {
 			for z in -radius..=radius {
@@ -215,11 +216,7 @@ fn spawn_ball(commands: &mut Commands, position: Vec3, radius: i32) -> Entity {
 		}
 	}
 
-	let mut bottom = Grid::new(&Transform {
-		translation: Vec3::new(-std::f32::consts::FRAC_1_SQRT_2, -0.5, 0.0),
-		rotation: Quat::from_rotation_y(PI / 4.0),
-		scale: Vec3::ONE,
-	});
+	let mut bottom = Grid::new();
 	for x in -radius..=radius {
 		for y in -radius..0 {
 			for z in -radius..=radius {
@@ -243,7 +240,11 @@ fn spawn_ball(commands: &mut Commands, position: Vec3, radius: i32) -> Entity {
 		ComputeMassProperties,
 		Transform::from_translation(position),
 	))
-		.with_child((Transform::IDENTITY, top))
-		.with_child((Transform::IDENTITY, bottom))
+		.with_child((Transform::from_translation(Vec3::new(-0.5, -0.5, -0.5)), top, VoxelCollider, VoxelMass))
+		.with_child((Transform {
+				translation: Vec3::new(-std::f32::consts::FRAC_1_SQRT_2, -0.5, 0.0),
+				rotation: Quat::from_rotation_y(PI / 4.0),
+				scale: Vec3::ONE,
+			}, bottom, VoxelCollider, VoxelMass))
 		.id()
 }

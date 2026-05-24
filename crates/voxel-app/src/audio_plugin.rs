@@ -36,8 +36,8 @@ fn update_listener(
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	mut audio: NonSendMut<AudioEngineResource>,
 ) {
-	let Some((_, gt)) = cameras.iter().find(|(c, _)| c.is_active) else { return };
-	let t = gt.compute_transform();
+	let Some((_, global_transform)) = cameras.iter().find(|(c, _)| c.is_active) else { return };
+	let t = global_transform.compute_transform();
 	audio.0.set_listener(ListenerState {
 		position: t.translation,
 		forward: t.forward().as_vec3(),
