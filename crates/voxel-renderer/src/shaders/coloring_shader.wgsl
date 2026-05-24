@@ -85,8 +85,6 @@ fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 	let texture_size = textureDimensions(intermediate_textured);
-	// WGSL storage textures have y=0 at the top, but our fullscreen-triangle's
-	// `screen_pos.y` is 0 at the bottom (NDC), so we flip Y when sampling.
 	let texture_pos = vec2(
 		u32(in.screen_pos.x * f32(texture_size.x)),
 		u32((1.0 - in.screen_pos.y) * f32(texture_size.y)),

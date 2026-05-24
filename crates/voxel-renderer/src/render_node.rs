@@ -11,7 +11,7 @@ use bevy::render::view::ViewTarget;
 use crate::camera::CameraUniform;
 use crate::extract::ExtractedVoxelScene;
 use crate::graphics_settings::{GraphicsSettings, RenderSettingsUniform};
-use crate::hit_count_feedback::LastGpuBvh;
+use crate::hit_count_feedback::{LastGpuBvh, RenderStats};
 use crate::voxel_renderer::VoxelRendererResource;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, RenderLabel)]
@@ -26,6 +26,7 @@ pub fn prepare_voxel_view_bind_groups(
 	render_device: Res<RenderDevice>,
 	render_queue: Res<RenderQueue>,
 	extracted: Res<ExtractedVoxelScene>,
+	graphics_settings: Res<GraphicsSettings>,
 	mut voxel_resource: ResMut<VoxelRendererResource>,
 	mut bind_groups: ResMut<VoxelViewBindGroups>,
 	views: bevy::ecs::system::Query<&ViewTarget>,
@@ -50,7 +51,7 @@ pub fn prepare_voxel_view_bind_groups(
 	};
 
 	render_queue.write_buffer(&voxel_resource.camera_buffer, 0, bytemuck::bytes_of(&cam_uniform));
-	let settings = RenderSettingsUniform::from_graphics_settings(&GraphicsSettings::new());
+	let settings = RenderSettingsUniform::from_graphics_settings(&*graphics_settings);
 	render_queue.write_buffer(&voxel_resource.render_settings_buffer, 0, bytemuck::bytes_of(&settings));
 
 	bind_groups.ready = true;
@@ -98,6 +99,11 @@ impl ViewNode for VoxelRenderNode {
 			voxel_buffer,
 			color_attachment,
 		);
+
+		if let Ok(mut stats) = world.resource::<RenderStats>().inner.lock() {
+			stats.bvh_bytes = gpu_bvh.bvh_buffer.size();
+			stats.bvh_leaf_bytes = gpu_bvh.items_buffer.size();
+		}
 
 		// Hold onto the GpuBvh so next frame's prepare can read back its
 		// item-hit-count staging buffer.

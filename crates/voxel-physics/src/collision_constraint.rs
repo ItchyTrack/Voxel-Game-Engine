@@ -1,6 +1,6 @@
 use glam::{Mat3, Vec2, Vec3};
 
-use crate::pose::Pose;
+use bevy::transform::components::Transform;
 
 
 use crate::math::{Mat6, Vec6};
@@ -31,7 +31,7 @@ impl CollisionConstraint {
 }
 
 impl PhysicsConstraint for CollisionConstraint {
-	fn init(&mut self, _initial_state_1: &Pose, _initial_state_2: &Pose) {
+	fn init(&mut self, _initial_state_1: &Transform, _initial_state_2: &Transform) {
 		let normal = (self.collision.part2.collision - self.collision.part1.collision).normalize();
 		if normal.is_nan() { return; }
 
@@ -48,10 +48,10 @@ impl PhysicsConstraint for CollisionConstraint {
 
 	fn get_updated(
 		&self,
-		state_1: &Pose,
-		initial_state_1: &Pose,
-		state_2: &Pose,
-		initial_state_2: &Pose,
+		state_1: &Transform,
+		initial_state_1: &Transform,
+		state_2: &Transform,
+		initial_state_2: &Transform,
 		alpha: f32,
 		calc_1: bool
 	) -> Option<(Vec6, Mat6)> {
@@ -110,10 +110,10 @@ impl PhysicsConstraint for CollisionConstraint {
 
 	fn update_dual(
 		&mut self,
-		state_1: &Pose,
-		initial_state_1: &Pose,
-		state_2: &Pose,
-		initial_state_2: &Pose,
+		state_1: &Transform,
+		initial_state_1: &Transform,
+		state_2: &Transform,
+		initial_state_2: &Transform,
 		alpha: f32
 	) {
 		let world_local_collision_1 = state_1.rotation * self.collision.part1.local_collision;

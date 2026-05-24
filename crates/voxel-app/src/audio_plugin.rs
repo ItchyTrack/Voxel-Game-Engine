@@ -5,7 +5,6 @@ use bevy::transform::components::GlobalTransform;
 
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
 
-// cpal's Stream is !Send, so AudioEngine has to be a NonSend resource.
 pub struct AudioEngineResource(pub AudioEngine);
 
 impl Default for AudioEngineResource {

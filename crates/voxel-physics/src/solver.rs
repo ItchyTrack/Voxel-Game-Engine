@@ -3,11 +3,15 @@ use std::{collections::HashMap};
 
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
-use bevy::transform::components::Transform;
 
-use super::math::{Mat6, Vec6};
-use super::super::{physics_body::PhysicsBody, physics_body::PhysicsBodyId, grid::{GridId, GridManager, SubGridId}, sparse_set::SparseSet};
-use super::{collision_constraint::CollisionConstraint, ball_joint_constraint::BallJointConstraint, physics_constraint::PhysicsConstraint, collision, bvh::BVH};
+use voxel_data::bvh::BVH;
+use voxel_data::grid::{Grid, SubGridId};
+
+use bevy::transform::components::Transform;
+use crate::math::{Mat6, Vec6};
+use crate::physics_body::{GridId, PhysicsBody, PhysicsBodyId};
+use crate::sparse_set::SparseSet;
+use crate::{ball_joint_constraint::BallJointConstraint, collision, collision_constraint::CollisionConstraint, physics_constraint::PhysicsConstraint};
 
 type CollisionKlMapKey = (PhysicsBodyId, GridId, IVec3, collision::CubeFeature, PhysicsBodyId, GridId, IVec3, collision::CubeFeature);
 
@@ -49,7 +53,7 @@ impl Solver {
 	pub fn solve(
 		&mut self,
 		physics_bodies: &mut SparseSet<PhysicsBodyId, PhysicsBody>,
-		grid_manager: &GridManager,
+		grids: &SparseSet<GridId, &Grid>,
 		constraints: &mut HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
 		impulses: &SparseSet<PhysicsBodyId, Vec<Impulse>>,
 		dt: f32,
@@ -66,10 +70,10 @@ impl Solver {
 		let initial_all: SparseSet<PhysicsBodyId, Transform> = SparseSet::from_iter(
 			physics_bodies.iter().map(|(physics_body_id, physics_body)| (
 				*physics_body_id,
-				Transform::new(physics_body.global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.transform
+				Transform { translation: physics_body.global_rotated_center_of_mass(), rotation: Quat::IDENTITY, scale: Vec3::ONE } * physics_body.transform
 			))
 		);
-		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(physics_bodies, grid_manager, &bvh).iter().map(
+		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(physics_bodies, grids, &bvh).iter().map(
 			|c| {
 				let body1 = &physics_bodies.get(&c.part1.body_id).unwrap();
 				let body2 = &physics_bodies.get(&c.part2.body_id).unwrap();
@@ -102,7 +106,7 @@ impl Solver {
 		self.collisions_kl_map.clear();
 		let y_all: SparseSet<PhysicsBodyId, Transform> = SparseSet::from_iter(physics_bodies.iter().map(|(physics_body_id, physics_body)| {
 			if physics_body.is_static || physics_body.mass() < f32::EPSILON {
-				return (*physics_body_id, Transform::new(physics_body.global_rotated_center_of_mass(), Quat::IDENTITY) * physics_body.transform);
+				return (*physics_body_id, Transform { translation: physics_body.global_rotated_center_of_mass(), rotation: Quat::IDENTITY, scale: Vec3::ONE } * physics_body.transform);
 			}
 			let mut velocity = physics_body.velocity;
 			let mut angular_velocity = physics_body.angular_velocity;
@@ -130,7 +134,7 @@ impl Solver {
 			let gravity = -300.0;
 			let pos = physics_body.transform.translation + velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.global_rotated_center_of_mass();
 			let orientation = (Quat::from_scaled_axis(angular_velocity * dt) * physics_body.transform.rotation).normalize();
-			(*physics_body_id, Transform::new(pos, orientation))
+			(*physics_body_id, Transform { translation: pos, rotation: orientation, scale: Vec3::ONE })
 		}));
 		let mut x_guess = y_all.clone();
 		let iterations = 30;

@@ -13,13 +13,15 @@ mod task_system;
 use bevy::app::{App, Plugin, Update};
 use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::render::render_graph::{RenderGraphExt, ViewNodeRunner};
 
 use voxel_data::VoxelDataPlugin;
 use voxel_data::sub_grid_gpu_state::GpuStateRequestMessage;
 
-use hit_count_feedback::{HitCountFeedback, LastGpuBvh};
+use graphics_settings::GraphicsSettings;
+use hit_count_feedback::{HitCountFeedback, LastGpuBvh, RenderStats};
 
 #[derive(Default)]
 pub struct VoxelRendererPlugin;
@@ -31,7 +33,11 @@ impl Plugin for VoxelRendererPlugin {
 		}
 
 		let hit_count_feedback = HitCountFeedback::default();
+		let render_stats = RenderStats::default();
 		app.insert_resource(hit_count_feedback.clone())
+			.insert_resource(render_stats.clone())
+			.init_resource::<GraphicsSettings>()
+			.add_plugins(ExtractResourcePlugin::<GraphicsSettings>::default())
 			.add_message::<GpuStateRequestMessage>()
 			.add_systems(Update, (
 				scene::request_dirty_subgrids,
@@ -41,6 +47,7 @@ impl Plugin for VoxelRendererPlugin {
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
 			.insert_resource(hit_count_feedback)
+			.insert_resource(render_stats)
 			.init_resource::<LastGpuBvh>()
 			.init_resource::<extract::ExtractedVoxelScene>()
 			.init_resource::<render_node::VoxelViewBindGroups>()

@@ -21,6 +21,19 @@ pub struct HitCountFeedback(pub Arc<Mutex<HashMap<(Entity, SubGridId), u32>>>);
 #[derive(Resource, Default)]
 pub struct LastGpuBvh(pub Mutex<Option<GpuBvh>>);
 
+/// GPU-side render stats published by the render world for the main world to
+/// read (e.g. for the debug UI). Sized in bytes.
+#[derive(Resource, Clone, Default)]
+pub struct RenderStats {
+	pub inner: Arc<Mutex<RenderStatsData>>,
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+pub struct RenderStatsData {
+	pub bvh_bytes: u64,
+	pub bvh_leaf_bytes: u64,
+}
+
 /// Read back the previous frame's per-item hit-count buffer.
 pub fn read_back_hit_counts(
 	render_device: Res<RenderDevice>,

@@ -45,6 +45,7 @@ uuid = { version = "1.23.1", features = [ "v4", "js" ] }
 async-priority-queue = "0.1.1"
 parking_lot = "0.12.5"
 bevy = "0.18.1"
+bevy_egui = "0.39"
 voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }

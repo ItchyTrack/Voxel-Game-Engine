@@ -2,6 +2,7 @@ mod audio;
 mod audio_plugin;
 mod camera_controller;
 mod debug_toggles;
+mod debug_ui;
 mod scene;
 mod world_interaction;
 
@@ -11,6 +12,7 @@ use bevy::render::view::{Hdr, Msaa};
 use audio_plugin::VoxelAudioPlugin;
 use camera_controller::{FlyCamera, FlyCameraPlugin};
 use debug_toggles::DebugTogglesPlugin;
+use debug_ui::DebugUiPlugin;
 use scene::ScenePlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use world_interaction::WorldInteractionPlugin;
@@ -25,6 +27,7 @@ async fn main() {
 			ScenePlugin,
 			FlyCameraPlugin,
 			DebugTogglesPlugin,
+			DebugUiPlugin,
 			VoxelAudioPlugin,
 			WorldInteractionPlugin,
 		))
@@ -33,11 +36,6 @@ async fn main() {
 }
 
 fn setup(mut commands: Commands) {
-	commands.spawn((
-		PointLight { shadows_enabled: false, ..default() },
-		Transform::from_xyz(100.0, 100.0, 100.0),
-	));
-
 	commands.spawn((
 		Camera3d::default(),
 		Hdr,

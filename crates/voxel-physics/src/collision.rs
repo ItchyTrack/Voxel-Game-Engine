@@ -2,13 +2,14 @@ use std::vec;
 
 use glam::{I16Vec3, IVec3, Quat, U8Vec3, Vec3};
 
-use bevy::transform::components::Transform;
+use voxel_data::bvh::BVH;
+use voxel_data::grid::{Grid, SubGridId};
+use voxel_data::voxels;
 
-use super::super::sparse_set::SparseSet;
-use super::super::voxels;
-use super::{bvh::BVH};
-use super::super::physics_body::{PhysicsBody, PhysicsBodyId};
-use super::super::grid::{GridId, SubGridId, GridManager};
+use bevy::transform::components::Transform;
+use crate::transform_ext::TransformExt;
+use crate::sparse_set::SparseSet;
+use crate::physics_body::{GridId, PhysicsBody, PhysicsBodyId};
 
 use tracy_client::span;
 
@@ -52,7 +53,7 @@ static mut CHECK_COUNTER: u32 = 0;
 
 pub fn get_collisions(
 	physics_bodies: &SparseSet<PhysicsBodyId, PhysicsBody>,
-	grid_manager: &GridManager,
+	grids: &SparseSet<GridId, &Grid>,
 	bvh: &BVH<(PhysicsBodyId, GridId, SubGridId)>
 ) -> Vec<Collision> {
 	unsafe { CHECK_COUNTER = 0; }
@@ -61,18 +62,18 @@ pub fn get_collisions(
 	let mut collisions: Vec<Collision> = vec![];
 	for (physics_body_id_a, physics_body_a) in physics_bodies {
 		if physics_body_a.is_static { continue; }
-		for grid_id_a in grid_manager.physics_body_grid_ids(*physics_body_id_a) {
-			let grid_a = grid_manager.grid(*grid_id_a).unwrap();
-			let grid_transform_a = physics_body_a.transform * grid_a.transform();
-			for (_sub_grid_id_a, sub_grid_a) in grid_a.sub_grids() {
+		for grid_id_a in physics_body_a.grids() {
+			let grid_a = *grids.get(grid_id_a).unwrap();
+			let grid_transform_a = physics_body_a.transform * *grid_a.transform();
+			for (_sub_grid_id_a, sub_grid_a) in grid_a.sub_grids().iter() {
 				let sub_grid_transform_a = grid_transform_a * Transform::from_translation(sub_grid_a.sub_grid_pos().as_vec3());
 				let bound = if let Some(aabb) = sub_grid_a.aabb(&sub_grid_transform_a) { aabb } else { continue; };
 				for (physics_body_id_b, grid_id_b, sub_grid_id_b) in bvh.get_collisions(&bound) {
 					if physics_body_id_b == *physics_body_id_a { continue; }
 					let physics_body_b = physics_bodies.get(&physics_body_id_b).unwrap();
 					if !physics_body_b.is_static && physics_body_id_a.0 < physics_body_id_b.0 { continue; }
-					let grid_b = grid_manager.grid(grid_id_b).unwrap();
-					let sub_grid_b = grid_b.sub_grids().get(&sub_grid_id_b).unwrap();
+					let grid_b = *grids.get(&grid_id_b).unwrap();
+					let sub_grid_b = grid_b.sub_grids().get(sub_grid_id_b).unwrap();
 					let no_swap = sub_grid_a.get_voxels().get_voxels().len() < sub_grid_b.get_voxels().get_voxels().len();
 					let (physics_body1, grid_1, sub_grid_1, physics_body2, grid_2, sub_grid_2) = {
 						if no_swap { (physics_body_a, grid_a, sub_grid_a, physics_body_b, grid_b, sub_grid_b) }
@@ -80,7 +81,7 @@ pub fn get_collisions(
 					};
 					let transform_of_1_in_2 = {
 						Transform::from_translation(-sub_grid_2.sub_grid_pos().as_vec3()) * grid_2.transform().inverse() * physics_body2.transform.inverse() *
-						physics_body1.transform * grid_1.transform() * Transform::from_translation(sub_grid_1.sub_grid_pos().as_vec3())
+						physics_body1.transform * *grid_1.transform() * Transform::from_translation(sub_grid_1.sub_grid_pos().as_vec3())
 					};
 					let separating_axis = compute_1x1x1_cube_separating_axes(transform_of_1_in_2.rotation);
 					for voxel in sub_grid_1.get_voxels().get_voxels().iter() {
@@ -88,10 +89,10 @@ pub fn get_collisions(
 							for y in 0..voxel.1 {
 								for z in 0..voxel.1 {
 									collisions.extend(get_collision(
-										&(&transform_of_1_in_2 * Transform::new((voxel.0 + I16Vec3::new(x as i16, y as i16, z as i16)).as_vec3() + Vec3::new(0.5, 0.5, 0.5), Quat::IDENTITY)),
+										&(transform_of_1_in_2 * Transform { translation: (voxel.0 + I16Vec3::new(x as i16, y as i16, z as i16)).as_vec3() + Vec3::new(0.5, 0.5, 0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE }),
 										sub_grid_2.get_voxels(),
 										&separating_axis,
-										&(physics_body2.transform * grid_2.transform()),
+										&(physics_body2.transform * *grid_2.transform()),
 									).iter().filter_map(|c| {
 										let collision_grid_pos_1 = voxel.0.as_ivec3() + sub_grid_1.sub_grid_pos();
 										let collision_grid_pos_2 = c.4.as_ivec3() + sub_grid_2.sub_grid_pos();
@@ -255,16 +256,16 @@ pub fn get_collisions(
 												grid_id: if no_swap { *grid_id_a } else { grid_id_b },
 												voxel_pos: collision_grid_pos_1 + IVec3::new(x as i32, y as i32, z as i32),
 												feature: c.1,
-												collision: physics_body2.transform * grid_2.transform() * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.0,
-												local_collision: physics_body1.transform.inverse() * physics_body2.transform * grid_2.transform() * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.0,
+												collision: physics_body2.transform * *grid_2.transform() * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.0,
+												local_collision: physics_body1.transform.inverse() * physics_body2.transform * *grid_2.transform() * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.0,
 											},
 											part2: HalfCollision{
 												body_id: if no_swap { physics_body_b.id() } else { physics_body_a.id() },
 												grid_id: if no_swap { grid_id_b } else { *grid_id_a },
 												voxel_pos: collision_grid_pos_2,
 												feature: c.3,
-												collision: physics_body2.transform * grid_2.transform() * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.2,
-												local_collision: grid_2.transform() * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.2,
+												collision: physics_body2.transform * *grid_2.transform() * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.2,
+												local_collision: *grid_2.transform() * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.2,
 											},
 										})
 									}));
@@ -357,11 +358,11 @@ fn get_collision(transform: &Transform, voxels: &voxels::Voxels, separating_axes
 			for z in -1..2 {
 				let vec = I16Vec3::new(x, y, z);
 				if voxels.get_voxel(&(transform.translation.floor().as_i16vec3() + vec)).is_some() {
-					let shift = Transform::new(transform.translation.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5), Quat::IDENTITY);
+					let shift = Transform { translation: transform.translation.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE };
 					get_collision_1x1x1_voxel(
-						&(shift.inverse() * transform),
+						&(shift.inverse() * *transform),
 						separating_axes,
-						&(shift * to_global)
+						&(shift * *to_global)
 					).into_iter().for_each(|c| {
 						collisions.push((
 							shift * c.0,
@@ -418,7 +419,7 @@ fn get_collision_1x1x1_voxel(transform: &Transform, separating_axes: &Vec<((f32,
 			let mut best_vertices = vec![];
 			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
-				let v = transform * (U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5);
+				let v = *transform * (U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5);
 				let dis = v.dot(best.1) * axis_neg;
 				let surface_pos = v - v.project_onto(best.1);
 				if
@@ -502,7 +503,7 @@ fn get_collision_1x1x1_voxel(transform: &Transform, separating_axes: &Vec<((f32,
 			let not_axes_xyz_u8_2 = not_axes_xyz_u8[index_2 as usize];
 
 			(0..4).for_each(|i| {
-				let edge_1 = transform * ((if i & 1 == 0 { -not_axes_1.0 } else { not_axes_1.0 } + if i & 2 == 0 { -not_axes_1.1 } else { not_axes_1.1 }) * 0.5);
+				let edge_1 = *transform * ((if i & 1 == 0 { -not_axes_1.0 } else { not_axes_1.0 } + if i & 2 == 0 { -not_axes_1.1 } else { not_axes_1.1 }) * 0.5);
 				(0..4).for_each(|j| {
 					let edge_2 = (if j & 1 == 0 { -not_axes_2.0 } else { not_axes_2.0 } + if j & 2 == 0 { -not_axes_2.1 } else { not_axes_2.1 }) * 0.5;
 					let result = points_with_direction(edge_1, axis1, edge_2, axis2, best.1 * axis_neg);

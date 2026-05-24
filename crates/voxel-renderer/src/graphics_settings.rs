@@ -1,10 +1,20 @@
+use bevy::ecs::resource::Resource;
+use bevy::render::extract_resource::ExtractResource;
+
+#[derive(Resource, ExtractResource, Clone, Copy, Debug)]
 pub struct GraphicsSettings {
 	pub shadows: bool,
 }
 
+impl Default for GraphicsSettings {
+	fn default() -> Self {
+		Self { shadows: true }
+	}
+}
+
 impl GraphicsSettings {
 	pub fn new() -> Self {
-		Self { shadows: false }
+		Self::default()
 	}
 }
 

@@ -3,9 +3,11 @@ use bevy::input::ButtonInput;
 use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
+use bevy_egui::input::EguiWantsInput;
 
 use voxel_data::grid::{Grid, SubGrid};
 use voxel_data::voxels::Voxel;
+use voxel_physics::{CenterOfMass, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet, Velocity};
 
 use crate::audio_plugin::PlaySfx;
 
@@ -13,18 +15,35 @@ pub struct WorldInteractionPlugin;
 
 impl Plugin for WorldInteractionPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(Update, voxel_place_break_system);
+		app.init_resource::<HeldBody>()
+			.add_systems(Update, (
+				voxel_place_break_system,
+				pickup_toggle_system,
+				push_system,
+			))
+			.add_systems(FixedUpdate, hold_held_body_system.in_set(PhysicsSet::Apply));
 	}
 }
+
+/// What the player is currently picking up (set by [`pickup_toggle_system`]).
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct HeldBody(pub Option<Entity>);
+
+/// Distance in front of the camera where a held body's center of mass tracks.
+const HOLD_DISTANCE: f32 = 40.0;
+/// Impulse magnitude applied when pushing a body with `KeyR`.
+const PUSH_IMPULSE: f32 = 1_600_000.0;
 
 const PLACE_VOXEL: Voxel = Voxel { color: [180, 180, 180, 255], mass: 100 };
 
 fn voxel_place_break_system(
 	keys: Res<ButtonInput<KeyCode>>,
+	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	mut grids: Query<(Entity, Option<&GlobalTransform>, &mut Grid)>,
 	mut sfx: MessageWriter<PlaySfx>,
 ) {
+	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
 	let place = keys.just_pressed(KeyCode::Space) || keys.pressed(KeyCode::KeyC);
 	let destroy = keys.just_pressed(KeyCode::KeyX) || keys.pressed(KeyCode::KeyZ);
 	if !place && !destroy { return; }
@@ -106,4 +125,90 @@ fn raycast_sub_grid(
 		scale: Vec3::ONE,
 	};
 	sub_grid.get_voxels().get_voxels().raycast(&transform, None)
+}
+
+fn camera_ray(cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>) -> Option<(Vec3, Vec3)> {
+	let (_, camera_gt) = cameras.iter().find(|(c, _)| c.is_active)?;
+	let t = camera_gt.compute_transform();
+	Some((t.translation, t.forward().as_vec3()))
+}
+
+fn raycast_bodies(
+	origin: Vec3,
+	dir: Vec3,
+	grids: &Query<(Entity, Option<&GlobalTransform>, &Grid)>,
+) -> Option<RaycastHit> {
+	grids.iter()
+		.filter_map(|(entity, grid_gt, grid)| {
+			let grid_world = grid_world_transform(grid_gt, grid);
+			raycast_grid(entity, &grid_world, grid, origin, dir)
+		})
+		.min_by(|a, b| a.distance.total_cmp(&b.distance))
+}
+
+fn pickup_toggle_system(
+	keys: Res<ButtonInput<KeyCode>>,
+	egui_wants: Option<Res<EguiWantsInput>>,
+	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+	grids: Query<(Entity, Option<&GlobalTransform>, &Grid)>,
+	parents: Query<&ChildOf>,
+	bodies: Query<Has<IsStatic>, With<voxel_physics::RigidBody>>,
+	mut held: ResMut<HeldBody>,
+) {
+	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
+	if !keys.just_pressed(KeyCode::KeyF) { return; }
+	if held.0.is_some() { held.0 = None; return; }
+
+	let Some((origin, dir)) = camera_ray(&cameras) else { return };
+	let Some(hit) = raycast_bodies(origin, dir, &grids) else { return };
+	let Ok(child_of) = parents.get(hit.grid_entity) else { return };
+	let body = child_of.parent();
+	let Ok(is_static) = bodies.get(body) else { return };
+	if is_static { return; }
+	held.0 = Some(body);
+}
+
+fn push_system(
+	keys: Res<ButtonInput<KeyCode>>,
+	egui_wants: Option<Res<EguiWantsInput>>,
+	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+	grids: Query<(Entity, Option<&GlobalTransform>, &Grid)>,
+	parents: Query<&ChildOf>,
+	bodies: Query<(), (With<voxel_physics::RigidBody>, Without<IsStatic>)>,
+	mut impulses: ResMut<Impulses>,
+) {
+	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
+	if !keys.just_pressed(KeyCode::KeyR) { return; }
+	let Some((origin, dir)) = camera_ray(&cameras) else { return };
+	let Some(hit) = raycast_bodies(origin, dir, &grids) else { return };
+	let Ok(child_of) = parents.get(hit.grid_entity) else { return };
+	let body = child_of.parent();
+	if bodies.get(body).is_err() { return; }
+	let hit_world = origin + dir * hit.distance;
+	impulses.apply_impulse(PhysicsBodyId(body), hit_world, dir * PUSH_IMPULSE);
+}
+
+fn hold_held_body_system(
+	held: Res<HeldBody>,
+	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+	bodies: Query<(&Transform, &Velocity, &Mass, &CenterOfMass), (With<voxel_physics::RigidBody>, Without<IsStatic>)>,
+	mut impulses: ResMut<Impulses>,
+) {
+	let Some(body_entity) = held.0 else { return };
+	let Ok((transform, velocity, mass, com)) = bodies.get(body_entity) else { return };
+	let Some((origin, forward)) = camera_ray(&cameras) else { return };
+
+	let target = origin + forward * HOLD_DISTANCE;
+	let body_com_world = *transform * com.0;
+	let offset = target - body_com_world;
+	if offset.length_squared() < 1e-6 { return; }
+	let dir = offset.normalize();
+	let velocity_in_dir = velocity.0.dot(dir);
+	// Mirrors `ObjectPickup::hold_at_pos` from main: an analytical impulse that
+	// drives the COM toward the target and damps the lateral velocity.
+	let impulse = mass.0 * (
+		dir * (offset.length() * 4.0 - velocity_in_dir * 0.5)
+		- (velocity.0 - dir * velocity_in_dir)
+	);
+	impulses.apply_central_impulse(PhysicsBodyId(body_entity), impulse);
 }
