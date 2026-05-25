@@ -26,7 +26,7 @@ pub fn request_dirty_subgrids(
 ) {
 	if freeze.map(|f| f.0).unwrap_or(false) { return; }
 
-	let view = cameras.iter().find(|(c, _, _)| c.is_active).map(|(_, gt, f)| (gt.translation(), f));
+	let view = cameras.iter().find(|(c, _, _)| c.is_active).map(|(_, global_transform, frustum)| (global_transform.translation(), frustum));
 	let hit_counts = hit_feedback.0.lock().ok();
 
 	for (entity, grid, grid_global_transform) in grids.iter() {
