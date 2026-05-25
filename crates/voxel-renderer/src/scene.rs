@@ -62,8 +62,7 @@ pub fn request_dirty_subgrids(
 			let curr_lod = gpu_state.lod_level();
 			let lod_dropped_to_zero = lod_level != curr_lod && lod_level == 0.0;
 			let lod_diverged = (curr_lod - lod_level).abs() > 0.25;
-			let needs_upload = sub_grid.reupload_gpu_grid() || lod_dropped_to_zero || lod_diverged;
-			if !needs_upload { continue; }
+			if !(sub_grid.reupload_gpu_grid() || lod_dropped_to_zero || lod_diverged) { continue; }
 
 			messages.write(GpuStateRequestMessage::new(
 				SubGridGpuUploadingState { lod_level },
