@@ -62,6 +62,13 @@ fn setup_scene(mut commands: Commands, mut constraints: ResMut<BallJointConstrai
 	spawn_bb8(&mut commands, &mut constraints, Vec3::new(0.0, 120.0, 0.0));
 	spawn_bb8(&mut commands, &mut constraints, Vec3::new(30.0, 120.0, 0.0));
 	spawn_bb8(&mut commands, &mut constraints, Vec3::new(-30.0, 120.0, 0.0));
+	for x in 0..3 {
+		for y in 0..1 {
+			for z in 0..3 {
+				spawn_bb8(&mut commands, &mut constraints, Vec3::new(30.0 * x as f32, 30.0 * y as f32 + 200.0, 30.0 * z as f32));
+			}
+		}
+	}
 }
 
 fn spawn_church(commands: &mut Commands) {

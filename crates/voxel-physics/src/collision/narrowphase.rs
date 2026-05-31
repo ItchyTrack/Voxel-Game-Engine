@@ -32,9 +32,7 @@ struct DescendBox {
 
 #[derive(Clone, Copy)]
 enum BoxSrc {
-	/// Backed by a tree node — subdivide using the node's actual children.
 	Node { node_index: u32, depth: u8 },
-	/// A solid (fully filled) region with no node — subdivide geometrically.
 	Solid,
 }
 
