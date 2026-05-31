@@ -6,16 +6,13 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::render::renderer::RenderDevice;
 
-use voxel_data::bvh::gpu_bvh::GpuBvh;
-use voxel_data::grid::SubGridId;
+use voxel_bvh::gpu_bvh::GpuBvh;
 
-/// Per-sub-grid GPU ray-hit counts from the previous frame.
 #[derive(Resource, Clone, Default)]
-pub struct HitCountFeedback(pub Arc<Mutex<HashMap<(Entity, SubGridId), u32>>>);
+pub struct HitCountFeedback(pub Arc<Mutex<HashMap<Entity, u32>>>);
 
-/// Holds the `GpuBvh` produced by the previous frame's render so that we can map its staging buffer this frame.
 #[derive(Resource, Default)]
-pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<(Entity, SubGridId)>>>);
+pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<Entity>>>);
 
 /// GPU-side render stats published by the render world for the main world to read.
 #[derive(Resource, Clone, Default)]

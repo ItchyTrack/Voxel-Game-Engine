@@ -5,9 +5,11 @@ use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
 use bevy_egui::input::EguiWantsInput;
 
+use std::collections::HashMap;
+
 use voxel_data::grid::{Grid, SubGrid};
-use voxel_data::voxels::voxels::Voxel;
-use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet, Velocity};
+use voxel_data::voxels::Voxel;
+use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, PhysicsSet, Velocity};
 
 use crate::audio_plugin::PlaySfx;
 
@@ -43,6 +45,7 @@ fn voxel_place_break_system(
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	mut grids: Query<(Entity, &GlobalTransform, &mut Grid)>,
+	sub_grids: Query<&SubGrid>,
 	mut sfx: MessageWriter<PlaySfx>,
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
@@ -55,9 +58,12 @@ fn voxel_place_break_system(
 	let origin = camera_transform.translation;
 	let dir = camera_transform.forward().as_vec3();
 
+	let subgrids_by_grid = group_sub_grids(&sub_grids);
+
 	let hit = grids.iter()
-		.filter_map(|(entity, grid_global_transform, grid)| {
-			raycast_grid(entity, &grid_global_transform.compute_transform(), &grid, origin, dir)
+		.filter_map(|(entity, grid_global_transform, _)| {
+			let subs = subgrids_by_grid.get(&entity).map(|v| v.as_slice()).unwrap_or(&[]);
+			raycast_grid(entity, &grid_global_transform.compute_transform(), subs, origin, dir)
 		})
 		.min_by(|a, b| a.distance.total_cmp(&b.distance));
 
@@ -82,10 +88,18 @@ struct RaycastHit {
 	distance: f32,
 }
 
+fn group_sub_grids<'a>(sub_grids: &'a Query<&SubGrid>) -> HashMap<Entity, Vec<&'a SubGrid>> {
+	let mut map: HashMap<Entity, Vec<&SubGrid>> = HashMap::new();
+	for sub_grid in sub_grids.iter() {
+		map.entry(sub_grid.grid()).or_default().push(sub_grid);
+	}
+	map
+}
+
 fn raycast_grid(
 	entity: Entity,
 	grid_world: &Transform,
-	grid: &Grid,
+	sub_grids: &[&SubGrid],
 	world_origin: Vec3,
 	world_dir: Vec3,
 ) -> Option<RaycastHit> {
@@ -93,8 +107,8 @@ fn raycast_grid(
 	let grid_origin = inv.transform_point3(world_origin);
 	let grid_dir = inv.transform_vector3(world_dir).normalize();
 
-	grid.sub_grids().iter()
-		.filter_map(|(_, sub_grid)| {
+	sub_grids.iter()
+		.filter_map(|sub_grid| {
 			let sub_origin = sub_grid.sub_grid_pos().as_vec3();
 			raycast_sub_grid(sub_grid, grid_origin - sub_origin, grid_dir)
 				.map(|(hit_local, normal_local, distance)| RaycastHit {
@@ -131,10 +145,12 @@ fn raycast_bodies(
 	origin: Vec3,
 	dir: Vec3,
 	grids: &Query<(Entity, &GlobalTransform, &Grid)>,
+	subgrids_by_grid: &HashMap<Entity, Vec<&SubGrid>>,
 ) -> Option<RaycastHit> {
 	grids.iter()
-		.filter_map(|(entity, grid_global_transform, grid)| {
-			raycast_grid(entity, &grid_global_transform.compute_transform(), grid, origin, dir)
+		.filter_map(|(entity, grid_global_transform, _)| {
+			let subs = subgrids_by_grid.get(&entity).map(|v| v.as_slice()).unwrap_or(&[]);
+			raycast_grid(entity, &grid_global_transform.compute_transform(), subs, origin, dir)
 		})
 		.min_by(|a, b| a.distance.total_cmp(&b.distance))
 }
@@ -144,6 +160,7 @@ fn pickup_toggle_system(
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	grids: Query<(Entity, &GlobalTransform, &Grid)>,
+	sub_grids: Query<&SubGrid>,
 	parents: Query<&ChildOf>,
 	bodies: Query<Has<IsStatic>, With<voxel_physics::RigidBody>>,
 	mut held: ResMut<HeldBody>,
@@ -153,7 +170,8 @@ fn pickup_toggle_system(
 	if held.0.is_some() { held.0 = None; return; }
 
 	let Some((origin, dir)) = camera_ray(&cameras) else { return };
-	let Some(hit) = raycast_bodies(origin, dir, &grids) else { return };
+	let subgrids_by_grid = group_sub_grids(&sub_grids);
+	let Some(hit) = raycast_bodies(origin, dir, &grids, &subgrids_by_grid) else { return };
 	let Ok(child_of) = parents.get(hit.grid_entity) else { return };
 	let body = child_of.parent();
 	let Ok(is_static) = bodies.get(body) else { return };
@@ -166,6 +184,7 @@ fn push_system(
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	grids: Query<(Entity, &GlobalTransform, &Grid)>,
+	sub_grids: Query<&SubGrid>,
 	parents: Query<&ChildOf>,
 	bodies: Query<(), (With<voxel_physics::RigidBody>, Without<IsStatic>)>,
 	mut impulses: ResMut<Impulses>,
@@ -173,12 +192,13 @@ fn push_system(
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
 	if !keys.just_pressed(KeyCode::KeyR) { return; }
 	let Some((origin, dir)) = camera_ray(&cameras) else { return };
-	let Some(hit) = raycast_bodies(origin, dir, &grids) else { return };
+	let subgrids_by_grid = group_sub_grids(&sub_grids);
+	let Some(hit) = raycast_bodies(origin, dir, &grids, &subgrids_by_grid) else { return };
 	let Ok(child_of) = parents.get(hit.grid_entity) else { return };
 	let body = child_of.parent();
 	if bodies.get(body).is_err() { return; }
 	let hit_world = origin + dir * hit.distance;
-	impulses.apply_impulse(PhysicsBodyId(body), hit_world, dir * PUSH_IMPULSE);
+	impulses.apply_impulse(body, hit_world, dir * PUSH_IMPULSE);
 }
 
 fn hold_held_body_system(
@@ -201,5 +221,5 @@ fn hold_held_body_system(
 		dir * (offset.length() * 4.0 - velocity_in_dir * 0.5)
 		- (velocity.0 - dir * velocity_in_dir)
 	);
-	impulses.apply_central_impulse(PhysicsBodyId(body_entity), impulse);
+	impulses.apply_central_impulse(body_entity, impulse);
 }

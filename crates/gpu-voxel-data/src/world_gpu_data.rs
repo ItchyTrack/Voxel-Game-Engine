@@ -1,7 +1,7 @@
 use bevy::ecs::{resource::Resource, world::FromWorld};
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 
-use crate::buffers::packed_dynamic_buffer::PackedDynamicBuffer;
+use crate::packed_dynamic_buffer::PackedDynamicBuffer;
 
 #[derive(Resource, Debug)]
 pub struct WorldGpuData {

@@ -3,17 +3,12 @@ pub mod gpu_bvh;
 
 use bevy::prelude::*;
 
-use crate::{task_queue::{AsyncTaskPriorityQueueResource, TaskQueueResource}, world_gpu_data::WorldGpuData};
-
+/// Placeholder plugin. The CPU/GPU BVH resources are currently rebuilt on
+/// demand by the renderer and physics; this plugin exists so the crate can own
+/// shared BVH state in the future.
 #[derive(Default)]
 pub struct VoxelBvhPlugin;
 
 impl Plugin for VoxelBvhPlugin {
-	fn build(&self, app: &mut App) {
-
-	}
-}
-
-struct BvhResource {
-	bvh: bvh::BVH<Entity>
+	fn build(&self, _app: &mut App) {}
 }

@@ -1,9 +1,13 @@
-use std::{collections::{HashMap}, sync::atomic::{AtomicBool, Ordering}};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use bevy::{ecs::{component::Component, storage::{SparseSet, SparseSetIndex}}, transform::components::Transform};
-use glam::{I16Vec3, IVec3, Vec3};
+use bevy::ecs::storage::SparseSetIndex;
+use bevy::prelude::*;
+use bevy::math::{I16Vec3, IVec3, Vec3};
 
-use crate::voxels::{Voxels, Voxel};
+use crate::voxels::{Voxel, Voxels};
+
+pub const CHUNK_SIZE: i32 = 64;
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct SubGridId(pub u32);
@@ -16,41 +20,47 @@ impl SparseSetIndex for SubGridId {
 #[derive(Debug, Component)]
 pub struct SubGrid {
 	voxels: Voxels,
-	grid_id: GridId,
+	grid: Entity,
+	id: SubGridId,
 	sub_grid_pos: IVec3,
-	reupload_gpu_grid: AtomicBool,
+	reupload: AtomicBool,
 }
 
 impl SubGrid {
-	pub fn new(grid_id: GridId, sub_grid_pos: IVec3) -> Self {
+	fn new(grid: Entity, id: SubGridId, sub_grid_pos: IVec3) -> Self {
 		Self {
 			voxels: Voxels::new(),
-			grid_id,
+			grid,
+			id,
 			sub_grid_pos,
-			reupload_gpu_grid: AtomicBool::new(false),
+			reupload: AtomicBool::new(true),
 		}
 	}
-	pub fn grid_id(&self) -> GridId {
-		self.grid_id
-	}
-	pub fn sub_grid_pos(&self) -> IVec3 {
-		self.sub_grid_pos
-	}
-	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<Voxel> {
-		self.reupload_gpu_grid.store(true, Ordering::Release);
+
+	pub fn grid(&self) -> Entity { self.grid }
+	pub fn id(&self) -> SubGridId { self.id }
+	pub fn sub_grid_pos(&self) -> IVec3 { self.sub_grid_pos }
+	pub fn get_voxels(&self) -> &Voxels { &self.voxels }
+	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> { self.voxels.get_voxel(pos) }
+
+	fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<Voxel> {
+		self.reupload.store(true, Ordering::Release);
 		self.voxels.add_voxel(pos, voxel)
 	}
-	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
-		self.reupload_gpu_grid.store(true, Ordering::Release);
+	fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
+		self.reupload.store(true, Ordering::Release);
 		self.voxels.remove_voxel(pos)
 	}
-	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> { self.voxels.get_voxel(pos) }
-	pub fn get_voxels(&self) -> &Voxels { &self.voxels }
-	pub fn reupload_gpu_grid(&self) -> bool {
-		self.reupload_gpu_grid.load(Ordering::Acquire)
+
+	pub fn is_empty(&self) -> bool {
+		self.voxels.get_voxels().len() == 0
 	}
-	pub fn clear_reupload_flag(&self) {
-		self.reupload_gpu_grid.store(false, Ordering::Release);
+
+	pub fn reupload(&self) -> bool {
+		self.reupload.load(Ordering::Acquire)
+	}
+	pub fn clear_reupload(&self) {
+		self.reupload.store(false, Ordering::Release);
 	}
 
 	pub fn aabb(&self, transform: &Transform) -> Option<(Vec3, Vec3)> {
@@ -70,7 +80,7 @@ impl SubGrid {
 		let rotated_corners = corners.map(|c| *transform * c);
 		Some((
 			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
-			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c))
+			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)),
 		))
 	}
 }
@@ -78,79 +88,118 @@ impl SubGrid {
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct GridId(pub usize);
 
-// impl SparseSetIndex for GridId {
-// 	fn sparse_set_index(&self) -> usize { self.0 as usize }
-// 	fn get_sparse_set_index(index: usize) -> Self { Self(index as u32) }
-// }
+#[derive(Debug, Clone, Copy)]
+enum GridEdit {
+	Add { voxel_pos: IVec3, voxel: Voxel },
+	Remove { voxel_pos: IVec3 },
+}
 
-#[derive(Debug, Component)]
+#[derive(Debug, Component, Default)]
 pub struct Grid {
-	sub_grids: bevy::ecs::storage::SparseSet<SubGridId, SubGrid>,
-	next_sub_grid_id: SubGridId,
-	position_mapping: HashMap<IVec3, SubGridId>,
+	chunk_to_id: HashMap<IVec3, SubGridId>,
+	id_to_entity: HashMap<SubGridId, Entity>,
+	next_id: u32,
+	pending: Vec<GridEdit>,
 }
 
 impl Grid {
-	const CHUNK_SIZE: i32 = 64;
+	pub fn new() -> Self { Self::default() }
 
-	pub fn new() -> Self {
-		Self {
-			// sub_grids: SparseSet::new(),
-			// next_sub_grid_id: SubGridId(0),
-			position_mapping: HashMap::new(),
+	fn chunk_of(pos: &IVec3) -> IVec3 {
+		pos.div_euclid(IVec3::splat(CHUNK_SIZE))
+	}
+	fn local_of(pos: &IVec3) -> I16Vec3 {
+		pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_i16vec3()
+	}
+
+	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) {
+		self.pending.push(GridEdit::Add { voxel_pos: *voxel_pos, voxel: *voxel });
+	}
+	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) {
+		self.pending.push(GridEdit::Remove { voxel_pos: *voxel_pos });
+	}
+
+	pub fn sub_grid_entity(&self, id: SubGridId) -> Option<Entity> {
+		self.id_to_entity.get(&id).copied()
+	}
+	pub fn sub_grid_entities(&self) -> impl Iterator<Item = (SubGridId, Entity)> + '_ {
+		self.id_to_entity.iter().map(|(id, e)| (*id, *e))
+	}
+
+	fn id_for_chunk(&mut self, chunk: IVec3) -> SubGridId {
+		if let Some(id) = self.chunk_to_id.get(&chunk) {
+			return *id;
 		}
+		let id = SubGridId(self.next_id);
+		self.next_id += 1;
+		self.chunk_to_id.insert(chunk, id);
+		id
 	}
+}
 
-	// sub grids
-	// fn add_sub_grid(&mut self, sub_grid_pos: &IVec3) -> SubGridId {
-	// 	let sub_grid_id = self.next_sub_grid_id;
-	// 	self.next_sub_grid_id.0 += 1;
-	// 	self.sub_grids.insert(sub_grid_id, SubGrid::new(*sub_grid_pos));
-	// 	sub_grid_id
-	// }
-	// fn remove_sub_grid(&mut self, sub_grid_id: SubGridId) -> bool {
-	// 	self.sub_grids.remove(sub_grid_id).is_some()
-	// }
-	fn map_position_to_sub_grid_id(&self, pos: &IVec3) -> Option<SubGridId> {
-		self.position_mapping.get(&(pos.div_euclid(IVec3::splat(Self::CHUNK_SIZE)))).copied()
-	}
-	fn map_position_to_sub_grid_id_create(&mut self, pos: &IVec3) -> SubGridId {
-		*self.position_mapping.entry(pos.div_euclid(IVec3::splat(Self::CHUNK_SIZE))).or_insert_with(|| {
-			let sub_grid_id = self.next_sub_grid_id;
-			self.next_sub_grid_id.0 += 1;
-			self.sub_grids.insert(sub_grid_id, SubGrid::new((pos.div_euclid(IVec3::splat(Self::CHUNK_SIZE))) * Self::CHUNK_SIZE));
-			sub_grid_id
-		})
-	}
-	pub fn sub_grid(&self, sub_grid_id: SubGridId) -> Option<&SubGrid> {
-		self.sub_grids.get(sub_grid_id)
-	}
-	pub fn sub_grid_mut(&mut self, sub_grid_id: SubGridId) -> Option<&mut SubGrid> {
-		self.sub_grids.get_mut(sub_grid_id)
-	}
-	pub fn sub_grids(&self) -> &SparseSet<SubGridId, SubGrid> {
-		&self.sub_grids
-	}
+pub fn apply_grid_edits(
+	mut commands: Commands,
+	mut grids: Query<(Entity, &mut Grid)>,
+	mut sub_grids: Query<&mut SubGrid>,
+) {
+	for (grid_entity, mut grid) in grids.iter_mut() {
+		if grid.pending.is_empty() { continue; }
+		let edits = std::mem::take(&mut grid.pending);
 
-	// voxels
-	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) -> Option<Voxel> {
-		let sub_grid_id = self.map_position_to_sub_grid_id_create(voxel_pos);
-		let sub_grid = self.sub_grids.get_mut(sub_grid_id)?;
-		let old_voxel = sub_grid.add_voxel(voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3(), *voxel)?;
-		Some(old_voxel)
-	}
-	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) -> Option<Voxel> {
-		let sub_grid_id = self.map_position_to_sub_grid_id(voxel_pos)?;
-		let sub_grid = self.sub_grids.get_mut(sub_grid_id)?;
-		let voxel = sub_grid.remove_voxel(&voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3())?;
-		if sub_grid.get_voxels().get_voxels().len() == 0 {
-			self.sub_grids.remove(sub_grid_id);
+		let mut new_sub_grids: HashMap<SubGridId, SubGrid> = HashMap::new();
+		let mut touched: HashSet<SubGridId> = HashSet::new();
+
+		for edit in edits {
+			match edit {
+				GridEdit::Add { voxel_pos, voxel } => {
+					let chunk = Grid::chunk_of(&voxel_pos);
+					let local = Grid::local_of(&voxel_pos);
+					let id = grid.id_for_chunk(chunk);
+					if let Some(&entity) = grid.id_to_entity.get(&id) {
+						if let Ok(mut sub) = sub_grids.get_mut(entity) {
+							sub.add_voxel(local, voxel);
+							touched.insert(id);
+						}
+					} else {
+						new_sub_grids
+							.entry(id)
+							.or_insert_with(|| SubGrid::new(grid_entity, id, chunk * CHUNK_SIZE))
+							.add_voxel(local, voxel);
+					}
+				}
+				GridEdit::Remove { voxel_pos } => {
+					let chunk = Grid::chunk_of(&voxel_pos);
+					let local = Grid::local_of(&voxel_pos);
+					let Some(&id) = grid.chunk_to_id.get(&chunk) else { continue };
+					if let Some(&entity) = grid.id_to_entity.get(&id) {
+						if let Ok(mut sub) = sub_grids.get_mut(entity) {
+							sub.remove_voxel(&local);
+							touched.insert(id);
+						}
+					} else if let Some(sub) = new_sub_grids.get_mut(&id) {
+						sub.remove_voxel(&local);
+					}
+				}
+			}
 		}
-		Some(voxel)
-	}
-	pub fn get_voxel(&self, voxel_pos: &IVec3) -> Option<&Voxel> {
-		let sub_grid_id = self.map_position_to_sub_grid_id(voxel_pos)?;
-		let sub_grid = self.sub_grids.get(sub_grid_id)?;
-		sub_grid.get_voxel(&voxel_pos.rem_euclid(IVec3::splat(Self::CHUNK_SIZE)).as_i16vec3())
+
+		for (id, sub) in new_sub_grids {
+			if sub.is_empty() {
+				grid.chunk_to_id.retain(|_, v| *v != id);
+				continue;
+			}
+			let entity = commands.spawn((sub, ChildOf(grid_entity))).id();
+			grid.id_to_entity.insert(id, entity);
+		}
+
+		for id in touched {
+			let Some(&entity) = grid.id_to_entity.get(&id) else { continue };
+			let empty = sub_grids.get(entity).map(|s| s.is_empty()).unwrap_or(true);
+			if empty {
+				commands.entity(entity).despawn();
+				grid.id_to_entity.remove(&id);
+				grid.chunk_to_id.retain(|_, v| *v != id);
+			}
+		}
 	}
 }

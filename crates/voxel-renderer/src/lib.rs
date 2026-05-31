@@ -4,6 +4,7 @@ pub mod graphics_settings;
 pub mod hit_count_feedback;
 pub mod scene;
 pub mod voxel_renderer;
+pub mod voxel_renderer_resource;
 
 mod crosshair_node;
 mod extract;
@@ -17,7 +18,7 @@ use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::render::render_graph::{RenderGraphExt, ViewNodeRunner};
 
 use voxel_data::VoxelDataPlugin;
-use voxel_data::sub_grid_gpu_state::GpuStateRequestMessage;
+use gpu_voxel_data::{GpuUploadSet, GpuVoxelDataAppExt, GpuVoxelDataPlugin};
 
 use graphics_settings::GraphicsSettings;
 use hit_count_feedback::{HitCountFeedback, LastGpuBvh, RenderStats};
@@ -30,6 +31,10 @@ impl Plugin for VoxelRendererPlugin {
 		if !app.is_plugin_added::<VoxelDataPlugin>() {
 			app.add_plugins(VoxelDataPlugin);
 		}
+		if !app.is_plugin_added::<GpuVoxelDataPlugin>() {
+			app.add_plugins(GpuVoxelDataPlugin);
+		}
+		app.register_lod_requester::<scene::RenderLod>();
 
 		let hit_count_feedback = HitCountFeedback::default();
 		let render_stats = RenderStats::default();
@@ -37,10 +42,7 @@ impl Plugin for VoxelRendererPlugin {
 			.insert_resource(render_stats.clone())
 			.init_resource::<GraphicsSettings>()
 			.add_plugins(ExtractResourcePlugin::<GraphicsSettings>::default())
-			.add_message::<GpuStateRequestMessage>()
-			.add_systems(Update, (
-				scene::request_dirty_subgrids,
-			));
+			.add_systems(Update, scene::update_render_lod.before(GpuUploadSet::Collect));
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
@@ -91,6 +93,6 @@ impl Plugin for VoxelRendererPlugin {
 
 	fn finish(&self, app: &mut App) {
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
-		render_app.init_resource::<voxel_renderer::VoxelRendererResource>();
+		render_app.init_resource::<voxel_renderer_resource::VoxelRendererResource>();
 	}
 }

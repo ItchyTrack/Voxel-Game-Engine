@@ -3,7 +3,8 @@ use std::collections::{HashMap};
 use parry3d;
 use rand::{seq::IteratorRandom};
 
-use super::{grid_tree::{self, GridTree}, voxels::VoxelPalette};
+use voxel_data::grid_tree::{self, GridTree};
+use voxel_data::voxels::VoxelPalette;
 
 
 const SLOT_BYTES: usize = 4;
@@ -165,7 +166,7 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 	let mut palette_map: HashMap<u16, u8> = HashMap::new();
 	for (id, voxel) in &palette.palette {
 		if palette_vec.len() >= 254 {
-			println!("ERROR: ran out of palette space");
+			log::warn!("ran out of palette space");
 			palette_map.insert(*id, 254);
 			continue;
 		}

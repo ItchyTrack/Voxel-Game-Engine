@@ -4,13 +4,11 @@ use std::{collections::HashMap};
 use glam::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
-use voxel_data::bvh::bvh::BVH;
-use voxel_data::grid::{Grid, SubGridId};
-
 use bevy::transform::components::Transform;
 use crate::math::{Mat6, Vec6};
-use crate::physics_body::{GridId, PhysicsBody, PhysicsBodyId};
+use super::body::SolverBody;
 use crate::sparse_set::SparseSet;
+use crate::{GridId, PhysicsBodyId};
 use crate::{ball_joint_constraint::BallJointConstraint, collision, collision_constraint::CollisionConstraint, physics_constraint::PhysicsConstraint};
 
 type CollisionKlMapKey = (PhysicsBodyId, GridId, IVec3, collision::CubeFeature, PhysicsBodyId, GridId, IVec3, collision::CubeFeature);
@@ -43,7 +41,6 @@ impl Solver {
 		}
 	}
 
-	pub fn add_vec_to_quat(q: &Quat, dx: &Vec3) -> Quat { (q + (Quat::from_xyzw(dx.x, dx.y, dx.z, 0.0) * 0.5) * q).normalize() }
 	pub fn sub_quat(q1: &Quat, q2: &Quat) -> Vec3 { (q1 * q2.inverse()).xyz() * 2.0 }
 
 	pub fn sub_state(state_a: &Transform, state_b: &Transform) -> Vec6 {
@@ -52,12 +49,11 @@ impl Solver {
 
 	pub fn solve(
 		&mut self,
-		physics_bodies: &mut SparseSet<PhysicsBodyId, PhysicsBody>,
-		grids: &SparseSet<GridId, (&Grid, &Transform)>,
+		physics_bodies: &mut SparseSet<PhysicsBodyId, SolverBody>,
+		collisions: &[collision::Collision],
 		constraints: &mut HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
 		impulses: &SparseSet<PhysicsBodyId, Vec<Impulse>>,
 		dt: f32,
-		bvh: &BVH<(PhysicsBodyId, GridId, SubGridId)>
 	) {
 		let _zone = span!("Solve Collisions");
 		constraints.iter_mut().for_each(|((physics_body_id_1, physics_body_id_2), constraint)| {
@@ -73,7 +69,7 @@ impl Solver {
 				Transform { translation: physics_body.global_rotated_center_of_mass(), rotation: Quat::IDENTITY, scale: Vec3::ONE } * physics_body.transform
 			))
 		);
-		let mut collision_constraints: Vec<CollisionConstraint> = collision::get_collisions(physics_bodies, grids, &bvh).iter().map(
+		let mut collision_constraints: Vec<CollisionConstraint> = collisions.iter().map(
 			|c| {
 				let body1 = &physics_bodies.get(&c.part1.body_id).unwrap();
 				let body2 = &physics_bodies.get(&c.part2.body_id).unwrap();
@@ -87,7 +83,7 @@ impl Solver {
 						..c.part2
 					},
 				};
-				let (old_penalty, old_lambda) = self.collisions_kl_map.get(&if c.part1.body_id.0 < c.part2.body_id.0 {
+				let (old_penalty, old_lambda) = self.collisions_kl_map.get(&if c.part1.body_id < c.part2.body_id {
 					(
 						collision.part1.body_id, collision.part1.grid_id, collision.part1.voxel_pos, collision.part1.feature,
 						collision.part2.body_id, collision.part2.grid_id, collision.part2.voxel_pos, collision.part2.feature
@@ -220,7 +216,7 @@ impl Solver {
 		// save K and L
 		for collision_constraint in collision_constraints {
 			let collision = collision_constraint.collision;
-			self.collisions_kl_map.insert(if collision.part1.body_id.0 < collision.part2.body_id.0 {
+			self.collisions_kl_map.insert(if collision.part1.body_id < collision.part2.body_id {
 				(
 					collision.part1.body_id, collision.part1.grid_id, collision.part1.voxel_pos, collision.part1.feature,
 					collision.part2.body_id, collision.part2.grid_id, collision.part2.voxel_pos, collision.part2.feature

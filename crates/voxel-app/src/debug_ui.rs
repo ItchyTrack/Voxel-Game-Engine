@@ -2,7 +2,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
-use voxel_data::world_gpu_data::WorldGpuData;
+use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use voxel_physics::{
 	CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
 };

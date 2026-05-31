@@ -11,40 +11,20 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-tracy = ["tracy-client/enable"]
 gpu_profiling = []
 
 [dependencies]
-anyhow = "1.0"
-image = "0.23"
 glam = "0.30.10"
-winit = { version = "0.30", features = ["android-native-activity"] }
-env_logger = "0.10"
-itertools = "0.9.0"
+log = "0.4"
 dot_vox = "5.2.0"
 nalgebra = "0.34.1"
-bimap = "0.6.3"
-log = "0.4"
-pollster = "0.3"
-wgpu = "27"
-tobj = { version = "3.2", default-features = false, features = ["async"]}
-bytemuck = { version = "1.24", features = [ "derive" ] }
-tracy-client = { version = "0.18.4", default-features = false }
-noise = "0.9.0"
-rand = "0.10.1"
-clone_cell = "0.4.2"
-num = "0.4.3"
 rtrb = "0.3.2"
-parry3d = "0.26.0"
 tokio = { version = "1", features = ["full"] }
-tokio-macros = "2.7.0"
-uuid = { version = "1.23.1", features = [ "v4", "js" ] }
-async-priority-queue = "0.1.1"
-parking_lot = "0.12.5"
 bevy = "0.18.1"
 bevy_egui = "0.39"
 voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
+gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -56,22 +36,9 @@ getrandom = { version = "0.4", features = ["wasm_js"] } # dep of rand
 getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] } # dep of dot_vox
 console_error_panic_hook = "0.1.7"
 console_log = "1.0"
-wgpu = { version = "27", features = ["webgpu"]}
-imgui = { version = "0.12", features = ["wasm"] }
 wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4.64"
-reqwest = { version = "0.13.2" }
-web-sys = { version = "0.3.91", features = [
-	"Window",
-	"Element",
-	"Location",
-]}
 web-time = "1.1.0"
-
-[build-dependencies]
-anyhow = "1.0"
-fs_extra = "1.2"
-glob = "0.3"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

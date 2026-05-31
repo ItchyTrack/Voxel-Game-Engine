@@ -4,11 +4,11 @@ use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
-use voxel_data::voxels::voxels::Voxel;
+use voxel_data::voxels::Voxel;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_physics::{
 	AngularVelocity, BallJointConstraint, BallJointConstraints, CenterOfMass,
-	ComputeMassProperties, FreezePhysics, Impulses, IsStatic, Mass, PhysicsBodyId, PhysicsSet,
+	ComputeMassProperties, FreezePhysics, Impulses, IsStatic, Mass, PhysicsSet,
 	RigidBody, RotationalInertia, Velocity,
 };
 
@@ -52,7 +52,7 @@ fn drive_orientation(
 			axis * (-angle * orientation.gain - angular_in_dir * orientation.damping)
 			- (angular_velocity.0 - axis * angular_in_dir)
 		);
-		impulses.apply_rotational_impulse(PhysicsBodyId(entity), impulse);
+		impulses.apply_rotational_impulse(entity, impulse);
 	}
 }
 
@@ -152,8 +152,8 @@ fn spawn_ball_cluster(commands: &mut Commands, constraints: &mut BallJointConstr
 
 	for (satellite, attachment) in satellites {
 		constraints.insert(
-			PhysicsBodyId(main),
-			PhysicsBodyId(satellite),
+			main,
+			satellite,
 			BallJointConstraint::new(
 				&Transform::IDENTITY,
 				&Transform::from_translation(attachment),
@@ -188,8 +188,8 @@ fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, po
 	let ball = spawn_ball(commands, position - Vec3::new(0.0, 12.0, 0.0), 10);
 
 	constraints.insert(
-		PhysicsBodyId(base),
-		PhysicsBodyId(ball),
+		base,
+		ball,
 		BallJointConstraint::new(
 			&Transform::IDENTITY,
 			&Transform::from_translation(Vec3::new(0.0, -12.0, 0.0)),

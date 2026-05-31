@@ -12,7 +12,7 @@ use crate::camera::CameraUniform;
 use crate::extract::ExtractedVoxelScene;
 use crate::graphics_settings::{GraphicsSettings, RenderSettingsUniform};
 use crate::hit_count_feedback::{LastGpuBvh, RenderStats};
-use crate::voxel_renderer::VoxelRendererResource;
+use crate::voxel_renderer_resource::VoxelRendererResource;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, RenderLabel)]
 pub struct VoxelRenderLabel;
