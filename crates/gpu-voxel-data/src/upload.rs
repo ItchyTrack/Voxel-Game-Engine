@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 
-use voxel_data::grid::SubGrid;
+use voxel_data::subgrid::SubGrid;
 use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, PriorityTask, Task, TaskQueueResource};
 
 use crate::gpu_grid_tree::make_gpu_grid_tree;

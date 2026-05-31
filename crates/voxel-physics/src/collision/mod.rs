@@ -4,7 +4,8 @@ use bevy::prelude::*;
 use num::Zero;
 
 use voxel_bvh::bvh::BVH;
-use voxel_data::grid::{Grid, SubGrid, SubGridId};
+use voxel_data::grid::Grid;
+use voxel_data::subgrid::{SubGrid, SubGridId};
 
 use crate::components::{IsStatic, Mass, RigidBody, VoxelCollider};
 use crate::sparse_set::SparseSet;
@@ -83,16 +84,16 @@ fn detect_collisions(
 	mut collisions: ResMut<Collisions>,
 	bodies: Query<(Entity, &Transform, &Mass, Has<IsStatic>), (With<RigidBody>, Without<Grid>)>,
 	grid_entities: Query<(Entity, &Transform, &ChildOf), (With<VoxelCollider>, With<Grid>)>,
-	sub_grid_query: Query<&SubGrid>,
+	sub_grid_query: Query<(Entity, &SubGrid)>,
 ) {
 	let mut body_views: SparseSet<PhysicsBodyId, BodyView> = SparseSet::with_capacity(bodies.iter().count());
 	for (entity, transform, mass, is_static) in bodies.iter() {
 		body_views.insert(entity, BodyView { transform: *transform, is_static: is_static || mass.0.is_zero() });
 	}
 
-	let mut subgrids_by_grid: HashMap<Entity, Vec<(SubGridId, &SubGrid)>> = HashMap::new();
-	for sub_grid in sub_grid_query.iter() {
-		subgrids_by_grid.entry(sub_grid.grid()).or_default().push((sub_grid.id(), sub_grid));
+	let mut subgrids_by_grid: HashMap<GridId, Vec<(SubGridId, &SubGrid)>> = HashMap::new();
+	for (sub_grid_id, sub_grid) in sub_grid_query.iter() {
+		subgrids_by_grid.entry(sub_grid.grid()).or_default().push((sub_grid_id, sub_grid));
 	}
 
 	let mut grids: SparseSet<GridId, GridCollider> = SparseSet::with_capacity(grid_entities.iter().count());

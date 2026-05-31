@@ -7,7 +7,8 @@ use bevy_egui::input::EguiWantsInput;
 
 use std::collections::HashMap;
 
-use voxel_data::grid::{Grid, SubGrid};
+use voxel_data::grid::{Grid, GridId};
+use voxel_data::subgrid::SubGrid;
 use voxel_data::voxels::Voxel;
 use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, PhysicsSet, Velocity};
 
@@ -82,14 +83,14 @@ fn voxel_place_break_system(
 }
 
 struct RaycastHit {
-	grid_entity: Entity,
+	grid_entity: GridId,
 	voxel_pos: IVec3,
 	normal: IVec3,
 	distance: f32,
 }
 
-fn group_sub_grids<'a>(sub_grids: &'a Query<&SubGrid>) -> HashMap<Entity, Vec<&'a SubGrid>> {
-	let mut map: HashMap<Entity, Vec<&SubGrid>> = HashMap::new();
+fn group_sub_grids<'a>(sub_grids: &'a Query<&SubGrid>) -> HashMap<GridId, Vec<&'a SubGrid>> {
+	let mut map: HashMap<GridId, Vec<&SubGrid>> = HashMap::new();
 	for sub_grid in sub_grids.iter() {
 		map.entry(sub_grid.grid()).or_default().push(sub_grid);
 	}
@@ -97,7 +98,7 @@ fn group_sub_grids<'a>(sub_grids: &'a Query<&SubGrid>) -> HashMap<Entity, Vec<&'
 }
 
 fn raycast_grid(
-	entity: Entity,
+	entity: GridId,
 	grid_world: &Transform,
 	sub_grids: &[&SubGrid],
 	world_origin: Vec3,
@@ -145,7 +146,7 @@ fn raycast_bodies(
 	origin: Vec3,
 	dir: Vec3,
 	grids: &Query<(Entity, &GlobalTransform, &Grid)>,
-	subgrids_by_grid: &HashMap<Entity, Vec<&SubGrid>>,
+	subgrids_by_grid: &HashMap<GridId, Vec<&SubGrid>>,
 ) -> Option<RaycastHit> {
 	grids.iter()
 		.filter_map(|(entity, grid_global_transform, _)| {

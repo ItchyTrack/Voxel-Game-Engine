@@ -11,14 +11,14 @@ use bevy::transform::components::{GlobalTransform, Transform};
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use voxel_bvh::bvh::BVH;
-use voxel_data::grid::SubGrid;
+use voxel_data::subgrid::{SubGrid, SubGridId};
 
 #[derive(Resource, Default)]
 pub struct ExtractedVoxelScene {
 	pub camera_transform: Transform,
 	pub camera_projection: Option<Projection>,
-	pub bvh: Option<BVH<Entity>>,
-	pub id_to_offsets: HashMap<Entity, (u32, u32, Transform)>,
+	pub bvh: Option<BVH<SubGridId>>,
+	pub id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)>,
 	pub has_camera: bool,
 	pub tree_buffer: Option<wgpu::Buffer>,
 	pub voxel_buffer: Option<wgpu::Buffer>,
@@ -44,8 +44,8 @@ pub fn extract_voxel_scene(
 	}
 	if !extracted.has_camera { return; }
 
-	let mut bvh_items: Vec<(Entity, (Vec3, Vec3))> = Vec::new();
-	let mut id_to_offsets: HashMap<Entity, (u32, u32, Transform)> = HashMap::new();
+	let mut bvh_items: Vec<(SubGridId, (Vec3, Vec3))> = Vec::new();
+	let mut id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)> = HashMap::new();
 
 	for (entity, sub_grid, gpu_state) in sub_grids.iter() {
 		let Some(tree_held) = world_gpu_data

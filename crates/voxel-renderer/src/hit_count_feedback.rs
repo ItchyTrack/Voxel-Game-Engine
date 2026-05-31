@@ -1,18 +1,18 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::render::renderer::RenderDevice;
 
 use voxel_bvh::gpu_bvh::GpuBvh;
+use voxel_data::subgrid::SubGridId;
 
 #[derive(Resource, Clone, Default)]
-pub struct HitCountFeedback(pub Arc<Mutex<HashMap<Entity, u32>>>);
+pub struct HitCountFeedback(pub Arc<Mutex<HashMap<SubGridId, u32>>>);
 
 #[derive(Resource, Default)]
-pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<Entity>>>);
+pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<SubGridId>>>);
 
 /// GPU-side render stats published by the render world for the main world to read.
 #[derive(Resource, Clone, Default)]

@@ -13,18 +13,19 @@ use std::collections::HashMap;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
-use voxel_data::grid::{Grid, SubGrid};
+use voxel_data::grid::Grid;
+use voxel_data::subgrid::SubGrid;
 
 pub use ball_joint_constraint::BallJointConstraint;
 pub use collision::Collisions;
 pub use components::{AngularVelocity, CenterOfMass, ComputeMassProperties, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
 pub use solver::{BallJointConstraints, Impulses};
+pub use voxel_data::grid::GridId;
 
 use crate::components::VoxelMass;
 
 pub type PhysicsBodyId = Entity;
-pub type GridId = Entity;
 
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct Gravity(pub Vec3);
@@ -73,7 +74,7 @@ fn compute_mass_properties(
 	grids: Query<&Transform, (With<VoxelMass>, With<Grid>)>,
 	sub_grid_query: Query<&SubGrid>,
 ) {
-	let mut subgrids_by_grid: HashMap<Entity, Vec<&SubGrid>> = HashMap::new();
+	let mut subgrids_by_grid: HashMap<GridId, Vec<&SubGrid>> = HashMap::new();
 	for sub_grid in sub_grid_query.iter() {
 		subgrids_by_grid.entry(sub_grid.grid()).or_default().push(sub_grid);
 	}

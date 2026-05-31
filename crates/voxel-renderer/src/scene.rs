@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
 
 use gpu_voxel_data::lod_requester;
-use voxel_data::grid::SubGrid;
+use voxel_data::subgrid::SubGrid;
 
 use crate::hit_count_feedback::HitCountFeedback;
 

@@ -1,6 +1,7 @@
 pub mod grid_tree;
 pub mod voxels;
 pub mod grid;
+pub mod subgrid;
 pub mod task_queue;
 pub mod transform_ext;
 pub mod task_system;

@@ -3,7 +3,7 @@ use tracy_client::span;
 
 use bevy::transform::components::Transform;
 use voxel_bvh::bvh::BVH;
-use voxel_data::grid::SubGridId;
+use voxel_data::subgrid::SubGridId;
 use voxel_data::transform_ext::TransformExt;
 
 use crate::sparse_set::SparseSet;
