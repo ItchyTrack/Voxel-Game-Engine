@@ -1,6 +1,6 @@
 use std::ops::*;
 
-use glam::{DMat3, DQuat, DVec3};
+use bevy::math::{DMat3, DQuat, DVec3};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct InertiaTensor {

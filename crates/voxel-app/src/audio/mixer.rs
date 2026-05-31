@@ -1,6 +1,6 @@
 use cpal::traits::DeviceTrait;
 use cpal::{FromSample, Sample, SizedSample, Stream, StreamConfig};
-use glam::Vec3;
+use bevy::math::Vec3;
 use rtrb::Consumer;
 
 use super::instructions::{AudioInstruction, ListenerState, SpawnVoiceInstruction};

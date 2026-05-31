@@ -76,7 +76,7 @@ impl Eq for PriorityTask {}
 
 impl PartialOrd for PriorityTask {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		return self.priority.partial_cmp(&other.priority);
+		Some(self.cmp(other))
 	}
 }
 

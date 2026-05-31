@@ -16,15 +16,27 @@ const LOD_REUPLOAD_EPSILON: f32 = 0.25;
 #[derive(Resource, Default)]
 pub(crate) struct InFlightUploads(HashSet<Entity>);
 
+#[derive(Component)]
+pub(crate) struct NeedsReupload;
+
+pub(crate) fn flag_changed_sub_grids(
+	mut commands: Commands,
+	changed: Query<Entity, Changed<SubGrid>>,
+) {
+	for entity in changed.iter() {
+		commands.entity(entity).insert(NeedsReupload);
+	}
+}
+
 pub(crate) fn manage_gpu_uploads(
 	desired: Res<DesiredLods>,
 	mut commands: Commands,
 	mut in_flight: ResMut<InFlightUploads>,
-	sub_grids: Query<(Entity, &SubGrid, Option<&SubGridGpuState>)>,
+	sub_grids: Query<(Entity, &SubGrid, Option<&SubGridGpuState>, Has<NeedsReupload>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) {
-	for (entity, sub_grid, state) in sub_grids.iter() {
+	for (entity, sub_grid, state, needs_reupload) in sub_grids.iter() {
 		let Some(request) = desired.get(entity) else {
 			if state.is_some() && !in_flight.0.contains(&entity) {
 				commands.entity(entity).remove::<SubGridGpuState>();
@@ -34,16 +46,16 @@ pub(crate) fn manage_gpu_uploads(
 
 		if in_flight.0.contains(&entity) { continue; }
 		let needs_upload = match state {
-			Some(s) => (s.lod_level() - request.lod_level).abs() > LOD_REUPLOAD_EPSILON || sub_grid.reupload(),
+			Some(s) => (s.lod_level() - request.lod_level).abs() > LOD_REUPLOAD_EPSILON || needs_reupload,
 			None => true,
 		};
 		if !needs_upload { continue; }
 
 		in_flight.0.insert(entity);
-		sub_grid.clear_reupload();
+		commands.entity(entity).remove::<NeedsReupload>();
 
-		let palette = sub_grid.get_voxels().get_palette().clone();
-		let voxels = sub_grid.get_voxels().get_voxels().clone();
+		let palette = sub_grid.voxels().palette().clone();
+		let voxels = sub_grid.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let lod_level = request.lod_level;
 

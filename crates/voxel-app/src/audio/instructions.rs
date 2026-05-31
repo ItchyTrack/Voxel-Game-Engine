@@ -1,4 +1,4 @@
-use glam::Vec3;
+use bevy::math::Vec3;
 
 #[derive(Clone, Copy, Debug)]
 pub enum SoundEffect {

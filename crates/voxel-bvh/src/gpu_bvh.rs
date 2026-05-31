@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
-use glam::Vec3;
+use bevy::math::Vec3;
 use wgpu::{Device, util::DeviceExt};
 use bevy::transform::components::Transform;
 
@@ -123,7 +123,7 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 		bvh: &bvh::BVH<Id>,
 		gpu_grid_tree_id_to_id_transforms: &HashMap<Id, (u32, u32, Transform, )>,
 	) -> Self {
-		let (nodes, items) = bvh.get_internals();
+		let (nodes, items) = bvh.internals();
 
 		// -- Build GPU node buffer ---------------------------------------------
 		//

@@ -1,5 +1,5 @@
 use bevy::transform::components::Transform;
-use glam::Vec3;
+use bevy::math::Vec3;
 
 use crate::PhysicsBodyId;
 use crate::inertia_tensor::InertiaTensor;

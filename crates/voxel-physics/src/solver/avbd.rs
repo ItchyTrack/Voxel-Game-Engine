@@ -1,7 +1,7 @@
 use core::f32;
 use std::{collections::HashMap};
 
-use glam::{IVec3, Mat3, Quat, Vec3};
+use bevy::math::{IVec3, Mat3, Quat, Vec3};
 use tracy_client::span;
 
 use bevy::transform::components::Transform;

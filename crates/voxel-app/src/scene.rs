@@ -7,9 +7,9 @@ use voxel_data::grid::Grid;
 use voxel_data::voxels::Voxel;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_physics::{
-	AngularVelocity, BallJointConstraint, BallJointConstraints, CenterOfMass,
-	ComputeMassProperties, FreezePhysics, Impulses, IsStatic, Mass, PhysicsSet,
-	RigidBody, RotationalInertia, Velocity,
+	AngularVelocity, BallJointConstraint, BallJointConstraints,
+	FreezePhysics, Impulses, IsStatic, PhysicsSet,
+	RigidBody, RotationalInertia,
 };
 
 pub struct ScenePlugin;
@@ -126,11 +126,6 @@ fn spawn_church(commands: &mut Commands) {
 	commands
 		.spawn((
 			RigidBody,
-			Velocity::default(),
-			AngularVelocity::default(),
-			Mass(0.0),
-			RotationalInertia::default(),
-			CenterOfMass::default(),
 			IsStatic,
 			Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
 		))
@@ -173,12 +168,6 @@ fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, po
 
 	let base = commands.spawn((
 		RigidBody,
-		Velocity::default(),
-		AngularVelocity::default(),
-		Mass::default(),
-		RotationalInertia::default(),
-		CenterOfMass::default(),
-		ComputeMassProperties,
 		Orientation::default(),
 		Transform::from_translation(position),
 	))
@@ -232,12 +221,6 @@ fn spawn_ball(commands: &mut Commands, position: Vec3, radius: i32) -> Entity {
 
 	commands.spawn((
 		RigidBody,
-		Velocity::default(),
-		AngularVelocity::default(),
-		Mass::default(),
-		RotationalInertia::default(),
-		CenterOfMass::default(),
-		ComputeMassProperties,
 		Transform::from_translation(position),
 	))
 		.with_child((Transform::from_translation(Vec3::new(-0.5, -0.5, -0.5)), top, VoxelCollider, VoxelMass))

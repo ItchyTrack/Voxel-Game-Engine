@@ -25,6 +25,7 @@ impl Plugin for GpuVoxelDataPlugin {
 			.init_resource::<upload::InFlightUploads>()
 			.configure_sets(Update, (GpuUploadSet::Clear, GpuUploadSet::Collect, GpuUploadSet::Upload).chain())
 			.add_systems(Update, lod_request::clear_desired_lods.in_set(GpuUploadSet::Clear))
+			.add_systems(Update, upload::flag_changed_sub_grids.in_set(GpuUploadSet::Clear))
 			.add_systems(Update, upload::manage_gpu_uploads.in_set(GpuUploadSet::Upload));
 	}
 

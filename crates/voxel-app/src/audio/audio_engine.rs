@@ -2,7 +2,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
 
-use glam::Vec3;
+use bevy::math::Vec3;
 
 use super::instructions::AudioInstruction;
 use super::mixer::build_output_stream_typed;

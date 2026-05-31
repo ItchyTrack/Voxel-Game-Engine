@@ -163,11 +163,11 @@ impl PackedDynamicBuffer {
 		}
 	}
 
-	pub fn get_held_buffer(&self, id: u32) -> Option<&HeldBuffer> {
+	pub fn held_buffer(&self, id: u32) -> Option<&HeldBuffer> {
 		self.held_buffers.get(&id)
 	}
 
-	pub fn get_buffer(&self) -> &wgpu::Buffer {
+	pub fn buffer(&self) -> &wgpu::Buffer {
 		&self.buffer
 	}
 }

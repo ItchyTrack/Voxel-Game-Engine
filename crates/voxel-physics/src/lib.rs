@@ -18,7 +18,7 @@ use voxel_data::subgrid::SubGrid;
 
 pub use ball_joint_constraint::BallJointConstraint;
 pub use collision::Collisions;
-pub use components::{AngularVelocity, CenterOfMass, ComputeMassProperties, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
 pub use solver::{BallJointConstraints, Impulses};
 pub use voxel_data::grid::GridId;
@@ -59,6 +59,7 @@ impl Plugin for VoxelPhysicsPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<Gravity>()
 			.init_resource::<FreezePhysics>()
+			.insert_resource(Time::<Fixed>::from_hz(120.0))
 			.configure_sets(FixedUpdate, (PhysicsSet::Apply, PhysicsSet::Detect, PhysicsSet::Step).chain())
 			.add_plugins((collision::CollisionPlugin, solver::SolverPlugin))
 			.add_systems(FixedUpdate, compute_mass_properties.before(PhysicsSet::Detect));
@@ -66,20 +67,24 @@ impl Plugin for VoxelPhysicsPlugin {
 }
 
 /// Derives `Mass`, `CenterOfMass`, and `RotationalInertia` from the voxel masses
-/// of each child `Grid`. Runs for any body tagged with [`ComputeMassProperties`]
-/// and removes the marker once the body is initialized.
+/// of each child `Grid`. Recomputes a body whenever one of its child grids
+/// changes (voxels added/removed), which also covers the initial population.
 fn compute_mass_properties(
-	mut commands: Commands,
-	mut bodies: Query<(Entity, &Children, &mut Mass, &mut CenterOfMass, &mut RotationalInertia), (With<RigidBody>, With<ComputeMassProperties>)>,
+	mut bodies: Query<(&Children, &mut Mass, &mut CenterOfMass, &mut RotationalInertia), With<RigidBody>>,
 	grids: Query<&Transform, (With<VoxelMass>, With<Grid>)>,
+	changed_grids: Query<(), (With<VoxelMass>, With<Grid>, Changed<Grid>)>,
 	sub_grid_query: Query<&SubGrid>,
 ) {
+	if changed_grids.is_empty() { return; }
+
 	let mut subgrids_by_grid: HashMap<GridId, Vec<&SubGrid>> = HashMap::new();
 	for sub_grid in sub_grid_query.iter() {
 		subgrids_by_grid.entry(sub_grid.grid()).or_default().push(sub_grid);
 	}
 
-	for (entity, children, mut mass, mut com, mut inertia) in bodies.iter_mut() {
+	for (children, mut mass, mut com, mut inertia) in bodies.iter_mut() {
+		if !children.iter().any(|child| changed_grids.contains(child)) { continue; }
+
 		let mut total_mass: f64 = 0.0;
 		let mut com_times_mass = DVec3::ZERO;
 		let mut tensor_at_origin = InertiaTensor::ZERO;
@@ -88,10 +93,10 @@ fn compute_mass_properties(
 			let Ok(grid_pose) = grids.get(child) else { continue };
 			let Some(child_sub_grids) = subgrids_by_grid.get(&child) else { continue };
 			for sub_grid in child_sub_grids {
-				let palette = sub_grid.get_voxels().get_palette();
+				let palette = sub_grid.voxels().palette();
 				let sub_pos = sub_grid.sub_grid_pos().as_dvec3();
-				for (voxel_pos, count, palette_id) in sub_grid.get_voxels().get_voxels().iter() {
-					let Some(voxel) = palette.get_voxel(palette_id) else { continue };
+				for (voxel_pos, count, palette_id) in sub_grid.voxels().grid_tree().iter() {
+					let Some(voxel) = palette.voxel(palette_id) else { continue };
 					let m = voxel.mass as f64;
 					let base = sub_pos + voxel_pos.as_dvec3();
 					let run = count as i32;
@@ -107,7 +112,6 @@ fn compute_mass_properties(
 		}
 
 		if total_mass <= 0.0 { continue; }
-		commands.entity(entity).remove::<ComputeMassProperties>();
 		let com_vec = com_times_mass / total_mass;
 		mass.0 = total_mass as f32;
 		com.0 = com_vec.as_vec3();

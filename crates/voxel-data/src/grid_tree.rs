@@ -3,7 +3,7 @@ use std::hint::unreachable_unchecked;
 use std::u16;
 
 use bevy::transform::components::Transform;
-use glam::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3};
+use bevy::math::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3};
 
 pub const LOG_SIZE: u8 = 2;
 pub const SIZE: u8 = 1u8 << LOG_SIZE;
@@ -366,7 +366,7 @@ impl GridTree {
 			self.set_voxel_in_none_cell(parent_node_index + next_node_offset as u32, parent_depth - 1, cell_to_set, &(pos % child_size));
 		}
 	}
-	pub fn get_internals(&self) -> (&Vec<GridTreeNode>, I16Vec3, u8) {
+	pub fn internals(&self) -> (&Vec<GridTreeNode>, I16Vec3, u8) {
 		(&self.nodes, self.root_pos, self.root_depth)
 	}
 	/// cell_to_merge cant be NODE. pos_in_node is any pos

@@ -3,34 +3,27 @@ name = "gpu-voxel-data"
 version = "0.1.0"
 edition = "2024"
 
-[profile.release]
-strip = true
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [features]
 default = []
 tracy = ["tracy-client/enable"]
 gpu_profiling = []
 
 [dependencies]
-glam = "0.30.10"
-log = "0.4"
-wgpu = "27"
-bytemuck = { version = "1.24", features = [ "derive" ] }
-tracy-client = { version = "0.18.4", default-features = false }
 rand = "0.10.1"
 clone_cell = "0.4.2"
-num = "0.4.3"
 parry3d = "0.26.0"
-bevy = "0.18.1"
+log = { workspace = true }
+wgpu = { workspace = true }
+num = { workspace = true }
+bytemuck = { workspace = true }
+tracy-client = { workspace = true }
+bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.4", features = ["wasm_js"] } # dep of rand
-getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] } # dep of dot_vox
-wgpu = { version = "27", features = ["webgpu"]}
+getrandom = { workspace = true }
+getrandom_0_3 = { workspace = true }
+wgpu = { workspace = true, features = ["webgpu"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

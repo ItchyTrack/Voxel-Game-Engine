@@ -50,17 +50,17 @@ pub fn extract_voxel_scene(
 	for (entity, sub_grid, gpu_state) in sub_grids.iter() {
 		let Some(tree_held) = world_gpu_data
 			.packed_64_tree_dynamic_buffer
-			.get_held_buffer(gpu_state.tree_id()) else { continue };
+			.held_buffer(gpu_state.tree_id()) else { continue };
 		let Some(voxel_held) = world_gpu_data
 			.packed_voxel_data_dynamic_buffer
-			.get_held_buffer(gpu_state.voxels_id()) else { continue };
+			.held_buffer(gpu_state.voxels_id()) else { continue };
 
 		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
 		let sub_world = grid_global.compute_transform()
 			* Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
 		let Some(aabb) = sub_grid.aabb(&sub_world) else { continue };
 
-		let (_, tree_root_pos, _) = sub_grid.get_voxels().get_voxels().get_internals();
+		let (_, tree_root_pos, _) = sub_grid.voxels().grid_tree().internals();
 		let dda_transform = sub_world * Transform::from_translation(tree_root_pos.as_vec3());
 
 		bvh_items.push((entity, aabb));
@@ -72,6 +72,6 @@ pub fn extract_voxel_scene(
 	}
 	extracted.id_to_offsets = id_to_offsets;
 
-	extracted.tree_buffer = Some(world_gpu_data.packed_64_tree_dynamic_buffer.get_buffer().clone());
-	extracted.voxel_buffer = Some(world_gpu_data.packed_voxel_data_dynamic_buffer.get_buffer().clone());
+	extracted.tree_buffer = Some(world_gpu_data.packed_64_tree_dynamic_buffer.buffer().clone());
+	extracted.voxel_buffer = Some(world_gpu_data.packed_voxel_data_dynamic_buffer.buffer().clone());
 }

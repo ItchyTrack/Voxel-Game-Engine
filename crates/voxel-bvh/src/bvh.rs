@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, collections::BinaryHeap, fmt::Debug};
 
-use glam::Vec3;
+use bevy::math::Vec3;
 
 use tracy_client::span;
 use bevy::transform::components::Transform;
@@ -287,7 +287,7 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 		aabb_a.0.cmple(aabb_b.1).all() && aabb_a.1.cmpge(aabb_b.0).all()
 	}
 
-	pub fn get_collisions(&self, bounds: &(Vec3, Vec3)) -> Vec<Index> {
+	pub fn collisions(&self, bounds: &(Vec3, Vec3)) -> Vec<Index> {
 		let _zone = span!("BVH get collisions");
 		let mut out: Vec<Index> = vec![];
 		let mut stack = vec![0u16];
@@ -369,7 +369,7 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 	// 	}
 	// }
 
-	pub fn get_internals(&self) -> (&Vec<BVHNode>, &Vec<(Index, (Vec3, Vec3))>) {
+	pub fn internals(&self) -> (&Vec<BVHNode>, &Vec<(Index, (Vec3, Vec3))>) {
 		(&self.nodes, &self.items)
 	}
 }

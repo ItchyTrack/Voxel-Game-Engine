@@ -1,4 +1,4 @@
-use glam::{Mat3, Vec2, Vec3};
+use bevy::math::{Mat3, Vec2, Vec3};
 
 use bevy::transform::components::Transform;
 

@@ -78,7 +78,6 @@ impl Plugin for SolverPlugin {
 	}
 }
 
-#[allow(clippy::type_complexity)]
 fn solve_physics(
 	time: Res<Time>,
 	mut solver: ResMut<PhysicsSolver>,

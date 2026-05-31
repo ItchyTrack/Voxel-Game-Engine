@@ -1,4 +1,4 @@
-use glam::I16Vec3;
+use bevy::math::I16Vec3;
 use tracy_client::span;
 use std::{sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
@@ -24,8 +24,8 @@ impl VoxelPalette {
 			next_id: 0,
 		}
 	}
-	pub fn get_palette_id(&mut self, voxel: &Voxel) -> u16 {
-		if let Err(_) = self.palette.insert_no_overwrite(self.next_id, *voxel) {
+	pub fn palette_id(&mut self, voxel: &Voxel) -> u16 {
+		if self.palette.insert_no_overwrite(self.next_id, *voxel).is_err() {
 			let id = *self.palette.get_by_right(voxel).unwrap();
 			assert!(self.next_id != id);
 			return id;
@@ -34,7 +34,7 @@ impl VoxelPalette {
 		self.next_id += 1;
 		id
 	}
-	pub fn get_voxel(&self, id: u16) -> Option<&Voxel> {
+	pub fn voxel(&self, id: u16) -> Option<&Voxel> {
 		self.palette.get_by_left(&id)
 	}
 }
@@ -63,23 +63,23 @@ impl Voxels {
 		} else {
 			(pos, pos)
 		});
-		let out = self.voxels.insert(&pos, self.voxel_palette.get_palette_id(&voxel))?;
-		self.voxel_palette.get_voxel(out).cloned()
+		let out = self.voxels.insert(&pos, self.voxel_palette.palette_id(&voxel))?;
+		self.voxel_palette.voxel(out).cloned()
 	}
 
 	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
-		let out = self.voxel_palette.get_voxel(self.voxels.remove(pos)?).cloned();
+		let out = self.voxel_palette.voxel(self.voxels.remove(pos)?).cloned();
 		self.bounding_box_dirty.store(true, Ordering::Release);
 		out
 	}
 
-	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> {
-			self.voxel_palette.get_voxel(self.voxels.get(pos)?)
+	pub fn voxel(&self, pos: &I16Vec3) -> Option<&Voxel> {
+			self.voxel_palette.voxel(self.voxels.get(pos)?)
 		}
-	pub fn get_voxels(&self) -> &GridTree { &self.voxels }
-	pub fn get_palette(&self) -> &VoxelPalette { &self.voxel_palette }
+	pub fn grid_tree(&self) -> &GridTree { &self.voxels }
+	pub fn palette(&self) -> &VoxelPalette { &self.voxel_palette }
 
-	pub fn get_bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
+	pub fn bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
 		if self.bounding_box_dirty.load(Ordering::Acquire) {
 			let _zone = span!("rebuild voxel bounding box");
 			self.bounding_box_dirty.store(false, Ordering::Release);

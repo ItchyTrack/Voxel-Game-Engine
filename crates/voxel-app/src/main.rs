@@ -6,6 +6,7 @@ mod debug_ui;
 mod scene;
 mod world_interaction;
 
+use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::render::view::{Hdr, Msaa};
 
@@ -18,6 +19,23 @@ use scene::ScenePlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use world_interaction::WorldInteractionPlugin;
 
+/// All gameplay, rendering, physics, and debug plugins that make up the app.
+struct GamePlugins;
+
+impl PluginGroup for GamePlugins {
+	fn build(self) -> PluginGroupBuilder {
+		PluginGroupBuilder::start::<Self>()
+			.add(voxel_renderer::VoxelRendererPlugin)
+			.add(VoxelPhysicsPlugin)
+			.add(ScenePlugin)
+			.add(FlyCameraPlugin)
+			.add(DebugTogglesPlugin)
+			.add(DebugUiPlugin)
+			.add(VoxelAudioPlugin)
+			.add(WorldInteractionPlugin)
+	}
+}
+
 #[tokio::main]
 async fn main() {
 	App::new()
@@ -28,16 +46,7 @@ async fn main() {
 			}),
 			..Default::default()
 		}))
-		.add_plugins((
-			voxel_renderer::VoxelRendererPlugin,
-			VoxelPhysicsPlugin,
-			ScenePlugin,
-			FlyCameraPlugin,
-			DebugTogglesPlugin,
-			DebugUiPlugin,
-			VoxelAudioPlugin,
-			WorldInteractionPlugin,
-		))
+		.add_plugins(GamePlugins)
 		.add_systems(Startup, setup)
 		.run();
 }

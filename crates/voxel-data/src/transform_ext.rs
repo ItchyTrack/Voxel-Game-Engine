@@ -1,5 +1,5 @@
 use bevy::transform::components::Transform;
-use glam::Vec3;
+use bevy::math::Vec3;
 
 /// Rigid-body inverse for [`Transform`]: assumes uniform scale of 1.0.
 pub trait TransformExt {

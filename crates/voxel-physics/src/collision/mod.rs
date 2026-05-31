@@ -79,7 +79,6 @@ impl Plugin for CollisionPlugin {
 	}
 }
 
-#[allow(clippy::type_complexity)]
 fn detect_collisions(
 	mut collisions: ResMut<Collisions>,
 	bodies: Query<(Entity, &Transform, &Mass, Has<IsStatic>), (With<RigidBody>, Without<Grid>)>,

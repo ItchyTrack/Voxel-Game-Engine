@@ -1,6 +1,6 @@
 use std::ops::*;
 use core::fmt;
-use glam::{Mat3, Quat, Vec3};
+use bevy::math::{Mat3, Quat, Vec3};
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct Vec6 {

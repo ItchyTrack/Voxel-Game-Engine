@@ -38,6 +38,7 @@ pub struct HeldBody(pub Option<Entity>);
 
 const HOLD_DISTANCE: f32 = 40.0;
 const PUSH_IMPULSE: f32 = 1_600_000.0;
+const MAX_GRAB_ACCEL: f32 = 8_000.0;
 
 const PLACE_VOXEL: Voxel = Voxel { color: [180, 180, 180, 255], mass: 100 };
 
@@ -54,20 +55,9 @@ fn voxel_place_break_system(
 	let destroy = keys.just_pressed(KeyCode::KeyX) || keys.pressed(KeyCode::KeyZ);
 	if !place && !destroy { return; }
 
-	let Some((_, camera_global_transform)) = cameras.iter().find(|(c, _)| c.is_active) else { return };
-	let camera_transform = camera_global_transform.compute_transform();
-	let origin = camera_transform.translation;
-	let dir = camera_transform.forward().as_vec3();
-
+	let Some((origin, dir)) = camera_ray(&cameras) else { return };
 	let subgrids_by_grid = group_sub_grids(&sub_grids);
-
-	let hit = grids.iter()
-		.filter_map(|(entity, grid_global_transform, _)| {
-			let subs = subgrids_by_grid.get(&entity).map(|v| v.as_slice()).unwrap_or(&[]);
-			raycast_grid(entity, &grid_global_transform.compute_transform(), subs, origin, dir)
-		})
-		.min_by(|a, b| a.distance.total_cmp(&b.distance));
-
+	let hit = raycast_grids(grids.iter().map(|(e, gt, _)| (e, gt)), &subgrids_by_grid, origin, dir);
 	let Some(hit) = hit else { return };
 
 	let Ok((_, grid_global_transform, mut grid)) = grids.get_mut(hit.grid_entity) else { return };
@@ -133,7 +123,7 @@ fn raycast_sub_grid(
 		rotation: Quat::from_rotation_arc(Vec3::Z, dir),
 		scale: Vec3::ONE,
 	};
-	sub_grid.get_voxels().get_voxels().raycast(&transform, None)
+	sub_grid.voxels().grid_tree().raycast(&transform, None)
 }
 
 fn camera_ray(cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>) -> Option<(Vec3, Vec3)> {
@@ -142,14 +132,14 @@ fn camera_ray(cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>) -> O
 	Some((t.translation, t.forward().as_vec3()))
 }
 
-fn raycast_bodies(
+fn raycast_grids<'a>(
+	grids: impl Iterator<Item = (GridId, &'a GlobalTransform)>,
+	subgrids_by_grid: &HashMap<GridId, Vec<&SubGrid>>,
 	origin: Vec3,
 	dir: Vec3,
-	grids: &Query<(Entity, &GlobalTransform, &Grid)>,
-	subgrids_by_grid: &HashMap<GridId, Vec<&SubGrid>>,
 ) -> Option<RaycastHit> {
-	grids.iter()
-		.filter_map(|(entity, grid_global_transform, _)| {
+	grids
+		.filter_map(|(entity, grid_global_transform)| {
 			let subs = subgrids_by_grid.get(&entity).map(|v| v.as_slice()).unwrap_or(&[]);
 			raycast_grid(entity, &grid_global_transform.compute_transform(), subs, origin, dir)
 		})
@@ -172,7 +162,7 @@ fn pickup_toggle_system(
 
 	let Some((origin, dir)) = camera_ray(&cameras) else { return };
 	let subgrids_by_grid = group_sub_grids(&sub_grids);
-	let Some(hit) = raycast_bodies(origin, dir, &grids, &subgrids_by_grid) else { return };
+	let Some(hit) = raycast_grids(grids.iter().map(|(e, gt, _)| (e, gt)), &subgrids_by_grid, origin, dir) else { return };
 	let Ok(child_of) = parents.get(hit.grid_entity) else { return };
 	let body = child_of.parent();
 	let Ok(is_static) = bodies.get(body) else { return };
@@ -194,7 +184,7 @@ fn push_system(
 	if !keys.just_pressed(KeyCode::KeyR) { return; }
 	let Some((origin, dir)) = camera_ray(&cameras) else { return };
 	let subgrids_by_grid = group_sub_grids(&sub_grids);
-	let Some(hit) = raycast_bodies(origin, dir, &grids, &subgrids_by_grid) else { return };
+	let Some(hit) = raycast_grids(grids.iter().map(|(e, gt, _)| (e, gt)), &subgrids_by_grid, origin, dir) else { return };
 	let Ok(child_of) = parents.get(hit.grid_entity) else { return };
 	let body = child_of.parent();
 	if bodies.get(body).is_err() { return; }
@@ -204,6 +194,7 @@ fn push_system(
 
 fn hold_held_body_system(
 	held: Res<HeldBody>,
+	time: Res<Time>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	bodies: Query<(&Transform, &Velocity, &Mass, &CenterOfMass), (With<voxel_physics::RigidBody>, Without<IsStatic>)>,
 	mut impulses: ResMut<Impulses>,
@@ -218,9 +209,8 @@ fn hold_held_body_system(
 	if offset.length_squared() < 1e-6 { return; }
 	let dir = offset.normalize();
 	let velocity_in_dir = velocity.0.dot(dir);
-	let impulse = mass.0 * (
-		dir * (offset.length() * 4.0 - velocity_in_dir * 0.5)
-		- (velocity.0 - dir * velocity_in_dir)
-	);
-	impulses.apply_central_impulse(body_entity, impulse);
+	let delta_v = dir * (offset.length() * 4.0 - velocity_in_dir * 0.5)
+		- (velocity.0 - dir * velocity_in_dir);
+	let delta_v = delta_v.clamp_length_max(MAX_GRAB_ACCEL * time.delta_secs());
+	impulses.apply_central_impulse(body_entity, mass.0 * delta_v);
 }

@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use bevy::prelude::*;
 use bevy::math::{I16Vec3, IVec3, Vec3};
 
@@ -13,7 +11,6 @@ pub struct SubGrid {
 	voxels: Voxels,
 	grid: GridId,
 	sub_grid_pos: IVec3,
-	reupload: AtomicBool,
 }
 
 impl SubGrid {
@@ -22,37 +19,27 @@ impl SubGrid {
 			voxels: Voxels::new(),
 			grid,
 			sub_grid_pos,
-			reupload: AtomicBool::new(true),
 		}
 	}
 
 	pub fn grid(&self) -> GridId { self.grid }
 	pub fn sub_grid_pos(&self) -> IVec3 { self.sub_grid_pos }
-	pub fn get_voxels(&self) -> &Voxels { &self.voxels }
-	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> { self.voxels.get_voxel(pos) }
+	pub fn voxels(&self) -> &Voxels { &self.voxels }
+	pub fn voxel(&self, pos: &I16Vec3) -> Option<&Voxel> { self.voxels.voxel(pos) }
 
 	pub(crate) fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<Voxel> {
-		self.reupload.store(true, Ordering::Release);
 		self.voxels.add_voxel(pos, voxel)
 	}
 	pub(crate) fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
-		self.reupload.store(true, Ordering::Release);
 		self.voxels.remove_voxel(pos)
 	}
 
 	pub fn is_empty(&self) -> bool {
-		self.voxels.get_voxels().len() == 0
-	}
-
-	pub fn reupload(&self) -> bool {
-		self.reupload.load(Ordering::Acquire)
-	}
-	pub fn clear_reupload(&self) {
-		self.reupload.store(false, Ordering::Release);
+		self.voxels.grid_tree().len() == 0
 	}
 
 	pub fn aabb(&self, transform: &Transform) -> Option<(Vec3, Vec3)> {
-		let (min, max) = self.voxels.get_bounding_box()?;
+		let (min, max) = self.voxels.bounding_box()?;
 		let min = min.as_vec3();
 		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
 		let corners = [

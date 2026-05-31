@@ -101,11 +101,11 @@ impl PackedBuffer {
 		}
 	}
 
-	pub fn get_held_buffer(&self, id: u32) -> Option<&HeldBuffer> {
+	pub fn held_buffer(&self, id: u32) -> Option<&HeldBuffer> {
 		self.held_buffers.get(&id)
 	}
 
-	pub fn get_buffer(&self) -> &wgpu::Buffer {
+	pub fn buffer(&self) -> &wgpu::Buffer {
 		&self.buffer
 	}
 }
@@ -186,11 +186,11 @@ impl PackedBufferGroup {
 		self.buffers.get(buffer_index as usize)
 	}
 
-	pub fn get_held_buffer(&self, id: PackedBufferGroupId) -> Option<&HeldBuffer> {
-		self.buffers.get(id.buffer_index as usize)?.get_held_buffer(id.internal_id)
+	pub fn held_buffer(&self, id: PackedBufferGroupId) -> Option<&HeldBuffer> {
+		self.buffers.get(id.buffer_index as usize)?.held_buffer(id.internal_id)
 	}
 
-	pub fn get_buffer(&self, buffer_index: u16) -> Option<&wgpu::Buffer> {
-		Some(self.buffers.get(buffer_index as usize)?.get_buffer())
+	pub fn buffer(&self, buffer_index: u16) -> Option<&wgpu::Buffer> {
+		Some(self.buffers.get(buffer_index as usize)?.buffer())
 	}
 }

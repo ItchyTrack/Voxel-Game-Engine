@@ -158,7 +158,7 @@ fn build_bitmap(node: &grid_tree::GridTreeNode) -> u64 {
 }
 
 pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_level: f32) -> (Vec<u8>, Vec<u8>) {
-	let (nodes, _, root_depth) = grid_tree.get_internals();
+	let (nodes, _, root_depth) = grid_tree.internals();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
 
 	// -- Palette ---------------------------------------------------------------

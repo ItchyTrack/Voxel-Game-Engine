@@ -12,8 +12,8 @@ pub struct VoxelMass;
 
 // ----------------- RigidBody -----------------
 
-/// Needs Transform, Velocity, AngularVelocity, Mass, RotationalInertia, CenterOfMass
 #[derive(Component, Default, Debug, Clone, Copy)]
+#[require(Transform, Velocity, AngularVelocity, Mass, RotationalInertia, CenterOfMass)]
 pub struct RigidBody;
 
 #[derive(Component, Default, Debug, Clone, Copy)]
@@ -35,10 +35,4 @@ pub struct CenterOfMass(pub Vec3);
 
 #[derive(Component, Default, Debug, Clone, Copy)]
 pub struct IsStatic;
-
-/// Marker requesting that `Mass`, `CenterOfMass`, and `RotationalInertia` be
-/// derived from the voxel masses of this body's `Grid` children on the next
-/// physics step. The marker is removed once the properties are written.
-#[derive(Component, Default, Debug, Clone, Copy)]
-pub struct ComputeMassProperties;
 

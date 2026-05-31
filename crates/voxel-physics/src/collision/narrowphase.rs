@@ -1,4 +1,4 @@
-use glam::{I16Vec3, Quat, U8Vec3, Vec3};
+use bevy::math::{I16Vec3, Quat, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
 use voxel_data::transform_ext::TransformExt;
@@ -21,7 +21,7 @@ pub(super) fn get_collision(
 		for y in -1..2 {
 			for z in -1..2 {
 				let vec = I16Vec3::new(x, y, z);
-				if voxels.get_voxel(&(transform.translation.floor().as_i16vec3() + vec)).is_some() {
+				if voxels.voxel(&(transform.translation.floor().as_i16vec3() + vec)).is_some() {
 					let shift = Transform { translation: transform.translation.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE };
 					get_collision_1x1x1_voxel(
 						&(shift.inverse() * *transform),
