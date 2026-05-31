@@ -7,22 +7,15 @@ use voxel_data::voxels;
 
 use super::CubeFeature;
 
-/// Precomputed separating axes: `((min_a, max_a), (min_b, max_b), axis, index)` where the
-/// `min`/`max` are the projections of a *unit* cube's corners onto `axis` (cube a is rotated,
-/// cube b is axis aligned). Scaling these by a box's edge length gives the projection for a
-/// box of that size, since the projection of a centered cube grows linearly with its edge.
+/// ((min_a, max_a), (min_b, max_b), axis, index)
 type SeparatingAxes = Vec<((f32, f32), (f32, f32), Vec3, u8)>;
 
-/// One leaf-vs-leaf contact: (point on body 1, feature 1, point on body 2, feature 2,
-/// grid-1 voxel pos, grid-2 voxel pos). Points are in subgrid 2's local frame.
 type SubgridContact = (Vec3, CubeFeature, Vec3, CubeFeature, I16Vec3, I16Vec3);
 
 fn get_bit(num: u8, bit: u8) -> u8 {
 	((num & (1 << bit)) != 0) as u8
 }
 
-/// A box being walked during the dual-tree descent. `size` is its edge length in voxels and is
-/// always a power of `SIZE`; `origin` is its min corner in its subgrid's voxel coordinates.
 #[derive(Clone, Copy)]
 struct DescendBox {
 	origin: I16Vec3,
@@ -36,9 +29,6 @@ enum BoxSrc {
 	Solid,
 }
 
-/// Walk both subgrids' 64-trees in lockstep, comparing large regions first and only recursing
-/// into children whose boxes actually overlap. Produces the same leaf-vs-leaf contacts the old
-/// per-voxel scan did, but skips whole subtrees that are nowhere near each other.
 pub(super) fn get_collisions_between_subgrids(
 	voxels_1: &voxels::Voxels,
 	voxels_2: &voxels::Voxels,
@@ -89,7 +79,6 @@ fn descend(
 	}
 }
 
-/// Fill `out` with the (non-empty) child boxes of `parent`, returning how many were written.
 fn collect_children(parent: &DescendBox, nodes: &[GridTreeNode], out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
 	let mut count = 0;
 	match parent.src {
@@ -100,7 +89,7 @@ fn collect_children(parent: &DescendBox, nodes: &[GridTreeNode], out: &mut [Desc
 				let cell = node.contents[i as usize];
 				let origin = parent.origin + (get_child_contents_pos(i).as_u16vec3() * child_size).as_i16vec3();
 				match cell.value_type() {
-					0 => {} // NONE — empty, prune
+					0 => {}
 					1 => { out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Solid }; count += 1; }
 					2 => { out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Node { node_index: node_index + cell.value() as u32, depth: depth - 1 } }; count += 1; }
 					_ => unreachable!(),
@@ -119,9 +108,7 @@ fn collect_children(parent: &DescendBox, nodes: &[GridTreeNode], out: &mut [Desc
 	count
 }
 
-/// Separating-axis overlap test for two oriented boxes sharing the relative rotation baked into
-/// `separating_axes`. `rel_center` is (center of box 1 − center of box 2) in box 2's frame, and
-/// the unit-cube projections are scaled by each box's edge length.
+/// Separating-axis overlap test. rel_center is in box 2's frame
 fn boxes_overlap(separating_axes: &SeparatingAxes, rel_center: Vec3, size_1: f32, size_2: f32) -> bool {
 	for ((min_a, max_a), (min_b, max_b), axis, _) in separating_axes {
 		let shift = rel_center.dot(*axis);
@@ -134,8 +121,6 @@ fn boxes_overlap(separating_axes: &SeparatingAxes, rel_center: Vec3, size_1: f32
 	true
 }
 
-/// Run the unit-cube SAT for a single grid-1 voxel at `pos_1` against a single grid-2 voxel at
-/// `pos_2`, returning the contacts in subgrid 2's local frame tagged with both voxel positions.
 fn get_collision_1x1x1_voxel_pair(
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,

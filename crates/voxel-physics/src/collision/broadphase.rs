@@ -19,9 +19,6 @@ pub fn get_collisions(
 ) -> Vec<Collision> {
 	let _zone = span!("Do Collisions");
 
-	// Each non-static subgrid is an independent unit of work: it queries the BVH for candidate
-	// partners and runs narrow phase against each. They only read the shared maps/BVH, so they
-	// can run concurrently and have their per-subgrid contact lists concatenated afterwards.
 	let mut work: Vec<(GridId, &GridCollider, &SubGrid)> = Vec::new();
 	for (grid_id_a, grid_col_a) in grids {
 		let physics_body_a = bodies.get(&grid_col_a.body).unwrap();
