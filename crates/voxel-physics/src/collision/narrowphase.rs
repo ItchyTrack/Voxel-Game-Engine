@@ -1,52 +1,160 @@
 use bevy::math::{I16Vec3, Quat, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
+use voxel_data::grid_tree::{get_child_contents_pos, GridTreeNode, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
 use voxel_data::transform_ext::TransformExt;
 use voxel_data::voxels;
 
 use super::CubeFeature;
 
+/// Precomputed separating axes: `((min_a, max_a), (min_b, max_b), axis, index)` where the
+/// `min`/`max` are the projections of a *unit* cube's corners onto `axis` (cube a is rotated,
+/// cube b is axis aligned). Scaling these by a box's edge length gives the projection for a
+/// box of that size, since the projection of a centered cube grows linearly with its edge.
+type SeparatingAxes = Vec<((f32, f32), (f32, f32), Vec3, u8)>;
+
+/// One leaf-vs-leaf contact: (point on body 1, feature 1, point on body 2, feature 2,
+/// grid-1 voxel pos, grid-2 voxel pos). Points are in subgrid 2's local frame.
+type SubgridContact = (Vec3, CubeFeature, Vec3, CubeFeature, I16Vec3, I16Vec3);
+
 fn get_bit(num: u8, bit: u8) -> u8 {
 	((num & (1 << bit)) != 0) as u8
 }
 
-pub(super) fn get_collision(
-	transform: &Transform,
-	voxels: &voxels::Voxels,
-	separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>,
-	to_global: &Transform,
-) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature, I16Vec3)> {
+/// A box being walked during the dual-tree descent. `size` is its edge length in voxels and is
+/// always a power of `SIZE`; `origin` is its min corner in its subgrid's voxel coordinates.
+#[derive(Clone, Copy)]
+struct DescendBox {
+	origin: I16Vec3,
+	size: u16,
+	src: BoxSrc,
+}
+
+#[derive(Clone, Copy)]
+enum BoxSrc {
+	/// Backed by a tree node — subdivide using the node's actual children.
+	Node { node_index: u32, depth: u8 },
+	/// A solid (fully filled) region with no node — subdivide geometrically.
+	Solid,
+}
+
+/// Walk both subgrids' 64-trees in lockstep, comparing large regions first and only recursing
+/// into children whose boxes actually overlap. Produces the same leaf-vs-leaf contacts the old
+/// per-voxel scan did, but skips whole subtrees that are nowhere near each other.
+pub(super) fn get_collisions_between_subgrids(
+	voxels_1: &voxels::Voxels,
+	voxels_2: &voxels::Voxels,
+	transform_of_1_in_2: &Transform,
+) -> Vec<SubgridContact> {
 	let mut collisions = vec![];
-	for x in -1..2 {
-		for y in -1..2 {
-			for z in -1..2 {
-				let vec = I16Vec3::new(x, y, z);
-				if voxels.voxel(&(transform.translation.floor().as_i16vec3() + vec)).is_some() {
-					let shift = Transform { translation: transform.translation.floor() + vec.as_vec3() + Vec3::new(0.5, 0.5, 0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE };
-					get_collision_1x1x1_voxel(
-						&(shift.inverse() * *transform),
-						separating_axes,
-						&(shift * *to_global),
-					).into_iter().for_each(|c| {
-						collisions.push((
-							shift * c.0,
-							c.1,
-							shift * c.2,
-							c.3,
-							transform.translation.floor().as_i16vec3() + vec,
-						))
-					});
+	if voxels_1.grid_tree().is_empty() || voxels_2.grid_tree().is_empty() { return collisions; }
+	let separating_axes = compute_1x1x1_cube_separating_axes(transform_of_1_in_2.rotation);
+	let (nodes_1, root_pos_1, root_depth_1) = voxels_1.grid_tree().internals();
+	let (nodes_2, root_pos_2, root_depth_2) = voxels_2.grid_tree().internals();
+	let box_1 = DescendBox { origin: root_pos_1, size: GridTreeNode::size(root_depth_1), src: BoxSrc::Node { node_index: 0, depth: root_depth_1 } };
+	let box_2 = DescendBox { origin: root_pos_2, size: GridTreeNode::size(root_depth_2), src: BoxSrc::Node { node_index: 0, depth: root_depth_2 } };
+	descend(&mut collisions, &separating_axes, transform_of_1_in_2, nodes_1, box_1, nodes_2, box_2);
+	collisions
+}
+
+fn descend(
+	collisions: &mut Vec<SubgridContact>,
+	separating_axes: &SeparatingAxes,
+	transform_of_1_in_2: &Transform,
+	nodes_1: &[GridTreeNode],
+	box_1: DescendBox,
+	nodes_2: &[GridTreeNode],
+	box_2: DescendBox,
+) {
+	let center_1 = *transform_of_1_in_2 * (box_1.origin.as_vec3() + Vec3::splat(box_1.size as f32 * 0.5));
+	let center_2 = box_2.origin.as_vec3() + Vec3::splat(box_2.size as f32 * 0.5);
+	if !boxes_overlap(separating_axes, center_1 - center_2, box_1.size as f32, box_2.size as f32) { return; }
+
+	if box_1.size == 1 && box_2.size == 1 {
+		collisions.extend(get_collision_1x1x1_voxel_pair(separating_axes, transform_of_1_in_2, box_1.origin, box_2.origin));
+		return;
+	}
+
+	// Subdivide whichever box is larger so the two stay roughly the same scale as we descend.
+	if box_1.size >= box_2.size {
+		let mut children = [box_1; SIZE_USIZE_CUBED];
+		let count = collect_children(&box_1, nodes_1, &mut children);
+		for child in &children[..count] {
+			descend(collisions, separating_axes, transform_of_1_in_2, nodes_1, *child, nodes_2, box_2);
+		}
+	} else {
+		let mut children = [box_2; SIZE_USIZE_CUBED];
+		let count = collect_children(&box_2, nodes_2, &mut children);
+		for child in &children[..count] {
+			descend(collisions, separating_axes, transform_of_1_in_2, nodes_1, box_1, nodes_2, *child);
+		}
+	}
+}
+
+/// Fill `out` with the (non-empty) child boxes of `parent`, returning how many were written.
+fn collect_children(parent: &DescendBox, nodes: &[GridTreeNode], out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
+	let mut count = 0;
+	match parent.src {
+		BoxSrc::Node { node_index, depth } => {
+			let child_size = GridTreeNode::child_size(depth);
+			let node = &nodes[node_index as usize];
+			for i in 0..SIZE_CUBED {
+				let cell = node.contents[i as usize];
+				let origin = parent.origin + (get_child_contents_pos(i).as_u16vec3() * child_size).as_i16vec3();
+				match cell.value_type() {
+					0 => {} // NONE — empty, prune
+					1 => { out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Solid }; count += 1; }
+					2 => { out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Node { node_index: node_index + cell.value() as u32, depth: depth - 1 } }; count += 1; }
+					_ => unreachable!(),
 				}
 			}
 		}
+		BoxSrc::Solid => {
+			let child_size = parent.size / SIZE as u16;
+			for i in 0..SIZE_CUBED {
+				let origin = parent.origin + (get_child_contents_pos(i).as_u16vec3() * child_size).as_i16vec3();
+				out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Solid };
+				count += 1;
+			}
+		}
 	}
-	collisions
+	count
+}
+
+/// Separating-axis overlap test for two oriented boxes sharing the relative rotation baked into
+/// `separating_axes`. `rel_center` is (center of box 1 − center of box 2) in box 2's frame, and
+/// the unit-cube projections are scaled by each box's edge length.
+fn boxes_overlap(separating_axes: &SeparatingAxes, rel_center: Vec3, size_1: f32, size_2: f32) -> bool {
+	for ((min_a, max_a), (min_b, max_b), axis, _) in separating_axes {
+		let shift = rel_center.dot(*axis);
+		let min_1 = size_1 * min_a + shift;
+		let max_1 = size_1 * max_a + shift;
+		let min_2 = size_2 * min_b;
+		let max_2 = size_2 * max_b;
+		if max_1 <= min_2 || min_1 >= max_2 { return false; }
+	}
+	true
+}
+
+/// Run the unit-cube SAT for a single grid-1 voxel at `pos_1` against a single grid-2 voxel at
+/// `pos_2`, returning the contacts in subgrid 2's local frame tagged with both voxel positions.
+fn get_collision_1x1x1_voxel_pair(
+	separating_axes: &SeparatingAxes,
+	transform_of_1_in_2: &Transform,
+	pos_1: I16Vec3,
+	pos_2: I16Vec3,
+) -> Vec<SubgridContact> {
+	let shift = Transform { translation: pos_2.as_vec3() + Vec3::splat(0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE };
+	let local = shift.inverse() * *transform_of_1_in_2 * Transform::from_translation(pos_1.as_vec3() + Vec3::splat(0.5));
+	get_collision_1x1x1_voxel(&local, separating_axes)
+		.into_iter()
+		.map(|c| (shift * c.0, c.1, shift * c.2, c.3, pos_1, pos_2))
+		.collect()
 }
 
 fn get_collision_1x1x1_voxel(
 	transform: &Transform,
-	separating_axes: &Vec<((f32, f32), (f32, f32), Vec3, u8)>,
-	_to_global: &Transform,
+	separating_axes: &SeparatingAxes,
 ) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> {
 	if transform.translation.length_squared() >= 3.0 { return vec![]; }
 	let mut bests = vec![];
@@ -199,7 +307,7 @@ fn points_with_direction(p1: Vec3, d1: Vec3, p2: Vec3, d2: Vec3, u: Vec3) -> Opt
 }
 
 // assumes other cube has no rotation and both are centered at (0,0,0)
-pub(super) fn compute_1x1x1_cube_separating_axes(orientation: Quat) -> Vec<((f32, f32), (f32, f32), Vec3, u8)> {
+pub(super) fn compute_1x1x1_cube_separating_axes(orientation: Quat) -> SeparatingAxes {
 	let axes_6 = [
 		Vec3::X,
 		Vec3::Y,
