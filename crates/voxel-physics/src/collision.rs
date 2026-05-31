@@ -1,15 +1,16 @@
 use std::vec;
 
+use bevy::ecs::entity::EntityIndex;
+use bevy::ecs::system::Query;
 use glam::{I16Vec3, IVec3, Quat, U8Vec3, Vec3};
 
 use voxel_data::bvh::bvh::BVH;
-use voxel_data::grid::{Grid, SubGridId};
 use voxel_data::voxels::voxels;
 
 use bevy::transform::components::Transform;
 use voxel_data::transform_ext::TransformExt;
 use crate::sparse_set::SparseSet;
-use crate::physics_body::{GridId, PhysicsBody, PhysicsBodyId};
+use crate::physics_body::PhysicsBody;
 
 use tracy_client::span;
 
@@ -22,8 +23,8 @@ pub enum CubeFeature {
 
 #[derive(Copy, Clone)]
 pub struct HalfCollision {
-	pub body_id: PhysicsBodyId,
-	pub grid_id: GridId,
+	pub body_id: EntityIndex,
+	pub grid_id: EntityIndex,
 	pub voxel_pos: IVec3,
 	pub feature: CubeFeature,
 	pub collision: Vec3,
@@ -52,8 +53,8 @@ fn get_bit(num: u8, bit: u8) -> u8 {
 static mut CHECK_COUNTER: u32 = 0;
 
 pub fn get_collisions(
-	physics_bodies: &SparseSet<PhysicsBodyId, PhysicsBody>,
-	grids: &SparseSet<GridId, (&Grid, &Transform)>,
+	physics_bodies: &Query<PhysicsBody>,
+	grids: &Query<(&Grid, &Transform)>,
 	bvh: &BVH<(PhysicsBodyId, GridId, SubGridId)>
 ) -> Vec<Collision> {
 	unsafe { CHECK_COUNTER = 0; }

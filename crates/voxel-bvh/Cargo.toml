@@ -1,5 +1,5 @@
 [package]
-name = "voxel-renderer"
+name = "voxel-bvh"
 version = "0.1.0"
 edition = "2024"
 
@@ -43,7 +43,6 @@ async-priority-queue = "0.1.1"
 parking_lot = "0.12.5"
 bevy = "0.18.1"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
-gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"

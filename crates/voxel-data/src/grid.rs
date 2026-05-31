@@ -3,8 +3,7 @@ use std::{collections::{HashMap}, sync::atomic::{AtomicBool, Ordering}};
 use bevy::{ecs::{component::Component, storage::{SparseSet, SparseSetIndex}}, transform::components::Transform};
 use glam::{I16Vec3, IVec3, Vec3};
 
-use crate::sub_grid_gpu_state::{SubGridGpuState};
-use crate::voxels::voxels::{Voxels, Voxel};
+use crate::voxels::{Voxels, Voxel};
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct SubGridId(pub u32);
@@ -14,22 +13,25 @@ impl SparseSetIndex for SubGridId {
 	fn get_sparse_set_index(index: usize) -> Self { Self(index as u32) }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub struct SubGrid {
 	voxels: Voxels,
+	grid_id: GridId,
 	sub_grid_pos: IVec3,
 	reupload_gpu_grid: AtomicBool,
-	sub_grid_gpu_state: SubGridGpuState,
 }
 
 impl SubGrid {
-	pub fn new(sub_grid_pos: IVec3) -> Self {
+	pub fn new(grid_id: GridId, sub_grid_pos: IVec3) -> Self {
 		Self {
 			voxels: Voxels::new(),
+			grid_id,
 			sub_grid_pos,
 			reupload_gpu_grid: AtomicBool::new(false),
-			sub_grid_gpu_state: SubGridGpuState::new(),
 		}
+	}
+	pub fn grid_id(&self) -> GridId {
+		self.grid_id
 	}
 	pub fn sub_grid_pos(&self) -> IVec3 {
 		self.sub_grid_pos
@@ -44,13 +46,6 @@ impl SubGrid {
 	}
 	pub fn get_voxel(&self, pos: &I16Vec3) -> Option<&Voxel> { self.voxels.get_voxel(pos) }
 	pub fn get_voxels(&self) -> &Voxels { &self.voxels }
-
-	pub fn gpu_state(&self) -> &SubGridGpuState {
-		&self.sub_grid_gpu_state
-	}
-	pub fn gpu_state_mut(&mut self) -> &mut SubGridGpuState {
-		&mut self.sub_grid_gpu_state
-	}
 	pub fn reupload_gpu_grid(&self) -> bool {
 		self.reupload_gpu_grid.load(Ordering::Acquire)
 	}
@@ -100,8 +95,8 @@ impl Grid {
 
 	pub fn new() -> Self {
 		Self {
-			sub_grids: SparseSet::new(),
-			next_sub_grid_id: SubGridId(0),
+			// sub_grids: SparseSet::new(),
+			// next_sub_grid_id: SubGridId(0),
 			position_mapping: HashMap::new(),
 		}
 	}
