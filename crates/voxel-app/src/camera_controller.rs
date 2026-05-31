@@ -67,6 +67,7 @@ fn fly_camera_system(
 
 		let forward = transform.forward().as_vec3();
 		let right = transform.right().as_vec3();
+		let up = transform.up().as_vec3();
 
 		let sprint = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 		let speed = cam.speed * if sprint { 4.0 } else { 1.0 };
@@ -76,11 +77,11 @@ fn fly_camera_system(
 		if keys.pressed(KeyCode::KeyS) { move_dir -= forward; }
 		if keys.pressed(KeyCode::KeyD) { move_dir += right; }
 		if keys.pressed(KeyCode::KeyA) { move_dir -= right; }
-		if keys.pressed(KeyCode::KeyE) { move_dir += Vec3::Y; }
-		if keys.pressed(KeyCode::KeyQ) { move_dir -= Vec3::Y; }
+		if keys.pressed(KeyCode::KeyE) { move_dir += up; }
+		if keys.pressed(KeyCode::KeyQ) { move_dir -= up; }
 
 		if move_dir != Vec3::ZERO {
-			transform.translation += move_dir.normalize() * speed * dt;
+			transform.translation += move_dir * speed * dt;
 		}
 	}
 }
