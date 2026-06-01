@@ -1,45 +1,33 @@
-use std::{collections::VecDeque, pin::Pin, sync::{Arc, Mutex}};
+use std::{pin::Pin, sync::Arc};
 
 use async_priority_queue::PriorityQueue;
-use bevy::ecs::{resource::Resource, world::World};
+use bevy::ecs::{resource::Resource, system::Command, world::{CommandQueue, World}};
+use crossbeam_channel::{Receiver, Sender};
 
 // --------------------- TaskQueue ---------------------
 
-pub struct Task {
-	task_func: Box<dyn FnOnce(&mut World) + Send + 'static>,
-}
-
-impl Task {
-	pub fn new<F: FnOnce(&mut World) + Send + 'static>(function: F) -> Self {
-		Self {
-			task_func: Box::new(function),
-		}
-	}
-	pub fn run(self, world: &mut World) {
-		(self.task_func)(world);
-	}
-}
-
-type TaskQueue = Arc<Mutex<VecDeque<Task>>>;
-
 #[derive(Resource, Clone)]
 pub struct TaskQueueResource {
-	queue: TaskQueue,
+	sender: Sender<CommandQueue>,
+	receiver: Receiver<CommandQueue>,
 }
 
 impl TaskQueueResource {
 	pub fn new() -> Self {
-		Self {
-			queue: TaskQueue::new(Mutex::new(VecDeque::new())),
+		let (sender, receiver) = crossbeam_channel::unbounded();
+		Self { sender, receiver }
+	}
+
+	pub fn push(&self, command: impl Command) {
+		let mut queue = CommandQueue::default();
+		queue.push(command);
+		let _ = self.sender.send(queue);
+	}
+
+	pub fn apply(&self, world: &mut World) {
+		while let Ok(mut queue) = self.receiver.try_recv() {
+			queue.apply(world);
 		}
-	}
-
-	pub fn push_back(&self, task: Task) {
-		self.queue.lock().unwrap().push_back(task);
-	}
-
-	pub fn pop_front(&self) -> Option<Task> {
-		self.queue.lock().unwrap().pop_front()
 	}
 }
 

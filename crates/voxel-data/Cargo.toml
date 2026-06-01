@@ -11,6 +11,7 @@ gpu_profiling = []
 [dependencies]
 bimap = "0.6.3"
 async-priority-queue = "0.1.1"
+crossbeam-channel = "0.5.15"
 bevy = { workspace = true }
 tracy-client = { workspace = true }
 tokio = { workspace = true }

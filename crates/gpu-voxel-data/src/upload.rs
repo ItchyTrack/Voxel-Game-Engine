@@ -4,7 +4,7 @@ use bevy::ecs::world::World;
 use bevy::prelude::*;
 
 use voxel_data::subgrid::SubGrid;
-use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, PriorityTask, Task, TaskQueueResource};
+use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, PriorityTask, TaskQueueResource};
 
 use crate::gpu_grid_tree::make_gpu_grid_tree;
 use crate::lod_request::DesiredLods;
@@ -61,9 +61,9 @@ pub(crate) fn manage_gpu_uploads(
 
 		async_task_priority_queue.push(PriorityTask::new(request.priority, async move {
 			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, lod_level);
-			task_queue.push_back(Task::new(move |world: &mut World| {
+			task_queue.push(move |world: &mut World| {
 				apply_gpu_upload(world, entity, lod_level, &tree_buffer, &voxel_buffer);
-			}));
+			});
 		}));
 	}
 }
