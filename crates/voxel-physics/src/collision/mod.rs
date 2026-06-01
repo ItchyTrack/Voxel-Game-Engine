@@ -5,7 +5,7 @@ use num::Zero;
 
 use voxel_bvh::bvh::BVH;
 use voxel_data::grid::Grid;
-use voxel_data::subgrid::{SubGrid, SubGridId};
+use voxel_data::subgrid::{SubGrid, SubGridId, SubGridRef};
 
 use crate::components::{IsStatic, Mass, RigidBody, VoxelCollider};
 use crate::sparse_set::SparseSet;
@@ -25,7 +25,7 @@ pub struct BodyView {
 pub struct GridCollider<'a> {
 	pub body: PhysicsBodyId,
 	pub local_transform: &'a Transform,
-	pub sub_grids: Vec<(SubGridId, &'a SubGrid)>,
+	pub sub_grids: Vec<(SubGridId, SubGridRef<'a>)>,
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
@@ -82,7 +82,7 @@ impl Plugin for CollisionPlugin {
 fn detect_collisions(
 	mut collisions: ResMut<Collisions>,
 	bodies: Query<(Entity, &Transform, &Mass, Has<IsStatic>), (With<RigidBody>, Without<Grid>)>,
-	grid_entities: Query<(Entity, &Transform, &ChildOf), (With<VoxelCollider>, With<Grid>)>,
+	grid_entities: Query<(Entity, &Transform, &ChildOf, &Grid), With<VoxelCollider>>,
 	sub_grid_query: Query<(Entity, &SubGrid)>,
 ) {
 	let mut body_views: SparseSet<PhysicsBodyId, BodyView> = SparseSet::with_capacity(bodies.iter().count());
@@ -96,10 +96,15 @@ fn detect_collisions(
 	}
 
 	let mut grids: SparseSet<GridId, GridCollider> = SparseSet::with_capacity(grid_entities.iter().count());
-	for (grid_entity, transform, child_of) in grid_entities.iter() {
+	for (grid_entity, transform, child_of, grid) in grid_entities.iter() {
 		let body = child_of.parent();
 		if !body_views.contains_key(&body) { continue; }
-		let sub_grids = subgrids_by_grid.remove(&grid_entity).unwrap_or_default();
+		let sub_grids = subgrids_by_grid
+			.remove(&grid_entity)
+			.unwrap_or_default()
+			.into_iter()
+			.filter_map(|(id, sub_grid)| grid.view(sub_grid).map(|view| (id, view)))
+			.collect();
 		grids.insert(grid_entity, GridCollider { body, local_transform: transform, sub_grids });
 	}
 

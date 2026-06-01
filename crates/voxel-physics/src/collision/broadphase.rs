@@ -3,7 +3,7 @@ use tracy_client::span;
 
 use bevy::transform::components::Transform;
 use voxel_bvh::bvh::BVH;
-use voxel_data::subgrid::{SubGrid, SubGridId};
+use voxel_data::subgrid::{SubGridId, SubGridRef};
 use voxel_data::transform_ext::TransformExt;
 
 use crate::sparse_set::SparseSet;
@@ -19,7 +19,7 @@ pub fn get_collisions(
 ) -> Vec<Collision> {
 	let _zone = span!("Do Collisions");
 
-	let mut work: Vec<(GridId, &GridCollider, &SubGrid)> = Vec::new();
+	let mut work: Vec<(GridId, &GridCollider, SubGridRef)> = Vec::new();
 	for (grid_id_a, grid_col_a) in grids {
 		let physics_body_a = bodies.get(&grid_col_a.body).unwrap();
 		if physics_body_a.is_static { continue; }
@@ -46,7 +46,7 @@ fn collide_subgrid_a(
 	bvh: &BVH<(PhysicsBodyId, GridId, SubGridId)>,
 	grid_id_a: GridId,
 	grid_col_a: &GridCollider,
-	sub_grid_a: &SubGrid,
+	sub_grid_a: SubGridRef,
 ) -> Vec<Collision> {
 	let body_a_id = grid_col_a.body;
 	let physics_body_a = bodies.get(&body_a_id).unwrap();

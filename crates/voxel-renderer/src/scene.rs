@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
 
 use gpu_voxel_data::lod_requester;
+use voxel_data::grid::Grid;
 use voxel_data::subgrid::SubGrid;
 
 use crate::hit_count_feedback::HitCountFeedback;
@@ -18,6 +19,7 @@ lod_requester!(pub RenderLod);
 pub fn update_render_lod(
 	mut commands: Commands,
 	mut sub_grids: Query<(Entity, &SubGrid, Option<&mut RenderLod>)>,
+	grids: Query<&Grid>,
 	grid_transforms: Query<&GlobalTransform>,
 	cameras: Query<(&Camera, &GlobalTransform, &Frustum)>,
 	freeze: Option<Res<FreezeUploads>>,
@@ -32,10 +34,12 @@ pub fn update_render_lod(
 	let hit_counts = hit_feedback.0.lock().ok();
 
 	for (entity, sub_grid, render_lod) in sub_grids.iter_mut() {
+		let Ok(grid) = grids.get(sub_grid.grid()) else { continue };
+		let Some(sub_view) = grid.view(sub_grid) else { continue };
 		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
 		let sub_world = grid_global.compute_transform()
 			* Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
-		let Some((aabb_min, aabb_max)) = sub_grid.aabb(&sub_world) else { continue };
+		let Some((aabb_min, aabb_max)) = sub_view.aabb(&sub_world) else { continue };
 
 		let hit_count = hit_counts
 			.as_ref()

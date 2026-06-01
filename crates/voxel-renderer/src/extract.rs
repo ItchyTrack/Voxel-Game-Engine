@@ -11,6 +11,7 @@ use bevy::transform::components::{GlobalTransform, Transform};
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use voxel_bvh::bvh::BVH;
+use voxel_data::grid::Grid;
 use voxel_data::subgrid::{SubGrid, SubGridId};
 
 #[derive(Resource, Default)]
@@ -28,6 +29,7 @@ pub fn extract_voxel_scene(
 	mut extracted: ResMut<ExtractedVoxelScene>,
 	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform)>>,
 	sub_grids: Extract<Query<(Entity, &SubGrid, &SubGridGpuState)>>,
+	grids: Extract<Query<&Grid>>,
 	grid_transforms: Extract<Query<&GlobalTransform>>,
 	world_gpu_data: Extract<Res<WorldGpuData>>,
 ) {
@@ -55,12 +57,14 @@ pub fn extract_voxel_scene(
 			.packed_voxel_data_dynamic_buffer
 			.held_buffer(gpu_state.voxels_id()) else { continue };
 
+		let Ok(grid) = grids.get(sub_grid.grid()) else { continue };
+		let Some(view) = grid.view(sub_grid) else { continue };
 		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
 		let sub_world = grid_global.compute_transform()
 			* Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
-		let Some(aabb) = sub_grid.aabb(&sub_world) else { continue };
+		let Some(aabb) = view.aabb(&sub_world) else { continue };
 
-		let (_, tree_root_pos, _) = sub_grid.voxels().grid_tree().internals();
+		let (_, tree_root_pos, _) = view.voxels().grid_tree().internals();
 		let dda_transform = sub_world * Transform::from_translation(tree_root_pos.as_vec3());
 
 		bvh_items.push((entity, aabb));

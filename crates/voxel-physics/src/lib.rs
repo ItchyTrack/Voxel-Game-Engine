@@ -8,13 +8,10 @@ pub mod physics_constraint;
 pub mod solver;
 pub mod sparse_set;
 
-use std::collections::HashMap;
-
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
-use voxel_data::subgrid::SubGrid;
 
 pub use ball_joint_constraint::BallJointConstraint;
 pub use collision::Collisions;
@@ -71,16 +68,10 @@ impl Plugin for VoxelPhysicsPlugin {
 /// changes (voxels added/removed), which also covers the initial population.
 fn compute_mass_properties(
 	mut bodies: Query<(&Children, &mut Mass, &mut CenterOfMass, &mut RotationalInertia), With<RigidBody>>,
-	grids: Query<&Transform, (With<VoxelMass>, With<Grid>)>,
+	grids: Query<(&Transform, &Grid), (With<VoxelMass>, With<Grid>)>,
 	changed_grids: Query<(), (With<VoxelMass>, With<Grid>, Changed<Grid>)>,
-	sub_grid_query: Query<&SubGrid>,
 ) {
 	if changed_grids.is_empty() { return; }
-
-	let mut subgrids_by_grid: HashMap<GridId, Vec<&SubGrid>> = HashMap::new();
-	for sub_grid in sub_grid_query.iter() {
-		subgrids_by_grid.entry(sub_grid.grid()).or_default().push(sub_grid);
-	}
 
 	for (children, mut mass, mut com, mut inertia) in bodies.iter_mut() {
 		if !children.iter().any(|child| changed_grids.contains(child)) { continue; }
@@ -90,9 +81,8 @@ fn compute_mass_properties(
 		let mut tensor_at_origin = InertiaTensor::ZERO;
 
 		for child in children.iter() {
-			let Ok(grid_pose) = grids.get(child) else { continue };
-			let Some(child_sub_grids) = subgrids_by_grid.get(&child) else { continue };
-			for sub_grid in child_sub_grids {
+			let Ok((grid_pose, grid)) = grids.get(child) else { continue };
+			for sub_grid in grid.subgrids() {
 				let palette = sub_grid.voxels().palette();
 				let sub_pos = sub_grid.sub_grid_pos().as_dvec3();
 				for (voxel_pos, count, palette_id) in sub_grid.voxels().grid_tree().iter() {

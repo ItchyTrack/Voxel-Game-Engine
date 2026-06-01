@@ -79,6 +79,8 @@ impl Voxels {
 	pub fn grid_tree(&self) -> &GridTree { &self.voxels }
 	pub fn palette(&self) -> &VoxelPalette { &self.voxel_palette }
 
+	pub fn is_empty(&self) -> bool { self.voxels.len() == 0 }
+
 	pub fn bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
 		if self.bounding_box_dirty.load(Ordering::Acquire) {
 			let _zone = span!("rebuild voxel bounding box");

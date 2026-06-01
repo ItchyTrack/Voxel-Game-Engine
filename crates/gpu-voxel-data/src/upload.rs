@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 
+use voxel_data::grid::Grid;
 use voxel_data::subgrid::SubGrid;
 use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, PriorityTask, TaskQueueResource};
 
@@ -33,6 +34,7 @@ pub(crate) fn manage_gpu_uploads(
 	mut commands: Commands,
 	mut in_flight: ResMut<InFlightUploads>,
 	sub_grids: Query<(Entity, &SubGrid, Option<&SubGridGpuState>, Has<NeedsReupload>)>,
+	grids: Query<&Grid>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) {
@@ -51,11 +53,13 @@ pub(crate) fn manage_gpu_uploads(
 		};
 		if !needs_upload { continue; }
 
+		let Some(view) = grids.get(sub_grid.grid()).ok().and_then(|g| g.view(sub_grid)) else { continue };
+
 		in_flight.0.insert(entity);
 		commands.entity(entity).remove::<NeedsReupload>();
 
-		let palette = sub_grid.voxels().palette().clone();
-		let voxels = sub_grid.voxels().grid_tree().clone();
+		let palette = view.voxels().palette().clone();
+		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let lod_level = request.lod_level;
 
