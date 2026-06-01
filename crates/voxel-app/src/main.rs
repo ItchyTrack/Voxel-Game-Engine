@@ -17,6 +17,7 @@ use debug_toggles::DebugTogglesPlugin;
 use debug_ui::DebugUiPlugin;
 use scene::ScenePlugin;
 use voxel_physics::VoxelPhysicsPlugin;
+use voxel_renderer::VoxelRendererPlugin;
 use world_interaction::WorldInteractionPlugin;
 
 /// All gameplay, rendering, physics, and debug plugins that make up the app.
@@ -25,7 +26,7 @@ struct GamePlugins;
 impl PluginGroup for GamePlugins {
 	fn build(self) -> PluginGroupBuilder {
 		PluginGroupBuilder::start::<Self>()
-			.add(voxel_renderer::VoxelRendererPlugin)
+			.add(VoxelRendererPlugin)
 			.add(VoxelPhysicsPlugin)
 			.add(ScenePlugin)
 			.add(FlyCameraPlugin)
