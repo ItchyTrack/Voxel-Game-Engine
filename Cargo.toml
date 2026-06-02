@@ -4,6 +4,7 @@ resolver = "3"
 members = [
 	"crates/voxel-data",
 	"crates/gpu-voxel-data",
+	"crates/voxel-streaming",
 	"crates/voxel-renderer",
 	"crates/voxel-bvh",
 	"crates/voxel-physics",

@@ -1,0 +1,199 @@
+================================================================================
+VOXEL STREAMING — DESIGN & INTEGRATION NOTES
+================================================================================
+
+Crate: crates/voxel-streaming
+Status: standalone. Compiles, not yet wired into any other crate.
+
+This document records the full design we converged on, what the plugin
+currently implements, and the concrete changes still needed to integrate it.
+
+
+--------------------------------------------------------------------------------
+1. GOAL
+--------------------------------------------------------------------------------
+
+Voxel data must be streamed on demand. Other systems (rendering, physics)
+tell the voxel data layer which chunks they need; a user-written loader
+(in voxel-app for now) actually loads them (disk / procedural); when a chunk
+is loaded the data is handed back and the grid's sub-grids are updated.
+
+The world can be enormous (a planet = trillions of potential chunks), so we
+can never enumerate or hold all of it. We need:
+  - volume/occupancy information about which chunks MIGHT contain data,
+  - a way to request chunks and know when they have arrived,
+  - support for consumers that cannot proceed without their chunks (physics).
+
+
+--------------------------------------------------------------------------------
+2. KEY VOCABULARY (do not mix these up)
+--------------------------------------------------------------------------------
+
+CHUNK
+  The streaming / IO unit. Fixed 64^3 (CHUNK_SIZE). This is also the unit of
+  the occupancy/presence index and what the loader produces. "Chunk" is
+  reserved for this streaming concept.
+
+SUB-GRID
+  The in-memory voxel container held by a Grid. Currently also 64^3
+  (SUB_GRID_SIZE in voxel-data) but conceptually separate and WILL become
+  irregular shapes for optimization. NEVER call a sub-grid a "chunk".
+
+--------------------------------------------------------------------------------
+3. DESIGN DECISIONS (and why)
+--------------------------------------------------------------------------------
+
+3.1 "Immediate" loads -> GATING, not blocking.
+  Physics needs voxels present before it can run collisions. Instead of
+  blocking the main thread to load synchronously, we DEFER the consumer:
+    - a "request" system runs first and asks for all needed chunks,
+    - a "use" system runs only once all NEEDED chunks are loaded.
+  Some requested chunks are NOT needed (prefetch / rendering) and do not gate.
+  Physics gets a "PhysicsUpdate" set/schedule that only runs when collisions
+  can run; pickup impulses etc. live under it. If chunks aren't ready, the
+  physics step simply doesn't run that frame.
+
+3.2 Occupancy index = a sparse 64-tree at chunk resolution.
+  Reuse the existing GridTree structure (4^3 = 64 children/node, NONE/DATA/NODE
+  cells, raycast + iter already implemented, GPU-packable) but with leaves at
+  chunk granularity. A DATA leaf = "this chunk MIGHT have voxels" (conservative;
+  false positives fine, never false negatives). NONE = definitely empty.
+  Queries map onto existing ops:
+    - "chunks in an area"      -> bounded descent over the region (iter).
+    - "chunks in a direction"  -> raycast the tree (nearest present chunk).
+
+3.3 Index itself must stream (the scaling fix).
+  Loading the whole presence tree eagerly does NOT scale. Instead load only the
+  root and stream lower LOD nodes on demand — exactly like chunk loading.
+  There is a THREE-state child data:
+      empty (NONE)              -> never load
+      present			        -> descend normally
+      not-yet-loaded 			 -> unknown contents; request it and gate on it
+  The third state is the whole trick: every "is this present?" query becomes
+  best-effort against the resident tree.
+
+3.4 Transport.
+  Outbound (plugin -> user loader): a Bevy Message (ChunkLoadRequest).
+  Inbound  (loader -> plugin): a crossbeam channel (ChunkLoaderChannel). A
+  channel (not a Message) because the loader may be async / off-thread and must
+  be able to respond at any time, including while the schedule is blocked. The
+  plugin drains it every frame and can also drain it mid-frame.
+
+
+--------------------------------------------------------------------------------
+4. WHAT THE PLUGIN CURRENTLY IMPLEMENTS
+--------------------------------------------------------------------------------
+
+Files (crates/voxel-streaming/src):
+
+  grid_tree.rs   Verbatim copy of voxel-data's GridTree (the sparse 64-tree).
+                 Owned here so it can evolve for streaming/LOD independently.
+                 Private to the crate.
+
+  chunk.rs       CHUNK_SIZE = 64.
+                 chunk_of(voxel_pos) -> chunk coord.
+                 chunk_origin(chunk) -> voxel-space origin of the chunk.
+
+  presence.rs    ChunkPresence: conservative occupancy index wrapping GridTree.
+                   mark_present(chunk) / clear_present(chunk) / is_present(chunk)
+                   raycast(transform, max_len) -> Option<(chunk, distance)>
+                   iter_present() -> (chunk_origin, size_in_chunks)
+                 (Resident-only for now; no streamed-node third state yet.)
+
+  loader.rs      ChunkLoadRequest { grid, chunk }   -- Bevy Message, OUTBOUND.
+                 ChunkLoadResult  { grid, chunk, voxels: Option<Voxels> }
+                                                     -- None = confirmed empty.
+                 ChunkLoaderChannel (Resource):
+                   sender() -> Sender (clone for async/off-thread loaders)
+                   report(result)  -- push a finished load from any thread
+                   try_recv()      -- (crate-internal) drained by the plugin
+
+  streaming.rs   ChunkState { InFlight, Loaded, Empty }
+                 GridStreaming (COMPONENT on a Grid entity):
+                   presence / presence_mut
+                   state(chunk), is_loaded(chunk)
+                   take_staged() -> Vec<(chunk, Voxels)>  -- handoff buffer
+                   (internal) try_begin_load, apply_result
+                 ChunkRequests (Resource, rebuilt per frame):
+                   request_needed(grid, chunk)    -- gating
+                   request_prefetch(grid, chunk)  -- non-gating
+                 ChunkReadiness (Resource): ready() boolean.
+                 StreamingSet { Receive, Clear, Collect, Emit }
+                 chunks_ready(...) -- run condition for gated consumers.
+                 Systems:
+                   receive_results -- drain channel, apply to GridStreaming,
+                                      stage non-empty voxels.
+                   clear_requests  -- reset ChunkRequests for the new frame.
+                   emit_requests   -- for each requested chunk that is present
+                                      and not in-flight/loaded: mark InFlight +
+                                      write ChunkLoadRequest. Then recompute
+                                      ChunkReadiness from the needed set.
+
+  lib.rs         VoxelStreamingPlugin:
+                   init ChunkRequests, ChunkReadiness, ChunkLoaderChannel
+                   add_message::<ChunkLoadRequest>
+                   PreUpdate sets chained: Receive -> Clear -> Collect -> Emit
+                   adds receive_results / clear_requests / emit_requests.
+
+
+--------------------------------------------------------------------------------
+5. FRAME PIPELINE / SCHEDULING
+--------------------------------------------------------------------------------
+
+Runs in PreUpdate (before FixedUpdate, so FixedUpdate physics can gate the
+same frame):
+
+  Receive : apply results that arrived since last frame (state + staged voxels).
+  Clear   : wipe last frame's ChunkRequests.
+  Collect : <-- CONSUMERS add their request systems here (render, physics).
+  Emit    : emit ChunkLoadRequest for present+unloaded requested chunks;
+            recompute ChunkReadiness (all NEEDED chunks loaded-or-empty).
+
+Then, later in the frame, gated consumers run with .run_if(chunks_ready).
+
+Dedup / lifecycle: emit marks chunks InFlight; receive moves them to
+Loaded/Empty. Re-requesting an InFlight/Loaded chunk is a no-op, so requesting
+every frame is cheap. Empty chunks never re-request.
+
+
+--------------------------------------------------------------------------------
+6. NEEDED CHANGES (INTEGRATION SEAMS) — none done yet
+--------------------------------------------------------------------------------
+
+6.1 USER LOADER (voxel-app)
+  Add a system that reads ChunkLoadRequest messages and loads each chunk.
+    - Sync or async. For async, clone ChunkLoaderChannel::sender() into the task.
+    - On completion call channel.report(ChunkLoadResult { grid, chunk, voxels }),
+      voxels = Some(Voxels) or None (confirmed empty).
+  Add VoxelStreamingPlugin to the app.
+
+6.2 GRID HANDOFF (voxel-data + a small system)
+  GridStreaming::take_staged() yields freshly-loaded (chunk, Voxels). Something
+  must move these into the Grid's sub-grids. Grid currently has NO bulk insert.
+  NEEDED: add a public API to voxel-data Grid, e.g.
+      Grid::load_sub_grid(sub_grid_pos: IVec3, voxels: Voxels)
+  (sub_grid_pos = chunk_origin(chunk) while CHUNK_SIZE == SUB_GRID_SIZE), and a
+  system that drains take_staged() into it. Decide how this interacts with the
+  existing edit queue (apply_grid_edits) and with SubGrid entity spawn/despawn.
+
+6.3 CONSUMERS
+  RENDER (voxel-renderer): in StreamingSet::Collect, walk ChunkPresence within
+    the camera frustum + distance and call request_prefetch (non-gating). Use
+    presence.raycast / iter_present so empty space is never enumerated.
+  PHYSICS (voxel-physics): in StreamingSet::Collect, for each body region-query
+    ChunkPresence over its swept AABB and call request_needed (gating).
+    Introduce a PhysicsUpdate set/schedule gated by .run_if(chunks_ready);
+    move collision + pickup/impulse systems under it so they only run when
+    their needed chunks are resident.
+
+6.4 PRESENCE POPULATION
+  Decide how a grid's ChunkPresence is first filled (loader supplies an index on
+  grid open, or a public API marks it, or it is learned as chunks load — note
+  receive_results already learns: marks present on non-empty, clears on empty).
+
+
+--------------------------------------------------------------------------------
+7. KNOWN SIMPLIFICATIONS / FUTURE WORK
+--------------------------------------------------------------------------------
+  - Readiness is GLOBAL (union of all needed chunks across all grids/consumers).
+    Fine while physics is the only gating consumer; revisit if more appear. (this needs to be fixed)

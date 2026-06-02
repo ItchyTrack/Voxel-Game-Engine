@@ -1,0 +1,21 @@
+[package]
+name = "voxel-streaming"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+tracy = ["tracy-client/enable"]
+
+[dependencies]
+crossbeam-channel = "0.5.15"
+bevy = { workspace = true }
+tracy-client = { workspace = true }
+voxel-data = { version = "0.1.0", path = "../voxel-data" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true }
+getrandom_0_3 = { workspace = true }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
