@@ -1,0 +1,67 @@
+use std::collections::{HashMap, HashSet};
+
+use bevy::prelude::*;
+use bevy::math::IVec3;
+
+use voxel_data::grid::GridId;
+
+/// A consumer of streamed chunks. Each consumer is its own component type
+/// (generate one with [`chunk_consumer!`]); `needed` holds the chunks it is
+/// still waiting on, keyed by grid. A consumer is "ready" when `needed` is
+/// empty (see [`chunks_ready`]).
+#[bevy_trait_query::queryable]
+pub trait ChunkConsumer {
+	fn needed(&self) -> &HashMap<GridId, HashSet<IVec3>>;
+	fn needed_mut(&mut self) -> &mut HashMap<GridId, HashSet<IVec3>>;
+}
+
+/// Defines a [`ChunkConsumer`] component. Register it with
+/// [`VoxelStreamingAppExt::register_chunk_consumer`].
+#[macro_export]
+macro_rules! chunk_consumer {
+	($vis:vis $name:ident) => {
+		#[derive($crate::__bevy::prelude::Component, Default, Debug)]
+		$vis struct $name {
+			needed: ::std::collections::HashMap<
+				$crate::__GridId,
+				::std::collections::HashSet<$crate::__bevy::math::IVec3>,
+			>,
+		}
+		impl $crate::ChunkConsumer for $name {
+			fn needed(
+				&self,
+			) -> &::std::collections::HashMap<
+				$crate::__GridId,
+				::std::collections::HashSet<$crate::__bevy::math::IVec3>,
+			> {
+				&self.needed
+			}
+			fn needed_mut(
+				&mut self,
+			) -> &mut ::std::collections::HashMap<
+				$crate::__GridId,
+				::std::collections::HashSet<$crate::__bevy::math::IVec3>,
+			> {
+				&mut self.needed
+			}
+		}
+	};
+}
+
+pub trait VoxelStreamingAppExt {
+	fn register_chunk_consumer<T: ChunkConsumer + Component>(&mut self) -> &mut Self;
+}
+
+impl VoxelStreamingAppExt for App {
+	fn register_chunk_consumer<T: ChunkConsumer + Component>(&mut self) -> &mut Self {
+		use bevy_trait_query::RegisterExt;
+		self.register_component_as::<dyn ChunkConsumer, T>();
+		self
+	}
+}
+
+/// Run condition: true once consumer `T` has no outstanding needed chunks.
+/// Vacuously true when no entity holds `T`.
+pub fn chunks_ready<T: ChunkConsumer + Component>(query: Query<&T>) -> bool {
+	query.iter().all(|consumer| consumer.needed().is_empty())
+}

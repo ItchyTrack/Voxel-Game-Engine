@@ -4,6 +4,7 @@ mod camera_controller;
 mod debug_toggles;
 mod debug_ui;
 mod scene;
+mod streaming_test;
 mod world_interaction;
 
 use bevy::app::PluginGroupBuilder;
@@ -16,8 +17,10 @@ use camera_controller::{FlyCamera, FlyCameraPlugin};
 use debug_toggles::DebugTogglesPlugin;
 use debug_ui::DebugUiPlugin;
 use scene::ScenePlugin;
+use streaming_test::StreamingTestPlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use voxel_renderer::VoxelRendererPlugin;
+use voxel_streaming::VoxelStreamingPlugin;
 use world_interaction::WorldInteractionPlugin;
 
 /// All gameplay, rendering, physics, and debug plugins that make up the app.
@@ -26,9 +29,11 @@ struct GamePlugins;
 impl PluginGroup for GamePlugins {
 	fn build(self) -> PluginGroupBuilder {
 		PluginGroupBuilder::start::<Self>()
+			.add(VoxelStreamingPlugin)
 			.add(VoxelRendererPlugin)
 			.add(VoxelPhysicsPlugin)
 			.add(ScenePlugin)
+			.add(StreamingTestPlugin)
 			.add(FlyCameraPlugin)
 			.add(DebugTogglesPlugin)
 			.add(DebugUiPlugin)

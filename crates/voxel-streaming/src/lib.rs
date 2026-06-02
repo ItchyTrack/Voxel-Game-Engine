@@ -1,39 +1,34 @@
 use bevy::prelude::*;
 
 mod chunk;
+mod consumer;
 mod grid_tree;
 mod loader;
 mod presence;
 mod streaming;
 
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
-pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel};
-pub use presence::ChunkPresence;
-pub use streaming::{
-	chunks_ready, ChunkReadiness, ChunkRequests, ChunkState, GridStreaming, StreamingSet,
-};
+pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
+pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel};
+pub use presence::{ChunkPresence, ChunkState};
+pub use streaming::{receive_results, GridStreaming};
+
+// Re-exports used by the `chunk_consumer!` macro.
+#[doc(hidden)]
+pub use bevy as __bevy;
+#[doc(hidden)]
+pub use voxel_data::grid::GridId as __GridId;
 
 #[derive(Default)]
 pub struct VoxelStreamingPlugin;
 
 impl Plugin for VoxelStreamingPlugin {
 	fn build(&self, app: &mut App) {
-		app.init_resource::<ChunkRequests>()
-			.init_resource::<ChunkReadiness>()
+		app.init_resource::<ChunkRequestChannel>()
 			.init_resource::<ChunkLoaderChannel>()
-			.add_message::<ChunkLoadRequest>()
-			.configure_sets(
+			.add_systems(
 				PreUpdate,
-				(
-					StreamingSet::Receive,
-					StreamingSet::Clear,
-					StreamingSet::Collect,
-					StreamingSet::Emit,
-				)
-					.chain(),
-			)
-			.add_systems(PreUpdate, streaming::receive_results.in_set(StreamingSet::Receive))
-			.add_systems(PreUpdate, streaming::clear_requests.in_set(StreamingSet::Clear))
-			.add_systems(PreUpdate, streaming::emit_requests.in_set(StreamingSet::Emit));
+				streaming::receive_results.before(voxel_data::ApplyGridEdits),
+			);
 	}
 }

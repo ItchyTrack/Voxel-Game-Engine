@@ -1,27 +1,16 @@
-use std::collections::{HashMap, HashSet};
-use std::mem;
-
-use bevy::ecs::message::MessageWriter;
+use bevy::math::IVec3;
 use bevy::prelude::*;
 
-use voxel_data::grid::GridId;
-use voxel_data::voxels::Voxels;
+use voxel_data::grid::{Grid, GridId};
 
-use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel};
-use crate::presence::ChunkPresence;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ChunkState {
-	InFlight,
-	Loaded,
-	Empty,
-}
+use crate::chunk::chunk_origin;
+use crate::consumer::ChunkConsumer;
+use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel};
+use crate::presence::{ChunkPresence, ChunkState};
 
 #[derive(Component, Default)]
 pub struct GridStreaming {
 	presence: ChunkPresence,
-	states: HashMap<IVec3, ChunkState>,
-	staged: Vec<(IVec3, Voxels)>,
 }
 
 impl GridStreaming {
@@ -29,119 +18,105 @@ impl GridStreaming {
 	pub fn presence_mut(&mut self) -> &mut ChunkPresence { &mut self.presence }
 
 	pub fn state(&self, chunk: IVec3) -> Option<ChunkState> {
-		self.states.get(&chunk).copied()
+		self.presence.state(chunk)
 	}
 
 	pub fn is_loaded(&self, chunk: IVec3) -> bool {
-		matches!(self.states.get(&chunk), Some(ChunkState::Loaded | ChunkState::Empty))
+		matches!(self.presence.state(chunk), Some(ChunkState::Loaded))
 	}
 
-	/// Drains freshly-loaded chunk voxels awaiting handoff into the grid's sub-grids.
-	pub fn take_staged(&mut self) -> Vec<(IVec3, Voxels)> {
-		mem::take(&mut self.staged)
-	}
-
-	fn try_begin_load(&mut self, chunk: IVec3) -> bool {
-		if self.states.contains_key(&chunk) || !self.presence.is_present(chunk) {
-			return false;
+	/// Marks an `Available` chunk as `InFlight`. Returns true if this call began
+	/// the load (so the caller should emit a request).
+	fn mark_fetched(&mut self, chunk: IVec3) -> bool {
+		if self.presence.state(chunk) == Some(ChunkState::Available) {
+			self.presence.set_state(chunk, ChunkState::InFlight);
+			true
+		} else {
+			false
 		}
-		self.states.insert(chunk, ChunkState::InFlight);
-		true
 	}
 
-	fn apply_result(&mut self, chunk: IVec3, voxels: Option<Voxels>) {
-		match voxels {
-			Some(v) => {
-				self.presence.mark_present(chunk);
-				self.staged.push((chunk, v));
-				self.states.insert(chunk, ChunkState::Loaded);
+	/// Prefetch (non-gating): request a chunk without recording it anywhere.
+	pub fn fetch(&mut self, grid: GridId, channel: &ChunkRequestChannel, chunk: IVec3) {
+		if self.mark_fetched(chunk) {
+			channel.request(ChunkLoadRequest { grid, chunk });
+		}
+	}
+
+	/// Gating: request a chunk and record it in `consumer` until it loads.
+	/// Already-resident or absent (unknown/empty) chunks are skipped (nothing to gate on).
+	pub fn fetch_needed<C: ChunkConsumer>(
+		&mut self,
+		grid: GridId,
+		consumer: &mut C,
+		channel: &ChunkRequestChannel,
+		chunk: IVec3,
+	) {
+		match self.presence.state(chunk) {
+			None | Some(ChunkState::Loaded) => return,
+			Some(ChunkState::Available) => {
+				self.presence.set_state(chunk, ChunkState::InFlight);
+				channel.request(ChunkLoadRequest { grid, chunk });
 			}
-			None => {
-				self.presence.clear_present(chunk);
-				self.states.insert(chunk, ChunkState::Empty);
-			}
+			Some(ChunkState::InFlight) => {}
 		}
+		consumer.needed_mut().entry(grid).or_default().insert(chunk);
+	}
+
+	fn mark_loaded(&mut self, chunk: IVec3) {
+		self.presence.set_state(chunk, ChunkState::Loaded);
+	}
+
+	fn mark_empty(&mut self, chunk: IVec3) {
+		self.presence.clear_present(chunk);
 	}
 }
 
-#[derive(Resource, Default)]
-pub struct ChunkRequests {
-	needed: HashMap<GridId, HashSet<IVec3>>,
-	prefetch: HashMap<GridId, HashSet<IVec3>>,
-}
-
-impl ChunkRequests {
-	pub fn request_needed(&mut self, grid: GridId, chunk: IVec3) {
-		self.needed.entry(grid).or_default().insert(chunk);
-	}
-
-	pub fn request_prefetch(&mut self, grid: GridId, chunk: IVec3) {
-		self.prefetch.entry(grid).or_default().insert(chunk);
-	}
-
-	fn clear(&mut self) {
-		self.needed.clear();
-		self.prefetch.clear();
-	}
-}
-
-#[derive(Resource, Default)]
-pub struct ChunkReadiness {
-	ready: bool,
-}
-
-impl ChunkReadiness {
-	pub fn ready(&self) -> bool { self.ready }
-}
-
-#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum StreamingSet {
-	Receive,
-	Clear,
-	Collect,
-	Emit,
-}
-
-pub fn chunks_ready(readiness: Res<ChunkReadiness>) -> bool {
-	readiness.ready()
-}
-
-pub(crate) fn receive_results(channel: Res<ChunkLoaderChannel>, mut grids: Query<&mut GridStreaming>) {
-	while let Some(result) = channel.try_recv() {
-		if let Ok(mut streaming) = grids.get_mut(result.grid) {
-			streaming.apply_result(result.chunk, result.voxels);
-		}
-	}
-}
-
-pub(crate) fn clear_requests(mut requests: ResMut<ChunkRequests>) {
-	requests.clear();
-}
-
-pub(crate) fn emit_requests(
-	requests: Res<ChunkRequests>,
-	mut grids: Query<&mut GridStreaming>,
-	mut writer: MessageWriter<ChunkLoadRequest>,
-	mut readiness: ResMut<ChunkReadiness>,
+/// Drain finished loads: write their voxels straight into the grid, update
+/// chunk state, and clear them from every consumer's needed set (so
+/// `needed.is_empty()` tracks readiness). Runs before `ApplyGridEdits` so the
+/// queued edits land the same frame.
+pub fn receive_results(
+	channel: Res<ChunkLoaderChannel>,
+	mut grids: Query<(&mut GridStreaming, &mut Grid)>,
+	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
-	for (grid, chunks) in requests.needed.iter().chain(requests.prefetch.iter()) {
-		let Ok(mut streaming) = grids.get_mut(*grid) else { continue };
-		for &chunk in chunks {
-			if streaming.try_begin_load(chunk) {
-				writer.write(ChunkLoadRequest { grid: *grid, chunk });
+	while let Some(result) = channel.try_recv() {
+		if let Ok((mut streaming, mut grid)) = grids.get_mut(result.grid) {
+			match result.voxels {
+				Some(voxels) => {
+					streaming.mark_loaded(result.chunk);
+					let base = chunk_origin(result.chunk);
+					let palette = voxels.palette();
+					for (pos, size, palette_id) in voxels.grid_tree().iter() {
+						let Some(voxel) = palette.voxel(palette_id) else { continue };
+						let origin = base + pos.as_ivec3();
+						for dx in 0..size as i32 {
+							for dy in 0..size as i32 {
+								for dz in 0..size as i32 {
+									grid.add_voxel(&(origin + IVec3::new(dx, dy, dz)), voxel);
+								}
+							}
+						}
+					}
+				}
+				None => streaming.mark_empty(result.chunk),
+			}
+		}
+		for mut entity_consumers in consumers.iter_mut() {
+			for mut consumer in &mut entity_consumers {
+				let needed = consumer.needed_mut();
+				let now_empty = match needed.get_mut(&result.grid) {
+					Some(set) => {
+						set.remove(&result.chunk);
+						set.is_empty()
+					}
+					None => false,
+				};
+				if now_empty {
+					needed.remove(&result.grid);
+				}
 			}
 		}
 	}
-
-	let mut ready = true;
-	'outer: for (grid, chunks) in requests.needed.iter() {
-		let Ok(streaming) = grids.get(*grid) else { ready = false; break };
-		for &chunk in chunks {
-			if streaming.presence().is_present(chunk) && !streaming.is_loaded(chunk) {
-				ready = false;
-				break 'outer;
-			}
-		}
-	}
-	readiness.ready = ready;
 }

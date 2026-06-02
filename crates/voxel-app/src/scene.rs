@@ -3,14 +3,15 @@ use std::f32::consts::PI;
 use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 
-use voxel_data::grid::Grid;
 use voxel_data::voxels::Voxel;
-use voxel_physics::components::{VoxelCollider, VoxelMass};
+use voxel_physics::components::VoxelMass;
 use voxel_physics::{
 	AngularVelocity, BallJointConstraint, BallJointConstraints,
 	FreezePhysics, Impulses, IsStatic, PhysicsSet,
 	RigidBody, RotationalInertia,
 };
+
+use crate::streaming_test::{spawn_collider, ColliderVoxels, WorldStore};
 
 pub struct ScenePlugin;
 
@@ -56,22 +57,26 @@ fn drive_orientation(
 	}
 }
 
-fn setup_scene(mut commands: Commands, mut constraints: ResMut<BallJointConstraints>) {
-	spawn_church(&mut commands);
-	spawn_ball_cluster(&mut commands, &mut constraints);
-	spawn_bb8(&mut commands, &mut constraints, Vec3::new(0.0, 120.0, 0.0));
-	spawn_bb8(&mut commands, &mut constraints, Vec3::new(30.0, 120.0, 0.0));
-	spawn_bb8(&mut commands, &mut constraints, Vec3::new(-30.0, 120.0, 0.0));
+fn setup_scene(
+	mut commands: Commands,
+	mut constraints: ResMut<BallJointConstraints>,
+	mut store: ResMut<WorldStore>,
+) {
+	spawn_church(&mut commands, &mut store);
+	spawn_ball_cluster(&mut commands, &mut constraints, &mut store);
+	spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(0.0, 120.0, 0.0));
+	spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(30.0, 120.0, 0.0));
+	spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(-30.0, 120.0, 0.0));
 	for x in 0..3 {
 		for y in 0..1 {
 			for z in 0..3 {
-				spawn_bb8(&mut commands, &mut constraints, Vec3::new(30.0 * x as f32, 30.0 * y as f32 + 200.0, 30.0 * z as f32));
+				spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(30.0 * x as f32, 30.0 * y as f32 + 200.0, 30.0 * z as f32));
 			}
 		}
 	}
 }
 
-fn spawn_church(commands: &mut Commands) {
+fn spawn_church(commands: &mut Commands, store: &mut WorldStore) {
 	let candidate_paths = [
 		std::path::PathBuf::from("res/Church_Of_St_Sophia.vox"),
 		std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -80,7 +85,7 @@ fn spawn_church(commands: &mut Commands) {
 	let Some(bytes) = candidate_paths.iter().find_map(|p| std::fs::read(p).ok()) else { return };
 	let Ok(dot_vox_data) = dot_vox::load_bytes(&bytes) else { return };
 
-	let mut grid = Grid::new();
+	let mut grid = ColliderVoxels::new();
 
 	#[derive(Clone, Copy)]
 	struct Frame { translation: Vec3, rotation: Quat, flip: IVec3 }
@@ -130,26 +135,31 @@ fn spawn_church(commands: &mut Commands) {
 			}
 		}
 	}
-	commands
+	let parent = commands
 		.spawn((
 			RigidBody,
 			IsStatic,
 			Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
 		))
-		.with_child((Transform::IDENTITY, grid, VoxelCollider));
+		.id();
+	spawn_collider(commands, store, parent, Transform::IDENTITY, grid, ());
 }
 
-fn spawn_ball_cluster(commands: &mut Commands, constraints: &mut BallJointConstraints) {
+fn spawn_ball_cluster(
+	commands: &mut Commands,
+	constraints: &mut BallJointConstraints,
+	store: &mut WorldStore,
+) {
 	let r = 5;
 	let base_y = 80.0;
 	let base_z = -20.0;
 
-	let main = spawn_ball(commands, Vec3::new(0.0, base_y, base_z), 2);
+	let main = spawn_ball(commands, store, Vec3::new(0.0, base_y, base_z), 2);
 	let satellites = [
-		(spawn_ball(commands, Vec3::new(0.0, base_y, base_z + 10.0), r), Vec3::new(0.0, 0.0, 10.0)),
-		(spawn_ball(commands, Vec3::new(0.0, base_y, base_z - 10.0), r), Vec3::new(0.0, 0.0, -10.0)),
-		(spawn_ball(commands, Vec3::new(10.0, base_y, base_z), r), Vec3::new(10.0, 0.0, 0.0)),
-		(spawn_ball(commands, Vec3::new(-10.0, base_y, base_z), r), Vec3::new(-10.0, 0.0, 0.0)),
+		(spawn_ball(commands, store, Vec3::new(0.0, base_y, base_z + 10.0), r), Vec3::new(0.0, 0.0, 10.0)),
+		(spawn_ball(commands, store, Vec3::new(0.0, base_y, base_z - 10.0), r), Vec3::new(0.0, 0.0, -10.0)),
+		(spawn_ball(commands, store, Vec3::new(10.0, base_y, base_z), r), Vec3::new(10.0, 0.0, 0.0)),
+		(spawn_ball(commands, store, Vec3::new(-10.0, base_y, base_z), r), Vec3::new(-10.0, 0.0, 0.0)),
 	];
 
 	for (satellite, attachment) in satellites {
@@ -166,8 +176,13 @@ fn spawn_ball_cluster(commands: &mut Commands, constraints: &mut BallJointConstr
 	}
 }
 
-fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, position: Vec3) {
-	let mut base_grid = Grid::new();
+fn spawn_bb8(
+	commands: &mut Commands,
+	constraints: &mut BallJointConstraints,
+	store: &mut WorldStore,
+	position: Vec3,
+) {
+	let mut base_grid = ColliderVoxels::new();
 	for x in -6..=6 { for y in 0..3 { for z in -6..=6 {
 		base_grid.add_voxel(&IVec3::new(x, y, z), &Voxel { color: [128, 128, 128, 255], mass: 200 });
 	}}}
@@ -177,11 +192,10 @@ fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, po
 		RigidBody,
 		Orientation::default(),
 		Transform::from_translation(position),
-	))
-		.with_child((Transform::IDENTITY, base_grid, VoxelCollider, VoxelMass))
-		.id();
+	)).id();
+	spawn_collider(commands, store, base, Transform::IDENTITY, base_grid, VoxelMass);
 
-	let ball = spawn_ball(commands, position - Vec3::new(0.0, 12.0, 0.0), 10);
+	let ball = spawn_ball(commands, store, position - Vec3::new(0.0, 12.0, 0.0), 10);
 
 	constraints.insert(
 		base,
@@ -195,10 +209,10 @@ fn spawn_bb8(commands: &mut Commands, constraints: &mut BallJointConstraints, po
 	);
 }
 
-fn spawn_ball(commands: &mut Commands, position: Vec3, radius: i32) -> Entity {
+fn spawn_ball(commands: &mut Commands, store: &mut WorldStore, position: Vec3, radius: i32) -> Entity {
 	let radius_sq = (radius as f32 - 0.5).powi(2);
 
-	let mut top = Grid::new();
+	let mut top = ColliderVoxels::new();
 	for x in -radius..=radius {
 		for y in 0..=radius {
 			for z in -radius..=radius {
@@ -212,7 +226,7 @@ fn spawn_ball(commands: &mut Commands, position: Vec3, radius: i32) -> Entity {
 		}
 	}
 
-	let mut bottom = Grid::new();
+	let mut bottom = ColliderVoxels::new();
 	for x in -radius..=radius {
 		for y in -radius..0 {
 			for z in -radius..=radius {
@@ -226,15 +240,15 @@ fn spawn_ball(commands: &mut Commands, position: Vec3, radius: i32) -> Entity {
 		}
 	}
 
-	commands.spawn((
+	let body = commands.spawn((
 		RigidBody,
 		Transform::from_translation(position),
-	))
-		.with_child((Transform::from_translation(Vec3::new(-0.5, -0.5, -0.5)), top, VoxelCollider, VoxelMass))
-		.with_child((Transform {
-				translation: Vec3::new(-std::f32::consts::FRAC_1_SQRT_2, -0.5, 0.0),
-				rotation: Quat::from_rotation_y(PI / 4.0),
-				scale: Vec3::ONE,
-			}, bottom, VoxelCollider, VoxelMass))
-		.id()
+	)).id();
+	spawn_collider(commands, store, body, Transform::from_translation(Vec3::new(-0.5, -0.5, -0.5)), top, VoxelMass);
+	spawn_collider(commands, store, body, Transform {
+			translation: Vec3::new(-std::f32::consts::FRAC_1_SQRT_2, -0.5, 0.0),
+			rotation: Quat::from_rotation_y(PI / 4.0),
+			scale: Vec3::ONE,
+		}, bottom, VoxelMass);
+	body
 }

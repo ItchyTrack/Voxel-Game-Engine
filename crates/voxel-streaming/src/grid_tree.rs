@@ -507,6 +507,45 @@ impl GridTree {
 	pub fn is_empty(&self) -> bool { return self.item_count == 0; }
 	pub fn iter(&self) -> GridTreeIterator<'_> { GridTreeIterator::new(self) }
 
+	/// Visit every DATA leaf whose cell box intersects the inclusive region
+	/// `[min, max]`, pruning subtrees that don't overlap. `f` receives
+	/// (cell origin, cell size, value). Far cheaper than `iter` when the region
+	/// is small relative to the tree.
+	pub fn for_each_in_region(&self, min: I16Vec3, max: I16Vec3, mut f: impl FnMut(I16Vec3, u16, u16)) {
+		if self.is_empty() { return; }
+		self.region_recurse(0, self.root_depth, self.root_pos, min, max, &mut f);
+	}
+
+	fn region_recurse(
+		&self,
+		node_index: u32,
+		node_depth: u8,
+		node_origin: I16Vec3,
+		min: I16Vec3,
+		max: I16Vec3,
+		f: &mut dyn FnMut(I16Vec3, u16, u16),
+	) {
+		let node = &self.nodes[node_index as usize];
+		let child_size = GridTreeNode::child_size(node_depth) as i16;
+		for i in 0..SIZE_CUBED {
+			let cell = node.contents[i as usize];
+			let value_type = cell.value_type();
+			if value_type == 0 { continue; }
+			let contents_pos = get_child_contents_pos(i);
+			let child_origin = node_origin + contents_pos.as_i16vec3() * child_size;
+			let child_end = child_origin + I16Vec3::splat(child_size); // exclusive
+			if child_origin.cmpgt(max).any() || child_end.cmple(min).any() { continue; }
+			match value_type {
+				1 => f(child_origin, child_size as u16, cell.value()),
+				2 => {
+					let child_node_index = node_index + cell.value() as u32;
+					self.region_recurse(child_node_index, node_depth - 1, child_origin, min, max, f);
+				}
+				_ => unsafe { unreachable_unchecked() }
+			}
+		}
+	}
+
 	fn ray_aabb_intersection(start: &Vec3, direction: &Vec3, aabb: &(Vec3, Vec3)) -> Option<f32> {
 		let (min, max) = aabb;
 

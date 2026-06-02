@@ -1,4 +1,5 @@
 pub mod ball_joint_constraint;
+pub mod chunk_requests;
 pub mod collision;
 pub mod collision_constraint;
 pub mod components;
@@ -14,6 +15,7 @@ use bevy::prelude::*;
 use voxel_data::grid::Grid;
 
 pub use ball_joint_constraint::BallJointConstraint;
+pub use chunk_requests::PhysicsConsumer;
 pub use collision::Collisions;
 pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
@@ -54,11 +56,28 @@ pub struct VoxelPhysicsPlugin;
 
 impl Plugin for VoxelPhysicsPlugin {
 	fn build(&self, app: &mut App) {
+		use voxel_streaming::VoxelStreamingAppExt;
 		app.init_resource::<Gravity>()
 			.init_resource::<FreezePhysics>()
 			.insert_resource(Time::<Fixed>::from_hz(120.0))
-			.configure_sets(FixedUpdate, (PhysicsSet::Apply, PhysicsSet::Detect, PhysicsSet::Step).chain())
+			.configure_sets(
+				FixedUpdate,
+				(PhysicsSet::Apply, PhysicsSet::Detect, PhysicsSet::Step)
+					.chain()
+					.run_if(voxel_streaming::chunks_ready::<PhysicsConsumer>),
+			)
 			.add_plugins((collision::CollisionPlugin, solver::SolverPlugin))
+			.register_chunk_consumer::<PhysicsConsumer>()
+			.add_systems(Startup, |mut commands: Commands| { commands.spawn(PhysicsConsumer::default()); })
+			.add_systems(
+				FixedUpdate,
+				(
+					chunk_requests::cache_presence_aabb,
+					chunk_requests::request_collision_chunks,
+				)
+					.chain()
+					.before(PhysicsSet::Detect),
+			)
 			.add_systems(FixedUpdate, compute_mass_properties.before(PhysicsSet::Detect));
 	}
 }
