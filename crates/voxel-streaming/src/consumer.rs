@@ -5,18 +5,13 @@ use bevy::math::IVec3;
 
 use voxel_data::grid::GridId;
 
-/// A consumer of streamed chunks. Each consumer is its own component type
-/// (generate one with [`chunk_consumer!`]); `needed` holds the chunks it is
-/// still waiting on, keyed by grid. A consumer is "ready" when `needed` is
-/// empty (see [`chunks_ready`]).
 #[bevy_trait_query::queryable]
 pub trait ChunkConsumer {
 	fn needed(&self) -> &HashMap<GridId, HashSet<IVec3>>;
 	fn needed_mut(&mut self) -> &mut HashMap<GridId, HashSet<IVec3>>;
 }
 
-/// Defines a [`ChunkConsumer`] component. Register it with
-/// [`VoxelStreamingAppExt::register_chunk_consumer`].
+/// Defines a [`ChunkConsumer`] component. Register it with [`VoxelStreamingAppExt::register_chunk_consumer`].
 #[macro_export]
 macro_rules! chunk_consumer {
 	($vis:vis $name:ident) => {
@@ -61,7 +56,6 @@ impl VoxelStreamingAppExt for App {
 }
 
 /// Run condition: true once consumer `T` has no outstanding needed chunks.
-/// Vacuously true when no entity holds `T`.
-pub fn chunks_ready<T: ChunkConsumer + Component>(query: Query<&T>) -> bool {
-	query.iter().all(|consumer| consumer.needed().is_empty())
+pub fn chunks_ready<T: ChunkConsumer + Component>(query: Option<Single<&T>>) -> bool {
+	query.map_or(true, |consumer| consumer.needed().is_empty())
 }
