@@ -7,6 +7,8 @@ mod scene;
 mod streaming_test;
 mod world_interaction;
 
+use std::time::Duration;
+
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::render::view::{Hdr, Msaa};
@@ -52,6 +54,7 @@ async fn main() {
 			}),
 			..Default::default()
 		}))
+		.insert_resource(Time::<Virtual>::from_max_delta(Duration::from_millis(16)))
 		.add_plugins(GamePlugins)
 		.add_systems(Startup, setup)
 		.run();
