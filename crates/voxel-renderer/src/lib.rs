@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod chunk_requests;
 pub mod crosshair_renderer;
 pub mod graphics_settings;
 pub mod hit_count_feedback;
@@ -42,6 +43,7 @@ impl Plugin for VoxelRendererPlugin {
 			.insert_resource(render_stats.clone())
 			.init_resource::<GraphicsSettings>()
 			.add_plugins(ExtractResourcePlugin::<GraphicsSettings>::default())
+			.add_systems(Update, chunk_requests::request_render_chunks)
 			.add_systems(Update, scene::update_render_lod.before(GpuUploadSet::Collect));
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };

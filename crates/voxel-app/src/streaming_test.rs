@@ -73,8 +73,6 @@ pub fn spawn_collider(
 	commands.entity(child).insert(streaming);
 }
 
-/// Drain chunk requests, build the chunk's `Voxels` from the store, and report
-/// it. Missing chunk => confirmed empty (`None`).
 fn serve_chunk_requests(
 	requests: Res<ChunkRequestChannel>,
 	loader: Res<ChunkLoaderChannel>,

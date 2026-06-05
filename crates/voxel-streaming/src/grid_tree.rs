@@ -3,7 +3,7 @@ use std::hint::unreachable_unchecked;
 use std::u16;
 
 use bevy::transform::components::Transform;
-use bevy::math::{I8Vec3, I16Vec3, U8Vec3, U16Vec3, Vec3};
+use bevy::math::{I8Vec3, IVec3, U8Vec3, UVec3, Vec3};
 
 pub const LOG_SIZE: u8 = 2;
 pub const SIZE: u8 = 1u8 << LOG_SIZE;
@@ -108,13 +108,13 @@ impl ChunkGridTreeNode {
 			None => self.parent_offset = 0,
 		}
 	}
-	pub fn size(node_depth: u8) -> u16 {
+	pub fn size(node_depth: u8) -> u32 {
 		1 << (LOG_SIZE * (node_depth + 1))
 	}
-	pub fn child_size(node_depth: u8) -> u16 {
+	pub fn child_size(node_depth: u8) -> u32 {
 		1 << (LOG_SIZE * node_depth)
 	}
-	pub fn parent_size(node_depth: u8) -> u16 {
+	pub fn parent_size(node_depth: u8) -> u32 {
 		1 << (LOG_SIZE * (node_depth + 2))
 	}
 	// fn child_relative_pos(&self, node_depth: u8, child_contents_pos: U8Vec3) -> U16Vec3 {
@@ -174,7 +174,7 @@ impl ChunkGridTreeNode {
 #[derive(Debug, Clone)]
 pub struct ChunkGridTree {
 	nodes: Vec<ChunkGridTreeNode>, // root at 0
-	root_pos: I16Vec3,
+	root_pos: IVec3,
 	root_depth: u8,
 	item_count: u64,
 }
@@ -183,7 +183,7 @@ impl ChunkGridTree {
 	pub fn new() -> Self {
 		Self {
 			nodes: vec![ChunkGridTreeNode::new_root()],
-			root_pos: I16Vec3::ZERO,
+			root_pos: IVec3::ZERO,
 			root_depth: 0,
 			item_count: 0,
 		}
@@ -199,7 +199,7 @@ impl ChunkGridTree {
 	fn make_new_root(&mut self, contents_pos_of_old_root: U8Vec3) {
 		let old_root = &mut self.nodes[0];
 		old_root.set_parent_offset(Some(1));
-		self.root_pos -= (ChunkGridTreeNode::size(self.root_depth) * contents_pos_of_old_root.as_u16vec3()).as_i16vec3();
+		self.root_pos -= (ChunkGridTreeNode::size(self.root_depth) * contents_pos_of_old_root.as_uvec3()).as_ivec3();
 		self.root_depth += 1;
 		self.nodes.insert(0, ChunkGridTreeNode {
 			contents: {
@@ -211,10 +211,10 @@ impl ChunkGridTree {
 			used_cell_count: 1,
 		});
 	}
-	pub fn get(&self, pos: &I16Vec3) -> Option<u16> {
+	pub fn get(&self, pos: &IVec3) -> Option<u16> {
 		let root_relative_pos = pos - self.root_pos;
 		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
-		let root_relative_pos = root_relative_pos.as_u16vec3();
+		let root_relative_pos = root_relative_pos.as_uvec3();
 		if root_relative_pos.x >= ChunkGridTreeNode::size(self.root_depth) ||
 		   root_relative_pos.y >= ChunkGridTreeNode::size(self.root_depth) ||
 		   root_relative_pos.z >= ChunkGridTreeNode::size(self.root_depth) { return None; }
@@ -237,14 +237,14 @@ impl ChunkGridTree {
 			}
 		}
 	}
-	pub fn contains_key(&self, pos: &I16Vec3) -> bool {
+	pub fn contains_key(&self, pos: &IVec3) -> bool {
 		self.get(pos).is_some()
 	}
-	pub fn is_area_filled(&self, pos: &I16Vec3, size: &U16Vec3) -> bool {
+	pub fn is_area_filled(&self, pos: &IVec3, size: &UVec3) -> bool {
 		for x in 0..size.x {
 			for y in 0..size.y {
 				for z in 0..size.z {
-					if !self.contains_key(&(pos + I16Vec3::new(x as i16, y as i16, z as i16))) {
+					if !self.contains_key(&(pos + IVec3::new(x as i32, y as i32, z as i32))) {
 						return false;
 					}
 				}
@@ -253,7 +253,7 @@ impl ChunkGridTree {
 		return true;
 	}
 
-	fn make_sure_root_covers_pos(&mut self, pos: &I16Vec3) {
+	fn make_sure_root_covers_pos(&mut self, pos: &IVec3) {
 		let first_root = &self.nodes[0];
 		if first_root.used_cell_count == 0 {
 			self.root_pos = *pos;
@@ -261,9 +261,9 @@ impl ChunkGridTree {
 		}
 		let root_relative_pos = pos - self.root_pos;
 		if root_relative_pos.is_negative_bitmask() != 0 ||
-			root_relative_pos.x >= ChunkGridTreeNode::size(self.root_depth) as i16 ||
-			root_relative_pos.y >= ChunkGridTreeNode::size(self.root_depth) as i16 ||
-			root_relative_pos.z >= ChunkGridTreeNode::size(self.root_depth) as i16
+			root_relative_pos.x >= ChunkGridTreeNode::size(self.root_depth) as i32 ||
+			root_relative_pos.y >= ChunkGridTreeNode::size(self.root_depth) as i32 ||
+			root_relative_pos.z >= ChunkGridTreeNode::size(self.root_depth) as i32
 		{
 			let mut min_pos = U8Vec3::MAX;
 			let mut max_pos = U8Vec3::MIN;
@@ -275,13 +275,13 @@ impl ChunkGridTree {
 				}
 			}
 			if max_pos != U8Vec3::splat(SIZE - 1) && min_pos != U8Vec3::ZERO {
-				let root_relative_contents_pos = root_relative_pos.div_euclid(I16Vec3::splat(ChunkGridTreeNode::child_size(self.root_depth) as i16));
-				let root_shift_amount = I16Vec3::new(
-					if root_relative_contents_pos.x > 0 { (root_relative_contents_pos.x + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.x.max(1 - SIZE as i16) },
-					if root_relative_contents_pos.y > 0 { (root_relative_contents_pos.y + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.y.max(1 - SIZE as i16) },
-					if root_relative_contents_pos.z > 0 { (root_relative_contents_pos.z + 1 - SIZE as i16).clamp(0, SIZE as i16 - 1) } else { root_relative_contents_pos.z.max(1 - SIZE as i16) },
-				).clamp((SIZE - 1 - max_pos).as_i16vec3(), min_pos.as_i16vec3());
-				if root_shift_amount != I16Vec3::ZERO {
+				let root_relative_contents_pos = root_relative_pos.div_euclid(IVec3::splat(ChunkGridTreeNode::child_size(self.root_depth) as i32));
+				let root_shift_amount = IVec3::new(
+					if root_relative_contents_pos.x > 0 { (root_relative_contents_pos.x + 1 - SIZE as i32).clamp(0, SIZE as i32 - 1) } else { root_relative_contents_pos.x.max(1 - SIZE as i32) },
+					if root_relative_contents_pos.y > 0 { (root_relative_contents_pos.y + 1 - SIZE as i32).clamp(0, SIZE as i32 - 1) } else { root_relative_contents_pos.y.max(1 - SIZE as i32) },
+					if root_relative_contents_pos.z > 0 { (root_relative_contents_pos.z + 1 - SIZE as i32).clamp(0, SIZE as i32 - 1) } else { root_relative_contents_pos.z.max(1 - SIZE as i32) },
+				).clamp((SIZE - 1 - max_pos).as_ivec3(), min_pos.as_ivec3());
+				if root_shift_amount != IVec3::ZERO {
 					let mut shifted_root_contents = [ChunkGridTreeCell::NONE; SIZE_USIZE_CUBED];
 					for x in min_pos.x..=max_pos.x {
 						for y in min_pos.y..=max_pos.y {
@@ -289,12 +289,12 @@ impl ChunkGridTree {
 								let contents_pos = U8Vec3::new(x, y, z);
 								let (cell_type, cell_raw) = first_root.get_child_cell_type_and_raw(contents_pos);
 								if cell_type != 0 {
-									shifted_root_contents[get_child_contents_index((contents_pos.as_i16vec3() - root_shift_amount).as_u8vec3()) as usize] = ChunkGridTreeCell::from_raw(cell_raw);
+									shifted_root_contents[get_child_contents_index((contents_pos.as_ivec3() - root_shift_amount).as_u8vec3()) as usize] = ChunkGridTreeCell::from_raw(cell_raw);
 								}
 							}
 						}
 					}
-					self.root_pos += root_shift_amount * ChunkGridTreeNode::child_size(self.root_depth) as i16;
+					self.root_pos += root_shift_amount * ChunkGridTreeNode::child_size(self.root_depth) as i32;
 					self.nodes[0].contents = shifted_root_contents;
 				}
 			}
@@ -304,9 +304,9 @@ impl ChunkGridTree {
 		loop {
 			let root_relative_pos = pos - self.root_pos;
 			if root_relative_pos.is_negative_bitmask() != 0 ||
-				root_relative_pos.x >= ChunkGridTreeNode::size(self.root_depth) as i16 ||
-				root_relative_pos.y >= ChunkGridTreeNode::size(self.root_depth) as i16 ||
-				root_relative_pos.z >= ChunkGridTreeNode::size(self.root_depth) as i16
+				root_relative_pos.x >= ChunkGridTreeNode::size(self.root_depth) as i32 ||
+				root_relative_pos.y >= ChunkGridTreeNode::size(self.root_depth) as i32 ||
+				root_relative_pos.z >= ChunkGridTreeNode::size(self.root_depth) as i32
 			{
 				let contents_pos_of_old_root = U8Vec3::new(
 					if root_relative_pos.x < 0 { SIZE - 1 } else { 0 },
@@ -320,7 +320,7 @@ impl ChunkGridTree {
 		}
 	}
 	/// parent depth must be more than 0 and at pos in parent there must be a data cell containing current_cell and current_cell != cell_to_set
-	fn set_voxel_in_data_cell(&mut self, parent_node_index: u32, parent_depth: u8, current_cell: ChunkGridTreeCell, cell_to_set: ChunkGridTreeCell, pos: &U16Vec3) {
+	fn set_voxel_in_data_cell(&mut self, parent_node_index: u32, parent_depth: u8, current_cell: ChunkGridTreeCell, cell_to_set: ChunkGridTreeCell, pos: &UVec3) {
 		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
 		let parent = &mut self.nodes[parent_node_index as usize];
 		let child_size = ChunkGridTreeNode::child_size(parent_depth);
@@ -337,13 +337,13 @@ impl ChunkGridTree {
 			if cell_to_set.value_type() == 0 {
 				node.used_cell_count -= 1;
 			}
-			node.set_child_cell((pos % SIZE as u16).as_u8vec3(), cell_to_set);
+			node.set_child_cell((pos % SIZE as u32).as_u8vec3(), cell_to_set);
 		} else {
 			self.set_voxel_in_data_cell(parent_node_index + next_node_offset as u32, parent_depth - 1, current_cell, cell_to_set, &(pos % child_size));
 		}
 	}
 	/// parent depth must be more than 0 and at pos in parent there must be a none cell and cell_to_set must be type 1
-	fn set_voxel_in_none_cell(&mut self, parent_node_index: u32, parent_depth: u8, cell_to_set: ChunkGridTreeCell, pos: &U16Vec3) {
+	fn set_voxel_in_none_cell(&mut self, parent_node_index: u32, parent_depth: u8, cell_to_set: ChunkGridTreeCell, pos: &UVec3) {
 		assert!(cell_to_set.value_type() == 1);
 		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
 		let parent = &mut self.nodes[parent_node_index as usize];
@@ -361,12 +361,12 @@ impl ChunkGridTree {
 		if parent_depth == 1 {
 			let node = &mut self.nodes[(parent_node_index + next_node_offset as u32) as usize];
 			node.used_cell_count += 1;
-			node.set_child_cell((pos % SIZE as u16).as_u8vec3(), cell_to_set);
+			node.set_child_cell((pos % SIZE as u32).as_u8vec3(), cell_to_set);
 		} else {
 			self.set_voxel_in_none_cell(parent_node_index + next_node_offset as u32, parent_depth - 1, cell_to_set, &(pos % child_size));
 		}
 	}
-	pub fn internals(&self) -> (&Vec<ChunkGridTreeNode>, I16Vec3, u8) {
+	pub fn internals(&self) -> (&Vec<ChunkGridTreeNode>, IVec3, u8) {
 		(&self.nodes, self.root_pos, self.root_depth)
 	}
 	/// cell_to_merge cant be NODE. pos_in_node is any pos
@@ -409,10 +409,10 @@ impl ChunkGridTree {
 		}
 	}
 
-	pub fn insert(&mut self, pos: &I16Vec3, data: u16) -> Option<u16> {
+	pub fn insert(&mut self, pos: &IVec3, data: u16) -> Option<u16> {
 		self.make_sure_root_covers_pos(pos);
 		let mut current_node_index: u32 = 0;
-		let mut current_relative_pos = (pos - self.root_pos).as_u16vec3();
+		let mut current_relative_pos = (pos - self.root_pos).as_uvec3();
 		let mut cell_index_stack = [0; MAX_TREE_DEPTH_USIZE];
 		let mut cell_index_stack_size = 0;
 		let mut current_depth = self.root_depth;
@@ -461,10 +461,10 @@ impl ChunkGridTree {
 		}
 	}
 
-	pub fn remove(&mut self, pos: &I16Vec3) -> Option<u16> {
+	pub fn remove(&mut self, pos: &IVec3) -> Option<u16> {
 		let root_relative_pos = pos - self.root_pos;
 		if root_relative_pos.is_negative_bitmask() != 0 { return None; }
-		let root_relative_pos = root_relative_pos.as_u16vec3();
+		let root_relative_pos = root_relative_pos.as_uvec3();
 		if root_relative_pos.x >= ChunkGridTreeNode::size(self.root_depth) ||
 		   root_relative_pos.y >= ChunkGridTreeNode::size(self.root_depth) ||
 		   root_relative_pos.z >= ChunkGridTreeNode::size(self.root_depth) { return None; }
@@ -511,7 +511,7 @@ impl ChunkGridTree {
 	/// `[min, max]`, pruning subtrees that don't overlap. `f` receives
 	/// (cell origin, cell size, value). Far cheaper than `iter` when the region
 	/// is small relative to the tree.
-	pub fn for_each_in_region(&self, min: I16Vec3, max: I16Vec3, mut f: impl FnMut(I16Vec3, u16, u16)) {
+	pub fn for_each_in_region(&self, min: IVec3, max: IVec3, mut f: impl FnMut(IVec3, u32, u16)) {
 		if self.is_empty() { return; }
 		self.region_recurse(0, self.root_depth, self.root_pos, min, max, &mut f);
 	}
@@ -520,23 +520,23 @@ impl ChunkGridTree {
 		&self,
 		node_index: u32,
 		node_depth: u8,
-		node_origin: I16Vec3,
-		min: I16Vec3,
-		max: I16Vec3,
-		f: &mut dyn FnMut(I16Vec3, u16, u16),
+		node_origin: IVec3,
+		min: IVec3,
+		max: IVec3,
+		f: &mut dyn FnMut(IVec3, u32, u16),
 	) {
 		let node = &self.nodes[node_index as usize];
-		let child_size = ChunkGridTreeNode::child_size(node_depth) as i16;
+		let child_size = ChunkGridTreeNode::child_size(node_depth) as i32;
 		for i in 0..SIZE_CUBED {
 			let cell = node.contents[i as usize];
 			let value_type = cell.value_type();
 			if value_type == 0 { continue; }
 			let contents_pos = get_child_contents_pos(i);
-			let child_origin = node_origin + contents_pos.as_i16vec3() * child_size;
-			let child_end = child_origin + I16Vec3::splat(child_size); // exclusive
+			let child_origin = node_origin + contents_pos.as_ivec3() * child_size;
+			let child_end = child_origin + IVec3::splat(child_size); // exclusive
 			if child_origin.cmpgt(max).any() || child_end.cmple(min).any() { continue; }
 			match value_type {
-				1 => f(child_origin, child_size as u16, cell.value()),
+				1 => f(child_origin, child_size as u32, cell.value()),
 				2 => {
 					let child_node_index = node_index + cell.value() as u32;
 					self.region_recurse(child_node_index, node_depth - 1, child_origin, min, max, f);
@@ -565,7 +565,7 @@ impl ChunkGridTree {
 		Some(tmin)
 	}
 
-	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>/*, debug_transform: &Transform*/) -> Option<(I16Vec3, I8Vec3, f32)> {
+	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>/*, debug_transform: &Transform*/) -> Option<(IVec3, I8Vec3, f32)> {
 		let max_length = max_length.unwrap_or(f32::MAX);
 
 		let origin = transform.translation;
@@ -598,7 +598,7 @@ impl ChunkGridTree {
 		// debug_draw::line(debug_transform * (origin + Vec3::new(0.0, 0.05, 0.0)), debug_transform * (origin + Vec3::new(0.0, 0.05, 0.0) + dir * axis_distances.y), &Vec4::new(0.2, 1.0, 0.2, 1.0));
 		// debug_draw::line(debug_transform * (origin + Vec3::new(0.0, 0.075, 0.0)), debug_transform * (origin + Vec3::new(0.0, 0.075, 0.0) + dir * axis_distances.z), &Vec4::new(0.2, 0.2, 1.0, 1.0));
 		// debug_draw::point(debug_transform * (root_relative_post_aabb_origin + self.root_pos.as_vec3()), &Vec4::W, 1.0);
-		let mut root_relative_grid_pos = root_relative_post_aabb_origin.as_u16vec3();
+		let mut root_relative_grid_pos = root_relative_post_aabb_origin.as_uvec3();
 		let mut last_step_axis = (post_aabb_origin_pre_shift - post_aabb_origin).abs().max_position() as u8;
 		let mut current_node_index = 0u32;
 		let mut current_depth = self.root_depth;
@@ -617,39 +617,39 @@ impl ChunkGridTree {
 				0 => { // NONE
 					if ChunkGridTreeNode::child_size(current_depth) != 1 {
 						let node_cell_relative_grid_pos = node_relative_grid_pos % ChunkGridTreeNode::child_size(current_depth);
-						let mut step_amount = U16Vec3::select(
+						let mut step_amount = UVec3::select(
 							step.cmpgt(I8Vec3::ZERO),
-							U16Vec3::splat(ChunkGridTreeNode::child_size(current_depth) - 1) - node_cell_relative_grid_pos,
+							UVec3::splat(ChunkGridTreeNode::child_size(current_depth) - 1) - node_cell_relative_grid_pos,
 							node_cell_relative_grid_pos
 						);
 						// step to edge of cell. step_amount is 0 if child_size is 0
 						let distance_to_edge_of_cell = axis_distances + step_amount.as_vec3() * delta;
 						match distance_to_edge_of_cell.min_position() {
 							0 => {
-								step_amount.y = ((distance_to_edge_of_cell.x - axis_distances.y + delta.y) / delta.y).abs() as u16;
-								step_amount.z = ((distance_to_edge_of_cell.x - axis_distances.z + delta.z) / delta.z).abs() as u16;
+								step_amount.y = ((distance_to_edge_of_cell.x - axis_distances.y + delta.y) / delta.y).abs() as u32;
+								step_amount.z = ((distance_to_edge_of_cell.x - axis_distances.z + delta.z) / delta.z).abs() as u32;
 							},
 							1 => {
-								step_amount.x = ((distance_to_edge_of_cell.y - axis_distances.x + delta.x) / delta.x).abs() as u16;
-								step_amount.z = ((distance_to_edge_of_cell.y - axis_distances.z + delta.z) / delta.z).abs() as u16;
+								step_amount.x = ((distance_to_edge_of_cell.y - axis_distances.x + delta.x) / delta.x).abs() as u32;
+								step_amount.z = ((distance_to_edge_of_cell.y - axis_distances.z + delta.z) / delta.z).abs() as u32;
 							},
 							2 => {
-								step_amount.x = ((distance_to_edge_of_cell.z - axis_distances.x + delta.x) / delta.x).abs() as u16;
-								step_amount.y = ((distance_to_edge_of_cell.z - axis_distances.y + delta.y) / delta.y).abs() as u16;
+								step_amount.x = ((distance_to_edge_of_cell.z - axis_distances.x + delta.x) / delta.x).abs() as u32;
+								step_amount.y = ((distance_to_edge_of_cell.z - axis_distances.y + delta.y) / delta.y).abs() as u32;
 							},
 							_ => unsafe { unreachable_unchecked(); }
 						}
 						axis_distances += delta * step_amount.as_vec3();
-						root_relative_grid_pos = (root_relative_grid_pos.as_i16vec3() + step_amount.as_i16vec3() * step.as_i16vec3()).as_u16vec3();
+						root_relative_grid_pos = (root_relative_grid_pos.as_ivec3() + step_amount.as_ivec3() * step.as_ivec3()).as_uvec3();
 						// debug_draw::rectangular_prism(&(debug_transform * Transform::from_translation((self.root_pos + root_relative_grid_pos.as_i16vec3()).as_vec3())), Vec3::ONE, &Vec4::W, false);
 						// println!("{root_relative_grid_pos}");
 					}
 					match axis_distances.min_position() {
 						0 => {
 							if max_length < axis_distances.x { return None; }
-							let root_relative_grid_pos_x = root_relative_grid_pos.x as i16 + step.x as i16;
-							if root_relative_grid_pos_x < 0 || root_relative_grid_pos_x >= ChunkGridTreeNode::size(self.root_depth) as i16 { return None; }
-							let root_relative_grid_pos_x = root_relative_grid_pos_x as u16;
+							let root_relative_grid_pos_x = root_relative_grid_pos.x as i32 + step.x as i32;
+							if root_relative_grid_pos_x < 0 || root_relative_grid_pos_x >= ChunkGridTreeNode::size(self.root_depth) as i32 { return None; }
+							let root_relative_grid_pos_x = root_relative_grid_pos_x as u32;
 							loop {
 								if root_relative_grid_pos.x / ChunkGridTreeNode::size(current_depth) == root_relative_grid_pos_x / ChunkGridTreeNode::size(current_depth) {
 									break;
@@ -666,9 +666,9 @@ impl ChunkGridTree {
 						},
 						1 => {
 							if max_length < axis_distances.y { return None; }
-							let root_relative_grid_pos_y = root_relative_grid_pos.y as i16 + step.y as i16;
-							if root_relative_grid_pos_y < 0 || root_relative_grid_pos_y >= ChunkGridTreeNode::size(self.root_depth) as i16 { return None; }
-							let root_relative_grid_pos_y = root_relative_grid_pos_y as u16;
+							let root_relative_grid_pos_y = root_relative_grid_pos.y as i32 + step.y as i32;
+							if root_relative_grid_pos_y < 0 || root_relative_grid_pos_y >= ChunkGridTreeNode::size(self.root_depth) as i32 { return None; }
+							let root_relative_grid_pos_y = root_relative_grid_pos_y as u32;
 							loop {
 								if root_relative_grid_pos.y / ChunkGridTreeNode::size(current_depth) == root_relative_grid_pos_y / ChunkGridTreeNode::size(current_depth) {
 									break;
@@ -685,9 +685,9 @@ impl ChunkGridTree {
 						},
 						2 => {
 							if max_length < axis_distances.z { return None; }
-							let root_relative_grid_pos_z = root_relative_grid_pos.z as i16 + step.z as i16;
-							if root_relative_grid_pos_z < 0 || root_relative_grid_pos_z >= ChunkGridTreeNode::size(self.root_depth) as i16 { return None; }
-							let root_relative_grid_pos_z = root_relative_grid_pos_z as u16;
+							let root_relative_grid_pos_z = root_relative_grid_pos.z as i32 + step.z as i32;
+							if root_relative_grid_pos_z < 0 || root_relative_grid_pos_z >= ChunkGridTreeNode::size(self.root_depth) as i32 { return None; }
+							let root_relative_grid_pos_z = root_relative_grid_pos_z as u32;
 							loop {
 								if root_relative_grid_pos.z / ChunkGridTreeNode::size(current_depth) == root_relative_grid_pos_z / ChunkGridTreeNode::size(current_depth) {
 									break;
@@ -707,7 +707,7 @@ impl ChunkGridTree {
 				},
 				1 => { // DATA
 					return Some((
-						root_relative_grid_pos.as_i16vec3() + self.root_pos,
+						root_relative_grid_pos.as_ivec3() + self.root_pos,
 						-step.to_array()[last_step_axis as usize] * I8Vec3::AXES[last_step_axis as usize],
 						last_distance
 					));
@@ -723,7 +723,7 @@ impl ChunkGridTree {
 }
 
 impl<'a> IntoIterator for &'a ChunkGridTree {
-	type Item = (I16Vec3, u16, u16);
+	type Item = (IVec3, u32, u16);
 	type IntoIter = ChunkGridTreeIterator<'a>;
 
 	fn into_iter(self) -> Self::IntoIter {
@@ -733,7 +733,7 @@ impl<'a> IntoIterator for &'a ChunkGridTree {
 
 pub struct ChunkGridTreeIterator<'a> {
 	tree: &'a ChunkGridTree,
-	stack: Vec<(u32, u8, u8, I16Vec3)>,
+	stack: Vec<(u32, u8, u8, IVec3)>,
 }
 
 impl<'a> ChunkGridTreeIterator<'a> {
@@ -752,7 +752,7 @@ impl<'a> ChunkGridTreeIterator<'a> {
 }
 
 impl<'a> Iterator for ChunkGridTreeIterator<'a> {
-	type Item = (I16Vec3, u16, u16);
+	type Item = (IVec3, u32, u16);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
@@ -771,7 +771,7 @@ impl<'a> Iterator for ChunkGridTreeIterator<'a> {
 			for i in scan_start..SIZE_CUBED {
 				let cell = node.contents[i as usize];
 				let contents_pos = get_child_contents_pos(i);
-				let child_world_origin = node_origin + (contents_pos.as_u16vec3() * child_size).as_i16vec3();
+				let child_world_origin = node_origin + (contents_pos.as_uvec3() * child_size).as_ivec3();
 
 				match cell.value_type() {
 					0 => { /* NONE – skip */ }
