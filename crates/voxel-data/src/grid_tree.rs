@@ -253,6 +253,26 @@ impl GridTree {
 		return true;
 	}
 
+	pub fn add_area(&mut self, pos: &I16Vec3, size: &U16Vec3, data: u16) {
+		for x in 0..size.x {
+			for y in 0..size.y {
+				for z in 0..size.z {
+					self.insert(&(pos + I16Vec3::new(x as i16, y as i16, z as i16)), data);
+				}
+			}
+		}
+	}
+
+	pub fn remove_area(&mut self, pos: &I16Vec3, size: &U16Vec3) {
+		for x in 0..size.x {
+			for y in 0..size.y {
+				for z in 0..size.z {
+					self.remove(&(pos + I16Vec3::new(x as i16, y as i16, z as i16)));
+				}
+			}
+		}
+	}
+
 	fn make_sure_root_covers_pos(&mut self, pos: &I16Vec3) {
 		let first_root = &self.nodes[0];
 		if first_root.used_cell_count == 0 {

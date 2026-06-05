@@ -1,12 +1,19 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 
+use voxel_data::grid::Grid;
 use voxel_streaming::{ChunkRequestChannel, GridStreaming, CHUNK_SIZE};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
 
 voxel_streaming::chunk_consumer!(pub PhysicsConsumer);
+
+/// The chunks physics currently wants resident for a collider grid. Diffed each
+/// tick to issue one `fetch_needed` per newly wanted chunk and one `release`
+/// per chunk no longer wanted.
+#[derive(Component, Default)]
+pub struct WantedChunks(HashSet<IVec3>);
 
 fn box_corners(lo: Vec3, hi: Vec3) -> [Vec3; 8] {
 	[
@@ -61,10 +68,13 @@ pub fn cache_presence_aabb(
 		if !any {
 			continue;
 		}
-		commands.entity(entity).insert(PresenceAabb {
-			lo: (min * CHUNK_SIZE).as_vec3(),
-			hi: (max * CHUNK_SIZE).as_vec3(),
-		});
+		commands.entity(entity).insert((
+			PresenceAabb {
+				lo: (min * CHUNK_SIZE).as_vec3(),
+				hi: (max * CHUNK_SIZE).as_vec3(),
+			},
+			WantedChunks::default(),
+		));
 	}
 }
 
@@ -95,7 +105,7 @@ fn present_chunks(streaming: &GridStreaming) -> Vec<IVec3> {
 /// static bodies request only chunks intersecting an overlapping body's AABB.
 pub fn request_collision_chunks(
 	bodies: Query<(&Transform, Has<IsStatic>), With<RigidBody>>,
-	mut grids: Query<(Entity, &ChildOf, &Transform, &mut GridStreaming, &PresenceAabb), With<VoxelCollider>>,
+	mut grids: Query<(Entity, &ChildOf, &Transform, &mut GridStreaming, &PresenceAabb, &mut Grid, &mut WantedChunks), With<VoxelCollider>>,
 	mut consumers: Query<&mut PhysicsConsumer>,
 	channel: Res<ChunkRequestChannel>,
 ) {
@@ -104,7 +114,7 @@ pub fn request_collision_chunks(
 	// Pass 1: accumulate each body's world AABB from its grids' cached extents.
 	let mut reqs: Vec<GridReq> = Vec::new();
 	let mut body_aabb: HashMap<Entity, (Vec3, Vec3)> = HashMap::new();
-	for (entity, child_of, local_tf, _streaming, aabb) in grids.iter() {
+	for (entity, child_of, local_tf, _, aabb, _, _) in grids.iter() {
 		let body = child_of.parent();
 		let Ok((body_tf, is_static)) = bodies.get(body) else { continue };
 		let grid_tf = *body_tf * *local_tf;
@@ -119,13 +129,13 @@ pub fn request_collision_chunks(
 		reqs.push(GridReq { entity, body, is_static, grid_tf });
 	}
 
-	// Pass 2: request chunks per the static/non-static policy above.
+	// Pass 2: compute the wanted chunk set per grid under the policy above.
+	let mut desired: HashMap<Entity, HashSet<IVec3>> = HashMap::new();
 	for req in &reqs {
+		let Ok((_, _, _, streaming, _, _, _)) = grids.get(req.entity) else { continue };
+		let want = desired.entry(req.entity).or_default();
 		if !req.is_static {
-			let Ok((_, _, _, mut streaming, _)) = grids.get_mut(req.entity) else { continue };
-			for chunk in present_chunks(&streaming) {
-				streaming.fetch_needed(req.entity, consumer.as_mut(), &channel, chunk);
-			}
+			want.extend(present_chunks(&streaming));
 			continue;
 		}
 
@@ -138,7 +148,6 @@ pub fn request_collision_chunks(
 		if partners.is_empty() {
 			continue;
 		}
-		let Ok((_, _, _, mut streaming, _)) = grids.get_mut(req.entity) else { continue };
 
 		// Local chunk-space region covering every partner AABB. The grid may be
 		// rotated, so take the AABB of the inverse-transformed partner corners.
@@ -160,9 +169,21 @@ pub fn request_collision_chunks(
 			let hi = ((chunk + IVec3::ONE) * CHUNK_SIZE).as_vec3();
 			let chunk_box = transform_box(&req.grid_tf, lo, hi);
 			if partners.iter().any(|p| overlap(chunk_box, *p)) {
-				streaming.fetch_needed(req.entity, consumer.as_mut(), &channel, chunk);
+				want.insert(chunk);
 			}
 		}
 	}
 
+	// Pass 3: diff against last tick — fetch newly wanted chunks, release dropped
+	// ones. Grids absent from `desired` (their body vanished) release everything.
+	for (entity, _, _, mut streaming, _, mut grid, mut wanted) in grids.iter_mut() {
+		let want = desired.remove(&entity).unwrap_or_default();
+		for &chunk in want.difference(&wanted.0) {
+			streaming.fetch_needed(entity, consumer.as_mut(), &channel, chunk);
+		}
+		for &chunk in wanted.0.difference(&want) {
+			streaming.release(chunk, grid.as_mut());
+		}
+		wanted.0 = want;
+	}
 }

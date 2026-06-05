@@ -46,6 +46,26 @@ impl Grid {
 		self.pending.push(GridEdit::Remove { voxel_pos: *voxel_pos });
 	}
 
+	pub fn add_area(&mut self, min: &IVec3, size: &IVec3, voxel: &Voxel) {
+		for x in 0..size.x {
+			for y in 0..size.y {
+				for z in 0..size.z {
+					self.add_voxel(&(min + IVec3::new(x, y, z)), voxel);
+				}
+			}
+		}
+	}
+
+	pub fn remove_area(&mut self, min: &IVec3, size: &IVec3) {
+		for x in 0..size.x {
+			for y in 0..size.y {
+				for z in 0..size.z {
+					self.remove_voxel(&(min + IVec3::new(x, y, z)));
+				}
+			}
+		}
+	}
+
 	pub fn voxel(&self, voxel_pos: &IVec3) -> Option<&Voxel> {
 		self.subgrids
 			.get(&Self::sub_grid_pos_of(voxel_pos))?

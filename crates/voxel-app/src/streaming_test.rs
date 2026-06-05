@@ -89,6 +89,9 @@ fn serve_chunk_requests(
 			voxels
 		});
 		let sender = loader.sender();
-		let _ = sender.send(ChunkLoadResult { grid: request.grid, chunk: request.chunk, voxels });
+		// std::thread::spawn(move || {
+			// std::thread::sleep(std::time::Duration::from_millis(50));
+			let _ = sender.send(ChunkLoadResult { grid: request.grid, chunk: request.chunk, voxels });
+		// });
 	}
 }
