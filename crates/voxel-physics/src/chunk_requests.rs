@@ -9,9 +9,6 @@ use crate::components::{IsStatic, RigidBody, VoxelCollider};
 
 voxel_streaming::chunk_consumer!(pub PhysicsConsumer);
 
-/// The chunks physics currently wants resident for a collider grid. Diffed each
-/// tick to issue one `fetch_needed` per newly wanted chunk and one `release`
-/// per chunk no longer wanted.
 #[derive(Component, Default)]
 pub struct WantedChunks(HashSet<IVec3>);
 
@@ -43,9 +40,7 @@ fn overlap(a: (Vec3, Vec3), b: (Vec3, Vec3)) -> bool {
 	a.0.cmple(b.1).all() && b.0.cmple(a.1).all()
 }
 
-/// Cached grid-local AABB of a grid's present chunks. Presence is fixed after
-/// startup, so this is computed once: walking a large presence tree every tick
-/// would be far too slow.
+/// Cached grid-local AABB of a grid's present chunks.
 #[derive(Component)]
 pub struct PresenceAabb {
 	lo: Vec3,

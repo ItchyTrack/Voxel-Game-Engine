@@ -25,10 +25,6 @@ impl GridStreaming {
 		matches!(self.presence.state(chunk), Some(ChunkState::Loaded))
 	}
 
-	/// Begin a load if the chunk is `Available`, emitting a request. Records the
-	/// requesting object in the chunk's count. Absent (unknown/empty) chunks are
-	/// skipped. Callers must call this exactly once when they first need a chunk,
-	/// paired with one [`GridStreaming::release`] when they no longer need it.
 	fn start_request(&mut self, grid: GridId, channel: &ChunkRequestChannel, chunk: IVec3) -> bool {
 		match self.presence.state(chunk) {
 			None => return false,
@@ -42,13 +38,10 @@ impl GridStreaming {
 		true
 	}
 
-	/// Prefetch (non-gating): request a chunk without recording it in a consumer.
 	pub fn fetch(&mut self, grid: GridId, channel: &ChunkRequestChannel, chunk: IVec3) {
 		self.start_request(grid, channel, chunk);
 	}
 
-	/// Gating: request a chunk and record it in `consumer` until it loads.
-	/// Absent (unknown/empty) chunks are skipped (nothing to gate on).
 	pub fn fetch_needed<C: ChunkConsumer>(
 		&mut self,
 		grid: GridId,
@@ -62,10 +55,6 @@ impl GridStreaming {
 		}
 	}
 
-	/// Drop one object's request for `chunk`. When the last requester releases
-	/// it, the chunk's voxels are removed from `grid` and it returns to
-	/// `Available`. Pairs with one earlier [`fetch`](Self::fetch) /
-	/// [`fetch_needed`](Self::fetch_needed); assumes no double releases.
 	pub fn release(&mut self, chunk: IVec3, grid: &mut Grid) {
 		if self.presence.remove_request(chunk) > 0 { return; }
 		match self.presence.state(chunk) {
@@ -87,10 +76,6 @@ impl GridStreaming {
 	}
 }
 
-/// Drain finished loads: write their voxels straight into the grid, update
-/// chunk state, and clear them from every consumer's needed set (so
-/// `needed.is_empty()` tracks readiness). Runs before `ApplyGridEdits` so the
-/// queued edits land the same frame.
 pub fn receive_results(
 	channel: Res<ChunkLoaderChannel>,
 	mut grids: Query<(&mut GridStreaming, &mut Grid)>,

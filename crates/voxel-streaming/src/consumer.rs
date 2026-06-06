@@ -55,7 +55,6 @@ impl VoxelStreamingAppExt for App {
 	}
 }
 
-/// Run condition: true once consumer `T` has no outstanding needed chunks.
 pub fn chunks_ready<T: ChunkConsumer + Component>(query: Option<Single<&T>>) -> bool {
 	query.map_or(true, |consumer| consumer.needed().is_empty())
 }

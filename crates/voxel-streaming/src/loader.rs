@@ -11,14 +11,6 @@ pub struct ChunkLoadRequest {
 	pub chunk: IVec3,
 }
 
-pub struct ChunkLoadResult {
-	pub grid: GridId,
-	pub chunk: IVec3,
-	pub voxels: Option<Voxels>,
-}
-
-/// Outbound queue: requests pushed by the streaming systems, drained by the
-/// user's loader (clone `receiver()` into an async/off-thread loader).
 #[derive(Resource)]
 pub struct ChunkRequestChannel {
 	sender: Sender<ChunkLoadRequest>,
@@ -46,8 +38,13 @@ impl ChunkRequestChannel {
 	}
 }
 
-/// Inbound channel: finished loads pushed by the loader from any thread,
-/// drained by the plugin.
+#[derive(Debug)]
+pub struct ChunkLoadResult {
+	pub grid: GridId,
+	pub chunk: IVec3,
+	pub voxels: Option<Voxels>,
+}
+
 #[derive(Resource)]
 pub struct ChunkLoaderChannel {
 	sender: Sender<ChunkLoadResult>,
