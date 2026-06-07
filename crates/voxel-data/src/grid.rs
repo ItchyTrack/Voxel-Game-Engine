@@ -84,6 +84,53 @@ impl Grid {
 		touched
 	}
 
+	pub fn read_clear_area(&mut self, min: IVec3, size: IVec3) -> (HashSet<IVec3>, Voxels) {
+		let mut touched = HashSet::new();
+		let mut out = Voxels::new();
+		if size.cmple(IVec3::ZERO).any() { return (touched, out); }
+		let sub = IVec3::splat(SUB_GRID_SIZE);
+		let hi = min + size;
+		let sg_lo = min.div_euclid(sub);
+		let sg_hi = (hi - IVec3::ONE).div_euclid(sub);
+		for sx in sg_lo.x..=sg_hi.x {
+			for sy in sg_lo.y..=sg_hi.y {
+				for sz in sg_lo.z..=sg_hi.z {
+					let sub_origin = IVec3::new(sx, sy, sz) * SUB_GRID_SIZE;
+					let Some(slot) = self.subgrids.get_mut(&sub_origin) else { continue };
+					let cell_lo = min.max(sub_origin);
+					let cell_hi = hi.min(sub_origin + sub);
+					let local = cell_lo - sub_origin;
+					let extent = cell_hi - cell_lo;
+
+					let region_lo = local.as_i16vec3();
+					let region_hi = (local + extent).as_i16vec3();
+					let palette = slot.voxels.palette();
+					slot.voxels.grid_tree().for_each_in_region(
+						region_lo,
+						region_hi - I16Vec3::ONE,
+						|pos, run, id| {
+							let Some(voxel) = palette.voxel(id) else { return };
+							let run_lo = pos.max(region_lo);
+							let run_hi = (pos + I16Vec3::splat(run as i16)).min(region_hi);
+							let out_extent = run_hi - run_lo;
+							if out_extent.cmple(I16Vec3::ZERO).any() { return; }
+							let world = sub_origin + run_lo.as_ivec3();
+							out.add_area((world - min).as_i16vec3(), out_extent, *voxel);
+						},
+					);
+
+					if local == IVec3::ZERO && extent == sub {
+						slot.voxels = Voxels::new();
+					} else {
+						slot.voxels.remove_area(local.as_i16vec3(), extent.as_i16vec3());
+					}
+					touched.insert(sub_origin);
+				}
+			}
+		}
+		(touched, out)
+	}
+
 	/// Write every voxel of `src` directly into this grid at offset `base`,
 	/// bypassing the pending queue. Cells are bulk-filled and split across
 	/// sub-grid boundaries. Returns the touched origins for [`reconcile_subgrids`].

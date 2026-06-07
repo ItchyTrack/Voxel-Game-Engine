@@ -5,6 +5,40 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
 
+#[derive(Debug)]
+pub struct ChunkSaveRequest {
+	pub grid: GridId,
+	pub chunk: IVec3,
+	pub voxels: Voxels,
+}
+
+#[derive(Resource)]
+pub struct ChunkSaveChannel {
+	sender: Sender<ChunkSaveRequest>,
+	receiver: Receiver<ChunkSaveRequest>,
+}
+
+impl Default for ChunkSaveChannel {
+	fn default() -> Self {
+		let (sender, receiver) = unbounded();
+		Self { sender, receiver }
+	}
+}
+
+impl ChunkSaveChannel {
+	pub(crate) fn save(&self, request: ChunkSaveRequest) {
+		let _ = self.sender.send(request);
+	}
+
+	pub fn receiver(&self) -> Receiver<ChunkSaveRequest> {
+		self.receiver.clone()
+	}
+
+	pub fn try_recv(&self) -> Option<ChunkSaveRequest> {
+		self.receiver.try_recv().ok()
+	}
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ChunkLoadRequest {
 	pub grid: GridId,

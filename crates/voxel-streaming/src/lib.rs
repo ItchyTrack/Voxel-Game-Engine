@@ -8,7 +8,7 @@ mod streaming;
 
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
-pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel};
+pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest};
 pub use presence::{ChunkPresence, ChunkState};
 pub use streaming::{apply_chunk_clears, receive_results, GridStreaming};
 
@@ -25,6 +25,7 @@ impl Plugin for VoxelStreamingPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<ChunkRequestChannel>()
 			.init_resource::<ChunkLoaderChannel>()
+			.init_resource::<ChunkSaveChannel>()
 			.add_systems(
 				PreUpdate,
 				(streaming::receive_results, streaming::apply_chunk_clears)

@@ -6,7 +6,7 @@ use voxel_data::subgrid::SubGrid;
 
 use crate::chunk::{chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
-use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel};
+use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest};
 use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
@@ -36,7 +36,11 @@ impl GridStreaming {
 				self.presence.set_state(chunk, ChunkState::InFlight);
 				channel.request(ChunkLoadRequest { grid, chunk });
 			}
-			Some(ChunkState::InFlight) | Some(ChunkState::Loaded) => {}
+			Some(ChunkState::ExternalDirty) => {
+				self.presence.set_state(chunk, ChunkState::ExternalDirtyInFlight);
+				channel.request(ChunkLoadRequest { grid, chunk });
+			}
+			_ => {}
 		}
 		self.presence.add_request(chunk);
 		true
@@ -98,21 +102,24 @@ pub fn receive_results(
 ) {
 	while let Some(result) = channel.try_recv() {
 		if let Ok((mut streaming, mut grid)) = grids.get_mut(result.grid) {
-			if streaming.presence.state(result.chunk) == Some(ChunkState::InFlight) {
-				match result.voxels {
-					Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
-						streaming.presence.set_state(result.chunk, ChunkState::Available);
+			match streaming.presence.state(result.chunk) {
+				Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
+					match result.voxels {
+						Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
+							streaming.presence.set_state(result.chunk, ChunkState::Available);
+						}
+						Some(voxels) => {
+							streaming.mark_loaded(result.chunk);
+							let base = chunk_origin(result.chunk);
+							let touched = grid.splat_voxels(base, &voxels);
+							reconcile_subgrids(result.grid, grid.as_mut(), touched, &mut commands, &mut sub_grids);
+						}
+						None => streaming.mark_empty(result.chunk),
 					}
-					Some(voxels) => {
-						streaming.mark_loaded(result.chunk);
-						let base = chunk_origin(result.chunk);
-						let touched = grid.splat_voxels(base, &voxels);
-						reconcile_subgrids(result.grid, grid.as_mut(), touched, &mut commands, &mut sub_grids);
-					}
-					None => streaming.mark_empty(result.chunk),
 				}
-			} else {
-				bevy::log::warn!("receive_results received a chunk without anyone requesting it!");
+				_ => {
+					bevy::log::warn!("receive_results received a chunk without anyone requesting it!");
+				}
 			}
 		}
 		for mut entity_consumers in consumers.iter_mut() {
@@ -135,6 +142,7 @@ pub fn receive_results(
 
 pub fn apply_chunk_clears(
 	mut commands: Commands,
+	save_channel: Res<ChunkSaveChannel>,
 	mut grids: Query<(Entity, &mut GridStreaming, &mut Grid)>,
 	mut sub_grids: Query<&mut SubGrid>,
 ) {
@@ -143,14 +151,28 @@ pub fn apply_chunk_clears(
 		let mut still_pending = Vec::new();
 		for (chunk, frames) in std::mem::take(&mut streaming.pending_clears) {
 			if streaming.presence.request_count(chunk) > 0 { continue; }
-			if streaming.presence.state(chunk) != Some(ChunkState::Loaded) { continue; }
-			if frames > 0 {
-				still_pending.push((chunk, frames - 1));
-				continue;
+			match streaming.presence.state(chunk) {
+				Some(ChunkState::Loaded) | Some(ChunkState::ExternalDirty) | Some(ChunkState::ExternalDirtyInFlight) => {
+					if frames > 0 {
+						still_pending.push((chunk, frames - 1));
+						continue;
+					}
+					let touched = grid.clear_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
+					reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
+					streaming.presence.set_state(chunk, ChunkState::Available);
+				}
+				Some(ChunkState::InternalDirty) => {
+					if frames > 0 {
+						still_pending.push((chunk, frames - 1));
+						continue;
+					}
+					let (touched, voxels) = grid.read_clear_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
+						save_channel.save(ChunkSaveRequest { grid: grid_entity, chunk, voxels });
+					reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
+					streaming.presence.set_state(chunk, ChunkState::Available);
+				}
+				_ => {}
 			}
-			let touched = grid.clear_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
-			reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
-			streaming.presence.set_state(chunk, ChunkState::Available);
 		}
 		streaming.pending_clears = still_pending;
 	}

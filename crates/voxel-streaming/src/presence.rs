@@ -10,12 +10,12 @@ type ChunkGridTree = GridTree<PackedCell, I32Coord>;
 /// confirmed empty.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChunkState {
-	/// Present in the source data, not yet requested.
 	Available,
-	/// Requested, awaiting load.
 	InFlight,
-	/// Loaded into the grid.
 	Loaded,
+	InternalDirty,
+	ExternalDirty,
+	ExternalDirtyInFlight,
 }
 
 impl ChunkState {
@@ -24,6 +24,9 @@ impl ChunkState {
 			ChunkState::Available => 0,
 			ChunkState::InFlight => 1,
 			ChunkState::Loaded => 2,
+			ChunkState::InternalDirty => 3,
+			ChunkState::ExternalDirty => 4,
+			ChunkState::ExternalDirtyInFlight => 5,
 		}
 	}
 
@@ -31,7 +34,10 @@ impl ChunkState {
 		match code {
 			1 => ChunkState::InFlight,
 			2 => ChunkState::Loaded,
-			_ => ChunkState::Available,
+			3 => ChunkState::Available,
+			4 => ChunkState::InternalDirty,
+			5 => ChunkState::ExternalDirty,
+			_ => ChunkState::ExternalDirtyInFlight,
 		}
 	}
 }
