@@ -64,6 +64,14 @@ impl ChunkPresence {
 		self.tree.insert(&chunk, encode(ChunkState::Available, 0));
 	}
 
+	pub fn mark_present_area(&mut self, min: IVec3, size: IVec3) {
+		self.tree.add_area(&min, size, encode(ChunkState::Available, 0));
+	}
+
+	pub fn clear_present_area(&mut self, min: IVec3, size: IVec3) {
+		self.tree.remove_area(&min, size);
+	}
+
 	pub fn set_state(&mut self, chunk: IVec3, state: ChunkState) {
 		let count = self.request_count(chunk);
 		self.tree.insert(&chunk, encode(state, count));

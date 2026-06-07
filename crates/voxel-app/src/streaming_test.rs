@@ -1,4 +1,4 @@
-//! Test harness for voxel-streaming: collider voxels are written straight into
+//! Test harness for voxel-streaming: voxels are written straight into
 //! a tmp store (never resident) and presence is marked, then physics chunk
 //! requests are served from it. `voxel-streaming` writes received chunks into
 //! the grids.
@@ -10,7 +10,6 @@ use bevy::prelude::*;
 
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::voxels::{Voxel, Voxels};
-use voxel_physics::components::VoxelCollider;
 use voxel_streaming::{
 	chunk_of, ChunkLoaderChannel, ChunkLoadResult, ChunkRequestChannel, GridStreaming, CHUNK_SIZE,
 };
@@ -31,12 +30,11 @@ impl Plugin for StreamingTestPlugin {
 	}
 }
 
-/// Drop-in for `Grid` that collects voxels for the streaming store instead of
-/// making them resident.
+/// Collects voxels destined for the streaming store before a grid is spawned.
 #[derive(Default)]
-pub struct ColliderVoxels(Vec<(IVec3, Voxel)>);
+pub struct StreamingVoxels(Vec<(IVec3, Voxel)>);
 
-impl ColliderVoxels {
+impl StreamingVoxels {
 	pub fn new() -> Self {
 		Self::default()
 	}
@@ -46,18 +44,16 @@ impl ColliderVoxels {
 	}
 }
 
-/// Spawn an (initially empty) collider grid under `parent` whose voxels live in
-/// the streaming store until physics requests its chunks.
-pub fn spawn_collider(
+pub fn spawn_grid(
 	commands: &mut Commands,
 	store: &mut WorldStore,
 	parent: Entity,
 	transform: Transform,
-	voxels: ColliderVoxels,
+	voxels: StreamingVoxels,
 	extra: impl Bundle,
 ) {
 	let child = commands
-		.spawn((transform, Grid::new(), VoxelCollider, extra))
+		.spawn((transform, Grid::new(), extra))
 		.id();
 	commands.entity(parent).add_child(child);
 

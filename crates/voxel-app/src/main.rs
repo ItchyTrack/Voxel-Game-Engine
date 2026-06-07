@@ -5,6 +5,7 @@ mod debug_toggles;
 mod debug_ui;
 mod scene;
 mod streaming_test;
+mod vox_loader;
 mod world_interaction;
 
 use std::time::Duration;

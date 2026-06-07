@@ -48,6 +48,7 @@ pub(crate) fn manage_gpu_uploads(
 
 		if in_flight.0.contains(&entity) { continue; }
 		let needs_upload = match state {
+			Some(s) if request.lod_level == 0.0 => s.lod_level() != 0.0 || needs_reupload,
 			Some(s) => (s.lod_level() - request.lod_level).abs() > LOD_REUPLOAD_EPSILON || needs_reupload,
 			None => true,
 		};
