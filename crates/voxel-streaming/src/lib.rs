@@ -2,7 +2,6 @@ use bevy::prelude::*;
 
 mod chunk;
 mod consumer;
-mod grid_tree;
 mod loader;
 mod presence;
 mod streaming;

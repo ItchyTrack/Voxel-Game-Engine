@@ -3,7 +3,7 @@ use tracy_client::span;
 use std::{sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
 
-use super::grid_tree::GridTree;
+use super::voxel_grid_tree::VoxelGridTree;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Voxel {
@@ -41,7 +41,7 @@ impl VoxelPalette {
 
 #[derive(Debug)]
 pub struct Voxels {
-	voxels: GridTree,
+	voxels: VoxelGridTree,
 	voxel_palette: VoxelPalette,
 	bounding_box: Mutex<Option<(I16Vec3, I16Vec3)>>,
 	bounding_box_dirty: AtomicBool,
@@ -50,7 +50,7 @@ pub struct Voxels {
 impl Voxels {
 	pub fn new() -> Self {
 		Self {
-			voxels: GridTree::new(),
+			voxels: VoxelGridTree::new(),
 			voxel_palette: VoxelPalette::new(),
 			bounding_box: Mutex::new(None),
 			bounding_box_dirty: AtomicBool::new(false)
@@ -76,7 +76,7 @@ impl Voxels {
 	pub fn voxel(&self, pos: &I16Vec3) -> Option<&Voxel> {
 			self.voxel_palette.voxel(self.voxels.get(pos)?)
 		}
-	pub fn grid_tree(&self) -> &GridTree { &self.voxels }
+	pub fn grid_tree(&self) -> &VoxelGridTree { &self.voxels }
 	pub fn palette(&self) -> &VoxelPalette { &self.voxel_palette }
 
 	pub fn is_empty(&self) -> bool { self.voxels.len() == 0 }

@@ -3,7 +3,8 @@ use std::collections::{HashMap};
 use parry3d;
 use rand::{seq::IteratorRandom};
 
-use voxel_data::grid_tree::{self, GridTree};
+use voxel_data::grid_tree::{self, GridCell, CellKind};
+use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
 use voxel_data::voxels::VoxelPalette;
 
 
@@ -21,7 +22,7 @@ fn slots_for_nonleaf(bitmap: u64, depth: u8) -> usize {
 
 // -- LOD collapse --------------------------------------------------------------
 fn compute_lod_collapse(
-	nodes:       &[grid_tree::GridTreeNode],
+	nodes:       &[PackedNode],
 	root_depth:  u8,
 	palette_vec: &[[u8; 4]],
 	palette_map: &HashMap<u16, u8>,
@@ -45,8 +46,8 @@ fn compute_lod_collapse(
 			stack.push((idx, depth, true));
 			if depth > 0 {
 				for cell in &nodes[idx as usize].contents {
-					if cell.value_type() == 2 {
-						stack.push((idx + cell.value() as u32, depth - 1, false));
+					if cell.kind() == CellKind::Node {
+						stack.push((idx + cell.node_offset(), depth - 1, false));
 					}
 				}
 			}
@@ -58,23 +59,22 @@ fn compute_lod_collapse(
 		let mut n = 0u64;
 
 		for cell in &node.contents {
-			match cell.value_type() {
-				0 => {}
-				1 => {
-					if let Some(&pi) = palette_map.get(&cell.value()) {
+			match cell.kind() {
+				CellKind::Empty => {}
+				CellKind::Data => {
+					if let Some(&pi) = palette_map.get(&cell.data_value()) {
 						if let Some(c) = palette_vec.get(pi as usize) {
 							for j in 0..4 { sum_color[j] += c[j] as f64; }
 							n += 1;
 						}
 					}
 				}
-				2 => {
-					let ci = (idx + cell.value() as u32) as usize;
+				CellKind::Node => {
+					let ci = (idx + cell.node_offset()) as usize;
 					let w  = count[ci] as f64;
 					for j in 0..4 { sum_color[j] += avg_color[ci][j] as f64 * w; }
 					n += count[ci];
 				}
-				_ => unreachable!(),
 			}
 		}
 
@@ -86,10 +86,10 @@ fn compute_lod_collapse(
 
 		let mut sum_sq = 0f64;
 		for cell in &node.contents {
-			match cell.value_type() {
-				0 => {}
-				1 => {
-					if let Some(&pi) = palette_map.get(&cell.value()) {
+			match cell.kind() {
+				CellKind::Empty => {}
+				CellKind::Data => {
+					if let Some(&pi) = palette_map.get(&cell.data_value()) {
 						let c = palette_vec[pi as usize];
 						for j in 0..3 {
 							let d = c[j] as f64 / 255.0 - avg[j] as f64 / 255.0;
@@ -97,8 +97,8 @@ fn compute_lod_collapse(
 						}
 					}
 				}
-				2 => {
-					let ci = (idx + cell.value() as u32) as usize;
+				CellKind::Node => {
+					let ci = (idx + cell.node_offset()) as usize;
 					let w  = count[ci] as f64;
 					sum_sq += variance[ci] as f64 * w;
 					for j in 0..3 {
@@ -106,7 +106,6 @@ fn compute_lod_collapse(
 						sum_sq += d * d * w;
 					}
 				}
-				_ => unreachable!(),
 			}
 		}
 
@@ -147,17 +146,17 @@ fn closest_palette_entry(palette_vec: &[[u8; 4]], target: [u8; 4]) -> u8 {
 		.unwrap_or(0)
 }
 
-fn build_bitmap(node: &grid_tree::GridTreeNode) -> u64 {
+fn build_bitmap(node: &PackedNode) -> u64 {
 	let mut bitmap = 0u64;
 	for (i, cell) in node.contents.iter().enumerate() {
-		if cell.value_type() != 0 {
+		if cell.kind() != CellKind::Empty {
 			bitmap |= 1u64 << i;
 		}
 	}
 	bitmap
 }
 
-pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_level: f32) -> (Vec<u8>, Vec<u8>) {
+pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, lod_level: f32) -> (Vec<u8>, Vec<u8>) {
 	let (nodes, _, root_depth) = grid_tree.internals();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
 
@@ -191,8 +190,8 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 		gpu_order.push((cpu_idx, depth));
 		if depth > 0 {
 			for cell in nodes[cpu_idx as usize].contents.iter() {
-				if cell.value_type() == 2 {
-					let child_cpu = cpu_idx + cell.value() as u32;
+				if cell.kind() == CellKind::Node {
+					let child_cpu = cpu_idx + cell.node_offset();
 					if collapse_rep[child_cpu as usize].is_some() { continue; }
 					dfs_stack.push((child_cpu, depth - 1));
 				}
@@ -230,11 +229,11 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 				let center_x = node_origin[0] as f32 + cell_x as f32 * cell_size as f32 + half - root_half;
 				let center_y = node_origin[1] as f32 + cell_y as f32 * cell_size as f32 + half - root_half;
 				let center_z = node_origin[2] as f32 + cell_z as f32 * cell_size as f32 + half - root_half;
-				let solid = match cell.value_type() {
-					0 => false,
-					1 => true,
-					2 => {
-						let child_cpu = cpu_idx + cell.value() as u32;
+				let solid = match cell.kind() {
+					CellKind::Empty => false,
+					CellKind::Data => true,
+					CellKind::Node => {
+						let child_cpu = cpu_idx + cell.node_offset();
 						if collapse_rep[child_cpu as usize].is_some() {
 							true
 						} else {
@@ -246,7 +245,6 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 							continue;
 						}
 					}
-					_ => unreachable!(),
 				};
 				tagged_cells.push(TaggedCell { center_x, center_y, center_z, half, solid });
 			}
@@ -342,9 +340,9 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 		let mut hit_data = false;
 
 		for cell in node.contents {
-			match cell.value_type() {
-				0 => {}
-				1 => {
+			match cell.kind() {
+				CellKind::Empty => {}
+				CellKind::Data => {
 					if hit_data {
 						voxel_data_size += 1 + voxel_node_run;
 					} else {
@@ -353,8 +351,8 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 					}
 					voxel_node_run = 0;
 				}
-				2 => {
-					let child_cpu = cpu_idx + cell.value() as u32;
+				CellKind::Node => {
+					let child_cpu = cpu_idx + cell.node_offset();
 					if collapse_rep[child_cpu as usize].is_some() {
 						if hit_data {
 							voxel_data_size += 1 + voxel_node_run;
@@ -367,7 +365,6 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 						voxel_node_run += 1;
 					}
 				}
-				_ => unreachable!(),
 			}
 		}
 
@@ -424,8 +421,8 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 		if depth == 0 {
 			for i in 0..grid_tree::SIZE_USIZE_CUBED {
 				if bitmap & (1u64 << i) == 0 { continue; }
-				let pal = match node.contents[i].value_type() {
-					1 => palette_map.get(&node.contents[i].value()).copied().unwrap_or(254),
+				let pal = match node.contents[i].kind() {
+					CellKind::Data => palette_map.get(&node.contents[i].data_value()).copied().unwrap_or(254),
 					_ => unreachable!("depth-0 cell must be DATA"),
 				};
 				voxel_bytes[vox_write] = pal;
@@ -440,18 +437,18 @@ pub fn make_gpu_grid_tree(grid_tree: &GridTree, palette: &VoxelPalette, lod_leve
 				if bitmap & (1u64 << i) == 0 { continue; }
 				let cell = &node.contents[i];
 
-				let entry_val: u16 = match cell.value_type() {
-					1 => {
+				let entry_val: u16 = match cell.kind() {
+					CellKind::Data => {
 						if hit_data { vox_write += voxel_node_run; }
 						else { vox_write += voxel_node_run; hit_data = true; }
 						voxel_node_run = 0;
-						let pal = palette_map.get(&cell.value()).copied().unwrap_or(254);
+						let pal = palette_map.get(&cell.data_value()).copied().unwrap_or(254);
 						voxel_bytes[vox_write] = pal;
 						vox_write += 1;
 						0x00
 					}
-					2 => {
-						let child_cpu = cpu_idx + cell.value() as u32;
+					CellKind::Node => {
+						let child_cpu = cpu_idx + cell.node_offset();
 						if let Some(rep) = collapse_rep[child_cpu as usize] {
 							if hit_data { vox_write += voxel_node_run; }
 							else { vox_write += voxel_node_run; hit_data = true; }

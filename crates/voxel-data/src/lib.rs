@@ -1,4 +1,5 @@
 pub mod grid_tree;
+pub mod voxel_grid_tree;
 pub mod voxels;
 pub mod grid;
 pub mod subgrid;

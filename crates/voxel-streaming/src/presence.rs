@@ -1,7 +1,10 @@
 use bevy::math::IVec3;
 use bevy::transform::components::Transform;
 
-use crate::grid_tree::ChunkGridTree;
+use voxel_data::grid_tree::{GridTree, I32Coord};
+use voxel_data::voxel_grid_tree::PackedCell;
+
+type ChunkGridTree = GridTree<PackedCell, I32Coord>;
 
 /// Lifecycle of a chunk. A chunk absent from the tree is either unknown or
 /// confirmed empty.
