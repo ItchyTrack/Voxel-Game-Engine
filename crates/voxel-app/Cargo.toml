@@ -31,6 +31,7 @@ voxel-data = { version = "0.1.0", path = "../voxel-data" }
 gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
+voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"

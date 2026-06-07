@@ -10,8 +10,10 @@ use bevy::prelude::*;
 
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::voxels::{Voxel, Voxels};
+use voxel_edit::GridEdits;
 use voxel_streaming::{
-	chunk_of, ChunkLoaderChannel, ChunkLoadResult, ChunkRequestChannel, GridStreaming, CHUNK_SIZE,
+	chunk_of, ChunkLoaderChannel, ChunkLoadResult, ChunkRequestChannel, ChunkSaveChannel,
+	GridStreaming, CHUNK_SIZE,
 };
 
 /// The "world data" the loader reads from, keyed by (grid, chunk): each chunk's
@@ -26,7 +28,7 @@ pub struct StreamingTestPlugin;
 impl Plugin for StreamingTestPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<WorldStore>()
-			.add_systems(Update, serve_chunk_requests);
+			.add_systems(Update, (serve_chunk_requests, apply_chunk_saves));
 	}
 }
 
@@ -53,7 +55,7 @@ pub fn spawn_grid(
 	extra: impl Bundle,
 ) {
 	let child = commands
-		.spawn((transform, Grid::new(), extra))
+		.spawn((transform, Grid::new(), GridEdits::default(), extra))
 		.id();
 	commands.entity(parent).add_child(child);
 
@@ -84,8 +86,32 @@ fn serve_chunk_requests(
 		});
 		let sender = loader.sender();
 		// std::thread::spawn(move || {
-			// std::thread::sleep(std::time::Duration::from_millis(50));
+		// 	std::thread::sleep(std::time::Duration::from_millis(50));
 			let _ = sender.send(ChunkLoadResult { grid: request.grid, chunk: request.chunk, voxels });
 		// });
+	}
+}
+
+fn apply_chunk_saves(saves: Res<ChunkSaveChannel>, mut store: ResMut<WorldStore>) {
+	while let Some(save) = saves.try_recv() {
+		let key = (save.grid, save.chunk);
+		if save.voxels.is_empty() {
+			store.chunks.remove(&key);
+			continue;
+		}
+		let palette = save.voxels.palette();
+		let mut list = Vec::new();
+		for (pos, size, id) in save.voxels.grid_tree().iter() {
+			let Some(voxel) = palette.voxel(id) else { continue };
+			let voxel = *voxel;
+			for dx in 0..size as i16 {
+				for dy in 0..size as i16 {
+					for dz in 0..size as i16 {
+						list.push((pos + I16Vec3::new(dx, dy, dz), voxel));
+					}
+				}
+			}
+		}
+		store.chunks.insert(key, list);
 	}
 }

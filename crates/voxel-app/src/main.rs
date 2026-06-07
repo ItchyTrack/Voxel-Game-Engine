@@ -24,6 +24,7 @@ use scene::ScenePlugin;
 use streaming_test::StreamingTestPlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use voxel_renderer::VoxelRendererPlugin;
+use voxel_edit::VoxelEditPlugin;
 use voxel_streaming::VoxelStreamingPlugin;
 use world_interaction::WorldInteractionPlugin;
 
@@ -33,6 +34,7 @@ struct GamePlugins;
 impl PluginGroup for GamePlugins {
 	fn build(self) -> PluginGroupBuilder {
 		PluginGroupBuilder::start::<Self>()
+			.add(VoxelEditPlugin)
 			.add(VoxelStreamingPlugin)
 			.add(VoxelRendererPlugin)
 			.add(VoxelPhysicsPlugin)

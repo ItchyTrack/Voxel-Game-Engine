@@ -11,9 +11,6 @@ use bevy::prelude::*;
 
 use crate::task_queue::{AsyncTaskPriorityQueueResource, TaskQueueResource};
 
-#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ApplyGridEdits;
-
 #[derive(Default)]
 pub struct VoxelDataPlugin;
 
@@ -21,7 +18,6 @@ impl Plugin for VoxelDataPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<TaskQueueResource>()
 			.init_resource::<AsyncTaskPriorityQueueResource>();
-		app.add_systems(PreUpdate, grid::apply_grid_edits.in_set(ApplyGridEdits));
 		app.add_systems(Update, task_system::drain_task_queue);
 	}
 }

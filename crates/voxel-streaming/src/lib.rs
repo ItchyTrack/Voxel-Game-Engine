@@ -23,13 +23,15 @@ pub struct VoxelStreamingPlugin;
 
 impl Plugin for VoxelStreamingPlugin {
 	fn build(&self, app: &mut App) {
+		use voxel_edit::VoxelEditAppExt;
 		app.init_resource::<ChunkRequestChannel>()
 			.init_resource::<ChunkLoaderChannel>()
 			.init_resource::<ChunkSaveChannel>()
+			.register_edit_gate::<GridStreaming>()
 			.add_systems(
 				PreUpdate,
 				(streaming::receive_results, streaming::apply_chunk_clears)
-					.before(voxel_data::ApplyGridEdits),
+					.before(voxel_edit::ApplyGridEdits),
 			);
 	}
 }

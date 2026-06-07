@@ -7,6 +7,7 @@ use bevy_egui::input::EguiWantsInput;
 
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::voxels::Voxel;
+use voxel_edit::GridEdits;
 use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, PhysicsSet, Velocity};
 
 use crate::audio_plugin::PlaySfx;
@@ -43,7 +44,7 @@ fn voxel_place_break_system(
 	keys: Res<ButtonInput<KeyCode>>,
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-	mut grids: Query<(Entity, &GlobalTransform, &mut Grid)>,
+	mut grids: Query<(Entity, &GlobalTransform, &Grid, &mut GridEdits)>,
 	mut sfx: MessageWriter<PlaySfx>,
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
@@ -52,17 +53,17 @@ fn voxel_place_break_system(
 	if !place && !destroy { return; }
 
 	let Some((origin, dir)) = camera_ray(&cameras) else { return };
-	let hit = raycast_grids(grids.iter().map(|(e, gt, g)| (e, gt, g)), origin, dir);
+	let hit = raycast_grids(grids.iter().map(|(e, gt, g, _)| (e, gt, g)), origin, dir);
 	let Some(hit) = hit else { return };
 
-	let Ok((_, grid_global_transform, mut grid)) = grids.get_mut(hit.grid_entity) else { return };
+	let Ok((_, grid_global_transform, _, mut edits)) = grids.get_mut(hit.grid_entity) else { return };
 
 	if place {
 		let pos = hit.voxel_pos + hit.normal;
-		grid.add_voxel(&pos, &PLACE_VOXEL);
+		edits.add_voxel(&pos, &PLACE_VOXEL);
 		sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 	} else {
-		grid.remove_voxel(&hit.voxel_pos);
+		edits.remove_voxel(&hit.voxel_pos);
 		sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
 	}
 }

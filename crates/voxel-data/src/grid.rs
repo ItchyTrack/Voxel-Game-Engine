@@ -11,12 +11,6 @@ pub const SUB_GRID_SIZE: i32 = 57;
 /// A [`Grid`] entity. Each rigid voxel object owns one.
 pub type GridId = Entity;
 
-#[derive(Debug, Clone, Copy)]
-enum GridEdit {
-	Add { voxel_pos: IVec3, voxel: Voxel },
-	Remove { voxel_pos: IVec3 },
-}
-
 #[derive(Debug)]
 struct SubGridSlot {
 	voxels: Voxels,
@@ -26,7 +20,6 @@ struct SubGridSlot {
 #[derive(Debug, Component, Default)]
 pub struct Grid {
 	subgrids: HashMap<IVec3, SubGridSlot>,
-	pending: Vec<GridEdit>,
 }
 
 impl Grid {
@@ -39,21 +32,26 @@ impl Grid {
 		pos.rem_euclid(IVec3::splat(SUB_GRID_SIZE)).as_i16vec3()
 	}
 
-	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) {
-		self.pending.push(GridEdit::Add { voxel_pos: *voxel_pos, voxel: *voxel });
-	}
-	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) {
-		self.pending.push(GridEdit::Remove { voxel_pos: *voxel_pos });
-	}
-
-	pub fn add_area(&mut self, min: &IVec3, size: &IVec3, voxel: &Voxel) {
-		for x in 0..size.x {
-			for y in 0..size.y {
-				for z in 0..size.z {
-					self.add_voxel(&(min + IVec3::new(x, y, z)), voxel);
+	/// Write (`Some`) or remove (`None`) a single voxel. Returns the touched
+	/// sub-grid origin for [`reconcile_subgrids`].
+	pub fn set_voxel(&mut self, voxel_pos: IVec3, voxel: Option<Voxel>) -> IVec3 {
+		let pos = Self::sub_grid_pos_of(&voxel_pos);
+		let local = Self::local_of(&voxel_pos);
+		match voxel {
+			Some(voxel) => {
+				self.subgrids
+					.entry(pos)
+					.or_insert_with(|| SubGridSlot { voxels: Voxels::new(), entity: Entity::PLACEHOLDER })
+					.voxels
+					.add_voxel(local, voxel);
+			}
+			None => {
+				if let Some(slot) = self.subgrids.get_mut(&pos) {
+					slot.voxels.remove_voxel(&local);
 				}
 			}
 		}
+		pos
 	}
 
 	pub fn clear_area(&mut self, min: IVec3, size: IVec3) -> HashSet<IVec3> {
@@ -211,43 +209,6 @@ fn raycast_sub_grid(sub_grid: SubGridRef, origin: Vec3, dir: Vec3) -> Option<(I1
 		scale: Vec3::ONE,
 	};
 	sub_grid.voxels().grid_tree().raycast(&transform, None)
-}
-
-pub fn apply_grid_edits(
-	mut commands: Commands,
-	mut grids: Query<(Entity, &mut Grid)>,
-	mut sub_grids: Query<&mut SubGrid>,
-) {
-	for (grid_entity, mut grid) in grids.iter_mut() {
-		if grid.pending.is_empty() { continue; }
-		let edits = std::mem::take(&mut grid.pending);
-		let mut touched: HashSet<IVec3> = HashSet::new();
-
-		for edit in edits {
-			match edit {
-				GridEdit::Add { voxel_pos, voxel } => {
-					let pos = Grid::sub_grid_pos_of(&voxel_pos);
-					let local = Grid::local_of(&voxel_pos);
-					grid.subgrids
-						.entry(pos)
-						.or_insert_with(|| SubGridSlot { voxels: Voxels::new(), entity: Entity::PLACEHOLDER })
-						.voxels
-						.add_voxel(local, voxel);
-					touched.insert(pos);
-				}
-				GridEdit::Remove { voxel_pos } => {
-					let pos = Grid::sub_grid_pos_of(&voxel_pos);
-					let local = Grid::local_of(&voxel_pos);
-					if let Some(slot) = grid.subgrids.get_mut(&pos) {
-						slot.voxels.remove_voxel(&local);
-						touched.insert(pos);
-					}
-				}
-			}
-		}
-
-		reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
-	}
 }
 
 pub fn reconcile_subgrids(

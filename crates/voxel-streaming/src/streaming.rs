@@ -3,8 +3,9 @@ use bevy::prelude::*;
 
 use voxel_data::grid::{reconcile_subgrids, Grid, GridId};
 use voxel_data::subgrid::SubGrid;
+use voxel_edit::EditGate;
 
-use crate::chunk::{chunk_origin, CHUNK_SIZE};
+use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
 use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest};
 use crate::presence::{ChunkPresence, ChunkState};
@@ -58,14 +59,14 @@ impl GridStreaming {
 		chunk: IVec3,
 	) {
 		if !self.start_request(grid, channel, chunk) { return; }
-		if self.presence.state(chunk) != Some(ChunkState::Loaded) {
+		if !matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty)) {
 			consumer.needed_mut().entry(grid).or_default().insert(chunk);
 		}
 	}
 
 	pub fn release(&mut self, chunk: IVec3) {
 		if self.presence.remove_request(chunk) > 0 { return; }
-		if let Some(ChunkState::Loaded) = self.presence.state(chunk) {
+		if let Some(ChunkState::Loaded | ChunkState::InternalDirty) = self.presence.state(chunk) {
 			self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES));
 		}
 	}
@@ -90,6 +91,24 @@ impl GridStreaming {
 
 	fn mark_empty(&mut self, chunk: IVec3) {
 		self.presence.clear_present(chunk);
+	}
+}
+
+impl EditGate for GridStreaming {
+	fn admit(&self, voxel_pos: IVec3) -> bool {
+		!matches!(
+			self.presence.state(chunk_of(voxel_pos)),
+			Some(ChunkState::ExternalDirty) | Some(ChunkState::ExternalDirtyInFlight)
+		)
+	}
+
+	fn touched(&mut self, voxel_pos: IVec3) {
+		let chunk = chunk_of(voxel_pos);
+		// `None` means the chunk had no presence entry: editing creates it, so
+		// mark it present and dirty so it is tracked and saved on unload.
+		if let None | Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) = self.presence.state(chunk) {
+			self.presence.set_state(chunk, ChunkState::InternalDirty);
+		}
 	}
 }
 

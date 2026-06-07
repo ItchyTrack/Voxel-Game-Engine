@@ -9,9 +9,16 @@ use voxel_physics::{
 use voxel_renderer::graphics_settings::GraphicsSettings;
 use voxel_renderer::hit_count_feedback::RenderStats;
 use voxel_renderer::scene::FreezeUploads;
+use voxel_streaming::{ChunkState, GridStreaming, CHUNK_SIZE};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
+
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct ChunkPresenceBoxes(pub bool);
+
+#[derive(Default, Reflect, GizmoConfigGroup)]
+struct ChunkGizmos;
 
 pub struct DebugUiPlugin;
 
@@ -24,8 +31,14 @@ impl Plugin for DebugUiPlugin {
 			app.add_plugins(FrameTimeDiagnosticsPlugin::default());
 		}
 		app.init_resource::<InertiaBoxes>()
+			.init_resource::<ChunkPresenceBoxes>()
+			.init_gizmo_group::<ChunkGizmos>()
+			.add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
+				store.config_mut::<ChunkGizmos>().0.line.width = 4.0;
+			})
 			.add_systems(EguiPrimaryContextPass, debug_window)
-			.add_systems(Update, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0));
+			.add_systems(Update, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0))
+			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0));
 	}
 }
 
@@ -38,6 +51,7 @@ fn debug_window(
 	mut freeze_uploads: ResMut<FreezeUploads>,
 	mut freeze_physics: ResMut<FreezePhysics>,
 	mut inertia_boxes: ResMut<InertiaBoxes>,
+	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
 ) -> Result {
 	let ctx = contexts.ctx_mut()?;
 
@@ -78,6 +92,7 @@ fn debug_window(
 			ui.checkbox(&mut freeze_uploads.0, "freeze upload");
 			ui.checkbox(&mut freeze_physics.0, "freeze physics");
 			ui.checkbox(&mut inertia_boxes.0, "inertia boxes");
+			ui.checkbox(&mut chunk_presence_boxes.0, "chunk presence");
 		});
 
 	Ok(())
@@ -137,6 +152,49 @@ fn draw_inertia_boxes(
 			(p000, p001), (p100, p101), (p010, p011), (p110, p111),
 		] {
 			gizmos.line(a, b, color);
+		}
+	}
+}
+
+fn chunk_state_color(state: ChunkState) -> Color {
+	match state {
+		ChunkState::Available => Color::srgb(0.2, 0.2, 0.2),
+		ChunkState::InFlight => Color::srgb(0.9, 0.9, 0.1),
+		ChunkState::Loaded => Color::srgb(0.1, 0.8, 0.1),
+		ChunkState::InternalDirty => Color::srgb(0.9, 0.9, 0.9),
+		ChunkState::ExternalDirty => Color::srgb(0.9, 0.1, 0.1),
+		ChunkState::ExternalDirtyInFlight => Color::srgb(0.9, 0.1, 0.9),
+	}
+}
+
+fn draw_chunk_presence(
+	mut gizmos: Gizmos<ChunkGizmos>,
+	grids: Query<(&GlobalTransform, &GridStreaming)>,
+) {
+	const INSET: f32 = 0.75;
+	for (gt, streaming) in grids.iter() {
+		for (origin, size, state) in streaming.presence().iter_states() {
+			let lo = (origin * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
+			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
+			let color = chunk_state_color(state);
+
+			let corner = |x: f32, y: f32, z: f32| gt.transform_point(Vec3::new(x, y, z));
+			let c000 = corner(lo.x, lo.y, lo.z);
+			let c100 = corner(hi.x, lo.y, lo.z);
+			let c010 = corner(lo.x, hi.y, lo.z);
+			let c001 = corner(lo.x, lo.y, hi.z);
+			let c110 = corner(hi.x, hi.y, lo.z);
+			let c101 = corner(hi.x, lo.y, hi.z);
+			let c011 = corner(lo.x, hi.y, hi.z);
+			let c111 = corner(hi.x, hi.y, hi.z);
+
+			for (a, b) in [
+				(c000, c100), (c010, c110), (c001, c101), (c011, c111),
+				(c000, c010), (c100, c110), (c001, c011), (c101, c111),
+				(c000, c001), (c100, c101), (c010, c011), (c110, c111),
+			] {
+				gizmos.line(a, b, color);
+			}
 		}
 	}
 }

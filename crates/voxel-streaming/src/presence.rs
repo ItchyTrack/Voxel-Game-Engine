@@ -34,17 +34,17 @@ impl ChunkState {
 		match code {
 			1 => ChunkState::InFlight,
 			2 => ChunkState::Loaded,
-			3 => ChunkState::Available,
-			4 => ChunkState::InternalDirty,
-			5 => ChunkState::ExternalDirty,
-			_ => ChunkState::ExternalDirtyInFlight,
+			3 => ChunkState::InternalDirty,
+			4 => ChunkState::ExternalDirty,
+			5 => ChunkState::ExternalDirtyInFlight,
+			_ => ChunkState::Available,
 		}
 	}
 }
 
-// A present chunk's cell value packs its state in the low 2 bits and the count
+// A present chunk's cell value packs its state in the low 3 bits and the count
 // of objects requesting it in the remaining bits.
-const STATE_BITS: u16 = 2;
+const STATE_BITS: u16 = 3;
 const STATE_MASK: u16 = (1 << STATE_BITS) - 1;
 
 fn encode(state: ChunkState, count: u16) -> u16 {
@@ -122,6 +122,11 @@ impl ChunkPresence {
 
 	pub fn iter_present(&self) -> impl Iterator<Item = (IVec3, u32)> + '_ {
 		self.tree.iter().map(|(origin, size, _)| (origin, size))
+	}
+
+	/// Like [`iter_present`], plus each node's [`ChunkState`].
+	pub fn iter_states(&self) -> impl Iterator<Item = (IVec3, u32, ChunkState)> + '_ {
+		self.tree.iter().map(|(origin, size, value)| (origin, size, decode(value).0))
 	}
 
 	/// Visit every present chunk inside the inclusive chunk region `[min, max]`,
