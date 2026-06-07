@@ -10,7 +10,8 @@ crate-type = ["cdylib", "rlib"]
 default = []
 gpu_profiling = []
 tracy = [
-	"bevy/trace_tracy",
+	"dep:tracing-tracy",
+	"bevy/trace",
 	"voxel-data/tracy",
 	"voxel-physics/tracy",
 	"gpu-voxel-data/tracy",
@@ -24,6 +25,7 @@ bevy_egui = "0.39"
 log = { workspace = true }
 tokio = { workspace = true }
 bevy = { workspace = true }
+tracing-tracy = { version = "0.11", default-features = false, features = ["enable", "broadcast"], optional = true }
 voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }

@@ -10,6 +10,7 @@ mod world_interaction;
 use std::time::Duration;
 
 use bevy::app::PluginGroupBuilder;
+use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::render::view::{Hdr, Msaa};
 
@@ -46,18 +47,39 @@ impl PluginGroup for GamePlugins {
 
 #[tokio::main]
 async fn main() {
-	App::new()
-		.add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                resolution: WindowResolution::new(800, 600),
-                ..Default::default()
+	let mut app = App::new();
+	app.add_plugins(
+		DefaultPlugins
+			.set(WindowPlugin {
+				primary_window: Some(Window {
+					resolution: WindowResolution::new(800, 600),
+					..Default::default()
+				}),
+				..Default::default()
+			})
+			.set(LogPlugin {
+				custom_layer: tracy_layer,
+				..Default::default()
 			}),
-			..Default::default()
-		}))
+	)
 		.insert_resource(Time::<Virtual>::from_max_delta(Duration::from_millis(16)))
 		.add_plugins(GamePlugins)
-		.add_systems(Startup, setup)
-		.run();
+		.add_systems(Startup, setup);
+
+	#[cfg(feature = "tracy")]
+	app.add_systems(Last, || tracing_tracy::client::frame_mark());
+
+	app.run();
+}
+
+fn tracy_layer(_app: &mut App) -> Option<bevy::log::BoxedLayer> {
+	#[cfg(feature = "tracy")]
+	{
+		tracing_tracy::client::Client::start();
+		Some(Box::new(tracing_tracy::TracyLayer::default()))
+	}
+	#[cfg(not(feature = "tracy"))]
+	None
 }
 
 fn setup(mut commands: Commands) {
