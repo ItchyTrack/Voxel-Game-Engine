@@ -180,7 +180,13 @@ pub struct GridTree {
 	root_pos: I16Vec3,
 	root_depth: u8,
 	item_count: u64,
+	dead_nodes: usize,
 }
+
+// A node child reference is the (positive) index distance to the child, stored
+// in a cell's low 15 bits (bit 15 is the NODE flag), so it must fit in 1..=0x7FFE
+// (0x7FFF would alias the NONE sentinel). The whole arena is bounded by this.
+const MAX_NODE_OFFSET: usize = 0x7FFE;
 
 impl GridTree {
 	pub fn new() -> Self {
@@ -189,6 +195,7 @@ impl GridTree {
 			root_pos: I16Vec3::ZERO,
 			root_depth: 0,
 			item_count: 0,
+			dead_nodes: 0,
 		}
 	}
 	// fn add_child_node(&mut self, parent_index: u32, contents_pos: U8Vec3) -> u16 {
@@ -307,6 +314,7 @@ impl GridTree {
 		self.root_pos = min;
 		self.root_depth = depth;
 		self.item_count = 0;
+		self.dead_nodes = 0;
 		for (vp, value) in voxels {
 			self.insert_into_covered(&vp, value);
 		}
@@ -314,6 +322,7 @@ impl GridTree {
 	}
 	/// parent depth must be more than 0 and at pos in parent there must be a data cell containing current_cell and current_cell != cell_to_set
 	fn set_voxel_in_data_cell(&mut self, parent_node_index: u32, parent_depth: u8, current_cell: GridTreeCell, cell_to_set: GridTreeCell, pos: &U16Vec3) {
+		debug_assert!((self.nodes.len() as u32 - parent_node_index) as usize <= MAX_NODE_OFFSET);
 		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
 		let parent = &mut self.nodes[parent_node_index as usize];
 		let child_size = GridTreeNode::child_size(parent_depth);
@@ -338,6 +347,7 @@ impl GridTree {
 	/// parent depth must be more than 0 and at pos in parent there must be a none cell and cell_to_set must be type 1
 	fn set_voxel_in_none_cell(&mut self, parent_node_index: u32, parent_depth: u8, cell_to_set: GridTreeCell, pos: &U16Vec3) {
 		assert!(cell_to_set.value_type() == 1);
+		debug_assert!((self.nodes.len() as u32 - parent_node_index) as usize <= MAX_NODE_OFFSET);
 		let next_node_offset = (self.nodes.len() as u32 - parent_node_index) as u16;
 		let parent = &mut self.nodes[parent_node_index as usize];
 		parent.used_cell_count += 1;
@@ -396,14 +406,60 @@ impl GridTree {
 	/// Assumes childern are dead. // Does nothing (leaks the memory)
 	pub fn remove_node(&mut self, node_index: u32) {
 		if let Some(node) = self.nodes.get_mut(node_index as usize) {
-			node.used_cell_count = 255; // mark as deleted (does not change anything but it nice to do)
+			node.used_cell_count = 255; // mark as deleted
+			self.dead_nodes += 1;
 		} else {
 			println!("NODE GONE!");
 		}
 	}
 
+	fn maybe_compact(&mut self) {
+		if self.dead_nodes * 2 > self.nodes.len() && self.nodes.len() > 64 {
+			self.compact();
+		}
+	}
+
+	/// Rewrite the node arena in DFS order, dropping dead nodes and re-deriving
+	/// every child offset. Preserves the logical tree (root_pos/depth, item_count
+	/// and all data are unchanged) — only node indices/offsets change.
+	fn compact(&mut self) {
+		let live = self.nodes.len() - self.dead_nodes;
+		let mut new_nodes: Vec<GridTreeNode> = Vec::with_capacity(live);
+		new_nodes.push(self.nodes[0].clone()); // root keeps parent_offset 0
+		let mut stack: Vec<(u32, u32)> = vec![(0, 0)]; // (old_index, new_index)
+		while let Some((old_idx, new_idx)) = stack.pop() {
+			for ci in 0..SIZE_CUBED {
+				let cell = self.nodes[old_idx as usize].contents[ci as usize];
+				if cell.value_type() == 2 {
+					let child_old = old_idx + GridTreeCell::raw_as_node(cell.value_raw()) as u32;
+					let child_new = new_nodes.len() as u32;
+					let mut child = self.nodes[child_old as usize].clone();
+					child.parent_offset = (child_new - new_idx) as u16;
+					new_nodes.push(child);
+					new_nodes[new_idx as usize].set_child_cell_to_node_from_index(ci, (child_new - new_idx) as u16);
+					stack.push((child_old, child_new));
+				}
+			}
+		}
+		self.nodes = new_nodes;
+		self.dead_nodes = 0;
+	}
+
+	/// True if there is room to allocate up to `MAX_TREE_DEPTH` new nodes without
+	/// overflowing the 15-bit node offset. Compacts first; the arena (after
+	/// compaction) is the live node count.
+	fn has_node_budget(&mut self) -> bool {
+		self.maybe_compact();
+		if self.nodes.len() + MAX_TREE_DEPTH_USIZE <= MAX_NODE_OFFSET {
+			return true;
+		}
+		bevy::log::warn!("GridTree node arena full ({} live); skipping edit", self.nodes.len());
+		false
+	}
+
 	pub fn insert(&mut self, pos: &I16Vec3, data: u16) -> Option<u16> {
 		if !self.make_sure_root_covers_pos(pos) { return None; }
+		if !self.has_node_budget() { return None; }
 		self.insert_into_covered(pos, data)
 	}
 
@@ -466,6 +522,7 @@ impl GridTree {
 		if root_relative_pos.x >= GridTreeNode::size(self.root_depth) ||
 		   root_relative_pos.y >= GridTreeNode::size(self.root_depth) ||
 		   root_relative_pos.z >= GridTreeNode::size(self.root_depth) { return None; }
+		if !self.has_node_budget() { return None; }
 		let mut current_node_index: u32 = 0;
 		let mut current_depth = self.root_depth;
 		let mut current_relative_pos = root_relative_pos;
@@ -1015,17 +1072,45 @@ mod tests {
 	// node Vec grows under churn that creates/collapses nodes (without emptying
 	// the tree, which would reset the root). Fixing the leak should flip this.
 	#[test]
-	fn node_vec_leaks_under_churn() {
+	fn node_arena_bounded_under_churn() {
+		// Compaction must reclaim dead nodes so the arena does not grow without
+		// bound under repeated create/collapse churn (the old remove_node leak).
 		let mut t = GridTree::new();
-		t.insert(&p(0, 0, 0), 1); // base voxels keep the tree non-empty (no reset)
-		t.insert(&p(15, 15, 15), 1);
+		// Spaced base voxels: each sits alone in its leaf, so toggling it actually
+		// collapses (and would leak) a node.
+		for i in 0..16i16 { for j in 0..16i16 {
+			t.insert(&p(i * 4, j * 4, ((i + j) % 16) * 4), 1);
+		}}
 		let baseline = t.internals().0.len();
-		for _ in 0..2000 {
-			t.insert(&p(8, 8, 8), 2); // creates a node...
-			t.remove(&p(8, 8, 8)); // ...collapsed and leaked by remove_node
+		for _ in 0..400 {
+			for i in 0..16i16 { for j in 0..16i16 {
+				let q = p(i * 4, j * 4, ((i + j) % 16) * 4);
+				t.remove(&q);
+				t.insert(&q, 2);
+			}}
 		}
 		let after = t.internals().0.len();
-		assert!(after > baseline, "node Vec expected to leak under churn ({baseline} -> {after})");
+		assert!(after <= baseline * 2, "arena must stay bounded by compaction ({baseline} -> {after})");
+	}
+
+	#[test]
+	fn node_cap_is_handled_gracefully() {
+		// Past the 15-bit node-offset limit, edits are skipped (warned), never
+		// corrupting: everything the tree reports as stored must read back.
+		let mut t = GridTree::new();
+		let mut s = 0xC0FFEEu64;
+		for _ in 0..400_000 {
+			let q = p(
+				(lcg(&mut s) % 8000) as i16,
+				(lcg(&mut s) % 8000) as i16,
+				(lcg(&mut s) % 8000) as i16,
+			);
+			t.insert(&q, 1);
+		}
+		// Whatever actually made it in must be self-consistent.
+		for (pos, v) in &tree_voxels(&t) {
+			assert_eq!(t.get(pos), Some(*v));
+		}
 	}
 
 	// ---- differential model tests vs HashMap oracle ----
@@ -1069,17 +1154,12 @@ mod tests {
 	#[test]
 	fn model_depth3() { run_model(0, 200, 40_000, 11); }
 
-	// A separate, pre-existing correctness bug surfaces in depth >= 4 trees:
-	// a freshly inserted voxel can immediately read back as absent. Not the
-	// drift (depth is minimal) and not the node leak (nodes < u16 limit). A 64^3
-	// subgrid only ever reaches depth 2, so this does not affect the engine.
+	// Depth-4 trees, kept under the node-arena cap so no inserts are skipped.
 	#[test]
-	#[ignore = "pre-existing depth>=4 bug, unrelated to drift; subgrids only reach depth 2"]
-	fn model_depth4() { run_model(0, 300, 40_000, 12); }
+	fn model_depth4() { run_model(0, 300, 6_000, 12); }
 
 	#[test]
-	#[ignore = "pre-existing depth>=4 bug (see model_depth4), not the drift"]
-	fn model_sparse_wide() { run_model(-500, 500, 30_000, 5); }
+	fn model_sparse_wide() { run_model(-500, 500, 6_000, 5); }
 
 	// Root depth must stay minimal for in-range (0..63) coords (no drift).
 	#[test]
