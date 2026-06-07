@@ -54,7 +54,7 @@ pub fn update_render_lod(
 					&Sphere { center: Vec3A::from(center), radius },
 					true,
 				);
-				let distance = cam_pos.distance(grid_global.translation());
+				let distance = cam_pos.distance(center);
 				let priority = -distance / 1000.0 + if in_view { 5.0 } else { 0.0 };
 				let lod_level = f32::max(distance - 1000.0, 0.0) / 1000.0;
 				let lod_level = if hit_count > 0 { lod_level } else { lod_level + 3.0 };

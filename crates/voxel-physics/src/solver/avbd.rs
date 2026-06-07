@@ -2,6 +2,7 @@ use core::f32;
 use std::{collections::HashMap};
 
 use bevy::math::{IVec3, Mat3, Quat, Vec3};
+use bevy::tasks::{ComputeTaskPool, ParallelSliceMut};
 use tracy_client::span;
 
 use bevy::transform::components::Transform;
@@ -133,78 +134,201 @@ impl Solver {
 			(*physics_body_id, Transform { translation: pos, rotation: orientation, scale: Vec3::ONE })
 		}));
 		let mut x_guess = y_all.clone();
+
+		let _color_zone = span!("Graph Coloring");
+		let mut body_collisions: HashMap<PhysicsBodyId, Vec<(usize, bool)>> = HashMap::new();
+		for (index, collision_constraint) in collision_constraints.iter().enumerate() {
+			body_collisions.entry(collision_constraint.collision.part1.body_id).or_default().push((index, true));
+			body_collisions.entry(collision_constraint.collision.part2.body_id).or_default().push((index, false));
+		}
+		let mut body_joints: HashMap<PhysicsBodyId, Vec<((PhysicsBodyId, PhysicsBodyId), bool)>> = HashMap::new();
+		for key in constraints.keys() {
+			body_joints.entry(key.0).or_default().push((*key, true));
+			body_joints.entry(key.1).or_default().push((*key, false));
+		}
+
+		// Color the dynamic bodies (VBD colors vertices, not constraints) so that two
+		// bodies sharing a constraint never share a color. Bodies of one color touch
+		// disjoint constraints, so their per-body solves can run in parallel.
+		let mut adjacency: HashMap<PhysicsBodyId, Vec<PhysicsBodyId>> = HashMap::new();
+		let mut edges: Vec<(PhysicsBodyId, PhysicsBodyId)> = Vec::with_capacity(collision_constraints.len() + constraints.len());
+		for collision_constraint in &collision_constraints {
+			edges.push((collision_constraint.collision.part1.body_id, collision_constraint.collision.part2.body_id));
+		}
+		edges.extend(constraints.keys().copied());
+		for (a, b) in edges {
+			let both_dynamic = a != b
+				&& physics_bodies.get(&a).is_some_and(|body| !body.is_static)
+				&& physics_bodies.get(&b).is_some_and(|body| !body.is_static);
+			if both_dynamic {
+				adjacency.entry(a).or_default().push(b);
+				adjacency.entry(b).or_default().push(a);
+			}
+		}
+
+		// Sorted visitation makes the greedy coloring deterministic across frames.
+		let mut dynamic_ids: Vec<PhysicsBodyId> = physics_bodies.iter()
+			.filter(|(_, body)| !body.is_static)
+			.map(|(id, _)| *id)
+			.collect();
+		dynamic_ids.sort_unstable_by_key(|id| id.to_bits());
+
+		let mut color_of: HashMap<PhysicsBodyId, usize> = HashMap::new();
+		let mut colors: Vec<Vec<PhysicsBodyId>> = Vec::new();
+		let mut neighbor_colors: Vec<usize> = Vec::new();
+		for id in dynamic_ids {
+			neighbor_colors.clear();
+			if let Some(neighbors) = adjacency.get(&id) {
+				neighbor_colors.extend(neighbors.iter().filter_map(|n| color_of.get(n).copied()));
+			}
+			let mut color = 0;
+			while neighbor_colors.contains(&color) { color += 1; }
+			color_of.insert(id, color);
+			while colors.len() <= color { colors.push(Vec::new()); }
+			colors[color].push(id);
+		}
+		drop(_color_zone);
+
+		let pool = ComputeTaskPool::get();
+		{
+			use std::sync::Once;
+			static ONCE: Once = Once::new();
+			ONCE.call_once(|| {
+				let sizes: Vec<usize> = colors.iter().map(|c| c.len()).collect();
+				bevy::log::info!("AVBD solver: {} compute threads, {} colors, bodies per color = {:?}", pool.thread_num(), colors.len(), sizes);
+			});
+		}
+
+		// Split each color into work buckets balanced by estimated cost (number of
+		// touching constraints) rather than body count. Heaviest bodies are dealt into
+		// the currently-lightest bucket (greedy LPT), so no single thread is handed the
+		// heaviest work and a thread that grabs two buckets stays near one bucket's load.
+		let body_cost = |id: &PhysicsBodyId| -> usize {
+			body_collisions.get(id).map_or(0, |v| v.len()) + body_joints.get(id).map_or(0, |v| v.len()) + 1
+		};
+		let color_buckets: Vec<Vec<Vec<PhysicsBodyId>>> = colors.iter().map(|color| {
+			let bucket_count = pool.thread_num().clamp(1, color.len().max(1));
+			let mut sorted = color.clone();
+			sorted.sort_unstable_by_key(|id| std::cmp::Reverse(body_cost(id)));
+			let mut buckets: Vec<Vec<PhysicsBodyId>> = vec![Vec::new(); bucket_count];
+			let mut loads = vec![0usize; bucket_count];
+			for id in sorted {
+				let lightest = loads.iter().enumerate().min_by_key(|(_, load)| **load).map(|(i, _)| i).unwrap();
+				loads[lightest] += body_cost(&id);
+				buckets[lightest].push(id);
+			}
+			buckets
+		}).collect();
+
 		let iterations = 30;
 		let total_iterations = iterations + 1; // because post stabilize
 		for iteration in 0..total_iterations {
 			let _zone = span!("Solve Iteration");
 			let alpha = (iteration < iterations) as i32 as f32 * 0.999;
-			for (physics_body_id, physics_body) in physics_bodies.iter() {
-				if physics_body.is_static { continue; }
 
-				let m = Mat6::from_mat3(physics_body.mass() * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, physics_body.rotational_inertia().mat.as_mat3());
-				let mut h: Mat6 = m / (dt * dt);
-				let mut f: Vec6 = h * Self::sub_state(&x_guess[physics_body_id], &y_all[physics_body_id]);
+			// Primal step. Colors run sequentially; bodies within a color run in parallel
+			// against the current `x_guess`, then their results are committed before the
+			// next color (multi-color Gauss-Seidel).
+			{
+				let _zone = span!("Primal");
+				let bodies = &*physics_bodies;
+				let collision_constraints = &collision_constraints;
+				let constraints = &*constraints;
+				let body_collisions = &body_collisions;
+				let body_joints = &body_joints;
+				let y_all = &y_all;
+				let initial_all = &initial_all;
+				for buckets in &color_buckets {
+					let x_guess_ref = &x_guess;
+					let results: Vec<Vec<(PhysicsBodyId, Transform)>> = pool.scope(|scope| {
+						for bucket in buckets {
+							scope.spawn(async move {
+							let _zone = span!("Primal Chunk");
+							bucket.iter().map(|physics_body_id| {
+								let physics_body = bodies.get(physics_body_id).unwrap();
+							let m = Mat6::from_mat3(physics_body.mass() * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, physics_body.rotational_inertia().mat.as_mat3());
+							let mut h: Mat6 = m / (dt * dt);
+							let mut f: Vec6 = h * Self::sub_state(&x_guess_ref[physics_body_id], &y_all[physics_body_id]);
 
-				let physics_body_collisions = collision_constraints.iter().filter(|collision| {
-					collision.collision.part1.body_id == *physics_body_id ||
-					collision.collision.part2.body_id == *physics_body_id
-				});
-				for physics_body_collision in physics_body_collisions {
-					let result = physics_body_collision.get_updated(
-						&x_guess.get(&physics_body_collision.collision.part1.body_id).unwrap(), &initial_all.get(&physics_body_collision.collision.part1.body_id).unwrap(),
-						&x_guess.get(&physics_body_collision.collision.part2.body_id).unwrap(), &initial_all.get(&physics_body_collision.collision.part2.body_id).unwrap(),
-						alpha,
-						physics_body_collision.collision.part1.body_id == *physics_body_id
-					);
-					if result.is_none() { continue; }
-					let (c_f, c_h) = result.unwrap();
-					f += c_f;
-					h += c_h;
+							if let Some(touching) = body_collisions.get(physics_body_id) {
+								for (index, is_part1) in touching {
+									let collision_constraint = &collision_constraints[*index];
+									let result = collision_constraint.get_updated(
+										&x_guess_ref[&collision_constraint.collision.part1.body_id], &initial_all[&collision_constraint.collision.part1.body_id],
+										&x_guess_ref[&collision_constraint.collision.part2.body_id], &initial_all[&collision_constraint.collision.part2.body_id],
+										alpha,
+										*is_part1
+									);
+									if let Some((c_f, c_h)) = result {
+										f += c_f;
+										h += c_h;
+									}
+								}
+							}
+							if let Some(touching) = body_joints.get(physics_body_id) {
+								for (key, is_first) in touching {
+									let constraint = &constraints[key];
+									let result = constraint.get_updated(
+										&x_guess_ref[&key.0], &initial_all[&key.0],
+										&x_guess_ref[&key.1], &initial_all[&key.1],
+										alpha,
+										*is_first
+									);
+									if let Some((c_f, c_h)) = result {
+										f += c_f;
+										h += c_h;
+									}
+								}
+							}
+
+							let mats = h.to_mat3();
+							let solved = solve(mats[0], mats[3], mats[1], -f.upper_vec3(), -f.lower_vec3());
+							let x_change = Vec6::from_vec3(solved.0, solved.1);
+							let mut state = x_guess_ref[physics_body_id];
+							state.translation += x_change.upper_vec3();
+							state.rotation = (
+								state.rotation +
+								Quat::from_xyzw(x_change.get(3) * 0.5, x_change.get(4) * 0.5, x_change.get(5) * 0.5, 0.0) * state.rotation
+							).normalize();
+							(*physics_body_id, state)
+						}).collect::<Vec<_>>()
+							});
+						}
+					});
+					for (id, state) in results.into_iter().flatten() {
+						x_guess.insert(id, state);
+					}
 				}
-				let physics_body_constraints = constraints.iter().filter(|(key, _)| {
-					key.0 == *physics_body_id || key.1 == *physics_body_id
-				});
-				for ((physics_body_id_1, physics_body_id_2), physics_body_constraint) in physics_body_constraints {
-					let result = physics_body_constraint.get_updated(
-						&x_guess.get(physics_body_id_1).unwrap(), &initial_all.get(physics_body_id_1).unwrap(),
-						&x_guess.get(physics_body_id_2).unwrap(), &initial_all.get(physics_body_id_2).unwrap(),
-						alpha,
-						physics_body_id_1 == physics_body_id
-					);
-					if result.is_none() { continue; }
-					let (c_f, c_h) = result.unwrap();
-					f += c_f;
-					h += c_h;
-				}
-				let mats = h.to_mat3();
-				let solved = solve(mats[0], mats[3], mats[1], -f.upper_vec3(), -f.lower_vec3());
-				let x_change = Vec6::from_vec3(solved.0, solved.1);
-				x_guess.get_mut(physics_body_id).unwrap().translation += x_change.upper_vec3();
-				x_guess.get_mut(physics_body_id).unwrap().rotation = (
-					x_guess.get(physics_body_id).unwrap().rotation +
-					Quat::from_xyzw(x_change.get(3) * 0.5, x_change.get(4) * 0.5, x_change.get(5) * 0.5, 0.0) * x_guess.get(physics_body_id).unwrap().rotation
-				).normalize();
 			}
+
 			if iteration < iterations {
-				for collision_constraint in collision_constraints.iter_mut() {
-					collision_constraint.update_dual(
-						&x_guess.get(&collision_constraint.collision.part1.body_id).unwrap(), &initial_all.get(&collision_constraint.collision.part1.body_id).unwrap(),
-						&x_guess.get(&collision_constraint.collision.part2.body_id).unwrap(), &initial_all.get(&collision_constraint.collision.part2.body_id).unwrap(),
-						alpha
-					);
+				let _zone = span!("Dual");
+				{
+					let x_guess = &x_guess;
+					let initial_all = &initial_all;
+					collision_constraints.par_splat_map_mut(pool, None, |_, chunk| {
+						let _zone = span!("Dual Chunk");
+						for collision_constraint in chunk {
+							collision_constraint.update_dual(
+								&x_guess[&collision_constraint.collision.part1.body_id], &initial_all[&collision_constraint.collision.part1.body_id],
+								&x_guess[&collision_constraint.collision.part2.body_id], &initial_all[&collision_constraint.collision.part2.body_id],
+								alpha
+							);
+						}
+					});
 				}
 				for ((physics_body_id_1, physics_body_id_2), constraint) in constraints.iter_mut() {
 					constraint.update_dual(
-						&x_guess.get(physics_body_id_1).unwrap(), &initial_all.get(physics_body_id_1).unwrap(),
-						&x_guess.get(physics_body_id_2).unwrap(), &initial_all.get(physics_body_id_2).unwrap(),
+						&x_guess[physics_body_id_1], &initial_all[physics_body_id_1],
+						&x_guess[physics_body_id_2], &initial_all[physics_body_id_2],
 						alpha
 					);
 				}
 			}
 			if iteration == iterations - 1 { // before post stabilize
 				for (physics_body_id, physics_body) in physics_bodies.iter_mut() {
-					physics_body.velocity = (x_guess.get(physics_body_id).unwrap().translation - initial_all.get(physics_body_id).unwrap().translation) / dt;
-					physics_body.angular_velocity = (x_guess.get(physics_body_id).unwrap().rotation * initial_all.get(physics_body_id).unwrap().rotation.inverse()).normalize().to_scaled_axis() / dt;
+					physics_body.velocity = (x_guess[physics_body_id].translation - initial_all[physics_body_id].translation) / dt;
+					physics_body.angular_velocity = (x_guess[physics_body_id].rotation * initial_all[physics_body_id].rotation.inverse()).normalize().to_scaled_axis() / dt;
 				}
 			}
 		}
