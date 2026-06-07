@@ -67,10 +67,28 @@ impl Voxels {
 		self.voxel_palette.voxel(out).cloned()
 	}
 
+	pub fn add_area(&mut self, pos: I16Vec3, size: I16Vec3, voxel: Voxel) {
+		if size.cmple(I16Vec3::ZERO).any() { return; }
+		let id = self.voxel_palette.palette_id(&voxel);
+		self.voxels.add_area(&pos, size.as_ivec3(), id);
+		let max = pos + size - I16Vec3::ONE;
+		let bb = self.bounding_box.get_mut().unwrap();
+		*bb = Some(match *bb {
+			Some((mn, mx)) => (mn.min(pos), mx.max(max)),
+			None => (pos, max),
+		});
+	}
+
 	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
 		let out = self.voxel_palette.voxel(self.voxels.remove(pos)?).cloned();
 		self.bounding_box_dirty.store(true, Ordering::Release);
 		out
+	}
+
+	pub fn remove_area(&mut self, pos: I16Vec3, size: I16Vec3) {
+		if size.cmple(I16Vec3::ZERO).any() { return; }
+		self.voxels.remove_area(&pos, size.as_ivec3());
+		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
 	pub fn voxel(&self, pos: &I16Vec3) -> Option<&Voxel> {

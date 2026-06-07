@@ -1,7 +1,8 @@
 use bevy::math::IVec3;
 use bevy::prelude::*;
 
-use voxel_data::grid::{Grid, GridId};
+use voxel_data::grid::{reconcile_subgrids, Grid, GridId};
+use voxel_data::subgrid::SubGrid;
 
 use crate::chunk::{chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
@@ -88,8 +89,10 @@ impl GridStreaming {
 }
 
 pub fn receive_results(
+	mut commands: Commands,
 	channel: Res<ChunkLoaderChannel>,
 	mut grids: Query<(&mut GridStreaming, &mut Grid)>,
+	mut sub_grids: Query<&mut SubGrid>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
 	while let Some(result) = channel.try_recv() {
@@ -102,18 +105,8 @@ pub fn receive_results(
 					Some(voxels) => {
 						streaming.mark_loaded(result.chunk);
 						let base = chunk_origin(result.chunk);
-						let palette = voxels.palette();
-						for (pos, size, palette_id) in voxels.grid_tree().iter() {
-							let Some(voxel) = palette.voxel(palette_id) else { continue };
-							let origin = base + pos.as_ivec3();
-							for dx in 0..size as i32 {
-								for dy in 0..size as i32 {
-									for dz in 0..size as i32 {
-										grid.add_voxel(&(origin + IVec3::new(dx, dy, dz)), voxel);
-									}
-								}
-							}
-						}
+						let touched = grid.splat_voxels(base, &voxels);
+						reconcile_subgrids(result.grid, grid.as_mut(), touched, &mut commands, &mut sub_grids);
 					}
 					None => streaming.mark_empty(result.chunk),
 				}
