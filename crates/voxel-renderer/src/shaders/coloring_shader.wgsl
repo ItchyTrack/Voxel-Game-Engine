@@ -91,23 +91,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	);
 	let data = textureLoad(intermediate_textured, texture_pos, 0);
 
-	// Reconstruct world-space ray from the screen position.
-	let ray_start = camera.camera_transform[3].xyz;
-	let ray_dir   = normalize((camera.camera_transform * vec4<f32>(
-		(in.screen_pos.x - 0.5) * camera.camera_view_size.x * 2.0,
-		(in.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
-		-1.0,
-		0.0,
-	)).xyz);
-
 	if (data.x == 0) {
-		let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
-		let t = ray_dir.y * 0.5 + 0.5;
-		let bg = mix(vec3<f32>(0.15, 0.15, 0.18), vec3<f32>(0.05, 0.07, 0.12), t);
-		let sun = max(dot(ray_dir, sun_dir), 0.0);
-		let sun_color = vec3<f32>(1.0, 0.9, 0.6) * pow(sun, 64.0);
-		let sky_color = bg + sun_color;
-		return vec4<f32>(sky_color, 1.0);
+		discard;
+		return vec4<f32>(0.0);
 	}
 	// return vec4<f32>(f32(data.x) / 30000.0, f32(data.x) / 30000.0, f32(data.x) / 30000.0, 1.0);
 	let normal = data.x & 0xFFu;

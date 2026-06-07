@@ -1,9 +1,11 @@
 mod audio;
 mod audio_plugin;
 mod camera_controller;
+mod crosshair;
 mod debug_toggles;
 mod debug_ui;
 mod scene;
+mod skybox;
 mod streaming_test;
 mod vox_loader;
 mod world_interaction;
@@ -18,6 +20,8 @@ use bevy::render::view::{Hdr, Msaa};
 use audio_plugin::VoxelAudioPlugin;
 use bevy::window::WindowResolution;
 use camera_controller::{FlyCamera, FlyCameraPlugin};
+use crosshair::CrosshairPlugin;
+use skybox::SkyboxPlugin;
 use debug_toggles::DebugTogglesPlugin;
 use debug_ui::DebugUiPlugin;
 use scene::ScenePlugin;
@@ -41,6 +45,8 @@ impl PluginGroup for GamePlugins {
 			.add(VoxelSourcesPlugin)
 			.add(MemoryStorePlugin)
 			.add(VoxelRendererPlugin)
+			.add(SkyboxPlugin)
+			.add(CrosshairPlugin)
 			.add(VoxelPhysicsPlugin)
 			.add(ScenePlugin)
 			.add(StreamingTestPlugin)

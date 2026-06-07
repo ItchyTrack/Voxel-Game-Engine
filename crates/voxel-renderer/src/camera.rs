@@ -25,6 +25,10 @@ impl CameraUniform {
 		}
 	}
 
+	pub fn as_bytes(&self) -> &[u8] {
+		bytemuck::bytes_of(self)
+	}
+
 	pub fn get_bind_group_layout(device: &wgpu::Device, binding: u32) -> wgpu::BindGroupLayout {
 		device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 				entries: &[wgpu::BindGroupLayoutEntry {

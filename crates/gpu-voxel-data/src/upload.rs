@@ -9,7 +9,7 @@ use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, PriorityTask, TaskQ
 
 use crate::gpu_grid_tree::make_gpu_grid_tree;
 use crate::lod_request::DesiredLods;
-use crate::sub_grid_gpu_state::SubGridGpuState;
+use crate::sub_grid_gpu_state::{SubGridGpuState, SubGridPlacement};
 use crate::world_gpu_data::WorldGpuData;
 
 const LOD_REUPLOAD_EPSILON: f32 = 0.25;
@@ -55,6 +55,12 @@ pub(crate) fn manage_gpu_uploads(
 		if !needs_upload { continue; }
 
 		let Some(view) = grids.get(sub_grid.grid()).ok().and_then(|g| g.view(sub_grid)) else { continue };
+		let Some((bounds_min, bounds_max)) = view.voxels().bounding_box() else { continue };
+		let placement = SubGridPlacement {
+			tree_root_pos: view.voxels().grid_tree().internals().1,
+			bounds_min,
+			bounds_max,
+		};
 
 		in_flight.0.insert(entity);
 		commands.entity(entity).remove::<NeedsReupload>();
@@ -67,7 +73,7 @@ pub(crate) fn manage_gpu_uploads(
 		async_task_priority_queue.push(PriorityTask::new(request.priority, async move {
 			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, lod_level);
 			task_queue.push(move |world: &mut World| {
-				apply_gpu_upload(world, entity, lod_level, &tree_buffer, &voxel_buffer);
+				apply_gpu_upload(world, entity, lod_level, placement, &tree_buffer, &voxel_buffer);
 			});
 		}));
 	}
@@ -77,6 +83,7 @@ fn apply_gpu_upload(
 	world: &mut World,
 	entity: Entity,
 	lod_level: f32,
+	placement: SubGridPlacement,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) {
@@ -90,8 +97,8 @@ fn apply_gpu_upload(
 
 	let Some(mut gpu_data) = world.get_resource_mut::<WorldGpuData>() else { return };
 	let new_state = match existing {
-		Some(old) => upload_replace(&mut gpu_data, old, lod_level, tree_buffer, voxel_buffer),
-		None => upload_new(&mut gpu_data, lod_level, tree_buffer, voxel_buffer),
+		Some(old) => upload_replace(&mut gpu_data, old, lod_level, placement, tree_buffer, voxel_buffer),
+		None => upload_new(&mut gpu_data, lod_level, placement, tree_buffer, voxel_buffer),
 	};
 	plot_gpu_usage(&gpu_data);
 
@@ -105,6 +112,7 @@ fn apply_gpu_upload(
 fn upload_new(
 	gpu_data: &mut WorldGpuData,
 	lod_level: f32,
+	placement: SubGridPlacement,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) -> Option<SubGridGpuState> {
@@ -113,7 +121,7 @@ fn upload_new(
 		Err(err) => { log::warn!("{err}"); return None; }
 	};
 	match gpu_data.packed_voxel_data_dynamic_buffer.add_buffer(voxel_buffer) {
-		Ok(voxels_id) => Some(SubGridGpuState::new(lod_level, tree_id, voxels_id)),
+		Ok(voxels_id) => Some(SubGridGpuState::new(lod_level, tree_id, voxels_id, placement)),
 		Err(err) => {
 			log::warn!("{err}");
 			if let Err(err) = gpu_data.packed_64_tree_dynamic_buffer.remove_buffer(tree_id) {
@@ -128,6 +136,7 @@ fn upload_replace(
 	gpu_data: &mut WorldGpuData,
 	old: SubGridGpuState,
 	lod_level: f32,
+	placement: SubGridPlacement,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) -> Option<SubGridGpuState> {
@@ -142,7 +151,7 @@ fn upload_replace(
 		}
 	};
 	match gpu_data.packed_voxel_data_dynamic_buffer.replace_buffer(old.voxels_id(), voxel_buffer) {
-		Ok(voxels_id) => Some(SubGridGpuState::new(lod_level, tree_id, voxels_id)),
+		Ok(voxels_id) => Some(SubGridGpuState::new(lod_level, tree_id, voxels_id, placement)),
 		Err(err) => {
 			log::warn!("{err}");
 			if let Err(err) = gpu_data.packed_64_tree_dynamic_buffer.remove_buffer(tree_id) {

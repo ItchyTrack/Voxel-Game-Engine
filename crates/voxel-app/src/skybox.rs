@@ -1,0 +1,156 @@
+use bevy::camera::{Camera, Projection};
+use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
+use bevy::ecs::query::QueryItem;
+use bevy::prelude::*;
+use bevy::render::render_graph::{
+	NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
+};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue};
+use bevy::render::view::ViewTarget;
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
+use bevy::transform::components::GlobalTransform;
+
+use voxel_renderer::camera::CameraUniform;
+use voxel_renderer::VoxelRenderLabel;
+
+#[derive(Default)]
+pub struct SkyboxPlugin;
+
+impl Plugin for SkyboxPlugin {
+	fn build(&self, app: &mut App) {
+		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+		render_app
+			.init_resource::<SkyboxCamera>()
+			.init_resource::<SkyboxResource>()
+			.add_systems(ExtractSchedule, extract_skybox_camera)
+			.add_systems(Render, prepare_skybox.in_set(RenderSystems::PrepareBindGroups))
+			.add_render_graph_node::<ViewNodeRunner<SkyboxNode>>(Core3d, SkyboxLabel)
+			.add_render_graph_edges(Core3d, (Node3d::StartMainPass, SkyboxLabel, VoxelRenderLabel));
+	}
+}
+
+#[derive(Resource, Default)]
+struct SkyboxCamera(Option<(Transform, Projection)>);
+
+#[derive(Resource, Default)]
+struct SkyboxResource {
+	renderer: Option<SkyboxRenderer>,
+	format: Option<wgpu::TextureFormat>,
+}
+
+impl SkyboxResource {
+	fn ensure(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+		if self.format == Some(format) && self.renderer.is_some() { return; }
+		self.renderer = Some(SkyboxRenderer::new(device, format));
+		self.format = Some(format);
+	}
+}
+
+struct SkyboxRenderer {
+	pipeline: wgpu::RenderPipeline,
+	buffer: wgpu::Buffer,
+	bind_group: wgpu::BindGroup,
+}
+
+impl SkyboxRenderer {
+	fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+			label: Some("Skybox Shader"),
+			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/skybox.wgsl").into()),
+		});
+		let (buffer, bind_group, layout) = CameraUniform::get_buffer(device, 0);
+		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+			label: Some("Skybox Pipeline Layout"),
+			bind_group_layouts: &[&layout],
+			push_constant_ranges: &[],
+		});
+		let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+			label: Some("Skybox Pipeline"),
+			layout: Some(&pipeline_layout),
+			vertex: wgpu::VertexState {
+				module: &shader,
+				entry_point: Some("vs_main"),
+				buffers: &[],
+				compilation_options: wgpu::PipelineCompilationOptions::default(),
+			},
+			fragment: Some(wgpu::FragmentState {
+				module: &shader,
+				entry_point: Some("fs_main"),
+				targets: &[Some(wgpu::ColorTargetState {
+					format,
+					blend: Some(wgpu::BlendState::REPLACE),
+					write_mask: wgpu::ColorWrites::ALL,
+				})],
+				compilation_options: wgpu::PipelineCompilationOptions::default(),
+			}),
+			primitive: wgpu::PrimitiveState::default(),
+			depth_stencil: None,
+			multisample: wgpu::MultisampleState::default(),
+			multiview: None,
+			cache: None,
+		});
+		Self { pipeline, buffer, bind_group }
+	}
+}
+
+fn extract_skybox_camera(
+	mut skybox_camera: ResMut<SkyboxCamera>,
+	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform)>>,
+) {
+	skybox_camera.0 = cameras
+		.iter()
+		.find(|(camera, _, _)| camera.is_active)
+		.map(|(_, projection, global_transform)| (global_transform.compute_transform(), projection.clone()));
+}
+
+fn prepare_skybox(
+	render_device: Res<RenderDevice>,
+	render_queue: Res<RenderQueue>,
+	mut skybox: ResMut<SkyboxResource>,
+	skybox_camera: Res<SkyboxCamera>,
+	views: Query<&ViewTarget>,
+) {
+	let Some(view_target) = views.iter().next() else { return };
+	skybox.ensure(render_device.wgpu_device(), view_target.main_texture_format());
+
+	let Some(renderer) = skybox.renderer.as_ref() else { return };
+	let Some((transform, projection)) = skybox_camera.0.as_ref() else { return };
+	let Ok(uniform) = CameraUniform::from_camera(transform, projection) else { return };
+	render_queue.write_buffer(&renderer.buffer, 0, uniform.as_bytes());
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, RenderLabel)]
+struct SkyboxLabel;
+
+#[derive(Default)]
+struct SkyboxNode;
+
+impl ViewNode for SkyboxNode {
+	type ViewQuery = &'static ViewTarget;
+
+	fn run<'w>(
+		&self,
+		_graph: &mut RenderGraphContext,
+		render_context: &mut RenderContext<'w>,
+		view_target: QueryItem<'w, '_, Self::ViewQuery>,
+		world: &'w World,
+	) -> Result<(), NodeRunError> {
+		let skybox = world.resource::<SkyboxResource>();
+		let Some(renderer) = skybox.renderer.as_ref() else { return Ok(()) };
+
+		let color_attachment = view_target.get_color_attachment();
+		let encoder = render_context.command_encoder();
+		let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+			label: Some("Skybox Pass"),
+			color_attachments: &[Some(color_attachment)],
+			depth_stencil_attachment: None,
+			occlusion_query_set: None,
+			timestamp_writes: None,
+		});
+		pass.set_pipeline(&renderer.pipeline);
+		pass.set_bind_group(0, &renderer.bind_group, &[]);
+		pass.draw(0..3, 0..1);
+
+		Ok(())
+	}
+}

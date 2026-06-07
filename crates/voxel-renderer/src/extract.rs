@@ -8,11 +8,10 @@ use bevy::math::Vec3;
 use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
 
+use gpu_voxel_data::residency::ResidencyBuffers;
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
-use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use voxel_bvh::bvh::BVH;
-use voxel_data::grid::Grid;
-use voxel_data::subgrid::{SubGrid, SubGridId};
+use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
 
 #[derive(Resource, Default)]
 pub struct ExtractedVoxelScene {
@@ -29,9 +28,8 @@ pub fn extract_voxel_scene(
 	mut extracted: ResMut<ExtractedVoxelScene>,
 	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform)>>,
 	sub_grids: Extract<Query<(Entity, &SubGrid, &SubGridGpuState)>>,
-	grids: Extract<Query<&Grid>>,
 	grid_transforms: Extract<Query<&GlobalTransform>>,
-	world_gpu_data: Extract<Res<WorldGpuData>>,
+	residency: Extract<Res<ResidencyBuffers>>,
 ) {
 	extracted.has_camera = false;
 	extracted.bvh = None;
@@ -49,26 +47,21 @@ pub fn extract_voxel_scene(
 	let mut bvh_items: Vec<(SubGridId, (Vec3, Vec3))> = Vec::new();
 	let mut id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)> = HashMap::new();
 
+	let offsets = residency.offsets();
 	for (entity, sub_grid, gpu_state) in sub_grids.iter() {
-		let Some(tree_held) = world_gpu_data
-			.packed_64_tree_dynamic_buffer
-			.held_buffer(gpu_state.tree_id()) else { continue };
-		let Some(voxel_held) = world_gpu_data
-			.packed_voxel_data_dynamic_buffer
-			.held_buffer(gpu_state.voxels_id()) else { continue };
+		let Some(&(tree_offset, voxel_offset)) = offsets.get(&entity) else { continue };
 
-		let Ok(grid) = grids.get(sub_grid.grid()) else { continue };
-		let Some(view) = grid.view(sub_grid) else { continue };
 		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
 		let sub_world = grid_global.compute_transform()
 			* Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
-		let Some(aabb) = view.aabb(&sub_world) else { continue };
 
-		let (_, tree_root_pos, _) = view.voxels().grid_tree().internals();
-		let dda_transform = sub_world * Transform::from_translation(tree_root_pos.as_vec3());
+		let placement = gpu_state.placement();
+		let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &sub_world);
+		let dda_transform = sub_world
+			* Transform::from_translation(placement.tree_root_pos.as_vec3());
 
 		bvh_items.push((entity, aabb));
-		id_to_offsets.insert(entity, (tree_held.offset(), voxel_held.offset(), dda_transform));
+		id_to_offsets.insert(entity, (tree_offset, voxel_offset, dda_transform));
 	}
 
 	if !bvh_items.is_empty() {
@@ -76,6 +69,6 @@ pub fn extract_voxel_scene(
 	}
 	extracted.id_to_offsets = id_to_offsets;
 
-	extracted.tree_buffer = Some(world_gpu_data.packed_64_tree_dynamic_buffer.buffer().clone());
-	extracted.voxel_buffer = Some(world_gpu_data.packed_voxel_data_dynamic_buffer.buffer().clone());
+	extracted.tree_buffer = Some(residency.tree_buffer().clone());
+	extracted.voxel_buffer = Some(residency.voxel_buffer().clone());
 }

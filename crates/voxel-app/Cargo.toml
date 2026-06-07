@@ -25,6 +25,7 @@ bevy_egui = "0.39"
 log = { workspace = true }
 tokio = { workspace = true }
 bevy = { workspace = true }
+wgpu = { workspace = true }
 tracing-tracy = { version = "0.11", default-features = false, features = ["enable", "broadcast"], optional = true }
 voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }

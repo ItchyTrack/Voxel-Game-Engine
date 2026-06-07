@@ -40,22 +40,26 @@ impl<'a> SubGridRef<'a> {
 
 	pub fn aabb(&self, transform: &Transform) -> Option<(Vec3, Vec3)> {
 		let (min, max) = self.voxels.bounding_box()?;
-		let min = min.as_vec3();
-		let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
-		let corners = [
-			min,
-			Vec3::new(max.x, min.y, min.z),
-			Vec3::new(min.x, max.y, min.z),
-			Vec3::new(min.x, min.y, max.z),
-			Vec3::new(max.x, max.y, min.z),
-			Vec3::new(max.x, min.y, max.z),
-			Vec3::new(min.x, max.y, max.z),
-			max,
-		];
-		let rotated_corners = corners.map(|c| *transform * c);
-		Some((
-			rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
-			rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)),
-		))
+		Some(aabb_from_bounds(min, max, transform))
 	}
+}
+
+pub fn aabb_from_bounds(min: I16Vec3, max: I16Vec3, transform: &Transform) -> (Vec3, Vec3) {
+	let min = min.as_vec3();
+	let max = max.as_vec3() + Vec3::new(1.0, 1.0, 1.0);
+	let corners = [
+		min,
+		Vec3::new(max.x, min.y, min.z),
+		Vec3::new(min.x, max.y, min.z),
+		Vec3::new(min.x, min.y, max.z),
+		Vec3::new(max.x, max.y, min.z),
+		Vec3::new(max.x, min.y, max.z),
+		Vec3::new(min.x, max.y, max.z),
+		max,
+	];
+	let rotated_corners = corners.map(|c| *transform * c);
+	(
+		rotated_corners.iter().fold(Vec3::splat(f32::MAX), |acc, c| acc.min(*c)),
+		rotated_corners.iter().fold(Vec3::splat(f32::MIN), |acc, c| acc.max(*c)),
+	)
 }

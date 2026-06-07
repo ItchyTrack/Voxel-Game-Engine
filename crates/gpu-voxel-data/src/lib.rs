@@ -4,6 +4,7 @@ pub mod packed_dynamic_buffer;
 pub mod world_gpu_data;
 pub mod sub_grid_gpu_state;
 pub mod lod_request;
+pub mod residency;
 pub mod upload;
 
 use bevy::prelude::*;
@@ -31,5 +32,6 @@ impl Plugin for GpuVoxelDataPlugin {
 
 	fn finish(&self, app: &mut App) {
 		app.init_resource::<WorldGpuData>();
+		app.init_resource::<residency::ResidencyBuffers>();
 	}
 }
