@@ -6,7 +6,7 @@ use bevy::math::{I16Vec3, IVec3, Quat, Vec3};
 use crate::subgrid::{SubGrid, SubGridId, SubGridRef};
 use crate::voxels::{Voxel, Voxels};
 
-pub const SUB_GRID_SIZE: i32 = 64;
+pub const SUB_GRID_SIZE: i32 = 57;
 
 /// A [`Grid`] entity. Each rigid voxel object owns one.
 pub type GridId = Entity;
@@ -15,7 +15,6 @@ pub type GridId = Entity;
 enum GridEdit {
 	Add { voxel_pos: IVec3, voxel: Voxel },
 	Remove { voxel_pos: IVec3 },
-	RemoveArea { min: IVec3, size: IVec3 },
 }
 
 #[derive(Debug)]
@@ -57,15 +56,9 @@ impl Grid {
 		}
 	}
 
-	pub fn remove_area(&mut self, min: &IVec3, size: &IVec3) {
-		self.pending.push(GridEdit::RemoveArea { min: *min, size: *size });
-	}
-
-	/// Clear `[min, min + size)` directly, marking touched sub-grids. Sub-grids
-	/// fully inside the box are dropped wholesale; partial ones do a bulk tree
-	/// removal of the clamped slice.
-	fn clear_area(&mut self, min: IVec3, size: IVec3, touched: &mut HashSet<IVec3>) {
-		if size.cmple(IVec3::ZERO).any() { return; }
+	pub fn clear_area(&mut self, min: IVec3, size: IVec3) -> HashSet<IVec3> {
+		let mut touched = HashSet::new();
+		if size.cmple(IVec3::ZERO).any() { return touched; }
 		let sub = IVec3::splat(SUB_GRID_SIZE);
 		let hi = min + size;
 		let sg_lo = min.div_euclid(sub);
@@ -88,6 +81,7 @@ impl Grid {
 				}
 			}
 		}
+		touched
 	}
 
 	/// Write every voxel of `src` directly into this grid at offset `base`,
@@ -202,7 +196,6 @@ pub fn apply_grid_edits(
 						touched.insert(pos);
 					}
 				}
-				GridEdit::RemoveArea { min, size } => grid.clear_area(min, size, &mut touched),
 			}
 		}
 
@@ -265,28 +258,5 @@ mod tests {
 		}
 		let total: u64 = grid.subgrids.values().map(|s| s.voxels.grid_tree().len()).sum();
 		assert_eq!(total, count);
-	}
-
-	#[test]
-	fn clear_area_drops_full_and_slices_partial() {
-		let mut grid = Grid::new();
-		// Fill a 64-wide region spanning 2x2x2 sub-grids, plus one voxel outside.
-		grid.add_area(&IVec3::ZERO, &IVec3::splat(64), &vox(1));
-		grid.add_voxel(&IVec3::new(100, 0, 0), &vox(2));
-		for e in std::mem::take(&mut grid.pending) {
-			if let GridEdit::Add { voxel_pos, voxel } = e {
-				let p = Grid::sub_grid_pos_of(&voxel_pos);
-				grid.subgrids.entry(p).or_insert_with(|| SubGridSlot { voxels: Voxels::new(), entity: Entity::PLACEHOLDER })
-					.voxels.add_voxel(Grid::local_of(&voxel_pos), voxel);
-			}
-		}
-
-		let mut touched = HashSet::new();
-		grid.clear_area(IVec3::splat(16), IVec3::splat(48), &mut touched);
-
-		assert_eq!(grid.voxel(&IVec3::splat(40)), None, "fully-covered region cleared");
-		assert_eq!(grid.voxel(&IVec3::splat(20)), None, "partial slice cleared");
-		assert_eq!(grid.voxel(&IVec3::splat(8)), Some(&vox(1)), "untouched corner survives");
-		assert_eq!(grid.voxel(&IVec3::new(100, 0, 0)), Some(&vox(2)), "outside area untouched");
 	}
 }

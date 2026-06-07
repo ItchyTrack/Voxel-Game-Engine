@@ -9,9 +9,12 @@ use crate::consumer::ChunkConsumer;
 use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel};
 use crate::presence::{ChunkPresence, ChunkState};
 
+const CLEAR_DELAY_FRAMES: u8 = 20;
+
 #[derive(Component, Default)]
 pub struct GridStreaming {
 	presence: ChunkPresence,
+	pending_clears: Vec<(IVec3, u8)>,
 }
 
 impl GridStreaming {
@@ -56,11 +59,10 @@ impl GridStreaming {
 		}
 	}
 
-	pub fn release(&mut self, chunk: IVec3, grid: &mut Grid) {
+	pub fn release(&mut self, chunk: IVec3) {
 		if self.presence.remove_request(chunk) > 0 { return; }
 		if let Some(ChunkState::Loaded) = self.presence.state(chunk) {
-			grid.remove_area(&chunk_origin(chunk), &IVec3::splat(CHUNK_SIZE));
-			self.presence.set_state(chunk, ChunkState::Available);
+			self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES));
 		}
 	}
 
@@ -70,13 +72,12 @@ impl GridStreaming {
 		grid: GridId,
 		consumer: &mut C,
 		chunk: IVec3,
-		grid_data: &mut Grid,
 	) {
 		if let Some(set) = consumer.needed_mut().get_mut(&grid) {
 			set.remove(&chunk);
 			if set.is_empty() { consumer.needed_mut().remove(&grid); }
 		}
-		self.release(chunk, grid_data);
+		self.release(chunk);
 	}
 
 	fn mark_loaded(&mut self, chunk: IVec3) {
@@ -129,5 +130,28 @@ pub fn receive_results(
 				}
 			}
 		}
+	}
+}
+
+pub fn apply_chunk_clears(
+	mut commands: Commands,
+	mut grids: Query<(Entity, &mut GridStreaming, &mut Grid)>,
+	mut sub_grids: Query<&mut SubGrid>,
+) {
+	for (grid_entity, mut streaming, mut grid) in grids.iter_mut() {
+		if streaming.pending_clears.is_empty() { continue; }
+		let mut still_pending = Vec::new();
+		for (chunk, frames) in std::mem::take(&mut streaming.pending_clears) {
+			if streaming.presence.request_count(chunk) > 0 { continue; }
+			if streaming.presence.state(chunk) != Some(ChunkState::Loaded) { continue; }
+			if frames > 0 {
+				still_pending.push((chunk, frames - 1));
+				continue;
+			}
+			let touched = grid.clear_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
+			reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
+			streaming.presence.set_state(chunk, ChunkState::Available);
+		}
+		streaming.pending_clears = still_pending;
 	}
 }

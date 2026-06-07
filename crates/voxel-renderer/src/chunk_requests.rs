@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use bevy::camera::Camera;
 use bevy::prelude::*;
 
-use voxel_data::grid::Grid;
 use voxel_streaming::{ChunkRequestChannel, GridStreaming, CHUNK_SIZE};
 
 /// Voxel radius around the active camera within which the renderer keeps a
@@ -20,7 +19,7 @@ pub struct RenderWantedChunks(HashSet<IVec3>);
 pub fn request_render_chunks(
 	mut commands: Commands,
 	cameras: Query<(&Camera, &GlobalTransform)>,
-	mut grids: Query<(Entity, &GlobalTransform, &mut GridStreaming, &mut Grid, Option<&mut RenderWantedChunks>)>,
+	mut grids: Query<(Entity, &GlobalTransform, &mut GridStreaming, Option<&mut RenderWantedChunks>)>,
 	channel: Res<ChunkRequestChannel>,
 ) {
 	let Some(cam_world) = cameras
@@ -29,7 +28,7 @@ pub fn request_render_chunks(
 		.map(|(_, tf)| tf.translation())
 	else { return };
 
-	for (entity, grid_global, mut streaming, mut grid, wanted) in grids.iter_mut() {
+	for (entity, grid_global, mut streaming, wanted) in grids.iter_mut() {
 		// Camera position in this grid's local voxel space.
 		let local = grid_global.affine().inverse().transform_point3(cam_world);
 		let cmin = ((local - REQUEST_RADIUS) / CHUNK_SIZE as f32).floor().as_ivec3();
@@ -51,7 +50,7 @@ pub fn request_render_chunks(
 			streaming.fetch(entity, &channel, chunk);
 		}
 		for &chunk in prev.difference(&want) {
-			streaming.release(chunk, grid.as_mut());
+			streaming.release(chunk);
 		}
 
 		match wanted {

@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 
-use voxel_data::grid::Grid;
 use voxel_streaming::{ChunkRequestChannel, GridStreaming, CHUNK_SIZE};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
@@ -100,7 +99,7 @@ fn present_chunks(streaming: &GridStreaming) -> Vec<IVec3> {
 /// static bodies request only chunks intersecting an overlapping body's AABB.
 pub fn request_collision_chunks(
 	bodies: Query<(&Transform, Has<IsStatic>), With<RigidBody>>,
-	mut grids: Query<(Entity, &ChildOf, &Transform, &mut GridStreaming, &PresenceAabb, &mut Grid, &mut WantedChunks), With<VoxelCollider>>,
+	mut grids: Query<(Entity, &ChildOf, &Transform, &mut GridStreaming, &PresenceAabb, &mut WantedChunks), With<VoxelCollider>>,
 	mut consumers: Query<&mut PhysicsConsumer>,
 	channel: Res<ChunkRequestChannel>,
 ) {
@@ -109,7 +108,7 @@ pub fn request_collision_chunks(
 	// Pass 1: accumulate each body's world AABB from its grids' cached extents.
 	let mut reqs: Vec<GridReq> = Vec::new();
 	let mut body_aabb: HashMap<Entity, (Vec3, Vec3)> = HashMap::new();
-	for (entity, child_of, local_tf, _, aabb, _, _) in grids.iter() {
+	for (entity, child_of, local_tf, _, aabb, _) in grids.iter() {
 		let body = child_of.parent();
 		let Ok((body_tf, is_static)) = bodies.get(body) else { continue };
 		let grid_tf = *body_tf * *local_tf;
@@ -127,7 +126,7 @@ pub fn request_collision_chunks(
 	// Pass 2: compute the wanted chunk set per grid under the policy above.
 	let mut desired: HashMap<Entity, HashSet<IVec3>> = HashMap::new();
 	for req in &reqs {
-		let Ok((_, _, _, streaming, _, _, _)) = grids.get(req.entity) else { continue };
+		let Ok((_, _, _, streaming, _, _)) = grids.get(req.entity) else { continue };
 		let want = desired.entry(req.entity).or_default();
 		if !req.is_static {
 			want.extend(present_chunks(&streaming));
@@ -171,13 +170,13 @@ pub fn request_collision_chunks(
 
 	// Pass 3: diff against last tick — fetch newly wanted chunks, release dropped
 	// ones. Grids absent from `desired` (their body vanished) release everything.
-	for (entity, _, _, mut streaming, _, mut grid, mut wanted) in grids.iter_mut() {
+	for (entity, _, _, mut streaming, _, mut wanted) in grids.iter_mut() {
 		let want = desired.remove(&entity).unwrap_or_default();
 		for &chunk in want.difference(&wanted.0) {
 			streaming.fetch_needed(entity, consumer.as_mut(), &channel, chunk);
 		}
 		for &chunk in wanted.0.difference(&want) {
-			streaming.release_needed(entity, consumer.as_mut(), chunk, grid.as_mut());
+			streaming.release_needed(entity, consumer.as_mut(), chunk);
 		}
 		wanted.0 = want;
 	}
