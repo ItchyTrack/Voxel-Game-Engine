@@ -25,7 +25,9 @@ use streaming_test::StreamingTestPlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use voxel_renderer::VoxelRendererPlugin;
 use voxel_edit::VoxelEditPlugin;
+use voxel_sources::VoxelSourcesPlugin;
 use voxel_streaming::VoxelStreamingPlugin;
+use voxel_test_store::MemoryStorePlugin;
 use world_interaction::WorldInteractionPlugin;
 
 /// All gameplay, rendering, physics, and debug plugins that make up the app.
@@ -36,6 +38,8 @@ impl PluginGroup for GamePlugins {
 		PluginGroupBuilder::start::<Self>()
 			.add(VoxelEditPlugin)
 			.add(VoxelStreamingPlugin)
+			.add(VoxelSourcesPlugin)
+			.add(MemoryStorePlugin)
 			.add(VoxelRendererPlugin)
 			.add(VoxelPhysicsPlugin)
 			.add(ScenePlugin)

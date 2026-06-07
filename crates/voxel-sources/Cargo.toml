@@ -1,0 +1,10 @@
+[package]
+name = "voxel-sources"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+crossbeam-channel = "0.5.15"
+bevy = { workspace = true }
+voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
