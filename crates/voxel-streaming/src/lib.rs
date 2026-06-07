@@ -10,7 +10,7 @@ pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest};
 pub use presence::{ChunkPresence, ChunkState};
-pub use streaming::{apply_chunk_clears, receive_results, GridStreaming};
+pub use streaming::{apply_chunk_clears, receive_results, request_stalled_chunks, GridStreaming};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -30,7 +30,11 @@ impl Plugin for VoxelStreamingPlugin {
 			.register_edit_gate::<GridStreaming>()
 			.add_systems(
 				PreUpdate,
-				(streaming::receive_results, streaming::apply_chunk_clears)
+				(
+					streaming::request_stalled_chunks,
+					streaming::receive_results,
+					streaming::apply_chunk_clears,
+				)
 					.before(voxel_edit::ApplyGridEdits),
 			);
 	}

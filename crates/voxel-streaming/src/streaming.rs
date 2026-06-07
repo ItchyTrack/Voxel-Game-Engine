@@ -1,9 +1,11 @@
+use std::collections::{HashMap, HashSet};
+
 use bevy::math::IVec3;
 use bevy::prelude::*;
 
 use voxel_data::grid::{reconcile_subgrids, Grid, GridId};
 use voxel_data::subgrid::SubGrid;
-use voxel_edit::EditGate;
+use voxel_edit::{EditGate, GridEdit, GridEdits};
 
 use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
@@ -16,6 +18,8 @@ const CLEAR_DELAY_FRAMES: u8 = 20;
 pub struct GridStreaming {
 	presence: ChunkPresence,
 	pending_clears: Vec<(IVec3, u8)>,
+	stalled_edits: HashMap<IVec3, Vec<GridEdit>>,
+	stalled_pinned: HashSet<IVec3>,
 }
 
 impl GridStreaming {
@@ -89,17 +93,34 @@ impl GridStreaming {
 		self.presence.set_state(chunk, ChunkState::Loaded);
 	}
 
+	fn replay_stalled(&mut self, chunk: IVec3, edits: &mut Option<Mut<GridEdits>>) {
+		let Some(stalled) = self.stalled_edits.remove(&chunk) else { return; };
+		if let Some(edits) = edits.as_mut() {
+			for edit in stalled {
+				edits.push_edit(edit);
+			}
+		}
+		if self.stalled_pinned.remove(&chunk) {
+			self.release(chunk);
+		}
+	}
+
 	fn mark_empty(&mut self, chunk: IVec3) {
 		self.presence.clear_present(chunk);
 	}
 }
 
 impl EditGate for GridStreaming {
-	fn admit(&self, voxel_pos: IVec3) -> bool {
-		!matches!(
-			self.presence.state(chunk_of(voxel_pos)),
-			Some(ChunkState::ExternalDirty) | Some(ChunkState::ExternalDirtyInFlight)
-		)
+	fn admit(&mut self, edit: &GridEdit) -> bool {
+		let chunk = chunk_of(edit.voxel_pos());
+		match self.presence.state(chunk) {
+			Some(ChunkState::Available) => {
+				self.stalled_edits.entry(chunk).or_default().push(*edit);
+				false
+			}
+			Some(ChunkState::ExternalDirty) | Some(ChunkState::ExternalDirtyInFlight) => false,
+			_ => true,
+		}
 	}
 
 	fn touched(&mut self, voxel_pos: IVec3) {
@@ -115,12 +136,12 @@ impl EditGate for GridStreaming {
 pub fn receive_results(
 	mut commands: Commands,
 	channel: Res<ChunkLoaderChannel>,
-	mut grids: Query<(&mut GridStreaming, &mut Grid)>,
+	mut grids: Query<(&mut GridStreaming, &mut Grid, Option<&mut GridEdits>)>,
 	mut sub_grids: Query<&mut SubGrid>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
 	while let Some(result) = channel.try_recv() {
-		if let Ok((mut streaming, mut grid)) = grids.get_mut(result.grid) {
+		if let Ok((mut streaming, mut grid, mut edits)) = grids.get_mut(result.grid) {
 			match streaming.presence.state(result.chunk) {
 				Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
 					match result.voxels {
@@ -132,8 +153,12 @@ pub fn receive_results(
 							let base = chunk_origin(result.chunk);
 							let touched = grid.splat_voxels(base, &voxels);
 							reconcile_subgrids(result.grid, grid.as_mut(), touched, &mut commands, &mut sub_grids);
+							streaming.replay_stalled(result.chunk, &mut edits);
 						}
-						None => streaming.mark_empty(result.chunk),
+						None => {
+							streaming.mark_empty(result.chunk);
+							streaming.replay_stalled(result.chunk, &mut edits);
+						}
 					}
 				}
 				_ => {
@@ -154,6 +179,23 @@ pub fn receive_results(
 				if now_empty {
 					needed.remove(&result.grid);
 				}
+			}
+		}
+	}
+}
+
+pub fn request_stalled_chunks(
+	channel: Res<ChunkRequestChannel>,
+	mut grids: Query<(GridId, &mut GridStreaming)>,
+) {
+	for (grid, mut streaming) in grids.iter_mut() {
+		if streaming.stalled_edits.is_empty() { continue; }
+		let chunks: Vec<IVec3> = streaming.stalled_edits.keys().copied().collect();
+		for chunk in chunks {
+			if matches!(streaming.presence.state(chunk), Some(ChunkState::Available))
+				&& streaming.stalled_pinned.insert(chunk)
+			{
+				streaming.fetch(grid, &channel, chunk);
 			}
 		}
 	}

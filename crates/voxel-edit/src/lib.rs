@@ -9,18 +9,18 @@ use voxel_data::subgrid::SubGrid;
 use voxel_data::voxels::Voxel;
 
 #[derive(Debug, Clone, Copy)]
-enum GridEdit {
+pub enum GridEdit {
 	Add { voxel_pos: IVec3, voxel: Voxel },
 	Remove { voxel_pos: IVec3 },
 }
 
 impl GridEdit {
-	fn voxel_pos(&self) -> IVec3 {
+	pub fn voxel_pos(&self) -> IVec3 {
 		match self {
 			GridEdit::Add { voxel_pos, .. } | GridEdit::Remove { voxel_pos } => *voxel_pos,
 		}
 	}
-	fn voxel(&self) -> Option<Voxel> {
+	pub fn voxel(&self) -> Option<Voxel> {
 		match self {
 			GridEdit::Add { voxel, .. } => Some(*voxel),
 			GridEdit::Remove { .. } => None,
@@ -41,13 +41,19 @@ impl GridEdits {
 	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) {
 		self.pending.push(GridEdit::Remove { voxel_pos: *voxel_pos });
 	}
+
+	/// Re-enqueue an edit a gate previously stalled, so it is reconsidered.
+	pub fn push_edit(&mut self, edit: GridEdit) {
+		self.pending.push(edit);
+	}
 }
 
 #[bevy_trait_query::queryable]
 pub trait EditGate {
-	/// Return `false` to block this voxel from being written this frame.
-	fn admit(&self, voxel_pos: IVec3) -> bool {
-		let _ = voxel_pos;
+	/// Return `false` to keep this edit from being written this frame. A gate may
+	/// stash the edit internally (e.g. to replay it once a chunk is loaded).
+	fn admit(&mut self, edit: &GridEdit) -> bool {
+		let _ = edit;
 		true
 	}
 	/// Called after a voxel was written.
@@ -96,7 +102,7 @@ pub fn apply_grid_edits(
 		let mut touched: HashSet<IVec3> = HashSet::new();
 		for edit in std::mem::take(&mut edits.pending) {
 			let pos = edit.voxel_pos();
-			if !gate_list.iter().all(|gate| gate.admit(pos)) { continue; }
+			if !gate_list.iter_mut().all(|gate| gate.admit(&edit)) { continue; }
 
 			touched.insert(grid.set_voxel(pos, edit.voxel()));
 			for gate in gate_list.iter_mut() {
