@@ -22,7 +22,7 @@ pub struct PackedDynamicBuffer {
 	alignment: u32,
 	held_buffers: BTreeMap<u32, HeldBuffer>,
 	device: Device,
-    queue: RenderQueue,
+	queue: RenderQueue,
 }
 
 impl std::fmt::Debug for PackedDynamicBuffer {

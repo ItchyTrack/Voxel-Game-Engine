@@ -48,10 +48,10 @@ fn dda_data_index(low: u32, high: u32, bitmap_status: u32, cell_index: u32) -> u
 // Non-leaf data entry: 0x0000 = DATA, 1..0xFFFF = NODE slot offset
 fn dda_node_entry(node_byte_off: u32, bitmap_status: u32, data_idx: u32, node_size: u32) -> u32 {
 	let byte_start = node_byte_off + 8u + 4u * u32(bitmap_status == 3);
-    if node_size == 16u {
-        return dda_u8(byte_start + data_idx);
-    }
-    return dda_u16(byte_start + data_idx * 2u);
+	if node_size == 16u {
+		return dda_u8(byte_start + data_idx);
+	}
+	return dda_u16(byte_start + data_idx * 2u);
 }
 
 fn dda_node_size(depth: u32) -> u32  { return 1u << (DDA_LOG_SIZE * (depth + 1u)); }
