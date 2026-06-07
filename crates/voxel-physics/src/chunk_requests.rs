@@ -177,7 +177,7 @@ pub fn request_collision_chunks(
 			streaming.fetch_needed(entity, consumer.as_mut(), &channel, chunk);
 		}
 		for &chunk in wanted.0.difference(&want) {
-			streaming.release(chunk, grid.as_mut());
+			streaming.release_needed(entity, consumer.as_mut(), chunk, grid.as_mut());
 		}
 		wanted.0 = want;
 	}

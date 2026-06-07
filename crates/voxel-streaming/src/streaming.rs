@@ -57,14 +57,25 @@ impl GridStreaming {
 
 	pub fn release(&mut self, chunk: IVec3, grid: &mut Grid) {
 		if self.presence.remove_request(chunk) > 0 { return; }
-		match self.presence.state(chunk) {
-			Some(ChunkState::Loaded) => {
-				grid.remove_area(&chunk_origin(chunk), &IVec3::splat(CHUNK_SIZE));
-				self.presence.set_state(chunk, ChunkState::Available);
-			}
-			Some(_) => self.presence.set_state(chunk, ChunkState::Available),
-			None => {}
+		if let Some(ChunkState::Loaded) = self.presence.state(chunk) {
+			grid.remove_area(&chunk_origin(chunk), &IVec3::splat(CHUNK_SIZE));
+			self.presence.set_state(chunk, ChunkState::Available);
 		}
+	}
+
+	// Fine to call if the chunk was requested with `fetch`
+	pub fn release_needed<C: ChunkConsumer>(
+		&mut self,
+		grid: GridId,
+		consumer: &mut C,
+		chunk: IVec3,
+		grid_data: &mut Grid,
+	) {
+		if let Some(set) = consumer.needed_mut().get_mut(&grid) {
+			set.remove(&chunk);
+			if set.is_empty() { consumer.needed_mut().remove(&grid); }
+		}
+		self.release(chunk, grid_data);
 	}
 
 	fn mark_loaded(&mut self, chunk: IVec3) {
@@ -83,28 +94,31 @@ pub fn receive_results(
 ) {
 	while let Some(result) = channel.try_recv() {
 		if let Ok((mut streaming, mut grid)) = grids.get_mut(result.grid) {
-			match result.voxels {
-				// Released while in flight: don't make it resident.
-				Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
-					streaming.presence.set_state(result.chunk, ChunkState::Available);
-				}
-				Some(voxels) => {
-					streaming.mark_loaded(result.chunk);
-					let base = chunk_origin(result.chunk);
-					let palette = voxels.palette();
-					for (pos, size, palette_id) in voxels.grid_tree().iter() {
-						let Some(voxel) = palette.voxel(palette_id) else { continue };
-						let origin = base + pos.as_ivec3();
-						for dx in 0..size as i32 {
-							for dy in 0..size as i32 {
-								for dz in 0..size as i32 {
-									grid.add_voxel(&(origin + IVec3::new(dx, dy, dz)), voxel);
+			if streaming.presence.state(result.chunk) == Some(ChunkState::InFlight) {
+				match result.voxels {
+					Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
+						streaming.presence.set_state(result.chunk, ChunkState::Available);
+					}
+					Some(voxels) => {
+						streaming.mark_loaded(result.chunk);
+						let base = chunk_origin(result.chunk);
+						let palette = voxels.palette();
+						for (pos, size, palette_id) in voxels.grid_tree().iter() {
+							let Some(voxel) = palette.voxel(palette_id) else { continue };
+							let origin = base + pos.as_ivec3();
+							for dx in 0..size as i32 {
+								for dy in 0..size as i32 {
+									for dz in 0..size as i32 {
+										grid.add_voxel(&(origin + IVec3::new(dx, dy, dz)), voxel);
+									}
 								}
 							}
 						}
 					}
+					None => streaming.mark_empty(result.chunk),
 				}
-				None => streaming.mark_empty(result.chunk),
+			} else {
+				bevy::log::warn!("receive_results received a chunk without anyone requesting it!");
 			}
 		}
 		for mut entity_consumers in consumers.iter_mut() {
