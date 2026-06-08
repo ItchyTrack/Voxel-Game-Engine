@@ -1,5 +1,3 @@
-//! Loads MagicaVoxel `.vox` files into a `StreamingVoxels`.
-
 use std::path::Path;
 
 use bevy::math::{IVec3, Quat, Vec3};

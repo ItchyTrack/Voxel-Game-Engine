@@ -47,6 +47,17 @@ pub struct Voxels {
 	bounding_box_dirty: AtomicBool,
 }
 
+impl Clone for Voxels {
+	fn clone(&self) -> Self {
+		Self {
+			voxels: self.voxels.clone(),
+			voxel_palette: self.voxel_palette.clone(),
+			bounding_box: Mutex::new(*self.bounding_box.lock().unwrap()),
+			bounding_box_dirty: AtomicBool::new(self.bounding_box_dirty.load(Ordering::Relaxed)),
+		}
+	}
+}
+
 impl Voxels {
 	pub fn new() -> Self {
 		Self {

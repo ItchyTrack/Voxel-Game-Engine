@@ -201,6 +201,25 @@ pub fn request_stalled_chunks(
 	}
 }
 
+pub fn flush_dirty_chunks(
+	save_channel: Res<ChunkSaveChannel>,
+	mut grids: Query<(Entity, &mut GridStreaming, &Grid)>,
+) {
+	for (grid_entity, mut streaming, grid) in grids.iter_mut() {
+		let dirty: Vec<IVec3> = streaming
+			.presence()
+			.iter_states()
+			.filter(|(_, _, state)| matches!(state, ChunkState::InternalDirty))
+			.map(|(origin, _, _)| origin)
+			.collect();
+		for chunk in dirty {
+			let voxels = grid.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
+			save_channel.save(ChunkSaveRequest { grid: grid_entity, chunk, voxels });
+			streaming.presence.set_state(chunk, ChunkState::Loaded);
+		}
+	}
+}
+
 pub fn apply_chunk_clears(
 	mut commands: Commands,
 	save_channel: Res<ChunkSaveChannel>,
