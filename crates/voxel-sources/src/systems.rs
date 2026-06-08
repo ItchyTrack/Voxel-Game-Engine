@@ -60,7 +60,7 @@ pub(crate) fn apply_source_events(
 				registry.forget_others(source, grid, chunk);
 				if let Some(entity) = entity {
 					if let Ok(mut s) = grids.get_mut(entity) {
-						s.presence_mut().set_state(chunk, ChunkState::ExternalDirty);
+						s.mark_external_dirty(chunk);
 					}
 				}
 			}

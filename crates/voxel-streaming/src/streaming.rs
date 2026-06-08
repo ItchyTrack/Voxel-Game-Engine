@@ -20,6 +20,7 @@ pub struct GridStreaming {
 	pending_clears: Vec<(IVec3, u8)>,
 	stalled_edits: HashMap<IVec3, Vec<GridEdit>>,
 	stalled_pinned: HashSet<IVec3>,
+	newly_dirty: Vec<IVec3>,
 }
 
 impl GridStreaming {
@@ -63,8 +64,9 @@ impl GridStreaming {
 		chunk: IVec3,
 	) {
 		if !self.start_request(grid, channel, chunk) { return; }
-		if !matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty)) {
-			consumer.needed_mut().entry(grid).or_default().insert(chunk);
+		let resident = matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty));
+		if consumer.needed_mut().entry(grid).or_default().insert(chunk) && !resident {
+			*consumer.outstanding_mut() += 1;
 		}
 	}
 
@@ -82,9 +84,13 @@ impl GridStreaming {
 		consumer: &mut C,
 		chunk: IVec3,
 	) {
-		if let Some(set) = consumer.needed_mut().get_mut(&grid) {
-			set.remove(&chunk);
-			if set.is_empty() { consumer.needed_mut().remove(&grid); }
+		let resident = matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty));
+		let removed = consumer.needed_mut().get_mut(&grid).is_some_and(|set| set.remove(&chunk));
+		if consumer.needed().get(&grid).is_some_and(|set| set.is_empty()) {
+			consumer.needed_mut().remove(&grid);
+		}
+		if removed && !resident {
+			*consumer.outstanding_mut() = consumer.outstanding().saturating_sub(1);
 		}
 		self.release(chunk);
 	}
@@ -107,6 +113,28 @@ impl GridStreaming {
 
 	fn mark_empty(&mut self, chunk: IVec3) {
 		self.presence.clear_present(chunk);
+	}
+
+	pub fn mark_external_dirty(&mut self, chunk: IVec3) {
+		match self.presence.state(chunk) {
+			// Resident: consumers had it loaded, so queue them to be re-counted.
+			Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) => {
+				self.presence.set_state(chunk, ChunkState::ExternalDirty);
+				self.newly_dirty.push(chunk);
+			}
+			Some(ChunkState::Available) => {
+				self.presence.set_state(chunk, ChunkState::ExternalDirty);
+			}
+			_ => {}
+		}
+	}
+
+	fn refetch(&mut self, grid: GridId, channel: &ChunkRequestChannel, chunk: IVec3) {
+		if self.presence.request_count(chunk) == 0 { return; }
+		if matches!(self.presence.state(chunk), Some(ChunkState::ExternalDirty)) {
+			self.presence.set_state(chunk, ChunkState::ExternalDirtyInFlight);
+			channel.request(ChunkLoadRequest { grid, chunk });
+		}
 	}
 }
 
@@ -141,6 +169,7 @@ pub fn receive_results(
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
 	while let Some(result) = channel.try_recv() {
+		let was_empty = result.voxels.is_none();
 		if let Ok((mut streaming, mut grid, mut edits)) = grids.get_mut(result.grid) {
 			match streaming.presence.state(result.chunk) {
 				Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
@@ -168,18 +197,37 @@ pub fn receive_results(
 		}
 		for mut entity_consumers in consumers.iter_mut() {
 			for mut consumer in &mut entity_consumers {
-				let needed = consumer.needed_mut();
-				let now_empty = match needed.get_mut(&result.grid) {
-					Some(set) => {
+				if !consumer.needed().get(&result.grid).is_some_and(|set| set.contains(&result.chunk)) {
+					continue;
+				}
+				*consumer.outstanding_mut() = consumer.outstanding().saturating_sub(1);
+				if was_empty {
+					if let Some(set) = consumer.needed_mut().get_mut(&result.grid) {
 						set.remove(&result.chunk);
-						set.is_empty()
+						if set.is_empty() { consumer.needed_mut().remove(&result.grid); }
 					}
-					None => false,
-				};
-				if now_empty {
-					needed.remove(&result.grid);
 				}
 			}
+		}
+	}
+}
+
+pub fn handle_external_dirty(
+	channel: Res<ChunkRequestChannel>,
+	mut grids: Query<(GridId, &mut GridStreaming)>,
+	mut consumers: Query<&mut dyn ChunkConsumer>,
+) {
+	for (grid, mut streaming) in grids.iter_mut() {
+		if streaming.newly_dirty.is_empty() { continue; }
+		for chunk in std::mem::take(&mut streaming.newly_dirty) {
+			for mut entity_consumers in consumers.iter_mut() {
+				for mut consumer in &mut entity_consumers {
+					if consumer.needed().get(&grid).is_some_and(|set| set.contains(&chunk)) {
+						*consumer.outstanding_mut() += 1;
+					}
+				}
+			}
+			streaming.refetch(grid, &channel, chunk);
 		}
 	}
 }

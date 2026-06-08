@@ -1,3 +1,4 @@
+use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 
 mod chunk;
@@ -10,13 +11,37 @@ pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest};
 pub use presence::{ChunkPresence, ChunkState};
-pub use streaming::{apply_chunk_clears, flush_dirty_chunks, receive_results, request_stalled_chunks, GridStreaming};
+pub use streaming::{apply_chunk_clears, flush_dirty_chunks, handle_external_dirty, receive_results, request_stalled_chunks, GridStreaming};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
 pub use bevy as __bevy;
 #[doc(hidden)]
 pub use voxel_data::grid::GridId as __GridId;
+
+/// Loading pipeline. Safe to run several times a frame; invoke with [`run_streaming`].
+#[derive(ScheduleLabel, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StreamingSchedule;
+
+/// Frame-counted upkeep. Run exactly once a frame via [`run_streaming_maintenance`].
+#[derive(ScheduleLabel, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StreamingMaintenance;
+
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StreamingPhase {
+	Ingest,
+	Request,
+	Serve,
+	Receive,
+}
+
+pub fn run_streaming(world: &mut World) {
+	world.run_schedule(StreamingSchedule);
+}
+
+pub fn run_streaming_maintenance(world: &mut World) {
+	world.run_schedule(StreamingMaintenance);
+}
 
 #[derive(Default)]
 pub struct VoxelStreamingPlugin;
@@ -28,18 +53,30 @@ impl Plugin for VoxelStreamingPlugin {
 			.init_resource::<ChunkLoaderChannel>()
 			.init_resource::<ChunkSaveChannel>()
 			.register_edit_gate::<GridStreaming>()
-			.add_systems(
-				PreUpdate,
+			.init_schedule(StreamingSchedule)
+			.init_schedule(StreamingMaintenance)
+			.configure_sets(
+				StreamingSchedule,
 				(
-					streaming::request_stalled_chunks,
-					streaming::receive_results,
-					streaming::apply_chunk_clears,
+					StreamingPhase::Ingest,
+					StreamingPhase::Request,
+					StreamingPhase::Serve,
+					StreamingPhase::Receive,
 				)
-					.before(voxel_edit::ApplyGridEdits),
+					.chain(),
 			)
 			.add_systems(
-				PreUpdate,
-				streaming::flush_dirty_chunks.after(voxel_edit::ApplyGridEdits),
-			);
+				StreamingSchedule,
+				(
+					(streaming::handle_external_dirty, streaming::request_stalled_chunks)
+						.in_set(StreamingPhase::Request),
+					streaming::receive_results.in_set(StreamingPhase::Receive),
+				),
+			)
+			.add_systems(
+				StreamingMaintenance,
+				(streaming::flush_dirty_chunks, streaming::apply_chunk_clears).chain(),
+			)
+			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain());
 	}
 }

@@ -82,7 +82,7 @@ pub struct VoxelEditPlugin;
 
 impl Plugin for VoxelEditPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(PreUpdate, apply_grid_edits.in_set(ApplyGridEdits));
+		app.add_systems(Last, apply_grid_edits.in_set(ApplyGridEdits));
 	}
 }
 

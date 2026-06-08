@@ -25,19 +25,19 @@ pub struct VoxelSourcesPlugin;
 
 impl Plugin for VoxelSourcesPlugin {
 	fn build(&self, app: &mut App) {
+		use voxel_streaming::{StreamingPhase, StreamingSchedule};
 		app.init_resource::<SourceRegistry>()
 			.add_systems(Startup, systems::init_sources)
 			.add_systems(
-				PreUpdate,
+				StreamingSchedule,
 				(
-					systems::sync_grid_keys,
-					systems::apply_source_events,
-					systems::serve_requests,
-					systems::serve_saves,
-					systems::drain_source_results,
-				)
-					.chain()
-					.before(voxel_streaming::receive_results),
+					(systems::sync_grid_keys, systems::apply_source_events)
+						.chain()
+						.in_set(StreamingPhase::Ingest),
+					(systems::serve_requests, systems::serve_saves, systems::drain_source_results)
+						.chain()
+						.in_set(StreamingPhase::Serve),
+				),
 			);
 	}
 }

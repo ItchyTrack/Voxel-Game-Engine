@@ -78,7 +78,13 @@ impl Plugin for VoxelPhysicsPlugin {
 					.chain()
 					.before(PhysicsSet::Detect),
 			)
-			.add_systems(FixedUpdate, compute_mass_properties.before(PhysicsSet::Detect));
+			.add_systems(FixedUpdate, compute_mass_properties.before(PhysicsSet::Detect))
+			.add_systems(
+				FixedUpdate,
+				voxel_streaming::run_streaming
+					.after(chunk_requests::request_collision_chunks)
+					.before(PhysicsSet::Apply),
+			);
 	}
 }
 

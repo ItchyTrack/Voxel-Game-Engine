@@ -9,6 +9,8 @@ use voxel_data::grid::GridId;
 pub trait ChunkConsumer {
 	fn needed(&self) -> &HashMap<GridId, HashSet<IVec3>>;
 	fn needed_mut(&mut self) -> &mut HashMap<GridId, HashSet<IVec3>>;
+	fn outstanding(&self) -> usize;
+	fn outstanding_mut(&mut self) -> &mut usize;
 }
 
 /// Defines a [`ChunkConsumer`] component. Register it with [`VoxelStreamingAppExt::register_chunk_consumer`].
@@ -21,6 +23,7 @@ macro_rules! chunk_consumer {
 				$crate::__GridId,
 				::std::collections::HashSet<$crate::__bevy::math::IVec3>,
 			>,
+			outstanding: usize,
 		}
 		impl $crate::ChunkConsumer for $name {
 			fn needed(
@@ -39,6 +42,12 @@ macro_rules! chunk_consumer {
 			> {
 				&mut self.needed
 			}
+			fn outstanding(&self) -> usize {
+				self.outstanding
+			}
+			fn outstanding_mut(&mut self) -> &mut usize {
+				&mut self.outstanding
+			}
 		}
 	};
 }
@@ -56,5 +65,5 @@ impl VoxelStreamingAppExt for App {
 }
 
 pub fn chunks_ready<T: ChunkConsumer + Component>(query: Option<Single<&T>>) -> bool {
-	query.map_or(true, |consumer| consumer.needed().is_empty())
+	query.map_or(true, |consumer| consumer.outstanding() == 0)
 }
