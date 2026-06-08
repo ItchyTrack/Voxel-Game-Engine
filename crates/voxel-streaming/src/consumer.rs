@@ -5,12 +5,16 @@ use bevy::math::IVec3;
 
 use voxel_data::grid::GridId;
 
+use crate::loader::LodLoadResult;
+
 #[bevy_trait_query::queryable]
 pub trait ChunkConsumer {
 	fn needed(&self) -> &HashMap<GridId, HashSet<IVec3>>;
 	fn needed_mut(&mut self) -> &mut HashMap<GridId, HashSet<IVec3>>;
 	fn outstanding(&self) -> usize;
 	fn outstanding_mut(&mut self) -> &mut usize;
+	fn push_lod(&mut self, result: LodLoadResult);
+	fn drain_lod(&mut self) -> Vec<LodLoadResult>;
 }
 
 /// Defines a [`ChunkConsumer`] component. Register it with [`VoxelStreamingAppExt::register_chunk_consumer`].
@@ -24,6 +28,7 @@ macro_rules! chunk_consumer {
 				::std::collections::HashSet<$crate::__bevy::math::IVec3>,
 			>,
 			outstanding: usize,
+			lod_inbox: ::std::vec::Vec<$crate::LodLoadResult>,
 		}
 		impl $crate::ChunkConsumer for $name {
 			fn needed(
@@ -47,6 +52,12 @@ macro_rules! chunk_consumer {
 			}
 			fn outstanding_mut(&mut self) -> &mut usize {
 				&mut self.outstanding
+			}
+			fn push_lod(&mut self, result: $crate::LodLoadResult) {
+				self.lod_inbox.push(result);
+			}
+			fn drain_lod(&mut self) -> ::std::vec::Vec<$crate::LodLoadResult> {
+				::std::mem::take(&mut self.lod_inbox)
 			}
 		}
 	};

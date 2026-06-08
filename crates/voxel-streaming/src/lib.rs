@@ -9,9 +9,9 @@ mod streaming;
 
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
-pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest};
+pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
 pub use presence::{ChunkPresence, ChunkState};
-pub use streaming::{apply_chunk_clears, flush_dirty_chunks, handle_external_dirty, receive_results, request_stalled_chunks, GridStreaming};
+pub use streaming::{apply_chunk_clears, flush_dirty_chunks, handle_external_dirty, receive_lod_results, receive_results, request_stalled_chunks, GridStreaming};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -52,6 +52,8 @@ impl Plugin for VoxelStreamingPlugin {
 		app.init_resource::<ChunkRequestChannel>()
 			.init_resource::<ChunkLoaderChannel>()
 			.init_resource::<ChunkSaveChannel>()
+			.init_resource::<LodRequestChannel>()
+			.init_resource::<LodLoaderChannel>()
 			.register_edit_gate::<GridStreaming>()
 			.init_schedule(StreamingSchedule)
 			.init_schedule(StreamingMaintenance)
@@ -70,7 +72,8 @@ impl Plugin for VoxelStreamingPlugin {
 				(
 					(streaming::handle_external_dirty, streaming::request_stalled_chunks)
 						.in_set(StreamingPhase::Request),
-					streaming::receive_results.in_set(StreamingPhase::Receive),
+					(streaming::receive_results, streaming::receive_lod_results)
+						.in_set(StreamingPhase::Receive),
 				),
 			)
 			.add_systems(

@@ -7,7 +7,6 @@ members = [
 	"crates/gpu-voxel-data",
 	"crates/voxel-streaming",
 	"crates/voxel-sources",
-	"crates/voxel-test-store",
 	"crates/voxel-renderer",
 	"crates/voxel-bvh",
 	"crates/voxel-physics",

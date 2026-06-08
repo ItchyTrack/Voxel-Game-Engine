@@ -1,7 +1,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use bevy::math::I16Vec3;
 use bevy::prelude::*;
@@ -11,6 +11,8 @@ use voxel_data::voxels::{Voxel, Voxels};
 use voxel_edit::GridEdits;
 use voxel_sources::{ChunkSource, GridKey, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_of, GridStreaming, CHUNK_SIZE};
+
+use crate::lod_downsample::downsample_region;
 
 const ORIGINAL_COST: u32 = 10;
 
@@ -24,7 +26,7 @@ pub struct WorldStore {
 }
 
 impl WorldStore {
-	fn alloc_key(&self) -> GridKey {
+	pub fn alloc_key(&self) -> GridKey {
 		GridKey(self.next_key.fetch_add(1, Ordering::Relaxed))
 	}
 
@@ -35,32 +37,54 @@ impl WorldStore {
 
 struct WorldSource {
 	chunks: Chunks,
-	handle: Option<SourceHandle>,
+	handle: OnceLock<SourceHandle>,
+}
+
+impl WorldSource {
+	fn build_chunk(&self, grid: GridKey, chunk: IVec3) -> Option<Voxels> {
+		self.chunks.lock().unwrap().get(&(grid, chunk)).map(|list| {
+			let mut voxels = Voxels::new();
+			for (local, voxel) in list {
+				voxels.add_voxel(*local, *voxel);
+			}
+			voxels
+		})
+	}
 }
 
 impl ChunkSource for WorldSource {
-	fn init(&mut self, handle: SourceHandle) {
-		self.handle = Some(handle);
+	fn init(&self, handle: SourceHandle) {
+		let _ = self.handle.set(handle);
 	}
 
 	fn cost(&self, grid: GridKey, chunk: IVec3) -> Option<u32> {
 		self.chunks.lock().unwrap().contains_key(&(grid, chunk)).then_some(ORIGINAL_COST)
 	}
 
-	fn request_load(&mut self, grid: GridKey, chunk: IVec3) {
-		let voxels = self.chunks.lock().unwrap().get(&(grid, chunk)).map(|list| {
-			let mut voxels = Voxels::new();
-			for (local, voxel) in list {
-				voxels.add_voxel(*local, *voxel);
-			}
-			voxels
-		});
-		if let Some(handle) = &self.handle {
+	fn request_load(&self, grid: GridKey, chunk: IVec3) {
+		let voxels = self.build_chunk(grid, chunk);
+		if let Some(handle) = self.handle.get() {
 			handle.loaded(grid, chunk, voxels);
 		}
 	}
 
-	fn forget(&mut self, grid: GridKey, chunk: IVec3) {
+	fn cost_lod(&self, grid: GridKey, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+		let chunks = self.chunks.lock().unwrap();
+		let region_has_data = (0..size.z).any(|z| (0..size.y).any(|y| (0..size.x).any(|x| {
+			chunks.contains_key(&(grid, min + IVec3::new(x, y, z)))
+		})));
+		region_has_data.then_some(ORIGINAL_COST)
+	}
+
+	fn request_load_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32) {
+		let region = downsample_region(min, size, lod, |chunk| self.build_chunk(grid, chunk));
+		let voxels = (!region.is_empty()).then_some(region);
+		if let Some(handle) = self.handle.get() {
+			handle.loaded_lod(grid, min, size, lod, voxels);
+		}
+	}
+
+	fn forget(&self, grid: GridKey, chunk: IVec3) {
 		self.chunks.lock().unwrap().remove(&(grid, chunk));
 	}
 }
@@ -70,7 +94,7 @@ pub struct StreamingTestPlugin;
 impl Plugin for StreamingTestPlugin {
 	fn build(&self, app: &mut App) {
 		let store = WorldStore::default();
-		app.register_source(WorldSource { chunks: store.chunks.clone(), handle: None });
+		app.register_source(WorldSource { chunks: store.chunks.clone(), handle: OnceLock::new() });
 		app.insert_resource(store);
 	}
 }

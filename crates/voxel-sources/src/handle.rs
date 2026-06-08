@@ -18,11 +18,20 @@ pub(crate) struct SourceResult {
 	pub voxels: Option<Voxels>,
 }
 
+pub(crate) struct SourceLodResult {
+	pub grid: GridKey,
+	pub min: IVec3,
+	pub size: IVec3,
+	pub lod: f32,
+	pub voxels: Option<Voxels>,
+}
+
 #[derive(Clone)]
 pub struct SourceHandle {
 	pub(crate) id: SourceId,
 	pub(crate) events: Sender<SourceEvent>,
 	pub(crate) results: Sender<SourceResult>,
+	pub(crate) lod_results: Sender<SourceLodResult>,
 }
 
 impl SourceHandle {
@@ -33,6 +42,10 @@ impl SourceHandle {
 	/// Finished a load. `None` voxels = confirmed empty.
 	pub fn loaded(&self, grid: GridKey, chunk: IVec3, voxels: Option<Voxels>) {
 		let _ = self.results.send(SourceResult { grid, chunk, voxels });
+	}
+
+	pub fn loaded_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32, voxels: Option<Voxels>) {
+		let _ = self.lod_results.send(SourceLodResult { grid, min, size, lod, voxels });
 	}
 
 	pub fn available(&self, grid: GridKey, chunk: IVec3) {

@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use bevy::camera::Camera;
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 
@@ -8,11 +9,9 @@ use voxel_data::subgrid::SubGrid;
 use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, PriorityTask, TaskQueueResource};
 
 use crate::gpu_grid_tree::make_gpu_grid_tree;
-use crate::lod_request::DesiredLods;
+use crate::lod_voxels::LodVoxels;
 use crate::sub_grid_gpu_state::{SubGridGpuState, SubGridPlacement};
 use crate::world_gpu_data::WorldGpuData;
-
-const LOD_REUPLOAD_EPSILON: f32 = 0.25;
 
 #[derive(Resource, Default)]
 pub(crate) struct InFlightUploads(HashSet<Entity>);
@@ -30,26 +29,24 @@ pub(crate) fn flag_changed_sub_grids(
 }
 
 pub(crate) fn manage_gpu_uploads(
-	desired: Res<DesiredLods>,
 	mut commands: Commands,
 	mut in_flight: ResMut<InFlightUploads>,
 	sub_grids: Query<(Entity, &SubGrid, Option<&SubGridGpuState>, Has<NeedsReupload>)>,
 	grids: Query<&Grid>,
+	grid_transforms: Query<&GlobalTransform>,
+	cameras: Query<(&Camera, &GlobalTransform)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) {
-	for (entity, sub_grid, state, needs_reupload) in sub_grids.iter() {
-		let Some(request) = desired.get(entity) else {
-			if state.is_some() && !in_flight.0.contains(&entity) {
-				commands.entity(entity).remove::<SubGridGpuState>();
-			}
-			continue;
-		};
+	let camera_world = cameras
+		.iter()
+		.find(|(camera, _)| camera.is_active)
+		.map(|(_, transform)| transform.translation());
 
+	for (entity, sub_grid, state, needs_reupload) in sub_grids.iter() {
 		if in_flight.0.contains(&entity) { continue; }
 		let needs_upload = match state {
-			Some(s) if request.lod_level == 0.0 => s.lod_level() != 0.0 || needs_reupload,
-			Some(s) => (s.lod_level() - request.lod_level).abs() > LOD_REUPLOAD_EPSILON || needs_reupload,
+			Some(_) => needs_reupload,
 			None => true,
 		};
 		if !needs_upload { continue; }
@@ -62,18 +59,59 @@ pub(crate) fn manage_gpu_uploads(
 			bounds_max,
 		};
 
+		// Negative world distance: closer uploads first, comparable to LOD-tile priorities.
+		let priority = camera_world
+			.zip(grid_transforms.get(sub_grid.grid()).ok())
+			.map(|(camera, grid_global)| {
+				let center_local = sub_grid.sub_grid_pos().as_vec3()
+					+ (bounds_min.as_vec3() + bounds_max.as_vec3()) * 0.5;
+				let center_world = grid_global.transform_point(center_local);
+				-camera.distance(center_world)
+			})
+			.unwrap_or(0.0);
+
 		in_flight.0.insert(entity);
 		commands.entity(entity).remove::<NeedsReupload>();
 
 		let palette = view.voxels().palette().clone();
 		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
-		let lod_level = request.lod_level;
 
-		async_task_priority_queue.push(PriorityTask::new(request.priority, async move {
-			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, lod_level);
+		async_task_priority_queue.push(PriorityTask::new(priority, async move {
+			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette);
 			task_queue.push(move |world: &mut World| {
-				apply_gpu_upload(world, entity, lod_level, placement, &tree_buffer, &voxel_buffer);
+				apply_gpu_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
+			});
+		}));
+	}
+}
+
+pub(crate) fn manage_lod_uploads(
+	mut in_flight: ResMut<InFlightUploads>,
+	lod_voxel_entities: Query<(Entity, &LodVoxels, Option<&SubGridGpuState>)>,
+	task_queue: Res<TaskQueueResource>,
+	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
+) {
+	for (entity, lod_voxels, gpu_state) in lod_voxel_entities.iter() {
+		if gpu_state.is_some() || in_flight.0.contains(&entity) { continue; }
+		let Some((bounds_min, bounds_max)) = lod_voxels.voxels.bounding_box() else { continue };
+		let placement = SubGridPlacement {
+			tree_root_pos: lod_voxels.voxels.grid_tree().internals().1,
+			bounds_min,
+			bounds_max,
+		};
+
+		in_flight.0.insert(entity);
+
+		let palette = lod_voxels.voxels.palette().clone();
+		let voxels = lod_voxels.voxels.grid_tree().clone();
+		let task_queue = task_queue.clone();
+		let priority = lod_voxels.priority;
+
+		async_task_priority_queue.push(PriorityTask::new(priority, async move {
+			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette);
+			task_queue.push(move |world: &mut World| {
+				apply_gpu_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
 			});
 		}));
 	}
@@ -82,7 +120,6 @@ pub(crate) fn manage_gpu_uploads(
 fn apply_gpu_upload(
 	world: &mut World,
 	entity: Entity,
-	lod_level: f32,
 	placement: SubGridPlacement,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
@@ -97,8 +134,8 @@ fn apply_gpu_upload(
 
 	let Some(mut gpu_data) = world.get_resource_mut::<WorldGpuData>() else { return };
 	let new_state = match existing {
-		Some(old) => upload_replace(&mut gpu_data, old, lod_level, placement, tree_buffer, voxel_buffer),
-		None => upload_new(&mut gpu_data, lod_level, placement, tree_buffer, voxel_buffer),
+		Some(old) => upload_replace(&mut gpu_data, old, placement, tree_buffer, voxel_buffer),
+		None => upload_new(&mut gpu_data, placement, tree_buffer, voxel_buffer),
 	};
 	plot_gpu_usage(&gpu_data);
 
@@ -111,7 +148,6 @@ fn apply_gpu_upload(
 
 fn upload_new(
 	gpu_data: &mut WorldGpuData,
-	lod_level: f32,
 	placement: SubGridPlacement,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
@@ -121,7 +157,7 @@ fn upload_new(
 		Err(err) => { log::warn!("{err}"); return None; }
 	};
 	match gpu_data.packed_voxel_data_dynamic_buffer.add_buffer(voxel_buffer) {
-		Ok(voxels_id) => Some(SubGridGpuState::new(lod_level, tree_id, voxels_id, placement)),
+		Ok(voxels_id) => Some(SubGridGpuState::new(tree_id, voxels_id, placement)),
 		Err(err) => {
 			log::warn!("{err}");
 			if let Err(err) = gpu_data.packed_64_tree_dynamic_buffer.remove_buffer(tree_id) {
@@ -135,7 +171,6 @@ fn upload_new(
 fn upload_replace(
 	gpu_data: &mut WorldGpuData,
 	old: SubGridGpuState,
-	lod_level: f32,
 	placement: SubGridPlacement,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
@@ -151,7 +186,7 @@ fn upload_replace(
 		}
 	};
 	match gpu_data.packed_voxel_data_dynamic_buffer.replace_buffer(old.voxels_id(), voxel_buffer) {
-		Ok(voxels_id) => Some(SubGridGpuState::new(lod_level, tree_id, voxels_id, placement)),
+		Ok(voxels_id) => Some(SubGridGpuState::new(tree_id, voxels_id, placement)),
 		Err(err) => {
 			log::warn!("{err}");
 			if let Err(err) = gpu_data.packed_64_tree_dynamic_buffer.remove_buffer(tree_id) {

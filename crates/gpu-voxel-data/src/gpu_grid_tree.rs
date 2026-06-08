@@ -1,7 +1,7 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 use parry3d;
-use rand::{seq::IteratorRandom};
+use rand::seq::IteratorRandom;
 
 use voxel_data::grid_tree::{self, GridCell, CellKind};
 use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
@@ -20,132 +20,6 @@ fn slots_for_nonleaf(bitmap: u64, depth: u8) -> usize {
 	( get_header_bytes(bitmap) as usize + count * entry_bytes).div_ceil(SLOT_BYTES)
 }
 
-// -- LOD collapse --------------------------------------------------------------
-fn compute_lod_collapse(
-	nodes:       &[PackedNode],
-	root_depth:  u8,
-	palette_vec: &[[u8; 4]],
-	palette_map: &HashMap<u16, u8>,
-	lod_level:   f32,
-) -> Vec<Option<u8>> {
-	let mut collapse_rep = vec![None::<u8>; nodes.len()];
-	if lod_level <= 0.0 || palette_vec.is_empty() {
-		return collapse_rep;
-	}
-
-	let lod_min_depth:      u8  = lod_level.floor() as u8;
-	let variance_threshold: f32 = lod_level.fract();
-
-	let mut avg_color: Vec<[f32; 4]> = vec![[0.0; 4]; nodes.len()];
-	let mut count:     Vec<u64>      = vec![0;         nodes.len()];
-	let mut variance:  Vec<f32>      = vec![0.0;       nodes.len()];
-
-	let mut stack: Vec<(u32, u8, bool)> = vec![(0, root_depth, false)];
-	while let Some((idx, depth, children_done)) = stack.pop() {
-		if !children_done {
-			stack.push((idx, depth, true));
-			if depth > 0 {
-				for cell in &nodes[idx as usize].contents {
-					if cell.kind() == CellKind::Node {
-						stack.push((idx + cell.node_offset(), depth - 1, false));
-					}
-				}
-			}
-			continue;
-		}
-
-		let node = &nodes[idx as usize];
-		let mut sum_color = [0f64; 4];
-		let mut n = 0u64;
-
-		for cell in &node.contents {
-			match cell.kind() {
-				CellKind::Empty => {}
-				CellKind::Data => {
-					if let Some(&pi) = palette_map.get(&cell.data_value()) {
-						if let Some(c) = palette_vec.get(pi as usize) {
-							for j in 0..4 { sum_color[j] += c[j] as f64; }
-							n += 1;
-						}
-					}
-				}
-				CellKind::Node => {
-					let ci = (idx + cell.node_offset()) as usize;
-					let w  = count[ci] as f64;
-					for j in 0..4 { sum_color[j] += avg_color[ci][j] as f64 * w; }
-					n += count[ci];
-				}
-			}
-		}
-
-		let avg: [f32; 4] = if n > 0 {
-			core::array::from_fn(|j| (sum_color[j] / n as f64) as f32)
-		} else {
-			[0.0; 4]
-		};
-
-		let mut sum_sq = 0f64;
-		for cell in &node.contents {
-			match cell.kind() {
-				CellKind::Empty => {}
-				CellKind::Data => {
-					if let Some(&pi) = palette_map.get(&cell.data_value()) {
-						let c = palette_vec[pi as usize];
-						for j in 0..3 {
-							let d = c[j] as f64 / 255.0 - avg[j] as f64 / 255.0;
-							sum_sq += d * d;
-						}
-					}
-				}
-				CellKind::Node => {
-					let ci = (idx + cell.node_offset()) as usize;
-					let w  = count[ci] as f64;
-					sum_sq += variance[ci] as f64 * w;
-					for j in 0..3 {
-						let d = avg_color[ci][j] as f64 / 255.0 - avg[j] as f64 / 255.0;
-						sum_sq += d * d * w;
-					}
-				}
-			}
-		}
-
-		let var = if n > 0 { (sum_sq / n as f64) as f32 } else { 0.0 };
-
-		avg_color[idx as usize] = avg;
-		count    [idx as usize] = n;
-		variance [idx as usize] = var;
-
-		let should_collapse = n > 0 && (
-			depth < lod_min_depth
-			|| (variance_threshold > 0.0
-				&& depth == lod_min_depth
-				&& var < variance_threshold)
-		);
-
-		if should_collapse {
-			let rep: [u8; 4] = avg.map(|v| v.round().clamp(0.0, 255.0) as u8);
-			collapse_rep[idx as usize] = Some(closest_palette_entry(palette_vec, rep));
-		}
-	}
-
-	collapse_rep
-}
-
-fn closest_palette_entry(palette_vec: &[[u8; 4]], target: [u8; 4]) -> u8 {
-	palette_vec
-		.iter()
-		.enumerate()
-		.map(|(i, c)| {
-			let d: i32 = (0..3)
-				.map(|j| { let x = c[j] as i32 - target[j] as i32; x * x })
-				.sum();
-			(d, i as u8)
-		})
-		.min_by_key(|&(d, _)| d)
-		.map(|(_, i)| i)
-		.unwrap_or(0)
-}
-
 fn build_bitmap(node: &PackedNode) -> u64 {
 	let mut bitmap = 0u64;
 	for (i, cell) in node.contents.iter().enumerate() {
@@ -156,7 +30,7 @@ fn build_bitmap(node: &PackedNode) -> u64 {
 	bitmap
 }
 
-pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, lod_level: f32) -> (Vec<u8>, Vec<u8>) {
+pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> (Vec<u8>, Vec<u8>) {
 	let (nodes, _, root_depth) = grid_tree.internals();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
 
@@ -175,10 +49,6 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, lod
 	let palette_len_bytes = (palette_vec.len() as u8).to_le_bytes();
 	let palette_bytes: &[u8] = bytemuck::cast_slice(&palette_vec);
 
-	// -- LOD collapse ----------------------------------------------------------
-	let mut collapse_rep = compute_lod_collapse(nodes, root_depth, &palette_vec, &palette_map, lod_level);
-	collapse_rep[0] = None;
-
 	// -- Pass 1: DFS pre-order → gpu_order ------------------------------------
 	let mut cpu_to_gpu: Vec<u32>       = vec![u32::MAX; nodes.len()];
 	let mut gpu_order:  Vec<(u32, u8)> = Vec::with_capacity(nodes.len());
@@ -192,7 +62,6 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, lod
 			for cell in nodes[cpu_idx as usize].contents.iter() {
 				if cell.kind() == CellKind::Node {
 					let child_cpu = cpu_idx + cell.node_offset();
-					if collapse_rep[child_cpu as usize].is_some() { continue; }
 					dfs_stack.push((child_cpu, depth - 1));
 				}
 			}
@@ -234,16 +103,12 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, lod
 					CellKind::Data => true,
 					CellKind::Node => {
 						let child_cpu = cpu_idx + cell.node_offset();
-						if collapse_rep[child_cpu as usize].is_some() {
-							true
-						} else {
-							stack.push((child_cpu, depth - 1, [
-								node_origin[0] + cell_x * cell_size,
-								node_origin[1] + cell_y * cell_size,
-								node_origin[2] + cell_z * cell_size,
-							]));
-							continue;
-						}
+						stack.push((child_cpu, depth - 1, [
+							node_origin[0] + cell_x * cell_size,
+							node_origin[1] + cell_y * cell_size,
+							node_origin[2] + cell_z * cell_size,
+						]));
+						continue;
 					}
 				};
 				tagged_cells.push(TaggedCell { center_x, center_y, center_z, half, solid });
@@ -352,18 +217,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, lod
 					voxel_node_run = 0;
 				}
 				CellKind::Node => {
-					let child_cpu = cpu_idx + cell.node_offset();
-					if collapse_rep[child_cpu as usize].is_some() {
-						if hit_data {
-							voxel_data_size += 1 + voxel_node_run;
-						} else {
-							voxel_data_size += 1 + voxel_node_run;
-							hit_data = true;
-						}
-						voxel_node_run = 0;
-					} else {
-						voxel_node_run += 1;
-					}
+					voxel_node_run += 1;
 				}
 			}
 		}
@@ -449,23 +303,14 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, lod
 					}
 					CellKind::Node => {
 						let child_cpu = cpu_idx + cell.node_offset();
-						if let Some(rep) = collapse_rep[child_cpu as usize] {
-							if hit_data { vox_write += voxel_node_run; }
-							else { vox_write += voxel_node_run; hit_data = true; }
-							voxel_node_run = 0;
-							voxel_bytes[vox_write] = rep;
-							vox_write += 1;
-							0x00
-						} else {
-							let child_slot = slot_indices[cpu_to_gpu[child_cpu as usize] as usize];
-							let offset = child_slot - my_slot;
-							voxel_node_run += 1;
-							debug_assert!(
-								offset >= 1 && offset <= if depth == 1 { u8::MAX as u32 } else { u16::MAX as u32 },
-								"NODE child slot offset {offset} out of range"
-							);
-							offset as u16
-						}
+						let child_slot = slot_indices[cpu_to_gpu[child_cpu as usize] as usize];
+						let offset = child_slot - my_slot;
+						voxel_node_run += 1;
+						debug_assert!(
+							offset >= 1 && offset <= if depth == 1 { u8::MAX as u32 } else { u16::MAX as u32 },
+							"NODE child slot offset {offset} out of range"
+						);
+						offset as u16
 					}
 					_ => unreachable!(),
 				};

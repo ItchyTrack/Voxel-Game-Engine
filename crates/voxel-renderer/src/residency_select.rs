@@ -5,12 +5,26 @@ use bevy::math::Vec3A;
 use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
 
+use gpu_voxel_data::lod_voxels::LodVoxels;
 use gpu_voxel_data::residency::ResidencyBuffers;
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
+use voxel_data::grid::SUB_GRID_SIZE;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid};
+use voxel_streaming::CHUNK_SIZE;
 
+use crate::chunk_requests::RenderWantedChunks;
 use crate::hit_count_feedback::HitCountFeedback;
+
+/// Whether the renderer requested any chunk the sub-grid overlaps (sub-grids and chunks
+/// are not aligned, so one sub-grid can span several chunks).
+fn overlaps_wanted_chunks(sub_grid_pos: IVec3, wanted: &RenderWantedChunks) -> bool {
+	let lo = sub_grid_pos.div_euclid(IVec3::splat(CHUNK_SIZE));
+	let hi = (sub_grid_pos + IVec3::splat(SUB_GRID_SIZE - 1)).div_euclid(IVec3::splat(CHUNK_SIZE));
+	(lo.z..=hi.z).any(|z| {
+		(lo.y..=hi.y).any(|y| (lo.x..=hi.x).any(|x| wanted.wants(IVec3::new(x, y, z))))
+	})
+}
 
 struct Candidate {
 	entity: Entity,
@@ -28,7 +42,9 @@ pub fn build_residency(
 	mut residency: ResMut<ResidencyBuffers>,
 	world_gpu: Res<WorldGpuData>,
 	sub_grids: Query<(Entity, &SubGrid, &SubGridGpuState)>,
+	lod_voxels: Query<(Entity, &LodVoxels, &SubGridGpuState)>,
 	grid_transforms: Query<&GlobalTransform>,
+	wanted_chunks: Query<&RenderWantedChunks>,
 	cameras: Query<(&Camera, &GlobalTransform, &Frustum)>,
 	hit_feedback: Res<HitCountFeedback>,
 ) {
@@ -41,26 +57,9 @@ pub fn build_residency(
 	let tree_alignment = residency.tree_alignment();
 	let voxel_alignment = residency.voxel_alignment();
 
-	let mut candidates: Vec<Candidate> = Vec::new();
-	for (entity, sub_grid, gpu_state) in sub_grids.iter() {
-		let Some(tree_held) = world_gpu
-			.packed_64_tree_dynamic_buffer
-			.held_buffer(gpu_state.tree_id())
-		else {
-			continue;
-		};
-		let Some(voxel_held) = world_gpu
-			.packed_voxel_data_dynamic_buffer
-			.held_buffer(gpu_state.voxels_id())
-		else {
-			continue;
-		};
-
-		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
-		let sub_world = grid_global.compute_transform()
-			* Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
-		let placement = gpu_state.placement();
-		let (aabb_min, aabb_max) = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &sub_world);
+	let make_candidate = |entity: Entity, gpu_state: &SubGridGpuState, aabb_min: Vec3, aabb_max: Vec3| -> Option<Candidate> {
+		let tree_held = world_gpu.packed_64_tree_dynamic_buffer.held_buffer(gpu_state.tree_id())?;
+		let voxel_held = world_gpu.packed_voxel_data_dynamic_buffer.held_buffer(gpu_state.voxels_id())?;
 
 		let hit_count = hit_counts
 			.as_ref()
@@ -82,17 +81,48 @@ pub fn build_residency(
 		};
 
 		if !in_view && hit_count == 0 {
-			continue;
+			return None;
 		}
 
-		candidates.push(Candidate {
+		Some(Candidate {
 			entity,
 			tree_id: gpu_state.tree_id(),
 			voxels_id: gpu_state.voxels_id(),
 			tree_bytes: tree_held.size().next_multiple_of(tree_alignment),
 			voxel_bytes: voxel_held.size().next_multiple_of(voxel_alignment),
 			priority: priority + hit_count as f32 * 0.001,
-		});
+		})
+	};
+
+	let mut candidates: Vec<Candidate> = Vec::new();
+	for (entity, sub_grid, gpu_state) in sub_grids.iter() {
+		// Only render sub-grids the renderer requested; others (held by physics, etc.)
+		// would double up with LOD tiles.
+		let Ok(wanted) = wanted_chunks.get(sub_grid.grid()) else { continue };
+		if !overlaps_wanted_chunks(sub_grid.sub_grid_pos(), wanted) { continue; }
+
+		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
+		let sub_world = grid_global.compute_transform()
+			* Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
+		let placement = gpu_state.placement();
+		let (aabb_min, aabb_max) = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &sub_world);
+		if let Some(candidate) = make_candidate(entity, gpu_state, aabb_min, aabb_max) {
+			candidates.push(candidate);
+		}
+	}
+
+	for (entity, lod_voxels, gpu_state) in lod_voxels.iter() {
+		let Ok(grid_global) = grid_transforms.get(lod_voxels.grid) else { continue };
+		let scale = (1u32 << lod_voxels.lod.max(0.0).floor() as u32) as f32;
+		let area_origin = (lod_voxels.min * CHUNK_SIZE).as_vec3();
+		let area_world = grid_global.compute_transform()
+			* Transform::from_translation(area_origin)
+			* Transform::from_scale(Vec3::splat(scale));
+		let placement = gpu_state.placement();
+		let (aabb_min, aabb_max) = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &area_world);
+		if let Some(candidate) = make_candidate(entity, gpu_state, aabb_min, aabb_max) {
+			candidates.push(candidate);
+		}
 	}
 
 	candidates.sort_by(|a, b| b.priority.total_cmp(&a.priority));

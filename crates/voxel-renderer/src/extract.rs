@@ -8,10 +8,12 @@ use bevy::math::Vec3;
 use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
 
+use gpu_voxel_data::lod_voxels::LodVoxels;
 use gpu_voxel_data::residency::ResidencyBuffers;
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use voxel_bvh::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
+use voxel_streaming::CHUNK_SIZE;
 
 #[derive(Resource, Default)]
 pub struct ExtractedVoxelScene {
@@ -28,6 +30,7 @@ pub fn extract_voxel_scene(
 	mut extracted: ResMut<ExtractedVoxelScene>,
 	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform)>>,
 	sub_grids: Extract<Query<(Entity, &SubGrid, &SubGridGpuState)>>,
+	lod_voxels: Extract<Query<(Entity, &LodVoxels, &SubGridGpuState)>>,
 	grid_transforms: Extract<Query<&GlobalTransform>>,
 	residency: Extract<Res<ResidencyBuffers>>,
 ) {
@@ -58,6 +61,25 @@ pub fn extract_voxel_scene(
 		let placement = gpu_state.placement();
 		let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &sub_world);
 		let dda_transform = sub_world
+			* Transform::from_translation(placement.tree_root_pos.as_vec3());
+
+		bvh_items.push((entity, aabb));
+		id_to_offsets.insert(entity, (tree_offset, voxel_offset, dda_transform));
+	}
+
+	for (entity, lod_voxels, gpu_state) in lod_voxels.iter() {
+		let Some(&(tree_offset, voxel_offset)) = offsets.get(&entity) else { continue };
+
+		let Ok(grid_global) = grid_transforms.get(lod_voxels.grid) else { continue };
+		let scale = (1u32 << lod_voxels.lod.max(0.0).floor() as u32) as f32;
+		let area_origin = (lod_voxels.min * CHUNK_SIZE).as_vec3();
+		let area_world = grid_global.compute_transform()
+			* Transform::from_translation(area_origin)
+			* Transform::from_scale(Vec3::splat(scale));
+
+		let placement = gpu_state.placement();
+		let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &area_world);
+		let dda_transform = area_world
 			* Transform::from_translation(placement.tree_root_pos.as_vec3());
 
 		bvh_items.push((entity, aabb));

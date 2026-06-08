@@ -10,25 +10,32 @@ pub struct GridKey(pub u64);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SourceId(pub usize);
 
+/// A source of voxel chunks. Methods take `&self` and are called concurrently from the
+/// async load workers, so mutable state must use interior mutability. This lets many
+/// loads from one source run in parallel instead of serializing on an outer lock.
 pub trait ChunkSource: Send + Sync {
-	fn init(&mut self, handle: SourceHandle) {
+	fn init(&self, handle: SourceHandle) {
 		let _ = handle;
 	}
 
 	/// Cost of serving `chunk`, or `None` if this source can't. Lowest wins.
 	fn cost(&self, grid: GridKey, chunk: IVec3) -> Option<u32>;
 
-	fn request_load(&mut self, grid: GridKey, chunk: IVec3);
+	fn request_load(&self, grid: GridKey, chunk: IVec3);
+
+	fn cost_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32) -> Option<u32>;
+
+	fn request_load_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32);
 
 	fn can_save(&self) -> bool {
 		false
 	}
 
-	fn save(&mut self, grid: GridKey, chunk: IVec3, voxels: &Voxels) {
+	fn save(&self, grid: GridKey, chunk: IVec3, voxels: &Voxels) {
 		let _ = (grid, chunk, voxels);
 	}
 
-	fn forget(&mut self, grid: GridKey, chunk: IVec3) {
+	fn forget(&self, grid: GridKey, chunk: IVec3) {
 		let _ = (grid, chunk);
 	}
 }

@@ -102,6 +102,21 @@ impl AsyncTaskPriorityQueueResource {
 	pub fn push(&self, task: PriorityTask) {
 		self.queue.push(task);
 	}
+
+	pub fn pusher(&self) -> AsyncTaskPusher {
+		AsyncTaskPusher { queue: self.queue.clone() }
+	}
+}
+
+#[derive(Clone)]
+pub struct AsyncTaskPusher {
+	queue: AsyncTaskPriorityQueue,
+}
+
+impl AsyncTaskPusher {
+	pub fn push(&self, task: PriorityTask) {
+		self.queue.push(task);
+	}
 }
 
 impl Default for AsyncTaskPriorityQueueResource {

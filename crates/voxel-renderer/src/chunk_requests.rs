@@ -3,16 +3,27 @@ use std::collections::HashSet;
 use bevy::camera::Camera;
 use bevy::prelude::*;
 
+use gpu_voxel_data::residency::ResidencyBuffers;
+use gpu_voxel_data::LodVoxels;
 use voxel_streaming::{ChunkRequestChannel, GridStreaming, CHUNK_SIZE};
 
-/// Voxel radius around the active camera within which the renderer keeps a
-/// grid's chunks resident.
-const REQUEST_RADIUS: f32 = 128.0;
+use crate::lod_requests::{max_lod_radius_chunks, FULL_DETAIL_CHUNKS};
+
+/// Voxel radius around the active camera within which the renderer keeps a grid's
+/// chunks resident at full resolution. Tied to the LOD full-detail radius so the
+/// full-resolution region and the LOD ring meet exactly, with no overlap or gap.
+const REQUEST_RADIUS: f32 = FULL_DETAIL_CHUNKS * CHUNK_SIZE as f32;
 
 /// Chunks the renderer currently wants resident for a grid. Diffed each frame to
 /// prefetch newly wanted chunks and release ones the camera has moved away from.
 #[derive(Component, Default)]
 pub struct RenderWantedChunks(HashSet<IVec3>);
+
+impl RenderWantedChunks {
+	pub(crate) fn wants(&self, chunk: IVec3) -> bool {
+		self.0.contains(&chunk)
+	}
+}
 
 /// Prefetch every present chunk within [`REQUEST_RADIUS`] voxels of the camera,
 /// in each grid's local space, and release chunks once they fall outside it.
@@ -20,8 +31,12 @@ pub fn request_render_chunks(
 	mut commands: Commands,
 	cameras: Query<(&Camera, &GlobalTransform)>,
 	mut grids: Query<(Entity, &GlobalTransform, &mut GridStreaming, Option<&mut RenderWantedChunks>)>,
+	lod_tiles: Query<(Entity, &LodVoxels)>,
+	residency: Res<ResidencyBuffers>,
 	channel: Res<ChunkRequestChannel>,
+	freeze: Res<crate::scene::FreezeRenderRequests>,
 ) {
+	if freeze.0 { return; }
 	let Some(cam_world) = cameras
 		.iter()
 		.find(|(c, _)| c.is_active)
@@ -49,13 +64,49 @@ pub fn request_render_chunks(
 		for &chunk in want.difference(prev) {
 			streaming.fetch(entity, &channel, chunk);
 		}
-		for &chunk in prev.difference(&want) {
-			streaming.release(chunk);
+
+		// Keep a chunk rendering full-res until a GPU-ready LOD tile covers it (or it
+		// leaves view range), so the full-res -> LOD handoff has no hole.
+		let leaving: Vec<IVec3> = prev.difference(&want).copied().collect();
+		let mut held = want;
+		if !leaving.is_empty() {
+			let lod_covered = lod_covered_chunks(&lod_tiles, entity, &residency);
+			let camera_chunk = local / CHUNK_SIZE as f32;
+			let max_radius = max_lod_radius_chunks();
+			for chunk in leaving {
+				let lo = chunk.as_vec3();
+				let hi = (chunk + IVec3::ONE).as_vec3();
+				let distance = camera_chunk.distance(camera_chunk.clamp(lo, hi));
+				if lod_covered.contains(&chunk) || distance >= max_radius {
+					streaming.release(chunk);
+				} else {
+					held.insert(chunk);
+				}
+			}
 		}
 
 		match wanted {
-			Some(mut w) => w.0 = want,
-			None => { commands.entity(entity).insert(RenderWantedChunks(want)); }
+			Some(mut w) => w.0 = held,
+			None => { commands.entity(entity).insert(RenderWantedChunks(held)); }
 		}
 	}
+}
+
+fn lod_covered_chunks(
+	lod_tiles: &Query<(Entity, &LodVoxels)>,
+	grid: Entity,
+	residency: &ResidencyBuffers,
+) -> HashSet<IVec3> {
+	let mut covered = HashSet::new();
+	for (entity, tile) in lod_tiles.iter() {
+		if tile.grid != grid || !residency.offsets().contains_key(&entity) { continue; }
+		for z in 0..tile.size.z {
+			for y in 0..tile.size.y {
+				for x in 0..tile.size.x {
+					covered.insert(tile.min + IVec3::new(x, y, z));
+				}
+			}
+		}
+	}
+	covered
 }

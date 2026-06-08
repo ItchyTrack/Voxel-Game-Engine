@@ -20,18 +20,16 @@ pub struct SubGridPlacement {
 #[derive(Component, Clone, Copy, Debug)]
 #[component(on_remove = free_subgrid_gpu_buffers)]
 pub struct SubGridGpuState {
-	lod_level: f32,
 	tree_id: u32,
 	voxels_id: u32,
 	placement: SubGridPlacement,
 }
 
 impl SubGridGpuState {
-	pub(crate) fn new(lod_level: f32, tree_id: u32, voxels_id: u32, placement: SubGridPlacement) -> Self {
-		Self { lod_level, tree_id, voxels_id, placement }
+	pub(crate) fn new(tree_id: u32, voxels_id: u32, placement: SubGridPlacement) -> Self {
+		Self { tree_id, voxels_id, placement }
 	}
 
-	pub fn lod_level(&self) -> f32 { self.lod_level }
 	pub fn tree_id(&self) -> u32 { self.tree_id }
 	pub fn voxels_id(&self) -> u32 { self.voxels_id }
 	pub fn placement(&self) -> SubGridPlacement { self.placement }

@@ -58,6 +58,7 @@ struct BVHItem {
 	item_index_2: u32,
 	pos_x:  f32, pos_y:  f32, pos_z:  f32,
 	quat_x: f32, quat_y: f32, quat_z: f32, quat_w: f32,
+	scale:  f32,
 }
 
 @group(1) @binding(0) var<storage, read> bvh:       array<BVHNode>;
@@ -159,7 +160,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 				let item = bvh_items[base + i];
 				let sz   = unpack4xU8(item.aabb_size);
 				let mn   = vec3<f32>(item.min_x, item.min_y, item.min_z);
-				let mx   = mn + vec3<f32>(f32(sz.x), f32(sz.y), f32(sz.z));
+				let mx   = mn + vec3<f32>(f32(sz.x), f32(sz.y), f32(sz.z)) * item.scale;
 
 				let center       = (mn + mx) * 0.5;
 				let depth        = length(center - ray_pos);

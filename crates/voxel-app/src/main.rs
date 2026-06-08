@@ -4,8 +4,11 @@ mod camera_controller;
 mod crosshair;
 mod debug_toggles;
 mod debug_ui;
+mod lod_downsample;
+mod memory_store;
 mod scene;
 mod skybox;
+mod sphere_source;
 mod streaming_test;
 mod vox_loader;
 mod world_interaction;
@@ -22,6 +25,7 @@ use bevy::window::WindowResolution;
 use camera_controller::{FlyCamera, FlyCameraPlugin};
 use crosshair::CrosshairPlugin;
 use skybox::SkyboxPlugin;
+use sphere_source::SphereSourcePlugin;
 use debug_toggles::DebugTogglesPlugin;
 use debug_ui::DebugUiPlugin;
 use scene::ScenePlugin;
@@ -31,7 +35,7 @@ use voxel_renderer::VoxelRendererPlugin;
 use voxel_edit::VoxelEditPlugin;
 use voxel_sources::VoxelSourcesPlugin;
 use voxel_streaming::VoxelStreamingPlugin;
-use voxel_test_store::MemoryStorePlugin;
+use memory_store::MemoryStorePlugin;
 use world_interaction::WorldInteractionPlugin;
 
 /// All gameplay, rendering, physics, and debug plugins that make up the app.
@@ -44,6 +48,7 @@ impl PluginGroup for GamePlugins {
 			.add(VoxelStreamingPlugin)
 			.add(VoxelSourcesPlugin)
 			.add(MemoryStorePlugin)
+			.add(SphereSourcePlugin)
 			.add(VoxelRendererPlugin)
 			.add(SkyboxPlugin)
 			.add(CrosshairPlugin)
@@ -58,8 +63,13 @@ impl PluginGroup for GamePlugins {
 	}
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
+	let runtime = tokio::runtime::Builder::new_multi_thread()
+		.enable_all()
+		.build()
+		.unwrap();
+	let guard = runtime.enter();
+
 	let mut app = App::new();
 	app.add_plugins(
 		DefaultPlugins
@@ -83,6 +93,12 @@ async fn main() {
 	app.add_systems(Last, || tracing_tracy::client::frame_mark());
 
 	app.run();
+
+	// Don't block on in-flight load/upload tasks; abandon them so the window closes
+	// promptly. The OS reclaims the worker threads on process exit.
+	drop(app);
+	drop(guard);
+	runtime.shutdown_background();
 }
 
 fn tracy_layer(_app: &mut App) -> Option<bevy::log::BoxedLayer> {

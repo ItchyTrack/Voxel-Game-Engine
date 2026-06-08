@@ -1,3 +1,4 @@
+use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::math::IVec3;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -102,6 +103,81 @@ impl ChunkLoaderChannel {
 	}
 
 	pub(crate) fn try_recv(&self) -> Option<ChunkLoadResult> {
+		self.receiver.try_recv().ok()
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LodLoadRequest {
+	pub grid: GridId,
+	pub requester: Entity,
+	pub min: IVec3,
+	pub size: IVec3,
+	pub lod: f32,
+	pub priority: f32,
+}
+
+#[derive(Resource)]
+pub struct LodRequestChannel {
+	sender: Sender<LodLoadRequest>,
+	receiver: Receiver<LodLoadRequest>,
+}
+
+impl Default for LodRequestChannel {
+	fn default() -> Self {
+		let (sender, receiver) = unbounded();
+		Self { sender, receiver }
+	}
+}
+
+impl LodRequestChannel {
+	pub(crate) fn request(&self, request: LodLoadRequest) {
+		let _ = self.sender.send(request);
+	}
+
+	pub fn receiver(&self) -> Receiver<LodLoadRequest> {
+		self.receiver.clone()
+	}
+
+	pub fn try_recv(&self) -> Option<LodLoadRequest> {
+		self.receiver.try_recv().ok()
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct LodLoadResult {
+	pub grid: GridId,
+	pub requester: Entity,
+	pub min: IVec3,
+	pub size: IVec3,
+	pub lod: f32,
+	pub priority: f32,
+	pub voxels: Option<Voxels>,
+}
+
+#[derive(Resource)]
+pub struct LodLoaderChannel {
+	sender: Sender<LodLoadResult>,
+	receiver: Receiver<LodLoadResult>,
+}
+
+impl Default for LodLoaderChannel {
+	fn default() -> Self {
+		let (sender, receiver) = unbounded();
+		Self { sender, receiver }
+	}
+}
+
+impl LodLoaderChannel {
+	pub fn sender(&self) -> Sender<LodLoadResult> {
+		self.sender.clone()
+	}
+
+	pub fn report(&self, result: LodLoadResult) {
+		let _ = self.sender.send(result);
+	}
+
+	pub(crate) fn try_recv(&self) -> Option<LodLoadResult> {
 		self.receiver.try_recv().ok()
 	}
 }

@@ -1,9 +1,0 @@
-[package]
-name = "voxel-test-store"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-bevy = { workspace = true }
-voxel-data = { version = "0.1.0", path = "../voxel-data" }
-voxel-sources = { version = "0.1.0", path = "../voxel-sources" }

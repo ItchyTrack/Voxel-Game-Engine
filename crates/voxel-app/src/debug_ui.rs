@@ -8,7 +8,7 @@ use voxel_physics::{
 };
 use voxel_renderer::graphics_settings::GraphicsSettings;
 use voxel_renderer::hit_count_feedback::RenderStats;
-use voxel_renderer::scene::FreezeUploads;
+use voxel_renderer::scene::FreezeRenderRequests;
 use voxel_streaming::{ChunkState, GridStreaming, CHUNK_SIZE};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
@@ -48,7 +48,7 @@ fn debug_window(
 	world_gpu_data: Option<Res<WorldGpuData>>,
 	render_stats: Res<RenderStats>,
 	mut graphics_settings: ResMut<GraphicsSettings>,
-	mut freeze_uploads: ResMut<FreezeUploads>,
+	mut freeze_render_requests: ResMut<FreezeRenderRequests>,
 	mut freeze_physics: ResMut<FreezePhysics>,
 	mut inertia_boxes: ResMut<InertiaBoxes>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
@@ -89,7 +89,7 @@ fn debug_window(
 			ui.checkbox(&mut graphics_settings.shadows, "shadows");
 			ui.separator();
 			ui.label("Debug");
-			ui.checkbox(&mut freeze_uploads.0, "freeze upload");
+			ui.checkbox(&mut freeze_render_requests.0, "freeze render requests");
 			ui.checkbox(&mut freeze_physics.0, "freeze physics");
 			ui.checkbox(&mut inertia_boxes.0, "inertia boxes");
 			ui.checkbox(&mut chunk_presence_boxes.0, "chunk presence");

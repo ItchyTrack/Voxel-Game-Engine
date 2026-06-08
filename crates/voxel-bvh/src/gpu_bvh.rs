@@ -104,6 +104,7 @@ struct GpuBVHItem {
 	item_index_2: u32,
 	pos:          [f32; 3],
 	quat:         [f32; 4],
+	scale:        f32,
 }
 
 pub struct GpuBvh<Id> {
@@ -172,14 +173,18 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 		let mut item_ids: Vec<_> = Vec::with_capacity(items.len());
 		for item in items {
 			if let Some((tree_offset, voxels_offset, transform)) = gpu_grid_tree_id_to_id_transforms.get(&item.0) {
+				// `aabb_size` is 8 bits per axis: store the pre-scale extent (which fits)
+				// and let the shader multiply by `scale`, else a scaled LOD tile saturates it.
+				let scale = transform.scale.x.max(f32::MIN_POSITIVE);
 				item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
 					min_corner:   item.1.0.to_array(),
-					aabb_size:    (item.1.1 - item.1.0).ceil().as_u8vec3().to_array(),
+					aabb_size:    ((item.1.1 - item.1.0) / scale).ceil().as_u8vec3().to_array(),
 					_padding:     0,
 					item_index:   *tree_offset,
 					item_index_2: *voxels_offset,
 					pos:          transform.translation.to_array(),
 					quat:         transform.rotation.to_array(),
+					scale:        transform.scale.x,
 				}));
 				item_ids.push(item.0);
 			} else {
