@@ -20,6 +20,48 @@ struct LodRequestOwners {
 }
 
 impl LodRequestOwners {
+	fn add_owner(&mut self, owner: Entity, request: crate::request_tree::LodRequest) {
+		self.by_key.entry(request.key).or_default().insert(owner, request.priority);
+
+		// Destination changes are represented as an added/changed request for the same
+		// key, so first clear this owner from the GPU set, then re-add if needed.
+		if let Some(owners) = self.wants_gpu.get_mut(&request.key) {
+			owners.remove(&owner);
+			if owners.is_empty() {
+				self.wants_gpu.remove(&request.key);
+			}
+		}
+		if request.destination.wants_gpu() {
+			self.wants_gpu.entry(request.key).or_default().insert(owner);
+		}
+	}
+
+	fn remove_owner(&mut self, owner: Entity, key: LodKey) {
+		if let Some(owners) = self.by_key.get_mut(&key) {
+			owners.remove(&owner);
+			if owners.is_empty() {
+				self.by_key.remove(&key);
+			}
+		}
+		if let Some(owners) = self.wants_gpu.get_mut(&key) {
+			owners.remove(&owner);
+			if owners.is_empty() {
+				self.wants_gpu.remove(&key);
+			}
+		}
+	}
+
+	fn remove_owner_everywhere(&mut self, owner: Entity) {
+		self.by_key.retain(|_, owners| {
+			owners.remove(&owner);
+			!owners.is_empty()
+		});
+		self.wants_gpu.retain(|_, owners| {
+			owners.remove(&owner);
+			!owners.is_empty()
+		});
+	}
+
 	fn priority(&self, key: &LodKey) -> Option<f32> {
 		self.by_key.get(key).map(|owners| owners.values().copied().fold(f32::NEG_INFINITY, f32::max))
 	}
@@ -79,20 +121,28 @@ fn spawn_lod_manager_consumer(mut commands: Commands) {
 fn collect_lod_requests(
 	mut owners: ResMut<LodRequestOwners>,
 	mut requested: ResMut<RequestedLods>,
+	loaded: Res<LoadedLods>,
 	mut maps: Query<(Entity, &mut LodRequestMap)>,
+	mut removed_maps: RemovedComponents<LodRequestMap>,
 ) {
-	owners.by_key.clear();
-	owners.wants_gpu.clear();
-	for (owner, mut map) in maps.iter_mut() {
-		// Deltas are consumed by this central manager. Current state is rebuilt below,
-		// making the system robust if a policy skipped emitting a delta.
-		let _ = map.drain_added_delta();
-		let _ = map.drain_removed_delta();
+	// If a request map despawned without emitting remove deltas, drop that owner.
+	for owner in removed_maps.read() {
+		owners.remove_owner_everywhere(owner);
+	}
 
-		for request in map.iter() {
-			owners.by_key.entry(request.key).or_default().insert(owner, request.priority);
+	for (owner, mut map) in maps.iter_mut() {
+		for key in map.drain_removed_delta() {
+			owners.remove_owner(owner, key);
+		}
+
+		for request in map.drain_added_delta() {
+			owners.add_owner(owner, request);
 			if request.destination.wants_gpu() {
-				owners.wants_gpu.entry(request.key).or_default().insert(owner);
+				if let Some(entity) = loaded.get(&request.key) {
+					// New GPU owner of an already-loaded LOD should not wait for a load
+					// result that will never come.
+					map.push_loaded(LoadedLodEvent { key: request.key, entity });
+				}
 			}
 		}
 	}

@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use lod_manager::{LodManagerPlugin, LodRequestMap};
 
 pub use debug::{CameraLodDebug, CameraLodDebugChunk, CameraLodDebugState, FreezeCameraLods};
-pub use grid_control::{apply_loaded_lod_deltas, release_lod_entity, retain_lod_entity, CameraLodGridControl};
+pub use grid_control::{apply_loaded_lod_deltas, CameraLodGridControl};
 pub use policy::{apply_camera_lod_policy, update_camera_lod_policy, CameraLazyLodScan, CameraLodPolicy, CameraLodTarget};
 pub use render_set::CameraVoxelRenderSet;
 

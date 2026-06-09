@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use bevy::prelude::*;
-use lod_manager::{LoadedLodEvent, LodKey, LodRequestMap, LodRetainCount};
+use lod_manager::{LoadedLodEvent, LodKey, LodRequestMap};
 
 use crate::debug::{CameraLodDebug, CameraLodDebugState};
 use crate::render_set::CameraVoxelRenderSet;
@@ -13,6 +15,7 @@ use crate::render_set::CameraVoxelRenderSet;
 pub struct CameraLodGridControl {
 	visible_lods: Vec<LodKey>,
 	waiting_lods: Vec<LodKey>,
+	entities: HashMap<LodKey, Entity>,
 }
 
 impl CameraLodGridControl {
@@ -23,10 +26,13 @@ impl CameraLodGridControl {
 		}
 	}
 
-	pub fn release_lod(&mut self, requests: &mut LodRequestMap, key: LodKey) {
+	pub fn release_lod(&mut self, requests: &mut LodRequestMap, render_set: &mut CameraVoxelRenderSet, key: LodKey) {
 		requests.release(key);
 		self.waiting_lods.retain(|existing| *existing != key);
 		self.visible_lods.retain(|existing| *existing != key);
+		if let Some(entity) = self.entities.remove(&key) {
+			render_set.hide_lod(entity);
+		}
 	}
 
 	pub fn visible_lods(&self) -> &[LodKey] {
@@ -41,6 +47,9 @@ impl CameraLodGridControl {
 		self.waiting_lods.retain(|key| *key != event.key);
 		if !self.visible_lods.contains(&event.key) {
 			self.visible_lods.push(event.key);
+		}
+		if let Some(old_entity) = self.entities.insert(event.key, event.entity) {
+			render_set.hide_lod(old_entity);
 		}
 		render_set.show_lod(event.entity);
 	}
@@ -69,18 +78,5 @@ pub fn apply_loaded_lod_deltas(
 				debug.push_area(key.grid, key.min, key.size, CameraLodDebugState::WaitingOnLod);
 			}
 		}
-	}
-}
-
-/// Convenience helper for systems that need to hold an old LOD during a visual swap.
-pub fn retain_lod_entity(mut retains: Query<&mut LodRetainCount>, entity: Entity) {
-	if let Ok(mut retain) = retains.get_mut(entity) {
-		retain.retain();
-	}
-}
-
-pub fn release_lod_entity(mut retains: Query<&mut LodRetainCount>, entity: Entity) {
-	if let Ok(mut retain) = retains.get_mut(entity) {
-		retain.release();
 	}
 }
