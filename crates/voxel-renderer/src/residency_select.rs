@@ -9,22 +9,13 @@ use gpu_voxel_data::lod_voxels::LodVoxels;
 use gpu_voxel_data::residency::ResidencyBuffers;
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
-use voxel_data::grid::SUB_GRID_SIZE;
+use std::collections::HashSet;
+
+use camera_lods::CameraVoxelRenderSet;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid};
 use voxel_streaming::CHUNK_SIZE;
 
-use crate::chunk_requests::RenderWantedChunks;
 use crate::hit_count_feedback::HitCountFeedback;
-
-/// Whether the renderer requested any chunk the sub-grid overlaps (sub-grids and chunks
-/// are not aligned, so one sub-grid can span several chunks).
-fn overlaps_wanted_chunks(sub_grid_pos: IVec3, wanted: &RenderWantedChunks) -> bool {
-	let lo = sub_grid_pos.div_euclid(IVec3::splat(CHUNK_SIZE));
-	let hi = (sub_grid_pos + IVec3::splat(SUB_GRID_SIZE - 1)).div_euclid(IVec3::splat(CHUNK_SIZE));
-	(lo.z..=hi.z).any(|z| {
-		(lo.y..=hi.y).any(|y| (lo.x..=hi.x).any(|x| wanted.wants(IVec3::new(x, y, z))))
-	})
-}
 
 struct Candidate {
 	entity: Entity,
@@ -44,14 +35,21 @@ pub fn build_residency(
 	sub_grids: Query<(Entity, &SubGrid, &SubGridGpuState)>,
 	lod_voxels: Query<(Entity, &LodVoxels, &SubGridGpuState)>,
 	grid_transforms: Query<&GlobalTransform>,
-	wanted_chunks: Query<&RenderWantedChunks>,
-	cameras: Query<(&Camera, &GlobalTransform, &Frustum)>,
+	cameras: Query<(&Camera, &GlobalTransform, &Frustum, Option<&CameraVoxelRenderSet>)>,
 	hit_feedback: Res<HitCountFeedback>,
 ) {
-	let view = cameras
+	let active_camera = cameras
 		.iter()
-		.find(|(c, _, _)| c.is_active)
-		.map(|(_, global_transform, frustum)| (global_transform.translation(), frustum));
+		.find(|(c, _, _, _)| c.is_active);
+	let view = active_camera
+		.map(|(_, global_transform, frustum, _)| (global_transform.translation(), frustum));
+	let active_render_set = active_camera
+		.and_then(|(_, _, _, render_set)| render_set)
+		.filter(|set| set.active);
+	let render_subgrids: Option<HashSet<Entity>> = active_render_set
+		.map(|set| set.subgrids.iter().copied().collect());
+	let render_lods: Option<HashSet<Entity>> = active_render_set
+		.map(|set| set.lods.iter().copied().collect());
 	let hit_counts = hit_feedback.0.lock().ok();
 
 	let tree_alignment = residency.tree_alignment();
@@ -96,10 +94,7 @@ pub fn build_residency(
 
 	let mut candidates: Vec<Candidate> = Vec::new();
 	for (entity, sub_grid, gpu_state) in sub_grids.iter() {
-		// Only render sub-grids the renderer requested; others (held by physics, etc.)
-		// would double up with LOD tiles.
-		let Ok(wanted) = wanted_chunks.get(sub_grid.grid()) else { continue };
-		if !overlaps_wanted_chunks(sub_grid.sub_grid_pos(), wanted) { continue; }
+		if render_subgrids.as_ref().is_some_and(|set| !set.contains(&entity)) { continue; }
 
 		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
 		let sub_world = grid_global.compute_transform()
@@ -112,6 +107,7 @@ pub fn build_residency(
 	}
 
 	for (entity, lod_voxels, gpu_state) in lod_voxels.iter() {
+		if render_lods.as_ref().is_some_and(|set| !set.contains(&entity)) { continue; }
 		let Ok(grid_global) = grid_transforms.get(lod_voxels.grid) else { continue };
 		let scale = (1u32 << lod_voxels.lod.max(0.0).floor() as u32) as f32;
 		let area_origin = (lod_voxels.min * CHUNK_SIZE).as_vec3();

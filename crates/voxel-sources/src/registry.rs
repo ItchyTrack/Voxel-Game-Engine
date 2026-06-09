@@ -17,8 +17,22 @@ pub(crate) type SharedSource = Arc<dyn ChunkSource>;
 /// Reverse of `keys`, shared with the serve worker threads.
 pub(crate) type GridKeyMap = Arc<RwLock<HashMap<GridId, GridKey>>>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct LodRequestKey {
+	pub grid: GridKey,
+	pub min: IVec3,
+	pub size: IVec3,
+	pub lod_bits: u32,
+}
+
+impl LodRequestKey {
+	pub fn new(grid: GridKey, min: IVec3, size: IVec3, lod: f32) -> Self {
+		Self { grid, min, size, lod_bits: lod.to_bits() }
+	}
+}
+
 /// LOD requests awaiting results, shared with the serve worker threads.
-pub(crate) type PendingLod = Arc<Mutex<Vec<LodLoadRequest>>>;
+pub(crate) type PendingLod = Arc<Mutex<HashMap<LodRequestKey, Vec<LodLoadRequest>>>>;
 
 #[derive(Resource)]
 pub struct SourceRegistry {
@@ -49,7 +63,7 @@ impl Default for SourceRegistry {
 			result_rx,
 			lod_result_tx,
 			lod_result_rx,
-			pending_lod: Arc::new(Mutex::new(Vec::new())),
+			pending_lod: Arc::new(Mutex::new(HashMap::new())),
 		}
 	}
 }

@@ -16,6 +16,8 @@ bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
+camera-lods = { version = "0.1.0", path = "../camera-lods" }
+lod-manager = { version = "0.1.0", path = "../lod-manager" }
 voxel-bvh = { version = "0.1.0", path = "../voxel-bvh" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

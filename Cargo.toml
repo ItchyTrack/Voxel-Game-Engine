@@ -6,6 +6,8 @@ members = [
 	"crates/voxel-edit",
 	"crates/gpu-voxel-data",
 	"crates/voxel-streaming",
+	"crates/lod-manager",
+	"crates/camera-lods",
 	"crates/voxel-sources",
 	"crates/voxel-renderer",
 	"crates/voxel-bvh",

@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, ops::*};
 
 use bevy::render::{renderer::{RenderDevice, RenderQueue}};
 use num::Integer;
+use tracy_client::span;
 use wgpu::{CommandEncoderDescriptor, Device};
 
 #[derive(Debug)]
@@ -68,6 +69,8 @@ impl PackedDynamicBuffer {
 	}
 
 	pub fn add_buffer(&mut self, data_buffer: &[u8]) -> Result<u32, &'static str> {
+		let _zone = span!("PackedDynamicBuffer add_buffer");
+		tracy_client::plot!("packed dynamic upload bytes", data_buffer.len() as f64);
 		if data_buffer.len() == 0 {
 			return Err("Buffer size can't be 0.");
 		}
@@ -114,7 +117,10 @@ impl PackedDynamicBuffer {
 					self.queue.submit(std::iter::once(encoder.finish()));
 					placement_location = self.buffer.size() as u32;
 					self.buffer = new_buffer;
-					self.queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
+					{
+						let _write_zone = span!("wgpu queue write_buffer");
+						self.queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
+					}
 					self.held_bytes += data_buffer.len() as u32;
 					self.held_bytes_alignment += (data_buffer.len() as u32).next_multiple_of(self.alignment as u32);
 					let id = placement_location / self.alignment as u32;
@@ -125,7 +131,10 @@ impl PackedDynamicBuffer {
 				break;
 			}
 		}
-		self.queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
+		{
+			let _write_zone = span!("wgpu queue write_buffer");
+			self.queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
+		}
 		self.held_bytes += data_buffer.len() as u32;
 		self.held_bytes_alignment += (data_buffer.len() as u32).next_multiple_of(self.alignment as u32);
 		let id = placement_location / self.alignment as u32;
@@ -145,6 +154,8 @@ impl PackedDynamicBuffer {
 
 	/// If the new buffer does not fit the old buffer will still be removed
 	pub fn replace_buffer(&mut self, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
+		let _zone = span!("PackedDynamicBuffer replace_buffer");
+		tracy_client::plot!("packed dynamic upload bytes", buffer.len() as f64);
 		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
 			if held_buffer.size == buffer.len() as u32 {
 				self.held_bytes -= held_buffer.size;
@@ -152,7 +163,10 @@ impl PackedDynamicBuffer {
 				self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
 				self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
 				held_buffer.size = buffer.len() as u32;
-				self.queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
+				{
+					let _write_zone = span!("wgpu queue write_buffer");
+					self.queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
+				}
 				Ok(id)
 			} else {
 				self.remove_buffer(id)?;

@@ -9,7 +9,7 @@ use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, AsyncTaskPusher, Pr
 use voxel_streaming::{ChunkRequestChannel, LodRequestChannel};
 
 use crate::handle::{SourceLodResult, SourceResult};
-use crate::registry::{cheapest, cheapest_lod, GridKeyMap, PendingLod, SharedSource, SourceRegistry};
+use crate::registry::{cheapest, cheapest_lod, GridKeyMap, LodRequestKey, PendingLod, SharedSource, SourceRegistry};
 
 /// Owns the serve worker threads so they live for the app's lifetime.
 #[derive(Resource, Default)]
@@ -83,7 +83,12 @@ fn serve_lod_requests(
 ) {
 	while let Ok(request) = requests.recv() {
 		let Some(key) = grid_keys.read().unwrap().get(&request.grid).copied() else { continue };
-		pending_lod.lock().unwrap().push(request);
+		pending_lod
+			.lock()
+			.unwrap()
+			.entry(LodRequestKey::new(key, request.min, request.size, request.lod))
+			.or_default()
+			.push(request);
 		if let Some(id) = cheapest_lod(&sources, key, request.min, request.size, request.lod) {
 			let source = sources[id.0].clone();
 			pusher.push(PriorityTask::new(request.priority, async move {

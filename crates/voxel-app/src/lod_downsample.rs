@@ -18,8 +18,9 @@ struct CoarseAccum {
 /// full-resolution region is never materialized.
 ///
 /// Each coarse voxel's colour is the volume-weighted average of the base voxels it
-/// covers, snapped to the nearest colour present in the source. Snapping keeps the
-/// coarse palette within the source palette, which the GPU tree caps at 254 entries.
+/// covers, quantized into a small fixed palette. The GPU tree stores palette indices in
+/// one byte and reserves sentinel values, so a generated LOD must not create hundreds of
+/// unique averaged colours.
 pub fn downsample_region(
 	min: IVec3,
 	size: IVec3,
@@ -30,9 +31,6 @@ pub fn downsample_region(
 	let step_v = IVec3::splat(step);
 
 	let mut coarse: HashMap<IVec3, CoarseAccum> = HashMap::new();
-	// Distinct source voxels, used as the palette the averaged colours snap back to.
-	let mut source_voxels: Vec<Voxel> = Vec::new();
-	let mut seen_colors: HashMap<[u8; 4], usize> = HashMap::new();
 
 	for chunk_z in 0..size.z {
 		for chunk_y in 0..size.y {
@@ -42,10 +40,6 @@ pub fn downsample_region(
 				let chunk_origin = local * CHUNK_SIZE;
 				for (pos, run, id) in src.grid_tree().iter() {
 					let Some(voxel) = src.palette().voxel(id).copied() else { continue };
-					seen_colors.entry(voxel.color).or_insert_with(|| {
-						source_voxels.push(voxel);
-						source_voxels.len() - 1
-					});
 					// Source cell occupies the half-open cube `[cell_min, cell_max)`.
 					let cell_min = chunk_origin + IVec3::new(pos.x as i32, pos.y as i32, pos.z as i32);
 					let cell_max = cell_min + IVec3::splat(run as i32);
@@ -77,29 +71,31 @@ pub fn downsample_region(
 	for (coarse_pos, accum) in coarse {
 		if accum.weight <= 0.0 { continue; }
 		let average: [f64; 4] = std::array::from_fn(|channel| accum.color[channel] / accum.weight);
-		let voxel = nearest_source_voxel(&source_voxels, average);
 		out.add_voxel(
 			I16Vec3::new(coarse_pos.x as i16, coarse_pos.y as i16, coarse_pos.z as i16),
-			voxel,
+			quantized_lod_voxel(average),
 		);
 	}
 	out
 }
 
-/// The source voxel whose colour is closest to `average` (squared RGBA distance).
-fn nearest_source_voxel(source_voxels: &[Voxel], average: [f64; 4]) -> Voxel {
-	source_voxels
-		.iter()
-		.copied()
-		.min_by(|a, b| color_distance_sq(a.color, average).total_cmp(&color_distance_sq(b.color, average)))
-		.unwrap_or(Voxel { color: [0, 0, 0, 0], mass: 0 })
+fn quantized_lod_voxel(average: [f64; 4]) -> Voxel {
+	// 6 * 6 * 6 = 216 possible colours, safely below the GPU palette cap of 254.
+	// LOD voxels are render-only, so mass is intentionally canonicalized to avoid
+	// identical colours becoming multiple palette entries because of differing mass.
+	Voxel {
+		color: [
+			quantize_channel(average[0], 6),
+			quantize_channel(average[1], 6),
+			quantize_channel(average[2], 6),
+			255,
+		],
+		mass: 0,
+	}
 }
 
-fn color_distance_sq(color: [u8; 4], target: [f64; 4]) -> f64 {
-	(0..4)
-		.map(|channel| {
-			let delta = color[channel] as f64 - target[channel];
-			delta * delta
-		})
-		.sum()
+fn quantize_channel(value: f64, levels: u8) -> u8 {
+	let max_level = (levels - 1) as f64;
+	let level = ((value.clamp(0.0, 255.0) / 255.0) * max_level).round();
+	((level / max_level) * 255.0).round() as u8
 }

@@ -1,9 +1,6 @@
 pub mod camera;
-pub mod chunk_requests;
 pub mod graphics_settings;
 pub mod hit_count_feedback;
-pub mod lod_requests;
-pub mod scene;
 pub mod voxel_renderer;
 pub mod voxel_renderer_resource;
 
@@ -13,7 +10,7 @@ mod residency_select;
 
 pub use render_node::VoxelRenderLabel;
 
-use bevy::app::{App, Plugin, Startup, Update};
+use bevy::app::{App, Plugin, Update};
 use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::render::extract_resource::ExtractResourcePlugin;
@@ -21,7 +18,7 @@ use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::render::render_graph::{RenderGraphExt, ViewNodeRunner};
 
 use voxel_data::VoxelDataPlugin;
-use voxel_streaming::VoxelStreamingAppExt;
+use camera_lods::CameraLodsPlugin;
 use gpu_voxel_data::{GpuUploadSet, GpuVoxelDataPlugin};
 
 use graphics_settings::GraphicsSettings;
@@ -43,13 +40,7 @@ impl Plugin for VoxelRendererPlugin {
 		app.insert_resource(hit_count_feedback.clone())
 			.insert_resource(render_stats.clone())
 			.init_resource::<GraphicsSettings>()
-			.init_resource::<scene::FreezeRenderRequests>()
-			.init_resource::<lod_requests::LodTileEntities>()
-			.register_chunk_consumer::<lod_requests::RenderLodConsumer>()
-			.add_plugins(ExtractResourcePlugin::<GraphicsSettings>::default())
-			.add_systems(Startup, lod_requests::spawn_lod_consumer)
-			.add_systems(Update, chunk_requests::request_render_chunks)
-			.add_systems(Update, (lod_requests::request_render_lod, lod_requests::receive_render_lod).chain())
+			.add_plugins((CameraLodsPlugin, ExtractResourcePlugin::<GraphicsSettings>::default()))
 			.add_systems(
 				Update,
 				residency_select::build_residency

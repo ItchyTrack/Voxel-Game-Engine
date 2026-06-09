@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use parry3d;
 use rand::seq::IteratorRandom;
+use tracy_client::span;
 
 use voxel_data::grid_tree::{self, GridCell, CellKind};
 use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
@@ -31,6 +32,7 @@ fn build_bitmap(node: &PackedNode) -> u64 {
 }
 
 pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> (Vec<u8>, Vec<u8>) {
+	let _zone = span!("make GPU grid tree");
 	let (nodes, _, root_depth) = grid_tree.internals();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
 
@@ -117,33 +119,33 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> 
 	}
 
 	// (ox, oy, oz, half)
-	let mut solid_cells: Vec<parry3d::math::Vec3> = vec![];
-	for cell in &tagged_cells {
-		if cell.solid {
-			solid_cells.push(parry3d::math::Vec3::new(cell.center_x - cell.half, cell.center_y - cell.half, cell.center_z - cell.half));
-			solid_cells.push(parry3d::math::Vec3::new(cell.center_x + cell.half, cell.center_y - cell.half, cell.center_z - cell.half));
-			solid_cells.push(parry3d::math::Vec3::new(cell.center_x - cell.half, cell.center_y + cell.half, cell.center_z - cell.half));
-			solid_cells.push(parry3d::math::Vec3::new(cell.center_x - cell.half, cell.center_y - cell.half, cell.center_z + cell.half));
-			solid_cells.push(parry3d::math::Vec3::new(cell.center_x + cell.half, cell.center_y + cell.half, cell.center_z - cell.half));
-			solid_cells.push(parry3d::math::Vec3::new(cell.center_x + cell.half, cell.center_y - cell.half, cell.center_z + cell.half));
-			solid_cells.push(parry3d::math::Vec3::new(cell.center_x - cell.half, cell.center_y + cell.half, cell.center_z + cell.half));
-			solid_cells.push(parry3d::math::Vec3::new(cell.center_x + cell.half, cell.center_y + cell.half, cell.center_z + cell.half));
-		}
-	}
-	let (solid_cells_reduced, _indices) = parry3d::transformation::convex_hull(&solid_cells);
+	// let mut solid_cells: Vec<parry3d::math::Vec3> = vec![];
+	// for cell in &tagged_cells {
+	// 	if cell.solid {
+	// 		solid_cells.push(parry3d::math::Vec3::new(cell.center_x - cell.half, cell.center_y - cell.half, cell.center_z - cell.half));
+	// 		solid_cells.push(parry3d::math::Vec3::new(cell.center_x + cell.half, cell.center_y - cell.half, cell.center_z - cell.half));
+	// 		solid_cells.push(parry3d::math::Vec3::new(cell.center_x - cell.half, cell.center_y + cell.half, cell.center_z - cell.half));
+	// 		solid_cells.push(parry3d::math::Vec3::new(cell.center_x - cell.half, cell.center_y - cell.half, cell.center_z + cell.half));
+	// 		solid_cells.push(parry3d::math::Vec3::new(cell.center_x + cell.half, cell.center_y + cell.half, cell.center_z - cell.half));
+	// 		solid_cells.push(parry3d::math::Vec3::new(cell.center_x + cell.half, cell.center_y - cell.half, cell.center_z + cell.half));
+	// 		solid_cells.push(parry3d::math::Vec3::new(cell.center_x - cell.half, cell.center_y + cell.half, cell.center_z + cell.half));
+	// 		solid_cells.push(parry3d::math::Vec3::new(cell.center_x + cell.half, cell.center_y + cell.half, cell.center_z + cell.half));
+	// 	}
+	// }
+	// let (solid_cells_reduced, _indices) = parry3d::transformation::convex_hull(&solid_cells);
 
-	let mut rng = rand::rng();
-	let empty_cells: Vec<(f32, f32, f32, f32)> = {
-		let empty_cells = tagged_cells.into_iter().filter(|c| !c.solid).map(|c| (c.center_x, c.center_y, c.center_z, c.half)).collect::<Vec<_>>();
-		let empty_cells_len = empty_cells.len();
-		if empty_cells_len > 100 {
-			empty_cells.into_iter().sample(&mut rng, 100)
-		} else {
-			empty_cells
-		}
-	};
+	// let mut rng = rand::rng();
+	// let empty_cells: Vec<(f32, f32, f32, f32)> = {
+	// 	let empty_cells = tagged_cells.into_iter().filter(|c| !c.solid).map(|c| (c.center_x, c.center_y, c.center_z, c.half)).collect::<Vec<_>>();
+	// 	let empty_cells_len = empty_cells.len();
+	// 	if empty_cells_len > 100 {
+	// 		empty_cells.into_iter().sample(&mut rng, 100)
+	// 	} else {
+	// 		empty_cells
+	// 	}
+	// };
 
-	let best_plane = if solid_cells.is_empty() {
+	let best_plane: Option<(u32, u32, u32, u32)> = None; /*if solid_cells.is_empty() {
 		None
 	} else {
 		// (wrong_empty_count, nxe, nye, nze, m_encoded)
@@ -184,7 +186,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> 
 		}
 
 		if best.0 < empty_cells.len() { Some((best.1, best.2, best.3, best.4)) } else { None }
-	};
+	};*/
 
 	// -- Pass 2: Assign slot indices and voxel buffer offsets -----------------
 	let mut slot_indices:  Vec<u32> = vec![0; gpu_order.len()];

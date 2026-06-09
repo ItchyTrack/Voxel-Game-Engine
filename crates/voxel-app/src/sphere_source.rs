@@ -6,6 +6,8 @@ use bevy::prelude::*;
 use voxel_data::grid::Grid;
 use voxel_data::voxels::{Voxel, Voxels};
 use voxel_edit::GridEdits;
+use voxel_physics::{IsStatic, RigidBody};
+use voxel_physics::components::VoxelCollider;
 use voxel_sources::{ChunkSource, GridKey, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
 
@@ -126,11 +128,24 @@ fn spawn_sphere_grid(mut commands: Commands, store: Res<WorldStore>, grid: Res<S
 	let mut streaming = GridStreaming::default();
 	streaming.presence_mut().mark_present_area(min, size);
 
-	commands.spawn((
-		Transform::from_translation(CENTER),
-		Grid::new(),
-		GridEdits::default(),
-		key,
-		streaming,
-	));
+	let body = commands
+		.spawn((
+			RigidBody,
+			IsStatic,
+			Transform::from_translation(CENTER),
+		))
+		.id();
+
+	let grid_entity = commands
+		.spawn((
+			Transform::IDENTITY,
+			Grid::new(),
+			VoxelCollider,
+			GridEdits::default(),
+			key,
+			streaming,
+		))
+		.id();
+
+	commands.entity(body).add_child(grid_entity);
 }

@@ -6,7 +6,7 @@ use voxel_streaming::{
 };
 
 use crate::handle::{SourceEvent, SourceHandle};
-use crate::registry::SourceRegistry;
+use crate::registry::{LodRequestKey, SourceRegistry};
 use crate::source::{GridKey, SourceId};
 
 pub(crate) fn init_sources(registry: ResMut<SourceRegistry>) {
@@ -83,17 +83,19 @@ pub(crate) fn drain_source_lod_results(
 	loader: Res<LodLoaderChannel>,
 ) {
 	let rx = registry.lod_result_rx.clone();
-	let mut pending_lod = registry.pending_lod.lock().unwrap();
 	while let Ok(result) = rx.try_recv() {
 		let Some(grid) = registry.entity(result.grid) else { continue };
-		let matched = pending_lod.iter().position(|r| {
-			r.grid == grid
-				&& r.min == result.min
-				&& r.size == result.size
-				&& r.lod.to_bits() == result.lod.to_bits()
-		});
-		let Some(pos) = matched else { continue };
-		let request = pending_lod.swap_remove(pos);
+		let key = LodRequestKey::new(result.grid, result.min, result.size, result.lod);
+		let request = {
+			let mut pending_lod = registry.pending_lod.lock().unwrap();
+			let Some(requests) = pending_lod.get_mut(&key) else { continue };
+			let request = requests.pop();
+			if requests.is_empty() {
+				pending_lod.remove(&key);
+			}
+			request
+		};
+		let Some(request) = request else { continue };
 		loader.report(LodLoadResult {
 			grid,
 			requester: request.requester,

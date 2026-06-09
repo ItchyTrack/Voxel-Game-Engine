@@ -219,6 +219,21 @@ impl Grid {
 		self.subgrids.iter().map(|(pos, slot)| SubGridRef::new(&slot.voxels, *pos))
 	}
 
+	/// Entities for non-empty sub-grids whose occupied voxel bounds intersect the
+	/// half-open grid-local area `[min, min + size)`.
+	///
+	/// This does not expose or rely on the current fixed sub-grid extent; callers should
+	/// use it when they need render/collision handles for a voxel area.
+	pub fn subgrid_entities_in_area(&self, min: IVec3, size: IVec3) -> impl Iterator<Item = SubGridId> + '_ {
+		let hi = min + size;
+		self.subgrids.iter().filter_map(move |(sub_origin, slot)| {
+			let (bounds_min, bounds_max) = slot.voxels.bounding_box()?;
+			let occupied_min = *sub_origin + bounds_min.as_ivec3();
+			let occupied_hi = *sub_origin + bounds_max.as_ivec3() + IVec3::ONE;
+			(occupied_min.cmplt(hi).all() && occupied_hi.cmpgt(min).all()).then_some(slot.entity)
+		})
+	}
+
 	pub fn raycast(&self, origin: Vec3, dir: Vec3) -> Option<GridRaycastHit> {
 		self.subgrids()
 			.filter_map(|sub_grid| {

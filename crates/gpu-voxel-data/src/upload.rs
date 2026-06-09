@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use bevy::camera::Camera;
 use bevy::ecs::world::World;
 use bevy::prelude::*;
+use tracy_client::span;
 
 use voxel_data::grid::Grid;
 use voxel_data::subgrid::SubGrid;
@@ -38,6 +39,7 @@ pub(crate) fn manage_gpu_uploads(
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) {
+	let _zone = span!("GPU uploads: schedule sub-grids");
 	let camera_world = cameras
 		.iter()
 		.find(|(camera, _)| camera.is_active)
@@ -72,14 +74,19 @@ pub(crate) fn manage_gpu_uploads(
 
 		in_flight.0.insert(entity);
 		commands.entity(entity).remove::<NeedsReupload>();
+		tracy_client::plot!("gpu upload in flight", in_flight.0.len() as f64);
 
 		let palette = view.voxels().palette().clone();
 		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
+			let _zone = span!("GPU upload build sub-grid");
 			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette);
+			tracy_client::plot!("gpu upload tree bytes built", tree_buffer.len() as f64);
+			tracy_client::plot!("gpu upload voxel bytes built", voxel_buffer.len() as f64);
 			task_queue.push(move |world: &mut World| {
+				let _zone = span!("GPU upload apply sub-grid");
 				apply_gpu_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
 			});
 		}));
@@ -92,6 +99,7 @@ pub(crate) fn manage_lod_uploads(
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) {
+	let _zone = span!("GPU uploads: schedule LODs");
 	for (entity, lod_voxels, gpu_state) in lod_voxel_entities.iter() {
 		if gpu_state.is_some() || in_flight.0.contains(&entity) { continue; }
 		let Some((bounds_min, bounds_max)) = lod_voxels.voxels.bounding_box() else { continue };
@@ -102,6 +110,7 @@ pub(crate) fn manage_lod_uploads(
 		};
 
 		in_flight.0.insert(entity);
+		tracy_client::plot!("gpu upload in flight", in_flight.0.len() as f64);
 
 		let palette = lod_voxels.voxels.palette().clone();
 		let voxels = lod_voxels.voxels.grid_tree().clone();
@@ -109,8 +118,12 @@ pub(crate) fn manage_lod_uploads(
 		let priority = lod_voxels.priority;
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
+			let _zone = span!("GPU upload build LOD");
 			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette);
+			tracy_client::plot!("gpu upload tree bytes built", tree_buffer.len() as f64);
+			tracy_client::plot!("gpu upload voxel bytes built", voxel_buffer.len() as f64);
 			task_queue.push(move |world: &mut World| {
+				let _zone = span!("GPU upload apply LOD");
 				apply_gpu_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
 			});
 		}));
@@ -124,8 +137,10 @@ fn apply_gpu_upload(
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) {
+	let _zone = span!("GPU upload apply");
 	if let Some(mut in_flight) = world.get_resource_mut::<InFlightUploads>() {
 		in_flight.0.remove(&entity);
+		tracy_client::plot!("gpu upload in flight", in_flight.0.len() as f64);
 	}
 
 	// The sub-grid may have been despawned (or unloaded) while we were building.
@@ -152,6 +167,7 @@ fn upload_new(
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) -> Option<SubGridGpuState> {
+	let _zone = span!("GPU upload buffer add");
 	let tree_id = match gpu_data.packed_64_tree_dynamic_buffer.add_buffer(tree_buffer) {
 		Ok(id) => id,
 		Err(err) => { log::warn!("{err}"); return None; }
@@ -175,6 +191,7 @@ fn upload_replace(
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) -> Option<SubGridGpuState> {
+	let _zone = span!("GPU upload buffer replace");
 	let tree_id = match gpu_data.packed_64_tree_dynamic_buffer.replace_buffer(old.tree_id(), tree_buffer) {
 		Ok(id) => id,
 		Err(err) => {
