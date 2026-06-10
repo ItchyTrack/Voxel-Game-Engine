@@ -1,81 +1,41 @@
-use std::collections::HashMap;
-
 use bevy::prelude::*;
-use lod_manager::{LoadedLodEvent, LodKey, LodRequestMap};
+use lod_manager::{LodKey, LodRequestMap};
 
-use crate::debug::{CameraLodDebug, CameraLodDebugState};
-use crate::render_set::CameraVoxelRenderSet;
+use crate::debug::CameraLodDebug;
 
-/// Low-level camera LOD controller.
-///
-/// This is the imperative half of camera LODs: policy code calls `set_lod` /
-/// `release_lod`, while this component owns renderer swap state and loaded-delta
-/// handling.
 #[derive(Component, Default, Debug)]
 pub struct CameraLodGridControl {
-	visible_lods: Vec<LodKey>,
-	waiting_lods: Vec<LodKey>,
-	entities: HashMap<LodKey, Entity>,
+	active: Vec<(LodKey, f32)>,
 }
 
 impl CameraLodGridControl {
-	pub fn set_lod(&mut self, requests: &mut LodRequestMap, key: LodKey, priority: f32) {
-		requests.request_gpu(key, priority);
-		if !self.waiting_lods.contains(&key) && !self.visible_lods.contains(&key) {
-			self.waiting_lods.push(key);
+	pub fn sync(&mut self, requests: &mut LodRequestMap, desired: impl IntoIterator<Item = (LodKey, f32)>) {
+		let desired: Vec<_> = desired.into_iter().collect();
+		for (key, _) in self
+			.active
+			.iter()
+			.copied()
+			.filter(|(key, _)| !desired.iter().any(|(next, _)| next == key))
+		{
+			requests.remove_area(key.grid, key.min, key.size);
 		}
-	}
-
-	pub fn release_lod(&mut self, requests: &mut LodRequestMap, render_set: &mut CameraVoxelRenderSet, key: LodKey) {
-		requests.release(key);
-		self.waiting_lods.retain(|existing| *existing != key);
-		self.visible_lods.retain(|existing| *existing != key);
-		if let Some(entity) = self.entities.remove(&key) {
-			render_set.hide_lod(entity);
+		for (key, priority) in &desired {
+			if self.active.iter().any(|(old, old_priority)| old == key && old_priority != priority) {
+				requests.remove_area(key.grid, key.min, key.size);
+			}
+			requests.set_priority(*priority);
+			requests.set_area(key.grid, key.min, key.size, key.level);
 		}
-	}
-
-	pub fn visible_lods(&self) -> &[LodKey] {
-		&self.visible_lods
-	}
-
-	pub fn waiting_lods(&self) -> &[LodKey] {
-		&self.waiting_lods
-	}
-
-	pub fn note_loaded(&mut self, event: LoadedLodEvent, render_set: &mut CameraVoxelRenderSet) {
-		self.waiting_lods.retain(|key| *key != event.key);
-		if !self.visible_lods.contains(&event.key) {
-			self.visible_lods.push(event.key);
-		}
-		if let Some(old_entity) = self.entities.insert(event.key, event.entity) {
-			render_set.hide_lod(old_entity);
-		}
-		render_set.show_lod(event.entity);
+		self.active = desired;
 	}
 }
 
-/// Drain manager loaded deltas into the camera render set.
-pub fn apply_loaded_lod_deltas(
-	mut cameras: Query<(
-		&mut CameraLodGridControl,
-		&mut LodRequestMap,
-		&mut CameraVoxelRenderSet,
-		Option<&mut CameraLodDebug>,
-	)>,
-) {
-	for (mut control, mut requests, mut render_set, debug) in cameras.iter_mut() {
-		for event in requests.drain_loaded_delta() {
-			control.note_loaded(event, &mut render_set);
-		}
-
+pub fn update_camera_lod_debug(mut cameras: Query<(&LodRequestMap, Option<&mut CameraLodDebug>)>) {
+	for (requests, debug) in cameras.iter_mut() {
 		if let Some(mut debug) = debug {
 			debug.clear();
-			for key in control.visible_lods() {
-				debug.push_area(key.grid, key.min, key.size, CameraLodDebugState::Lod(key.level));
-			}
-			for key in control.waiting_lods() {
-				debug.push_area(key.grid, key.min, key.size, CameraLodDebugState::WaitingOnLod);
+			for v in requests.visible() {
+				debug.push_area(v.grid, v.min, v.size, v.actual_lod);
 			}
 		}
 	}

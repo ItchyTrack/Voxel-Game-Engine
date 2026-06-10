@@ -11,7 +11,7 @@ use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use std::collections::HashSet;
 
-use camera_lods::CameraVoxelRenderSet;
+use lod_manager::{LodRequestMap, LodVisibleKind};
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid};
 use voxel_streaming::CHUNK_SIZE;
 
@@ -35,7 +35,7 @@ pub fn build_residency(
 	sub_grids: Query<(Entity, &SubGrid, &SubGridGpuState)>,
 	lod_voxels: Query<(Entity, &LodVoxels, &SubGridGpuState)>,
 	grid_transforms: Query<&GlobalTransform>,
-	cameras: Query<(&Camera, &GlobalTransform, &Frustum, Option<&CameraVoxelRenderSet>)>,
+	cameras: Query<(&Camera, &GlobalTransform, &Frustum, Option<&LodRequestMap>)>,
 	hit_feedback: Res<HitCountFeedback>,
 ) {
 	let active_camera = cameras
@@ -43,13 +43,13 @@ pub fn build_residency(
 		.find(|(c, _, _, _)| c.is_active);
 	let view = active_camera
 		.map(|(_, global_transform, frustum, _)| (global_transform.translation(), frustum));
-	let active_render_set = active_camera
-		.and_then(|(_, _, _, render_set)| render_set)
-		.filter(|set| set.active);
-	let render_subgrids: Option<HashSet<Entity>> = active_render_set
-		.map(|set| set.subgrids.iter().copied().collect());
-	let render_lods: Option<HashSet<Entity>> = active_render_set
-		.map(|set| set.lods.iter().copied().collect());
+	let lod_requests = active_camera.and_then(|(_, _, _, requests)| requests);
+	let render_subgrids: Option<HashSet<Entity>> = lod_requests.map(|requests| {
+		requests.visible().iter().filter(|v| v.kind == LodVisibleKind::SubGrid).map(|v| v.entity).collect()
+	});
+	let render_lods: Option<HashSet<Entity>> = lod_requests.map(|requests| {
+		requests.visible().iter().filter(|v| v.kind == LodVisibleKind::Lod).map(|v| v.entity).collect()
+	});
 	let hit_counts = hit_feedback.0.lock().ok();
 
 	let tree_alignment = residency.tree_alignment();

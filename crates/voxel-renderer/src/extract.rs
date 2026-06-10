@@ -8,12 +8,12 @@ use bevy::math::Vec3;
 use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
 
-use camera_lods::CameraVoxelRenderSet;
 use gpu_voxel_data::lod_voxels::LodVoxels;
 use gpu_voxel_data::residency::ResidencyBuffers;
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use voxel_bvh::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
+use lod_manager::{LodRequestMap, LodVisibleKind};
 use voxel_streaming::CHUNK_SIZE;
 
 #[derive(Resource, Default)]
@@ -29,7 +29,7 @@ pub struct ExtractedVoxelScene {
 
 pub fn extract_voxel_scene(
 	mut extracted: ResMut<ExtractedVoxelScene>,
-	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform, Option<&CameraVoxelRenderSet>)>>,
+	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform, Option<&LodRequestMap>)>>,
 	sub_grids: Extract<Query<(Entity, &SubGrid, &SubGridGpuState)>>,
 	lod_voxels: Extract<Query<(Entity, &LodVoxels, &SubGridGpuState)>>,
 	grid_transforms: Extract<Query<&GlobalTransform>>,
@@ -39,20 +39,23 @@ pub fn extract_voxel_scene(
 	extracted.bvh = None;
 	extracted.id_to_offsets.clear();
 
-	let mut camera_render_set = None;
-	for (camera, projection, global_transform, render_set) in cameras.iter() {
+	let mut lod_requests = None;
+	for (camera, projection, global_transform, requests) in cameras.iter() {
 		if !camera.is_active { continue; }
 		extracted.camera_transform = global_transform.compute_transform();
 		extracted.camera_projection = Some(projection.clone());
 		extracted.has_camera = true;
-		camera_render_set = render_set;
+		lod_requests = requests;
 		break;
 	}
 	if !extracted.has_camera { return; }
 
-	let active_render_set = camera_render_set.filter(|set| set.active);
-	let render_subgrids: Option<HashSet<Entity>> = active_render_set.map(|set| set.subgrids.iter().copied().collect());
-	let render_lods: Option<HashSet<Entity>> = active_render_set.map(|set| set.lods.iter().copied().collect());
+	let render_subgrids: Option<HashSet<Entity>> = lod_requests.map(|requests| {
+		requests.visible().iter().filter(|v| v.kind == LodVisibleKind::SubGrid).map(|v| v.entity).collect()
+	});
+	let render_lods: Option<HashSet<Entity>> = lod_requests.map(|requests| {
+		requests.visible().iter().filter(|v| v.kind == LodVisibleKind::Lod).map(|v| v.entity).collect()
+	});
 	let mut bvh_items: Vec<(SubGridId, (Vec3, Vec3))> = Vec::new();
 	let mut id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)> = HashMap::new();
 

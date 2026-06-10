@@ -2,7 +2,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
-use camera_lods::{CameraLodDebug, CameraLodDebugState, FreezeCameraLods};
+use camera_lods::{CameraLodDebug, FreezeCameraLods};
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use voxel_physics::{
 	CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
@@ -206,15 +206,13 @@ fn draw_chunk_presence(
 	}
 }
 
-fn camera_lod_color(state: CameraLodDebugState) -> Color {
-	match state {
-		CameraLodDebugState::FullRes => Color::srgba(0.1, 0.9, 0.1, 0.75),
-		CameraLodDebugState::Lod(1) => Color::srgba(0.1, 0.4, 1.0, 0.75),
-		CameraLodDebugState::Lod(2) => Color::srgba(0.1, 0.8, 1.0, 0.75),
-		CameraLodDebugState::Lod(3) => Color::srgba(0.6, 0.3, 1.0, 0.75),
-		CameraLodDebugState::Lod(_) => Color::srgba(1.0, 0.4, 1.0, 0.75),
-		CameraLodDebugState::HeldLod(_) => Color::srgba(1.0, 0.7, 0.1, 0.9),
-		CameraLodDebugState::WaitingOnLod => Color::srgba(1.0, 0.0, 0.0, 1.0),
+fn camera_lod_color(lod: u32) -> Color {
+	match lod {
+		0 => Color::srgba(0.1, 0.9, 0.1, 0.75),
+		1 => Color::srgba(0.1, 0.4, 1.0, 0.75),
+		2 => Color::srgba(0.1, 0.8, 1.0, 0.75),
+		3 => Color::srgba(0.6, 0.3, 1.0, 0.75),
+		_ => Color::srgba(1.0, 0.4, 1.0, 0.75),
 	}
 }
 
@@ -263,7 +261,7 @@ fn draw_camera_lod_chunks(
 		if !camera.is_active { continue; }
 		for chunk in &debug.chunks {
 			let Ok(gt) = grid_transforms.get(chunk.grid) else { continue; };
-			let color = camera_lod_color(chunk.state);
+			let color = camera_lod_color(chunk.lod);
 			if chunk.size == IVec3::ONE {
 				draw_chunk_dot(&mut gizmos, gt, chunk.chunk, color);
 			} else {
