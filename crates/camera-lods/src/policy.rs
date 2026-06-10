@@ -1,16 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use bevy::prelude::*;
 use lod_manager::{LodKey, LodRequestMap};
 use voxel_data::grid::GridId;
-use voxel_streaming::{GridStreaming, CHUNK_SIZE};
+use voxel_streaming::{CHUNK_SIZE, GridStreaming};
 
-use crate::debug::FreezeCameraLods;
 use crate::grid_control::CameraLodGridControl;
 
 const MAX_LOD: u32 = 3;
 pub const FULL_DETAIL_CHUNKS: f32 = 2.0;
-const LOD_CHUNK_BUDGET_PER_GRID_PER_FRAME: usize = 32;
+
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct FreezeCameraLods(pub bool);
 
 fn ring_outer_chunks(lod: u32) -> f32 {
     FULL_DETAIL_CHUNKS * (1u32 << lod) as f32
@@ -18,7 +19,7 @@ fn ring_outer_chunks(lod: u32) -> f32 {
 
 fn lod_for_distance(distance: f32) -> Option<u32> {
     if distance < FULL_DETAIL_CHUNKS {
-        return None;
+        return Some(0);
     }
     (1..=MAX_LOD).find(|&lod| distance < ring_outer_chunks(lod))
 }
@@ -27,27 +28,6 @@ fn lod_for_distance(distance: f32) -> Option<u32> {
 #[derive(Component, Default, Debug, Clone)]
 pub struct CameraLodPolicy {
     desired: Vec<CameraLodTarget>,
-}
-
-#[derive(Component, Default, Debug, Clone)]
-pub struct CameraLazyLodScan {
-    generation: u64,
-    grids: HashMap<GridId, LazyGridScan>,
-    seen_generation: HashMap<LodKey, u64>,
-}
-
-#[derive(Default, Debug, Clone)]
-struct LazyGridScan {
-    generation: u64,
-    /// Integer chunk anchor used for reset decisions. Small transform/physics jitter
-    /// inside the same chunk must not restart this grid's lazy pass.
-    center_chunk: IVec3,
-    camera_chunk: Vec3,
-    max_shell_radius: i32,
-    shell_radius: i32,
-    shell_cursor: i32,
-    emitted: HashSet<(u32, IVec3, IVec3)>,
-    complete_this_generation: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -62,20 +42,7 @@ impl CameraLodPolicy {
     }
 
     pub fn set_lod(&mut self, grid: GridId, min: IVec3, size: IVec3, level: u32, priority: f32) {
-        let key = LodKey::from_level(grid, min, size, level);
-        if let Some(existing) = self.desired.iter_mut().find(|target| target.key == key) {
-            existing.priority = priority;
-            return;
-        }
-        self.desired.push(CameraLodTarget { key, priority });
-    }
-
-    pub fn remove_lod(&mut self, key: LodKey) {
-        self.desired.retain(|target| target.key != key);
-    }
-
-    pub fn retain_lods(&mut self, mut keep: impl FnMut(&LodKey) -> bool) {
-        self.desired.retain(|target| keep(&target.key));
+        self.desired.push(CameraLodTarget { key: LodKey::from_level(grid, min, size, level), priority });
     }
 
     pub fn targets(&self) -> &[CameraLodTarget] {
@@ -83,181 +50,90 @@ impl CameraLodPolicy {
     }
 }
 
-fn aligned_floor(v: IVec3, step: i32) -> IVec3 {
-    v.div_euclid(IVec3::splat(step)) * step
+fn distance_to_area(camera_chunk: Vec3, min: IVec3, size: IVec3) -> f32 {
+    let nearest = camera_chunk.clamp(min.as_vec3(), (min + size).as_vec3());
+    camera_chunk.distance(nearest)
 }
 
-fn tile_has_present(streaming: &GridStreaming, min: IVec3, size: IVec3) -> bool {
-    for z in 0..size.z {
-        for y in 0..size.y {
+fn coalesced_areas(mut chunks: HashSet<IVec3>) -> Vec<(IVec3, IVec3)> {
+    let mut areas = Vec::new();
+    while let Some(min) = chunks.iter().min_by_key(|p| (p.z, p.y, p.x)).copied() {
+        let mut size = IVec3::ONE;
+
+        while chunks.contains(&(min + IVec3::new(size.x, 0, 0))) {
+            size.x += 1;
+        }
+
+        'grow_y: loop {
             for x in 0..size.x {
-                if streaming.presence().is_present(min + IVec3::new(x, y, z)) {
-                    return true;
+                if !chunks.contains(&(min + IVec3::new(x, size.y, 0))) {
+                    break 'grow_y;
+                }
+            }
+            size.y += 1;
+        }
+
+        'grow_z: loop {
+            for y in 0..size.y {
+                for x in 0..size.x {
+                    if !chunks.contains(&(min + IVec3::new(x, y, size.z))) {
+                        break 'grow_z;
+                    }
+                }
+            }
+            size.z += 1;
+        }
+
+        for z in 0..size.z {
+            for y in 0..size.y {
+                for x in 0..size.x {
+                    chunks.remove(&(min + IVec3::new(x, y, z)));
                 }
             }
         }
+        areas.push((min, size));
     }
-    false
+    areas
 }
 
-fn min_tile_chunks_for_lod(level: u32) -> i32 {
-    let factor = 1i32 << level;
-    ((factor + CHUNK_SIZE - 1) / CHUNK_SIZE).max(1)
-}
-
-fn shell_cursor_count(radius: i32) -> i32 {
-    if radius == 0 {
-        1
-    } else {
-        (radius * 2 + 1).pow(3)
-    }
-}
-
-fn shell_chunk(state: &mut LazyGridScan) -> Option<IVec3> {
-    while state.shell_radius <= state.max_shell_radius {
-        let radius = state.shell_radius;
-        let count = shell_cursor_count(radius);
-        while state.shell_cursor < count {
-            let index = state.shell_cursor;
-            state.shell_cursor += 1;
-
-            let side = radius * 2 + 1;
-            let offset = if radius == 0 {
-                IVec3::ZERO
-            } else {
-                let x = index % side - radius;
-                let y = (index / side) % side - radius;
-                let z = index / (side * side) - radius;
-                IVec3::new(x, y, z)
-            };
-            if offset.abs().max_element() == radius {
-                return Some(state.center_chunk + offset);
-            }
-        }
-        state.shell_radius += 1;
-        state.shell_cursor = 0;
-    }
-    None
-}
-
-fn lod_key_still_near_camera(key: &LodKey, camera_chunks: &HashMap<GridId, Vec3>) -> bool {
-    let Some(&camera_chunk) = camera_chunks.get(&key.grid) else {
-        return false;
-    };
-    let nearest = camera_chunk.clamp(key.min.as_vec3(), (key.min + key.size).as_vec3());
-    let distance = camera_chunk.distance(nearest);
-    lod_for_distance(distance).unwrap_or(0) == key.level
-}
-
-fn next_scan_generation(scan: &mut CameraLazyLodScan) -> u64 {
-    scan.generation = scan.generation.wrapping_add(1).max(1);
-    scan.generation
-}
-
-fn make_grid_scan(camera_chunk: Vec3, generation: u64) -> LazyGridScan {
-    LazyGridScan {
-        generation,
-        center_chunk: camera_chunk.floor().as_ivec3(),
-        camera_chunk,
-        max_shell_radius: ring_outer_chunks(MAX_LOD).ceil() as i32 + 1,
-        shell_radius: 0,
-        shell_cursor: 0,
-        emitted: HashSet::new(),
-        complete_this_generation: false,
-    }
-}
-
-fn reset_one_grid_scan(scan: &mut CameraLazyLodScan, grid: GridId, camera_chunk: Vec3) {
-    let generation = next_scan_generation(scan);
-    scan.grids.insert(grid, make_grid_scan(camera_chunk, generation));
-}
-
-/// High-level camera policy: lazily scans present chunks and writes desired LOD tiles.
+/// Rebuild the desired camera LOD areas from the active camera, then let
+/// [`CameraLodGridControl`] apply only the delta against the previous set.
 ///
-/// The LOD radius can cover hundreds of thousands of chunks. Instead of rebuilding the
-/// whole request set every frame, this advances a small cursor budget each frame and
-/// keeps previous decisions until a full lazy pass proves they are stale.
+/// The policy scans present chunks near the camera, bins them by requested LOD, and
+/// coalesces adjacent chunks with the same LOD into larger areas before syncing. This
+/// keeps the request map compact without inventing fixed LOD tiles in the camera policy.
 pub fn update_camera_lod_policy(
-    freeze: Res<FreezeCameraLods>, mut cameras: Query<(&Camera, &GlobalTransform, &mut CameraLodPolicy, &mut CameraLazyLodScan)>,
+    freeze: Res<FreezeCameraLods>, mut cameras: Query<(&Camera, &GlobalTransform, &mut CameraLodPolicy)>,
     grids: Query<(GridId, &GlobalTransform, &GridStreaming)>,
 ) {
     if freeze.0 {
         return;
     }
-    let Some((_, camera_transform, mut policy, mut scan)) = cameras.iter_mut().find(|(camera, _, _, _)| camera.is_active) else { return };
+    let Some((_, camera_transform, mut policy)) = cameras.iter_mut().find(|(camera, _, _)| camera.is_active) else { return };
     let camera_world = camera_transform.translation();
 
-    let mut camera_chunks = HashMap::new();
-    for (grid, grid_global, _) in grids.iter() {
+    policy.clear();
+
+    for (grid, grid_global, streaming) in grids.iter() {
         let camera_local = grid_global.affine().inverse().transform_point3(camera_world);
-        camera_chunks.insert(grid, camera_local / CHUNK_SIZE as f32);
-    }
+        let camera_chunk = camera_local / CHUNK_SIZE as f32;
+        let center = camera_chunk.floor().as_ivec3();
+        let max_radius = ring_outer_chunks(MAX_LOD).ceil() as i32;
 
-    let known_grids: HashSet<_> = camera_chunks.keys().copied().collect();
-    let removed_grid = scan.grids.keys().any(|grid| !known_grids.contains(grid));
-    if removed_grid {
-        policy.retain_lods(|key| lod_key_still_near_camera(key, &camera_chunks));
-        scan.seen_generation.retain(|key, _| lod_key_still_near_camera(key, &camera_chunks));
-        scan.grids.retain(|grid, _| known_grids.contains(grid));
-    }
+        let min = center - IVec3::splat(max_radius);
+        let max = center + IVec3::splat(max_radius);
+        let mut chunks_by_lod: Vec<HashSet<IVec3>> = (0..=MAX_LOD).map(|_| HashSet::new()).collect();
+        streaming.presence().for_each_in_region(min, max, |chunk| {
+            let distance = distance_to_area(camera_chunk, chunk, IVec3::ONE);
+            let Some(level) = lod_for_distance(distance) else { return };
+            chunks_by_lod[level as usize].insert(chunk);
+        });
 
-    for (&grid, &camera_chunk) in &camera_chunks {
-        match scan.grids.get_mut(&grid) {
-            Some(state) if state.camera_chunk.distance(camera_chunk) < 0.5 => {
-                state.camera_chunk = camera_chunk;
+        for (level, chunks) in chunks_by_lod.into_iter().enumerate() {
+            for (area_min, area_size) in coalesced_areas(chunks) {
+                let priority = -distance_to_area(camera_chunk, area_min, area_size) * CHUNK_SIZE as f32;
+                policy.set_lod(grid, area_min, area_size, level as u32, priority);
             }
-            Some(_) | None => {
-                // Reset only this grid's cursor/generation. Other grids keep their scan
-                // progress and loaded/requested LODs. Prune only this grid's old requests
-                // so movement can actually change the active LOD set.
-                reset_one_grid_scan(&mut scan, grid, camera_chunk);
-                policy.retain_lods(|key| key.grid != grid || lod_key_still_near_camera(key, &camera_chunks));
-                scan.seen_generation.retain(|key, _| key.grid != grid || lod_key_still_near_camera(key, &camera_chunks));
-            }
-        }
-    }
-
-    let mut completed_grids = Vec::new();
-    let mut seen_this_frame = Vec::new();
-    for (grid, _, streaming) in grids.iter() {
-        let mut remaining = LOD_CHUNK_BUDGET_PER_GRID_PER_FRAME;
-        let Some(state) = scan.grids.get_mut(&grid) else { continue };
-        if state.complete_this_generation {
-            continue;
-        }
-        let generation = state.generation;
-
-        while remaining > 0 {
-            remaining -= 1;
-            let Some(chunk) = shell_chunk(state) else {
-                state.complete_this_generation = true;
-                completed_grids.push((grid, generation));
-                break;
-            };
-            let distance = state.camera_chunk.distance(state.camera_chunk.clamp(chunk.as_vec3(), (chunk + IVec3::ONE).as_vec3()));
-            let level = lod_for_distance(distance).unwrap_or(0);
-            let tile_step = min_tile_chunks_for_lod(level);
-            let tile_min = aligned_floor(chunk, tile_step);
-            let tile_size = IVec3::splat(tile_step);
-            if state.emitted.insert((level, tile_min, tile_size)) && tile_has_present(streaming, tile_min, tile_size) {
-                let nearest = state.camera_chunk.clamp(tile_min.as_vec3(), (tile_min + tile_size).as_vec3());
-                let priority = -state.camera_chunk.distance(nearest) * CHUNK_SIZE as f32;
-                let key = LodKey::from_level(grid, tile_min, tile_size, level);
-                policy.set_lod(grid, tile_min, tile_size, level, priority);
-                seen_this_frame.push((key, generation));
-            }
-        }
-    }
-
-    for (key, generation) in seen_this_frame {
-        scan.seen_generation.insert(key, generation);
-    }
-
-    for (completed_grid, generation) in completed_grids {
-        policy.retain_lods(|key| key.grid != completed_grid || scan.seen_generation.get(key).copied() == Some(generation));
-        scan.seen_generation.retain(|key, seen| key.grid != completed_grid || *seen == generation);
-        if let Some(&camera_chunk) = camera_chunks.get(&completed_grid) {
-            reset_one_grid_scan(&mut scan, completed_grid, camera_chunk);
         }
     }
 }

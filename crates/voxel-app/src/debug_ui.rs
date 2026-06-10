@@ -2,7 +2,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
-use camera_lods::{CameraLodDebug, FreezeCameraLods};
+use camera_lods::FreezeCameraLods;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use voxel_physics::{
 	CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
@@ -16,9 +16,6 @@ pub struct InertiaBoxes(pub bool);
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct ChunkPresenceBoxes(pub bool);
-
-#[derive(Resource, Default, Debug, Clone, Copy)]
-pub struct CameraLodBoxes(pub bool);
 
 #[derive(Default, Reflect, GizmoConfigGroup)]
 struct ChunkGizmos;
@@ -35,15 +32,13 @@ impl Plugin for DebugUiPlugin {
 		}
 		app.init_resource::<InertiaBoxes>()
 			.init_resource::<ChunkPresenceBoxes>()
-			.init_resource::<CameraLodBoxes>()
 			.init_gizmo_group::<ChunkGizmos>()
 			.add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
 				store.config_mut::<ChunkGizmos>().0.line.width = 4.0;
 			})
 			.add_systems(EguiPrimaryContextPass, debug_window)
 			.add_systems(Update, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0))
-			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0))
-			.add_systems(Update, draw_camera_lod_chunks.run_if(|b: Res<CameraLodBoxes>| b.0));
+			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0));
 	}
 }
 
@@ -57,7 +52,6 @@ fn debug_window(
 	mut freeze_physics: ResMut<FreezePhysics>,
 	mut inertia_boxes: ResMut<InertiaBoxes>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
-	mut camera_lod_boxes: ResMut<CameraLodBoxes>,
 ) -> Result {
 	let ctx = contexts.ctx_mut()?;
 
@@ -99,7 +93,6 @@ fn debug_window(
 			ui.checkbox(&mut freeze_physics.0, "freeze physics");
 			ui.checkbox(&mut inertia_boxes.0, "inertia boxes");
 			ui.checkbox(&mut chunk_presence_boxes.0, "chunk presence");
-			ui.checkbox(&mut camera_lod_boxes.0, "camera LOD chunks");
 		});
 
 	Ok(())
@@ -201,71 +194,6 @@ fn draw_chunk_presence(
 				(c000, c001), (c100, c101), (c010, c011), (c110, c111),
 			] {
 				gizmos.line(a, b, color);
-			}
-		}
-	}
-}
-
-fn camera_lod_color(lod: u32) -> Color {
-	match lod {
-		0 => Color::srgba(0.1, 0.9, 0.1, 0.75),
-		1 => Color::srgba(0.1, 0.4, 1.0, 0.75),
-		2 => Color::srgba(0.1, 0.8, 1.0, 0.75),
-		3 => Color::srgba(0.6, 0.3, 1.0, 0.75),
-		_ => Color::srgba(1.0, 0.4, 1.0, 0.75),
-	}
-}
-
-fn draw_chunk_dot(gizmos: &mut Gizmos<ChunkGizmos>, gt: &GlobalTransform, chunk: IVec3, color: Color) {
-	let center = (chunk * CHUNK_SIZE).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 * 0.5);
-	let radius = CHUNK_SIZE as f32 * 0.08;
-	for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
-		gizmos.line(
-			gt.transform_point(center - axis * radius),
-			gt.transform_point(center + axis * radius),
-			color,
-		);
-	}
-}
-
-fn draw_chunk_box(gizmos: &mut Gizmos<ChunkGizmos>, gt: &GlobalTransform, chunk: IVec3, size: IVec3, color: Color) {
-	let inset = CHUNK_SIZE as f32 * 0.08;
-	let lo = (chunk * CHUNK_SIZE).as_vec3() + Vec3::splat(inset);
-	let hi = ((chunk + size) * CHUNK_SIZE).as_vec3() - Vec3::splat(inset);
-
-	let corner = |x: f32, y: f32, z: f32| gt.transform_point(Vec3::new(x, y, z));
-	let c000 = corner(lo.x, lo.y, lo.z);
-	let c100 = corner(hi.x, lo.y, lo.z);
-	let c010 = corner(lo.x, hi.y, lo.z);
-	let c001 = corner(lo.x, lo.y, hi.z);
-	let c110 = corner(hi.x, hi.y, lo.z);
-	let c101 = corner(hi.x, lo.y, hi.z);
-	let c011 = corner(lo.x, hi.y, hi.z);
-	let c111 = corner(hi.x, hi.y, hi.z);
-
-	for (a, b) in [
-		(c000, c100), (c010, c110), (c001, c101), (c011, c111),
-		(c000, c010), (c100, c110), (c001, c011), (c101, c111),
-		(c000, c001), (c100, c101), (c010, c011), (c110, c111),
-	] {
-		gizmos.line(a, b, color);
-	}
-}
-
-fn draw_camera_lod_chunks(
-	mut gizmos: Gizmos<ChunkGizmos>,
-	cameras: Query<(&Camera, &CameraLodDebug)>,
-	grid_transforms: Query<&GlobalTransform>,
-) {
-	for (camera, debug) in cameras.iter() {
-		if !camera.is_active { continue; }
-		for chunk in &debug.chunks {
-			let Ok(gt) = grid_transforms.get(chunk.grid) else { continue; };
-			let color = camera_lod_color(chunk.lod);
-			if chunk.size == IVec3::ONE {
-				draw_chunk_dot(&mut gizmos, gt, chunk.chunk, color);
-			} else {
-				draw_chunk_box(&mut gizmos, gt, chunk.chunk, chunk.size, color);
 			}
 		}
 	}

@@ -9,17 +9,28 @@ use crate::{LoadedLods, LodKey, LodRequestMap, LodRetainCount, LodVisibleDelta, 
 
 voxel_streaming::chunk_consumer!(pub LodManagerConsumer);
 
+const MAX_DIRTY_AREAS_PER_FRAME: usize = 128;
+
 #[derive(Resource, Default)]
 struct RequestedLods(HashSet<LodKey>);
 
 #[derive(Resource, Default)]
 struct RequestedChunks(HashSet<(GridId, IVec3)>);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct DirtyArea {
+    owner: Entity,
+    grid: GridId,
+    min: IVec3,
+    size: IVec3,
+}
+
 #[derive(Resource, Default)]
 struct Owners {
     lods: HashMap<LodKey, HashMap<Entity, f32>>,
     chunks: HashMap<(GridId, IVec3), HashSet<Entity>>,
-    dirty: Vec<(Entity, GridId, IVec3, IVec3)>,
+    dirty: HashSet<DirtyArea>,
+    waiting_lods: HashMap<LodKey, HashSet<DirtyArea>>,
 }
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -49,7 +60,7 @@ impl Plugin for LodManagerPlugin {
             .add_systems(Update, collect_request_deltas.in_set(LodManagerSet::Collect))
             .add_systems(Update, request_missing.in_set(LodManagerSet::Request))
             .add_systems(Update, receive_loaded_lods.in_set(LodManagerSet::Receive))
-            .add_systems(Update, resolve_dirty.in_set(LodManagerSet::Resolve))
+            .add_systems(Update, (resolve_dirty, promote_ready_lods).in_set(LodManagerSet::Resolve))
             .add_systems(Update, retire_unused.in_set(LodManagerSet::Retire));
     }
 }
@@ -67,6 +78,11 @@ fn collect_request_deltas(mut owners: ResMut<Owners>, mut maps: Query<(Entity, &
         owners.chunks.retain(|_, set| {
             set.remove(&owner);
             !set.is_empty()
+        });
+        owners.dirty.retain(|area| area.owner != owner);
+        owners.waiting_lods.retain(|_, areas| {
+            areas.retain(|area| area.owner != owner);
+            !areas.is_empty()
         });
     }
 
@@ -103,7 +119,7 @@ fn collect_request_deltas(mut owners: ResMut<Owners>, mut maps: Query<(Entity, &
                     }
                 }
             }
-            owners.dirty.push((owner, delta.grid, delta.min, delta.size));
+            owners.dirty.insert(DirtyArea { owner, grid: delta.grid, min: delta.min, size: delta.size });
         }
     }
 }
@@ -166,10 +182,6 @@ fn receive_loaded_lods(
             ))
             .id();
         loaded.insert(key, entity);
-        if let Some(owner_set) = owners.lods.get(&key) {
-            let dirty: Vec<_> = owner_set.keys().map(|&owner| (owner, key.grid, key.min, key.size)).collect();
-            owners.dirty.extend(dirty);
-        }
     }
 }
 
@@ -177,16 +189,60 @@ fn resolve_dirty(
     mut owners: ResMut<Owners>, mut maps: Query<(Entity, &mut LodRequestMap)>, loaded: Res<LoadedLods>, grids: Query<&Grid>,
     gpu: Query<&SubGridGpuState>,
 ) {
-    let dirty = std::mem::take(&mut owners.dirty);
-    for (owner, grid, min, size) in dirty {
-        let Ok((_, mut map)) = maps.get_mut(owner) else {
+    let mut dirty = std::mem::take(&mut owners.dirty).into_iter();
+    for area in dirty.by_ref().take(MAX_DIRTY_AREAS_PER_FRAME) {
+        let Ok((_, mut map)) = maps.get_mut(area.owner) else {
             continue;
         };
-        let Some(next) = visible_for_area(&map, grid, min, size, &loaded, &grids, &gpu) else {
-            owners.dirty.push((owner, grid, min, size));
+        match visible_for_area(&map, area.grid, area.min, area.size, &loaded, &grids, &gpu) {
+            VisibleAreaResult::Ready(next) => map.replace_visible_in_area(area.grid, area.min, area.size, next),
+            VisibleAreaResult::WaitingForLods(keys) => {
+                for key in keys {
+                    owners.waiting_lods.entry(key).or_default().insert(area);
+                }
+            }
+            VisibleAreaResult::WaitingForOther => {
+                owners.dirty.insert(area);
+            }
+        }
+    }
+    owners.dirty.extend(dirty);
+}
+
+fn promote_ready_lods(
+    mut owners: ResMut<Owners>, loaded: Res<LoadedLods>, ready_lods: Query<(Entity, &LodVoxels), Added<SubGridGpuState>>,
+    mut maps: Query<&mut LodRequestMap>,
+) {
+    for (entity, lod_voxels) in ready_lods.iter() {
+        let key = LodKey::new(lod_voxels.grid, lod_voxels.min, lod_voxels.size, lod_voxels.lod);
+        if loaded.get(&key) != Some(entity) {
             continue;
+        }
+
+        let visible = LodVisibleDelta {
+            grid: key.grid,
+            min: key.min,
+            size: key.size,
+            requested_lod: key.level,
+            actual_lod: key.level,
+            entity,
+            kind: LodVisibleKind::Lod,
         };
-        map.replace_visible_in_area(grid, min, size, next);
+
+        let mut owners_to_update: Vec<Entity> = owners.lods.get(&key).map(|set| set.keys().copied().collect()).unwrap_or_default();
+        if let Some(waiting) = owners.waiting_lods.remove(&key) {
+            owners_to_update.extend(waiting.into_iter().map(|area| area.owner));
+        }
+        owners_to_update.sort();
+        owners_to_update.dedup();
+
+        for owner in owners_to_update {
+            let Ok(mut map) = maps.get_mut(owner) else { continue };
+            let still_requested = map.tree(key.grid).and_then(|tree| tree.get(&key.min)).map(|level| level as u32) == Some(key.level);
+            if still_requested {
+                map.replace_visible_in_area(key.grid, key.min, key.size, vec![visible]);
+            }
+        }
     }
 }
 
@@ -221,25 +277,32 @@ fn retire_unused(
     }
 }
 
+enum VisibleAreaResult {
+    Ready(Vec<LodVisibleDelta>),
+    WaitingForLods(Vec<LodKey>),
+    WaitingForOther,
+}
+
 fn visible_for_area(
     map: &LodRequestMap, grid: GridId, min: IVec3, size: IVec3, loaded: &LoadedLods, grids: &Query<&Grid>, gpu: &Query<&SubGridGpuState>,
-) -> Option<Vec<LodVisibleDelta>> {
+) -> VisibleAreaResult {
     let Some(tree) = map.tree(grid) else {
-        return Some(Vec::new());
+        return VisibleAreaResult::Ready(Vec::new());
     };
     let mut out = Vec::new();
-    let mut missing = false;
+    let mut missing_lods = HashSet::new();
+    let mut missing_other = false;
     tree.for_each_in_region(min, min + size - IVec3::ONE, |run_min, run_size, level| {
         let level = level as u32;
         for key in keys_for_area(grid, run_min, IVec3::splat(run_size as i32), level) {
             if level == 0 {
                 let Ok(grid_data) = grids.get(grid) else {
-                    missing = true;
+                    missing_other = true;
                     continue;
                 };
                 let entities: Vec<_> = grid_data.subgrid_entities_in_area(key.min * CHUNK_SIZE, IVec3::splat(CHUNK_SIZE)).collect();
                 if entities.is_empty() || entities.iter().any(|&e| gpu.get(e).is_err()) {
-                    missing = true;
+                    missing_other = true;
                     continue;
                 }
                 out.extend(entities.into_iter().map(|entity| LodVisibleDelta {
@@ -253,11 +316,11 @@ fn visible_for_area(
                 }));
             } else {
                 let Some(entity) = loaded.get(&key) else {
-                    missing = true;
+                    missing_lods.insert(key);
                     continue;
                 };
                 if gpu.get(entity).is_err() {
-                    missing = true;
+                    missing_lods.insert(key);
                     continue;
                 }
                 out.push(LodVisibleDelta {
@@ -272,30 +335,23 @@ fn visible_for_area(
             }
         }
     });
-    (!missing).then_some(out)
+    if !missing_lods.is_empty() {
+        VisibleAreaResult::WaitingForLods(missing_lods.into_iter().collect())
+    } else if missing_other {
+        VisibleAreaResult::WaitingForOther
+    } else {
+        VisibleAreaResult::Ready(out)
+    }
 }
 
 fn keys_for_area(grid: GridId, min: IVec3, size: IVec3, level: u32) -> Vec<LodKey> {
-    let step = if level == 0 { 1 } else { 1i32 << level };
-    let hi = min + size;
-    let lo = min.div_euclid(IVec3::splat(step)) * step;
-    let tile = IVec3::splat(step);
     let mut keys = Vec::new();
-    let mut x = lo.x;
-    while x < hi.x {
-        let mut y = lo.y;
-        while y < hi.y {
-            let mut z = lo.z;
-            while z < hi.z {
-                let p = IVec3::new(x, y, z);
-                if (p + tile).cmpgt(min).all() {
-                    keys.push(LodKey::from_level(grid, p, tile, level));
-                }
-                z += step;
+    for x in 0..size.x {
+        for y in 0..size.y {
+            for z in 0..size.z {
+                keys.push(LodKey::from_level(grid, min + IVec3::new(x, y, z), IVec3::ONE, level));
             }
-            y += step;
         }
-        x += step;
     }
     keys
 }

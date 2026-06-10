@@ -70,7 +70,7 @@ fn fly_camera_system(
 		let up = transform.up().as_vec3();
 
 		let sprint = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-		let speed = cam.speed * if sprint { 4.0 } else { 1.0 };
+		let speed = cam.speed * if sprint { 16.0 } else { 1.0 };
 
 		let mut move_dir = Vec3::ZERO;
 		if keys.pressed(KeyCode::KeyW) { move_dir += forward; }
