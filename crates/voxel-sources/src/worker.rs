@@ -5,6 +5,7 @@ use bevy::ecs::resource::Resource;
 
 use crossbeam_channel::Sender;
 
+use tracy_client::span;
 use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, AsyncTaskPusher, PriorityTask};
 use voxel_streaming::{ChunkRequestChannel, LodRequestChannel};
 
@@ -65,6 +66,7 @@ fn serve_requests(
 		if let Some(id) = cheapest(&sources, key, request.chunk) {
 			let source = sources[id.0].clone();
 			pusher.push(PriorityTask::new(0.0, async move {
+				let _zone = span!("source request_load chunk");
 				source.request_load(key, request.chunk);
 			}));
 		} else {
@@ -92,6 +94,8 @@ fn serve_lod_requests(
 		if let Some(id) = cheapest_lod(&sources, key, request.min, request.size, request.lod) {
 			let source = sources[id.0].clone();
 			pusher.push(PriorityTask::new(request.priority, async move {
+				let _zone = span!("source request_load_lod");
+				tracy_client::plot!("source lod request volume chunks", (request.size.x * request.size.y * request.size.z) as f64);
 				source.request_load_lod(key, request.min, request.size, request.lod);
 			}));
 		} else {

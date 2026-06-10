@@ -160,7 +160,7 @@ fn request_missing(
 }
 
 fn receive_loaded_lods(
-    mut commands: Commands, consumer: Option<Single<&mut LodManagerConsumer>>, mut owners: ResMut<Owners>, mut loaded: ResMut<LoadedLods>,
+    mut commands: Commands, consumer: Option<Single<&mut LodManagerConsumer>>, mut loaded: ResMut<LoadedLods>,
     mut requested: ResMut<RequestedLods>,
 ) {
     let Some(mut consumer) = consumer else {

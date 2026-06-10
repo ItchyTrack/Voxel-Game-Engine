@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::math::IVec3;
@@ -50,18 +52,21 @@ pub struct ChunkLoadRequest {
 pub struct ChunkRequestChannel {
 	sender: Sender<ChunkLoadRequest>,
 	receiver: Receiver<ChunkLoadRequest>,
+	sent: AtomicU64,
 }
 
 impl Default for ChunkRequestChannel {
 	fn default() -> Self {
 		let (sender, receiver) = unbounded();
-		Self { sender, receiver }
+		Self { sender, receiver, sent: AtomicU64::new(0) }
 	}
 }
 
 impl ChunkRequestChannel {
 	pub(crate) fn request(&self, request: ChunkLoadRequest) {
-		let _ = self.sender.send(request);
+		if self.sender.send(request).is_ok() {
+			self.sent.fetch_add(1, Ordering::Relaxed);
+		}
 	}
 
 	pub fn receiver(&self) -> Receiver<ChunkLoadRequest> {
@@ -70,6 +75,10 @@ impl ChunkRequestChannel {
 
 	pub fn try_recv(&self) -> Option<ChunkLoadRequest> {
 		self.receiver.try_recv().ok()
+	}
+
+	pub fn sent_count(&self) -> u64 {
+		self.sent.load(Ordering::Relaxed)
 	}
 }
 
@@ -84,12 +93,13 @@ pub struct ChunkLoadResult {
 pub struct ChunkLoaderChannel {
 	sender: Sender<ChunkLoadResult>,
 	receiver: Receiver<ChunkLoadResult>,
+	received: AtomicU64,
 }
 
 impl Default for ChunkLoaderChannel {
 	fn default() -> Self {
 		let (sender, receiver) = unbounded();
-		Self { sender, receiver }
+		Self { sender, receiver, received: AtomicU64::new(0) }
 	}
 }
 
@@ -103,7 +113,15 @@ impl ChunkLoaderChannel {
 	}
 
 	pub(crate) fn try_recv(&self) -> Option<ChunkLoadResult> {
-		self.receiver.try_recv().ok()
+		let result = self.receiver.try_recv().ok();
+		if result.is_some() {
+			self.received.fetch_add(1, Ordering::Relaxed);
+		}
+		result
+	}
+
+	pub fn received_count(&self) -> u64 {
+		self.received.load(Ordering::Relaxed)
 	}
 }
 
@@ -121,18 +139,21 @@ pub struct LodLoadRequest {
 pub struct LodRequestChannel {
 	sender: Sender<LodLoadRequest>,
 	receiver: Receiver<LodLoadRequest>,
+	sent: AtomicU64,
 }
 
 impl Default for LodRequestChannel {
 	fn default() -> Self {
 		let (sender, receiver) = unbounded();
-		Self { sender, receiver }
+		Self { sender, receiver, sent: AtomicU64::new(0) }
 	}
 }
 
 impl LodRequestChannel {
 	pub(crate) fn request(&self, request: LodLoadRequest) {
-		let _ = self.sender.send(request);
+		if self.sender.send(request).is_ok() {
+			self.sent.fetch_add(1, Ordering::Relaxed);
+		}
 	}
 
 	pub fn receiver(&self) -> Receiver<LodLoadRequest> {
@@ -141,6 +162,10 @@ impl LodRequestChannel {
 
 	pub fn try_recv(&self) -> Option<LodLoadRequest> {
 		self.receiver.try_recv().ok()
+	}
+
+	pub fn sent_count(&self) -> u64 {
+		self.sent.load(Ordering::Relaxed)
 	}
 }
 
@@ -159,12 +184,13 @@ pub struct LodLoadResult {
 pub struct LodLoaderChannel {
 	sender: Sender<LodLoadResult>,
 	receiver: Receiver<LodLoadResult>,
+	received: AtomicU64,
 }
 
 impl Default for LodLoaderChannel {
 	fn default() -> Self {
 		let (sender, receiver) = unbounded();
-		Self { sender, receiver }
+		Self { sender, receiver, received: AtomicU64::new(0) }
 	}
 }
 
@@ -178,6 +204,14 @@ impl LodLoaderChannel {
 	}
 
 	pub(crate) fn try_recv(&self) -> Option<LodLoadResult> {
-		self.receiver.try_recv().ok()
+		let result = self.receiver.try_recv().ok();
+		if result.is_some() {
+			self.received.fetch_add(1, Ordering::Relaxed);
+		}
+		result
+	}
+
+	pub fn received_count(&self) -> u64 {
+		self.received.load(Ordering::Relaxed)
 	}
 }

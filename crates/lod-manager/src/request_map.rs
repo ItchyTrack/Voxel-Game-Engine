@@ -16,6 +16,13 @@ pub struct LodRequestMap {
     priority: f32,
 }
 
+#[derive(Clone, Copy)]
+struct LodRun {
+    min: IVec3,
+    size: IVec3,
+    lod: u32,
+}
+
 impl Default for LodRequestMap {
     fn default() -> Self {
         Self {
@@ -35,28 +42,41 @@ impl LodRequestMap {
             return;
         }
         let lod = lod.min(LodRequestCell::MAX_DATA as u32);
-        let tree = self.trees.entry(grid).or_insert_with(LodRequestGridTree::new);
-        let old = tree.get(&min).map(|v| v as u32);
-        if old == Some(lod) {
-            return;
+        let old_runs = self.overlapping_runs(grid, min, size);
+
+        if old_runs.len() == 1 {
+            let old = old_runs[0];
+            if old.min == min && old.size == size && old.lod == lod {
+                return;
+            }
         }
+
+        for old in old_runs {
+            self.area_delta.push(LodAreaDelta { grid, min: old.min, size: old.size, old_lod: Some(old.lod), new_lod: None });
+        }
+
+        let tree = self.trees.entry(grid).or_insert_with(LodRequestGridTree::new);
         tree.add_area(&min, size, lod as u16);
-        self.area_delta.push(LodAreaDelta { grid, min, size, old_lod: old, new_lod: Some(lod) });
+        self.area_delta.push(LodAreaDelta { grid, min, size, old_lod: None, new_lod: Some(lod) });
     }
 
     pub fn remove_area(&mut self, grid: GridId, min: IVec3, size: IVec3) {
         if size.cmple(IVec3::ZERO).any() {
             return;
         }
+        let old_runs = self.overlapping_runs(grid, min, size);
+        if old_runs.is_empty() {
+            return;
+        }
+
         let Some(tree) = self.trees.get_mut(&grid) else {
             return;
         };
-        let old = tree.get(&min).map(|v| v as u32);
-        if old.is_none() {
-            return;
-        }
         tree.remove_area(&min, size);
-        self.area_delta.push(LodAreaDelta { grid, min, size, old_lod: old, new_lod: None });
+
+        for old in old_runs {
+            self.area_delta.push(LodAreaDelta { grid, min: old.min, size: old.size, old_lod: Some(old.lod), new_lod: None });
+        }
     }
 
     pub fn clear(&mut self) {
@@ -66,6 +86,24 @@ impl LodRequestMap {
             }
         }
         self.trees.clear();
+    }
+
+    fn overlapping_runs(&self, grid: GridId, min: IVec3, size: IVec3) -> Vec<LodRun> {
+        let Some(tree) = self.trees.get(&grid) else {
+            return Vec::new();
+        };
+        let hi = min + size;
+        let mut runs = Vec::new();
+        tree.for_each_in_region(min, hi - IVec3::ONE, |run_min, run_size, lod| {
+            let run_size = IVec3::splat(run_size as i32);
+            let clipped_min = run_min.max(min);
+            let clipped_hi = (run_min + run_size).min(hi);
+            let clipped_size = clipped_hi - clipped_min;
+            if clipped_size.cmpgt(IVec3::ZERO).all() {
+                runs.push(LodRun { min: clipped_min, size: clipped_size, lod: lod as u32 });
+            }
+        });
+        runs
     }
 
     pub fn tree(&self, grid: GridId) -> Option<&LodRequestGridTree> {

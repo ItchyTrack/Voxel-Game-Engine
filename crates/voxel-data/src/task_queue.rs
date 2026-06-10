@@ -6,6 +6,8 @@ use crossbeam_channel::{Receiver, Sender};
 
 // --------------------- TaskQueue ---------------------
 
+const MAX_TASK_QUEUE_APPLIES_PER_FRAME: usize = 32;
+
 #[derive(Resource, Clone)]
 pub struct TaskQueueResource {
 	sender: Sender<CommandQueue>,
@@ -25,7 +27,8 @@ impl TaskQueueResource {
 	}
 
 	pub fn apply(&self, world: &mut World) {
-		while let Ok(mut queue) = self.receiver.try_recv() {
+		for _ in 0..MAX_TASK_QUEUE_APPLIES_PER_FRAME {
+			let Ok(mut queue) = self.receiver.try_recv() else { break };
 			queue.apply(world);
 		}
 	}
@@ -105,6 +108,10 @@ impl AsyncTaskPriorityQueueResource {
 
 	pub fn pusher(&self) -> AsyncTaskPusher {
 		AsyncTaskPusher { queue: self.queue.clone() }
+	}
+
+	pub fn len(&self) -> usize {
+		self.queue.len()
 	}
 }
 

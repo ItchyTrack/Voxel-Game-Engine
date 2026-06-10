@@ -11,7 +11,6 @@ use voxel_physics::components::VoxelCollider;
 use voxel_sources::{ChunkSource, GridKey, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
 
-use crate::lod_downsample::downsample_region;
 use crate::streaming_test::WorldStore;
 
 const RADIUS: i32 = 2_000;
@@ -29,6 +28,20 @@ fn region_intersects(min: Vec3, max: Vec3) -> bool {
 	Vec3::ZERO.clamp(min, max).length_squared() <= (RADIUS as f32) * (RADIUS as f32)
 }
 
+fn sphere_voxel(world: IVec3) -> Option<Voxel> {
+	if !inside(world) {
+		return None;
+	}
+	let normal = world.as_vec3().normalize_or_zero();
+	let color = [
+		((normal.x * 0.5 + 0.5) * 255.0) as u8,
+		((normal.y * 0.5 + 0.5) * 255.0) as u8,
+		((normal.z * 0.5 + 0.5) * 255.0) as u8,
+		255,
+	];
+	Some(Voxel { color, mass: 100 })
+}
+
 fn build_chunk(chunk: IVec3) -> Option<Voxels> {
 	let origin = chunk_origin(chunk);
 	let mut voxels = Voxels::new();
@@ -36,21 +49,34 @@ fn build_chunk(chunk: IVec3) -> Option<Voxels> {
 		for y in 0..CHUNK_SIZE {
 			for z in 0..CHUNK_SIZE {
 				let local = IVec3::new(x, y, z);
-				let world = origin + local;
-				if !inside(world) {
-					continue;
-				}
-				let normal = world.as_vec3().normalize_or_zero();
-				let color = [
-					((normal.x * 0.5 + 0.5) * 255.0) as u8,
-					((normal.y * 0.5 + 0.5) * 255.0) as u8,
-					((normal.z * 0.5 + 0.5) * 255.0) as u8,
-					255,
-				];
-				voxels.add_voxel(I16Vec3::new(x as i16, y as i16, z as i16), Voxel { color, mass: 100 });
+				let Some(voxel) = sphere_voxel(origin + local) else { continue };
+				voxels.add_voxel(I16Vec3::new(x as i16, y as i16, z as i16), voxel);
 			}
 		}
 	}
+	(!voxels.is_empty()).then_some(voxels)
+}
+
+fn build_lod_region(min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {
+	let _zone = tracy_client::span!("sphere direct LOD region");
+	let step = 1i32 << lod.max(0.0).floor() as u32;
+	let half_step = step / 2;
+	let extent = (size * CHUNK_SIZE) / step;
+	let origin = chunk_origin(min);
+	let max_source = size * CHUNK_SIZE - IVec3::ONE;
+	let mut voxels = Voxels::new();
+
+	for z in 0..extent.z {
+		for y in 0..extent.y {
+			for x in 0..extent.x {
+				let coarse = IVec3::new(x, y, z);
+				let sample = (coarse * step + IVec3::splat(half_step)).min(max_source);
+				let Some(voxel) = sphere_voxel(origin + sample) else { continue };
+				voxels.add_voxel(I16Vec3::new(x as i16, y as i16, z as i16), voxel);
+			}
+		}
+	}
+
 	(!voxels.is_empty()).then_some(voxels)
 }
 
@@ -95,8 +121,7 @@ impl ChunkSource for SphereSource {
 	}
 
 	fn request_load_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32) {
-		let region = downsample_region(min, size, lod, build_chunk);
-		let voxels = (!region.is_empty()).then_some(region);
+		let voxels = build_lod_region(min, size, lod);
 		if let Some(handle) = self.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, voxels);
 		}

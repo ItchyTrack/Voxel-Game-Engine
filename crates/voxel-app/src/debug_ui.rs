@@ -4,12 +4,13 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use camera_lods::FreezeCameraLods;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
+use voxel_data::task_queue::AsyncTaskPriorityQueueResource;
 use voxel_physics::{
 	CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
 };
 use voxel_renderer::graphics_settings::GraphicsSettings;
 use voxel_renderer::hit_count_feedback::RenderStats;
-use voxel_streaming::{ChunkState, GridStreaming, CHUNK_SIZE};
+use voxel_streaming::{ChunkLoaderChannel, ChunkRequestChannel, ChunkState, GridStreaming, LodLoaderChannel, LodRequestChannel, CHUNK_SIZE};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
@@ -52,6 +53,11 @@ fn debug_window(
 	mut freeze_physics: ResMut<FreezePhysics>,
 	mut inertia_boxes: ResMut<InertiaBoxes>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
+	chunk_requests: Res<ChunkRequestChannel>,
+	chunk_results: Res<ChunkLoaderChannel>,
+	lod_requests: Res<LodRequestChannel>,
+	lod_results: Res<LodLoaderChannel>,
+	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) -> Result {
 	let ctx = contexts.ctx_mut()?;
 
@@ -74,6 +80,12 @@ fn debug_window(
 		.map(|s| (s.bvh_bytes / 1000, s.bvh_leaf_bytes / 1000))
 		.unwrap_or((0, 0));
 
+	let chunk_sent = chunk_requests.sent_count();
+	let chunk_received = chunk_results.received_count();
+	let lod_sent = lod_requests.sent_count();
+	let lod_received = lod_results.received_count();
+	let async_queue_len = async_task_priority_queue.len();
+
 	egui::Window::new("Debug")
 		.default_pos([0.0, 0.0])
 		.default_size([175.0, 260.0])
@@ -84,6 +96,13 @@ fn debug_window(
 			ui.label(format!("Voxel bytes: {}KB", voxel_kb));
 			ui.label(format!("BVH bytes: {}KB", bvh_kb));
 			ui.label(format!("BVH leaf bytes: {}KB", bvh_leaf_kb));
+			ui.separator();
+			ui.label("Streaming");
+			ui.label(format!("Chunks sent/received: {}/{}", chunk_sent, chunk_received));
+			ui.label(format!("Chunks active: {}", chunk_sent.saturating_sub(chunk_received)));
+			ui.label(format!("LODs sent/received: {}/{}", lod_sent, lod_received));
+			ui.label(format!("LODs active: {}", lod_sent.saturating_sub(lod_received)));
+			ui.label(format!("Async priority queue: {}", async_queue_len));
 			ui.separator();
 			ui.label("Graphics");
 			ui.checkbox(&mut graphics_settings.shadows, "shadows");
