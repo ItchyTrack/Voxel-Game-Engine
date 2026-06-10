@@ -1,0 +1,1 @@
+Do not run `cargo fmt` on the whole codebase.
