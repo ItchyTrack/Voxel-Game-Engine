@@ -4,6 +4,7 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use camera_lods::FreezeCameraLods;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
+use lod_manager::{LodDebugState, LodDebugStatus};
 use voxel_data::task_queue::AsyncTaskPriorityQueueResource;
 use voxel_physics::{
 	CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
@@ -18,8 +19,14 @@ pub struct InertiaBoxes(pub bool);
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct ChunkPresenceBoxes(pub bool);
 
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct LodDebugBoxes(pub bool);
+
 #[derive(Default, Reflect, GizmoConfigGroup)]
 struct ChunkGizmos;
+
+#[derive(Default, Reflect, GizmoConfigGroup)]
+struct LodGizmos;
 
 pub struct DebugUiPlugin;
 
@@ -33,13 +40,17 @@ impl Plugin for DebugUiPlugin {
 		}
 		app.init_resource::<InertiaBoxes>()
 			.init_resource::<ChunkPresenceBoxes>()
+			.init_resource::<LodDebugBoxes>()
 			.init_gizmo_group::<ChunkGizmos>()
+			.init_gizmo_group::<LodGizmos>()
 			.add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
 				store.config_mut::<ChunkGizmos>().0.line.width = 4.0;
+				store.config_mut::<LodGizmos>().0.line.width = 6.0;
 			})
 			.add_systems(EguiPrimaryContextPass, debug_window)
 			.add_systems(Update, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0))
-			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0));
+			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0))
+			.add_systems(Update, draw_lod_debug.run_if(|b: Res<LodDebugBoxes>| b.0));
 	}
 }
 
@@ -53,6 +64,8 @@ fn debug_window(
 	mut freeze_physics: ResMut<FreezePhysics>,
 	mut inertia_boxes: ResMut<InertiaBoxes>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
+	mut lod_debug_boxes: ResMut<LodDebugBoxes>,
+	lod_debug: Option<Res<LodDebugState>>,
 	chunk_requests: Res<ChunkRequestChannel>,
 	chunk_results: Res<ChunkLoaderChannel>,
 	lod_requests: Res<LodRequestChannel>,
@@ -85,6 +98,7 @@ fn debug_window(
 	let lod_sent = lod_requests.sent_count();
 	let lod_received = lod_results.received_count();
 	let async_queue_len = async_task_priority_queue.len();
+	let lod_debug_count = lod_debug.as_ref().map_or(0, |debug| debug.entries.len());
 
 	egui::Window::new("Debug")
 		.default_pos([0.0, 0.0])
@@ -102,6 +116,7 @@ fn debug_window(
 			ui.label(format!("Chunks active: {}", chunk_sent.saturating_sub(chunk_received)));
 			ui.label(format!("LODs sent/received: {}/{}", lod_sent, lod_received));
 			ui.label(format!("LODs active: {}", lod_sent.saturating_sub(lod_received)));
+			ui.label(format!("LOD debug entries: {}", lod_debug_count));
 			ui.label(format!("Async priority queue: {}", async_queue_len));
 			ui.separator();
 			ui.label("Graphics");
@@ -112,6 +127,10 @@ fn debug_window(
 			ui.checkbox(&mut freeze_physics.0, "freeze physics");
 			ui.checkbox(&mut inertia_boxes.0, "inertia boxes");
 			ui.checkbox(&mut chunk_presence_boxes.0, "chunk presence");
+			ui.checkbox(&mut lod_debug_boxes.0, "LOD manager boxes");
+			if lod_debug_boxes.0 {
+				ui.label("LOD colors: requested gray, loading yellow, waiting orange, loaded blue, ready green, empty red");
+			}
 		});
 
 	Ok(())
@@ -175,6 +194,26 @@ fn draw_inertia_boxes(
 	}
 }
 
+fn draw_box_edges<C: GizmoConfigGroup>(gizmos: &mut Gizmos<C>, gt: &GlobalTransform, lo: Vec3, hi: Vec3, color: Color) {
+	let corner = |x: f32, y: f32, z: f32| gt.transform_point(Vec3::new(x, y, z));
+	let c000 = corner(lo.x, lo.y, lo.z);
+	let c100 = corner(hi.x, lo.y, lo.z);
+	let c010 = corner(lo.x, hi.y, lo.z);
+	let c001 = corner(lo.x, lo.y, hi.z);
+	let c110 = corner(hi.x, hi.y, lo.z);
+	let c101 = corner(hi.x, lo.y, hi.z);
+	let c011 = corner(lo.x, hi.y, hi.z);
+	let c111 = corner(hi.x, hi.y, hi.z);
+
+	for (a, b) in [
+		(c000, c100), (c010, c110), (c001, c101), (c011, c111),
+		(c000, c010), (c100, c110), (c001, c011), (c101, c111),
+		(c000, c001), (c100, c101), (c010, c011), (c110, c111),
+	] {
+		gizmos.line(a, b, color);
+	}
+}
+
 fn chunk_state_color(state: ChunkState) -> Color {
 	match state {
 		ChunkState::Available => Color::srgb(0.2, 0.2, 0.2),
@@ -195,25 +234,34 @@ fn draw_chunk_presence(
 		for (origin, size, state) in streaming.presence().iter_states() {
 			let lo = (origin * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
 			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
-			let color = chunk_state_color(state);
-
-			let corner = |x: f32, y: f32, z: f32| gt.transform_point(Vec3::new(x, y, z));
-			let c000 = corner(lo.x, lo.y, lo.z);
-			let c100 = corner(hi.x, lo.y, lo.z);
-			let c010 = corner(lo.x, hi.y, lo.z);
-			let c001 = corner(lo.x, lo.y, hi.z);
-			let c110 = corner(hi.x, hi.y, lo.z);
-			let c101 = corner(hi.x, lo.y, hi.z);
-			let c011 = corner(lo.x, hi.y, hi.z);
-			let c111 = corner(hi.x, hi.y, hi.z);
-
-			for (a, b) in [
-				(c000, c100), (c010, c110), (c001, c101), (c011, c111),
-				(c000, c010), (c100, c110), (c001, c011), (c101, c111),
-				(c000, c001), (c100, c101), (c010, c011), (c110, c111),
-			] {
-				gizmos.line(a, b, color);
-			}
+			draw_box_edges(&mut gizmos, gt, lo, hi, chunk_state_color(state));
 		}
+	}
+}
+
+fn lod_debug_color(status: LodDebugStatus) -> Color {
+	match status {
+		LodDebugStatus::Requested => Color::srgba(0.0, 0.0, 1.0, 0.9),
+		LodDebugStatus::Loading => Color::srgba(1.0, 1.0, 1.0, 0.95),
+		LodDebugStatus::LoadedWaitingGpu => Color::srgba(0.0, 0.0, 0.0, 0.95),
+		LodDebugStatus::LoadedReady => Color::srgba(0.0, 1.0, 0.0, 0.95),
+		LodDebugStatus::EmptyLoaded => Color::srgba(1.0, 0.0, 0.0, 0.95),
+		LodDebugStatus::WaitingForLoad => Color::srgba(0.0, 1.0, 1.0, 0.95),
+	}
+}
+
+fn draw_lod_debug(
+	mut gizmos: Gizmos<LodGizmos>,
+	debug: Res<LodDebugState>,
+	grids: Query<&GlobalTransform, With<GridStreaming>>,
+) {
+	const INSET: f32 = 1.5;
+	for entry in &debug.entries {
+		let Ok(gt) = grids.get(entry.key.grid) else { continue };
+		let min = entry.key.min();
+		let size = entry.key.size();
+		let lo = (min * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
+		let hi = ((min + size) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
+		draw_box_edges(&mut gizmos, gt, lo, hi, lod_debug_color(entry.status));
 	}
 }
