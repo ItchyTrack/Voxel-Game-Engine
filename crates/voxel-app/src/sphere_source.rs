@@ -57,6 +57,24 @@ fn build_chunk(chunk: IVec3) -> Option<Voxels> {
 	(!voxels.is_empty()).then_some(voxels)
 }
 
+fn quantized_lod_voxel(voxel: Voxel) -> Voxel {
+	Voxel {
+		color: [
+			quantize_channel(voxel.color[0], 6),
+			quantize_channel(voxel.color[1], 6),
+			quantize_channel(voxel.color[2], 6),
+			255,
+		],
+		mass: 0,
+	}
+}
+
+fn quantize_channel(value: u8, levels: u8) -> u8 {
+	let max_level = (levels - 1) as f32;
+	let level = ((value as f32 / 255.0) * max_level).round();
+	((level / max_level) * 255.0).round() as u8
+}
+
 fn build_lod_region(min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {
 	let _zone = tracy_client::span!("sphere direct LOD region");
 	let step = 1i32 << lod.max(0.0).floor() as u32;
@@ -72,7 +90,7 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {
 				let coarse = IVec3::new(x, y, z);
 				let sample = (coarse * step + IVec3::splat(half_step)).min(max_source);
 				let Some(voxel) = sphere_voxel(origin + sample) else { continue };
-				voxels.add_voxel(I16Vec3::new(x as i16, y as i16, z as i16), voxel);
+				voxels.add_voxel(I16Vec3::new(x as i16, y as i16, z as i16), quantized_lod_voxel(voxel));
 			}
 		}
 	}

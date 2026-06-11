@@ -34,8 +34,14 @@ impl Default for Gravity {
 }
 
 /// When set to `true`, the solver is skipped each tick.
-#[derive(Resource, Debug, Default, Clone, Copy)]
+#[derive(Resource, Debug, Clone, Copy)]
 pub struct FreezePhysics(pub bool);
+
+impl Default for FreezePhysics {
+	fn default() -> Self {
+		Self(true)
+	}
+}
 
 /// System sets used by [`VoxelPhysicsPlugin`] inside `FixedUpdate`, run in order.
 ///

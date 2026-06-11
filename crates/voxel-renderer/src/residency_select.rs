@@ -11,11 +11,9 @@ use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use std::collections::HashSet;
 
-use lod_manager::{LodRequestMap, LodVisibleKind};
+use camera_lods::{LodRequestMap, LodVisibleKind};
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid};
 use voxel_streaming::CHUNK_SIZE;
-
-use crate::hit_count_feedback::HitCountFeedback;
 
 struct Candidate {
 	entity: Entity,
@@ -26,9 +24,9 @@ struct Candidate {
 	priority: f32,
 }
 
-/// Pick the sub-grids to keep resident this frame and copy them into the compact
-/// buffers. A grid qualifies if it is in frustum or was hit last frame; the
-/// frustum test keeps newly visible grids from popping in a frame late.
+/// Pick the LOD-selected sub-grids to keep resident this frame and copy them into
+/// the compact buffers. Camera LOD decides visibility; frustum culling and
+/// camera-distance sorting only trim/prioritize GPU residency for speed.
 pub fn build_residency(
 	mut residency: ResMut<ResidencyBuffers>,
 	world_gpu: Res<WorldGpuData>,
@@ -36,13 +34,9 @@ pub fn build_residency(
 	lod_voxels: Query<(Entity, &LodVoxels, &SubGridGpuState)>,
 	grid_transforms: Query<&GlobalTransform>,
 	cameras: Query<(&Camera, &GlobalTransform, &Frustum, Option<&LodRequestMap>)>,
-	hit_feedback: Res<HitCountFeedback>,
 ) {
-	let active_camera = cameras
-		.iter()
-		.find(|(c, _, _, _)| c.is_active);
-	let view = active_camera
-		.map(|(_, global_transform, frustum, _)| (global_transform.translation(), frustum));
+	let active_camera = cameras.iter().find(|(c, _, _, _)| c.is_active);
+	let view = active_camera.map(|(_, global_transform, frustum, _)| (global_transform.translation(), frustum));
 	let lod_requests = active_camera.and_then(|(_, _, _, requests)| requests);
 	let render_subgrids: Option<HashSet<Entity>> = lod_requests.map(|requests| {
 		requests.visible().iter().filter(|v| v.kind == LodVisibleKind::SubGrid).map(|v| v.entity).collect()
@@ -97,8 +91,7 @@ pub fn build_residency(
 		if render_subgrids.as_ref().is_some_and(|set| !set.contains(&entity)) { continue; }
 
 		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
-		let sub_world = grid_global.compute_transform()
-			* Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
+		let sub_world = grid_global.compute_transform() * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
 		let placement = gpu_state.placement();
 		let (aabb_min, aabb_max) = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &sub_world);
 		if let Some(candidate) = make_candidate(entity, gpu_state, aabb_min, aabb_max) {
@@ -111,9 +104,7 @@ pub fn build_residency(
 		let Ok(grid_global) = grid_transforms.get(lod_voxels.grid) else { continue };
 		let scale = (1u32 << lod_voxels.lod.max(0.0).floor() as u32) as f32;
 		let area_origin = (lod_voxels.min * CHUNK_SIZE).as_vec3();
-		let area_world = grid_global.compute_transform()
-			* Transform::from_translation(area_origin)
-			* Transform::from_scale(Vec3::splat(scale));
+		let area_world = grid_global.compute_transform() * Transform::from_translation(area_origin) * Transform::from_scale(Vec3::splat(scale));
 		let placement = gpu_state.placement();
 		let (aabb_min, aabb_max) = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &area_world);
 		if let Some(candidate) = make_candidate(entity, gpu_state, aabb_min, aabb_max) {

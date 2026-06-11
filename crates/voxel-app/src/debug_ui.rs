@@ -18,8 +18,10 @@ pub struct InertiaBoxes(pub bool);
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct ChunkPresenceBoxes(pub bool);
 
+
 #[derive(Default, Reflect, GizmoConfigGroup)]
 struct ChunkGizmos;
+
 
 pub struct DebugUiPlugin;
 
@@ -175,6 +177,26 @@ fn draw_inertia_boxes(
 	}
 }
 
+fn draw_box_edges<C: GizmoConfigGroup>(gizmos: &mut Gizmos<C>, gt: &GlobalTransform, lo: Vec3, hi: Vec3, color: Color) {
+	let corner = |x: f32, y: f32, z: f32| gt.transform_point(Vec3::new(x, y, z));
+	let c000 = corner(lo.x, lo.y, lo.z);
+	let c100 = corner(hi.x, lo.y, lo.z);
+	let c010 = corner(lo.x, hi.y, lo.z);
+	let c001 = corner(lo.x, lo.y, hi.z);
+	let c110 = corner(hi.x, hi.y, lo.z);
+	let c101 = corner(hi.x, lo.y, hi.z);
+	let c011 = corner(lo.x, hi.y, hi.z);
+	let c111 = corner(hi.x, hi.y, hi.z);
+
+	for (a, b) in [
+		(c000, c100), (c010, c110), (c001, c101), (c011, c111),
+		(c000, c010), (c100, c110), (c001, c011), (c101, c111),
+		(c000, c001), (c100, c101), (c010, c011), (c110, c111),
+	] {
+		gizmos.line(a, b, color);
+	}
+}
+
 fn chunk_state_color(state: ChunkState) -> Color {
 	match state {
 		ChunkState::Available => Color::srgb(0.2, 0.2, 0.2),
@@ -195,25 +217,7 @@ fn draw_chunk_presence(
 		for (origin, size, state) in streaming.presence().iter_states() {
 			let lo = (origin * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
 			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
-			let color = chunk_state_color(state);
-
-			let corner = |x: f32, y: f32, z: f32| gt.transform_point(Vec3::new(x, y, z));
-			let c000 = corner(lo.x, lo.y, lo.z);
-			let c100 = corner(hi.x, lo.y, lo.z);
-			let c010 = corner(lo.x, hi.y, lo.z);
-			let c001 = corner(lo.x, lo.y, hi.z);
-			let c110 = corner(hi.x, hi.y, lo.z);
-			let c101 = corner(hi.x, lo.y, hi.z);
-			let c011 = corner(lo.x, hi.y, hi.z);
-			let c111 = corner(hi.x, hi.y, hi.z);
-
-			for (a, b) in [
-				(c000, c100), (c010, c110), (c001, c101), (c011, c111),
-				(c000, c010), (c100, c110), (c001, c011), (c101, c111),
-				(c000, c001), (c100, c101), (c010, c011), (c110, c111),
-			] {
-				gizmos.line(a, b, color);
-			}
+			draw_box_edges(&mut gizmos, gt, lo, hi, chunk_state_color(state));
 		}
 	}
 }
