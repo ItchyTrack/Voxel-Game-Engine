@@ -30,6 +30,7 @@ bevy = { workspace = true }
 wgpu = { workspace = true }
 tracing-tracy = { version = "0.11", default-features = false, features = ["enable", "broadcast"], optional = true }
 tracy-client = { workspace = true }
+camera-lods = { version = "0.1.0", path = "../camera-lods" }
 voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }

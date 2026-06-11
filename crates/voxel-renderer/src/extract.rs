@@ -13,7 +13,7 @@ use gpu_voxel_data::residency::ResidencyBuffers;
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use voxel_bvh::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
-use lod_manager::{LodRequestMap, LodVisibleKind};
+use camera_lods::{LodRequestMap, LodVisibleKind};
 use voxel_streaming::CHUNK_SIZE;
 
 #[derive(Resource, Default)]

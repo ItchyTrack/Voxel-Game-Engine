@@ -1,0 +1,13 @@
+[package]
+name = "camera-lods"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { workspace = true }
+gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
+voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
+
+[dev-dependencies]
+dot_vox = "5.2.0"
