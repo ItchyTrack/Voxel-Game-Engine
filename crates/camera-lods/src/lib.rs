@@ -459,7 +459,7 @@ fn retire_replaced_chunks(mut cameras: Query<(&mut CameraLodController, &mut Cam
         let mut still_retiring = HashSet::new();
 
         for chunk in retiring {
-            if !chunk_is_covered_by_ready_tile(&controller.state, chunk, max_lod) {
+            if retiring_chunk_still_needs_high_res(&controller.state, chunk, max_lod) {
                 still_retiring.insert(chunk);
                 continue;
             }
@@ -472,11 +472,23 @@ fn retire_replaced_chunks(mut cameras: Query<(&mut CameraLodController, &mut Cam
     }
 }
 
-fn chunk_is_covered_by_ready_tile(state: &CameraLodState, chunk: ChunkKey, max_lod: u8) -> bool {
+fn retiring_chunk_still_needs_high_res(state: &CameraLodState, chunk: ChunkKey, max_lod: u8) -> bool {
+    chunk_is_wanted_by_desired_tile(state, chunk, max_lod) && !chunk_is_covered_by_renderable_tile(state, chunk, max_lod)
+}
+
+fn chunk_is_wanted_by_desired_tile(state: &CameraLodState, chunk: ChunkKey, max_lod: u8) -> bool {
     (1..=max_lod).any(|lod| {
         let tile_size = 1i32 << lod;
         let key = TileKey { grid: chunk.grid, lod, min: align_chunk_to_tile(chunk.chunk, tile_size) };
-        state.tiles.get(&key).is_some_and(|record| record.status == TileStatus::Ready)
+        state.desired_tiles.contains(&key)
+    })
+}
+
+fn chunk_is_covered_by_renderable_tile(state: &CameraLodState, chunk: ChunkKey, max_lod: u8) -> bool {
+    (1..=max_lod).any(|lod| {
+        let tile_size = 1i32 << lod;
+        let key = TileKey { grid: chunk.grid, lod, min: align_chunk_to_tile(chunk.chunk, tile_size) };
+        state.tiles.get(&key).is_some_and(|record| matches!(record.status, TileStatus::Ready | TileStatus::Retiring) && record.entity.is_some())
     })
 }
 
@@ -881,6 +893,7 @@ mod tests {
             add_lod_tiles(&mut desired_tiles, grid, center, &controller, &streaming);
 
             update_desired_chunks(&mut state, desired_chunks);
+            state.desired_tiles = desired_tiles.clone();
             state.tiles.retain(|key, _| desired_tiles.contains(key));
             for tile in desired_tiles {
                 state.tiles.insert(tile, TileRecord { status: TileStatus::Ready, entity: Some(Entity::PLACEHOLDER) });
@@ -901,7 +914,7 @@ mod tests {
             .retiring_chunks
             .iter()
             .copied()
-            .filter(|chunk| !chunk_is_covered_by_ready_tile(state, *chunk, max_lod))
+            .filter(|chunk| retiring_chunk_still_needs_high_res(state, *chunk, max_lod))
             .collect();
     }
 
@@ -925,6 +938,7 @@ mod tests {
         add_near_chunks(&mut desired_b, grid, center_b, &controller);
         add_lod_tiles(&mut tiles_b, grid, center_b, &controller, &streaming);
         update_desired_chunks(&mut state, desired_b);
+        state.desired_tiles = tiles_b.clone();
 
         let retiring_before_results = state.retiring_chunks.clone();
         assert!(!retiring_before_results.is_empty(), "movement should create retiring chunks");
@@ -950,6 +964,35 @@ mod tests {
             "retiring chunks did not resolve after real LOD replacements became ready; sample={:?}",
             state.retiring_chunks.iter().take(20).collect::<Vec<_>>(),
         );
+    }
+
+    #[test]
+    fn retiring_chunk_outside_current_lod_coverage_does_not_stick_forever() {
+        let grid = Entity::PLACEHOLDER;
+        let max_lod = 2;
+        let chunk = ChunkKey { grid, chunk: IVec3::new(64, 0, 0) };
+        let mut state = CameraLodState::default();
+        state.retiring_chunks.insert(chunk);
+
+        // If the camera has moved far enough that no currently desired LOD tile
+        // wants this old near chunk, keeping it in retiring_chunks only leaks a
+        // high-res chunk and permanently increases per-frame visibility work.
+        assert!(!retiring_chunk_still_needs_high_res(&state, chunk, max_lod));
+    }
+
+    #[test]
+    fn retiring_lod_tile_is_valid_replacement_for_high_res_chunk() {
+        let grid = Entity::PLACEHOLDER;
+        let max_lod = 2;
+        let chunk = ChunkKey { grid, chunk: IVec3::new(1, 0, 0) };
+        let tile = TileKey { grid, lod: 1, min: IVec3::ZERO };
+        let mut state = CameraLodState::default();
+        state.desired_tiles.insert(tile);
+        state.tiles.insert(tile, TileRecord { status: TileStatus::Retiring, entity: Some(Entity::PLACEHOLDER) });
+
+        // Retiring LOD tiles are still rendered by refresh_camera_lod_visibility,
+        // so they can cover the visual gap while the high-res chunk is released.
+        assert!(!retiring_chunk_still_needs_high_res(&state, chunk, max_lod));
     }
 
     #[test]
