@@ -17,7 +17,6 @@ pub struct CameraLodController {
     pub max_lod: u8,
     pub near_radius_chunks: i32,
     pub rings_per_lod: i32,
-    pub vertical_radius_chunks: i32,
     pub requests_per_frame: usize,
     pub max_in_flight: usize,
     state: CameraLodState,
@@ -29,7 +28,6 @@ impl Default for CameraLodController {
             max_lod: 3,
             near_radius_chunks: 3,
             rings_per_lod: 2,
-            vertical_radius_chunks: 2,
             requests_per_frame: 16,
             max_in_flight: 128,
             state: CameraLodState::default(),
@@ -215,9 +213,8 @@ fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
 
 fn add_near_chunks(out: &mut HashSet<ChunkKey>, grid: GridId, center: IVec3, controller: &CameraLodController) {
     let r = controller.near_radius_chunks;
-    let yr = controller.vertical_radius_chunks;
     for x in -r..=r {
-        for y in -yr..=yr {
+        for y in -r..=r {
             for z in -r..=r {
                 out.insert(ChunkKey { grid, chunk: center + IVec3::new(x, y, z) });
             }
@@ -242,7 +239,7 @@ fn add_lod_tiles(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, contro
                 for z in (min_tile.z..=max_tile.z).step_by(tile_size as usize) {
                     let min = IVec3::new(x, y, z);
                     if tile_intersects_ring(center, min, tile_size, band_inner, outer)
-                        && !tile_inside_near_box(center, min, tile_size, controller.near_radius_chunks, controller.vertical_radius_chunks)
+                        && !tile_inside_near_box(center, min, tile_size, controller.near_radius_chunks)
                         && tile_has_present_chunk(streaming, min, tile_size)
                     {
                         out.insert(TileKey { grid, lod, min });
@@ -304,10 +301,10 @@ fn tile_intersects_ring(center: IVec3, min: IVec3, tile_size: i32, inner: i32, o
     max_dist >= inner && min_dist <= outer
 }
 
-fn tile_inside_near_box(center: IVec3, min: IVec3, tile_size: i32, near_radius: i32, vertical_radius: i32) -> bool {
+fn tile_inside_near_box(center: IVec3, min: IVec3, tile_size: i32, near_radius: i32) -> bool {
     let max = min + IVec3::splat(tile_size - 1);
     (min.x - center.x).abs().max((max.x - center.x).abs()) <= near_radius
-        && (min.y - center.y).abs().max((max.y - center.y).abs()) <= vertical_radius
+        && (min.y - center.y).abs().max((max.y - center.y).abs()) <= near_radius
         && (min.z - center.z).abs().max((max.z - center.z).abs()) <= near_radius
 }
 
@@ -731,7 +728,7 @@ mod tests {
     #[test]
     fn moving_camera_lod_requests_are_set_deltas_and_keep_chunk_coverage() {
         let grid = Entity::PLACEHOLDER;
-        let controller = CameraLodController { max_lod: 2, vertical_radius_chunks: 1, ..Default::default() };
+        let controller = CameraLodController { max_lod: 2, ..Default::default() };
         let mut streaming = GridStreaming::default();
         streaming.presence_mut().mark_present_area(IVec3::splat(-48), IVec3::splat(97));
 
@@ -771,7 +768,7 @@ mod tests {
     #[test]
     fn crossing_lod_tile_midpoint_changes_desired_delta_even_inside_same_chunk() {
         let grid = Entity::PLACEHOLDER;
-        let controller = CameraLodController { max_lod: 1, near_radius_chunks: 1, rings_per_lod: 1, vertical_radius_chunks: 0, ..Default::default() };
+        let controller = CameraLodController { max_lod: 1, near_radius_chunks: 1, rings_per_lod: 1, ..Default::default() };
         let mut streaming = GridStreaming::default();
         streaming.presence_mut().mark_present_area(IVec3::new(0, 0, 0), IVec3::new(6, 1, 1));
 
@@ -805,7 +802,7 @@ mod tests {
     #[test]
     fn old_lod_tiles_delete_after_camera_moves_and_new_results_are_ready() {
         let grid = Entity::PLACEHOLDER;
-        let controller = CameraLodController { max_lod: 2, vertical_radius_chunks: 1, ..Default::default() };
+        let controller = CameraLodController { max_lod: 2, ..Default::default() };
         let mut streaming = GridStreaming::default();
         streaming.presence_mut().mark_present_area(IVec3::splat(-48), IVec3::splat(97));
 
@@ -863,7 +860,7 @@ mod tests {
     #[test]
     fn retiring_chunks_resolve_after_ready_lods_at_multiple_camera_positions() {
         let grid = Entity::PLACEHOLDER;
-        let controller = CameraLodController { max_lod: 2, vertical_radius_chunks: 1, ..Default::default() };
+        let controller = CameraLodController { max_lod: 2, ..Default::default() };
         let mut streaming = GridStreaming::default();
         streaming.presence_mut().mark_present_area(IVec3::splat(-48), IVec3::splat(97));
 
@@ -911,7 +908,7 @@ mod tests {
     #[test]
     fn retiring_chunks_survive_empty_lod_results_and_resolve_when_real_lods_arrive() {
         let grid = Entity::PLACEHOLDER;
-        let controller = CameraLodController { max_lod: 2, vertical_radius_chunks: 1, ..Default::default() };
+        let controller = CameraLodController { max_lod: 2, ..Default::default() };
         let mut streaming = GridStreaming::default();
         streaming.presence_mut().mark_present_area(IVec3::splat(-48), IVec3::splat(97));
 
@@ -1021,9 +1018,8 @@ mod tests {
         let mut missing = Vec::new();
         streaming.presence().for_each_in_region(min, max, |chunk| {
             let key = ChunkKey { grid, chunk };
-            let xz_dist = (chunk.x - center.x).abs().max((chunk.z - center.z).abs());
-            let y_dist = (chunk.y - center.y).abs();
-            if xz_dist <= controller.near_radius_chunks && y_dist <= controller.vertical_radius_chunks {
+            let xz_dist = (chunk.x - center.x).abs().max((chunk.z - center.z).abs()).max((chunk.y - center.y).abs());
+            if xz_dist <= controller.near_radius_chunks {
                 if !desired_chunks.contains(&key) {
                     missing.push(chunk);
                 }

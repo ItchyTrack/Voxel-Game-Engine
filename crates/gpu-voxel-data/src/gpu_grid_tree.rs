@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use parry3d;
-use rand::seq::IteratorRandom;
 use tracy_client::span;
 
 use voxel_data::grid_tree::{self, GridCell, CellKind};

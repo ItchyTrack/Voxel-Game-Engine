@@ -15,6 +15,8 @@ use camera_lods::{LodRequestMap, LodVisibleKind};
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid};
 use voxel_streaming::CHUNK_SIZE;
 
+use crate::hit_count_feedback::HitCountFeedback;
+
 struct Candidate {
 	entity: Entity,
 	tree_id: u32,
@@ -34,6 +36,7 @@ pub fn build_residency(
 	lod_voxels: Query<(Entity, &LodVoxels, &SubGridGpuState)>,
 	grid_transforms: Query<&GlobalTransform>,
 	cameras: Query<(&Camera, &GlobalTransform, &Frustum, Option<&LodRequestMap>)>,
+	hit_feedback: Res<HitCountFeedback>,
 ) {
 	let active_camera = cameras.iter().find(|(c, _, _, _)| c.is_active);
 	let view = active_camera.map(|(_, global_transform, frustum, _)| (global_transform.translation(), frustum));
@@ -58,7 +61,7 @@ pub fn build_residency(
 			.and_then(|h| h.get(&entity).copied())
 			.unwrap_or(0);
 
-		let (in_view, priority) = match view {
+		let (in_view, priority) = (true, 0.0);/*match view {
 			Some((cam_pos, frustum)) => {
 				let center = (aabb_min + aabb_max) * 0.5;
 				let radius = aabb_min.distance(aabb_max) * 0.5 + 1.0;
@@ -70,7 +73,7 @@ pub fn build_residency(
 				(in_view, -distance / 1000.0 + if in_view { 5.0 } else { 0.0 })
 			}
 			None => (true, 0.0),
-		};
+		};*/
 
 		if !in_view && hit_count == 0 {
 			return None;
