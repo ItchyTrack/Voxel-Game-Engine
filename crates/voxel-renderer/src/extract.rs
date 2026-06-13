@@ -44,7 +44,7 @@ pub fn extract_voxel_scene(
 	hit_feedback: Res<HitCountFeedback>,
 	cameras: Extract<Query<(&VoxelCamera, &Camera, &Projection, &GlobalTransform)>>,
 	sub_grids: Extract<Query<(&SubGrid, &SubGridGpuState)>>,
-	lod_voxels: Extract<Query<(&LodVoxels, &SubGridGpuState)>>,
+	lod_voxels: Extract<Query<(&LodVoxels, &SubGridGpuState, &GlobalTransform)>>,
 	grid_transforms: Extract<Query<&GlobalTransform>>,
 	world_gpu: Extract<Res<WorldGpuData>>,
 ) {
@@ -80,9 +80,9 @@ pub fn extract_voxel_scene(
 		}
 
 		for entity in voxel_camera.lods_to_render.iter() {
-			let Ok((lod_grid, lod_grid_gpu_state)) = lod_voxels.get(*entity) else { continue; };
+			let Ok((lod_grid, lod_grid_gpu_state, lod_global)) = lod_voxels.get(*entity) else { continue; };
 			let scale = (1u32 << lod_grid.lod.max(0.0).floor() as u32) as f32;
-			let area_world = lod_grid.world_transform * Transform::from_scale(Vec3::splat(scale));
+			let area_world = lod_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
 			let placement = lod_grid_gpu_state.placement();
 			let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &area_world);
 			let dda_transform = area_world * Transform::from_translation(placement.tree_root_pos.as_vec3());
