@@ -6,7 +6,7 @@ use bevy::ecs::world::FromWorld;
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use wgpu::{CommandEncoderDescriptor, Device};
 
-use crate::world_gpu_data::WorldGpuData;
+use crate::world_gpu_data::{WorldGpuData, TREE_BUFFER_ALIGNMENT, VOXEL_BUFFER_ALIGNMENT};
 
 // Pipelined rendering is one frame behind, so two slots keep the main world's
 // build off the slot the render thread is reading.
@@ -54,9 +54,8 @@ impl FromWorld for ResidencyBuffers {
 	fn from_world(world: &mut bevy::ecs::world::World) -> Self {
 		let device = world.resource::<RenderDevice>().wgpu_device().clone();
 		let queue = world.resource::<RenderQueue>().clone();
-		let world_gpu = world.resource::<WorldGpuData>();
-		let tree_alignment = world_gpu.packed_64_tree_dynamic_buffer.alignment();
-		let voxel_alignment = world_gpu.packed_voxel_data_dynamic_buffer.alignment();
+		let tree_alignment = align_up(TREE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
+		let voxel_alignment = align_up(VOXEL_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
 		let binding_limit = device.limits().max_storage_buffer_binding_size as u64;
 
 		let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;

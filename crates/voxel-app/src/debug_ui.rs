@@ -2,7 +2,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
-use camera_lods::FreezeCameraLods;
+use camera_voxel_loader::FreezeCameraVoxelLoader;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use voxel_data::task_queue::AsyncTaskPriorityQueueResource;
 use voxel_physics::{
@@ -51,7 +51,7 @@ fn debug_window(
 	world_gpu_data: Option<Res<WorldGpuData>>,
 	render_stats: Res<RenderStats>,
 	mut graphics_settings: ResMut<GraphicsSettings>,
-	mut freeze_camera_lods: ResMut<FreezeCameraLods>,
+	mut freeze_camera_voxel_loader: ResMut<FreezeCameraVoxelLoader>,
 	mut freeze_physics: ResMut<FreezePhysics>,
 	mut inertia_boxes: ResMut<InertiaBoxes>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
@@ -110,7 +110,7 @@ fn debug_window(
 			ui.checkbox(&mut graphics_settings.shadows, "shadows");
 			ui.separator();
 			ui.label("Debug");
-			ui.checkbox(&mut freeze_camera_lods.0, "freeze camera LODs");
+			ui.checkbox(&mut freeze_camera_voxel_loader.0, "freeze camera voxel loader");
 			ui.checkbox(&mut freeze_physics.0, "freeze physics");
 			ui.checkbox(&mut inertia_boxes.0, "inertia boxes");
 			ui.checkbox(&mut chunk_presence_boxes.0, "chunk presence");

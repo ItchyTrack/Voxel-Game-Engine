@@ -23,6 +23,7 @@ use bevy::render::view::{Hdr, Msaa};
 use audio_plugin::VoxelAudioPlugin;
 use bevy::window::WindowResolution;
 use camera_controller::{FlyCamera, FlyCameraPlugin};
+use camera_voxel_loader::CameraVoxelLoaderPlugin;
 use crosshair::CrosshairPlugin;
 use skybox::SkyboxPlugin;
 use sphere_source::SphereSourcePlugin;
@@ -49,6 +50,7 @@ impl PluginGroup for GamePlugins {
 			.add(VoxelSourcesPlugin)
 			.add(MemoryStorePlugin)
 			.add(SphereSourcePlugin)
+			.add(CameraVoxelLoaderPlugin)
 			.add(VoxelRendererPlugin)
 			.add(SkyboxPlugin)
 			.add(CrosshairPlugin)

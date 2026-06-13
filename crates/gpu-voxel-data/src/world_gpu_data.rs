@@ -3,6 +3,9 @@ use bevy::render::renderer::{RenderDevice, RenderQueue};
 
 use crate::packed_dynamic_buffer::PackedDynamicBuffer;
 
+pub const TREE_BUFFER_ALIGNMENT: u32 = 12;
+pub const VOXEL_BUFFER_ALIGNMENT: u32 = 4;
+
 #[derive(Resource, Debug)]
 pub struct WorldGpuData {
 	pub packed_64_tree_dynamic_buffer: PackedDynamicBuffer,
@@ -17,7 +20,7 @@ impl FromWorld for WorldGpuData {
 		let packed_64_tree_dynamic_buffer = PackedDynamicBuffer::new(
 			render_device,
 			render_queue,
-			12,
+			TREE_BUFFER_ALIGNMENT,
 			wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
 		)
 		.expect("Failed to create packed_64_tree_dynamic_buffer");
@@ -25,7 +28,7 @@ impl FromWorld for WorldGpuData {
 		let packed_voxel_data_dynamic_buffer = PackedDynamicBuffer::new(
 			render_device,
 			render_queue,
-			4,
+			VOXEL_BUFFER_ALIGNMENT,
 			wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
 		)
 		.expect("Failed to create packed_voxel_data_dynamic_buffer");

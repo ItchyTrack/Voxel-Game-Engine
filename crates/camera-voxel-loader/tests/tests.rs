@@ -4,7 +4,7 @@ mod tests {
 	use std::path::PathBuf;
 	use bevy::math::{IVec3};
 
-	use camera_lods::*;
+	use camera_voxel_loader::*;
 
 	// #[test]
 	// fn aligns_negative_chunks_to_lod_tile() {

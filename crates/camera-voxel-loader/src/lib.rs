@@ -14,41 +14,41 @@ use voxel_streaming::{ChunkRequestChannel, GridStreaming, LodRequestChannel, Str
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::types::{ChunkKey, TileKey, TileRecord, TileStatus};
 
-voxel_streaming::chunk_consumer!(pub CameraLodConsumer);
+voxel_streaming::chunk_consumer!(pub CameraVoxelLoaderConsumer);
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
-pub struct FreezeCameraLods(pub bool);
+pub struct FreezeCameraVoxelLoader(pub bool);
 
 #[derive(Default)]
-pub struct CameraLodsPlugin;
+pub struct CameraVoxelLoaderPlugin;
 
-impl Plugin for CameraLodsPlugin {
+impl Plugin for CameraVoxelLoaderPlugin {
 	fn build(&self, app: &mut App) {
-		app.init_resource::<FreezeCameraLods>()
-			.register_chunk_consumer::<CameraLodConsumer>()
-			.add_systems(Update, ensure_camera_lod_components)
+		app.init_resource::<FreezeCameraVoxelLoader>()
+			.register_chunk_consumer::<CameraVoxelLoaderConsumer>()
+			.add_systems(Update, ensure_camera_voxel_loader_components)
 			.add_systems(
 				StreamingSchedule,
-				update_camera_lod_requests.run_if(|freeze: Res<FreezeCameraLods>| !freeze.0).in_set(StreamingPhase::Request),
+				update_camera_voxel_loader_requests.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0).in_set(StreamingPhase::Request),
 			)
-			.add_systems(StreamingSchedule, receive_camera_lod_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive))
+			.add_systems(StreamingSchedule, receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive))
 			.add_systems(
 				Update,
-				(refresh_camera_lod_visibility, retire_replaced_tiles, retire_replaced_chunks).chain().after(gpu_voxel_data::GpuUploadSet::Upload),
+				(refresh_camera_voxel_loader_visibility, retire_replaced_tiles, retire_replaced_chunks).chain().after(gpu_voxel_data::GpuUploadSet::Upload),
 			);
 			// .add_systems(Update, (draw_lod_bounds_gizmos, draw_retiring_lod_gizmos));
 	}
 }
 
-fn ensure_camera_lod_components(mut commands: Commands, cameras: Query<Entity, (With<Camera3d>, Without<CameraVoxelLoader>)>) {
+fn ensure_camera_voxel_loader_components(mut commands: Commands, cameras: Query<Entity, (With<Camera3d>, Without<CameraVoxelLoader>)>) {
 	for entity in &cameras {
-		commands.entity(entity).insert((CameraVoxelLoader::default(), CameraLodConsumer::default(), VoxelCamera::default()));
+		commands.entity(entity).insert((CameraVoxelLoader::default(), CameraVoxelLoaderConsumer::default(), VoxelCamera::default()));
 	}
 }
 
-fn update_camera_lod_requests(
+fn update_camera_voxel_loader_requests(
 	chunk_channel: Res<ChunkRequestChannel>, lod_channel: Res<LodRequestChannel>,
-	mut cameras: Query<(Entity, &Camera, &GlobalTransform, &mut CameraVoxelLoader, &mut CameraLodConsumer), With<Camera3d>>,
+	mut cameras: Query<(Entity, &Camera, &GlobalTransform, &mut CameraVoxelLoader, &mut CameraVoxelLoaderConsumer), With<Camera3d>>,
 	mut grids: Query<(GridId, &GlobalTransform, &mut GridStreaming)>, grid_transforms: Query<&GlobalTransform, With<GridStreaming>>,
 ) {
 	for (camera_entity, camera, camera_global, mut camera_voxel_loader, mut consumer) in &mut cameras {
@@ -224,26 +224,26 @@ fn tile_inside_near_box(center: IVec3, min: IVec3, tile_size: i32, near_radius: 
 		&& (min.z - center.z).abs().max((max.z - center.z).abs()) <= near_radius
 }
 
-fn in_flight_count(camera: &VoxelCamera) -> usize {
-	state.tiles.values().filter(|r| r.status == TileStatus::Loading).count()
+fn in_flight_count(camera_voxel_loader: &CameraVoxelLoader) -> usize {
+	camera_voxel_loader.tiles.values().filter(|r| r.status == TileStatus::Loading).count()
 }
 
-fn update_desired_chunks(camera: &mut VoxelCamera, desired_chunks: HashSet<ChunkKey>) -> Vec<ChunkKey> {
-	let old_chunks = state.desired_chunks.clone();
+fn update_desired_chunks(camera_voxel_loader: &mut CameraVoxelLoader, desired_chunks: HashSet<ChunkKey>) -> Vec<ChunkKey> {
+	let old_chunks = camera_voxel_loader.desired_chunks.clone();
 	for &chunk_key in old_chunks.difference(&desired_chunks) {
-		state.retiring_chunks.insert(chunk_key);
+		camera_voxel_loader.retiring_chunks.insert(chunk_key);
 	}
 
 	let chunks_to_fetch: Vec<ChunkKey> = desired_chunks.difference(&old_chunks).copied().collect();
 	for chunk_key in &chunks_to_fetch {
-		state.retiring_chunks.remove(chunk_key);
+		camera_voxel_loader.retiring_chunks.remove(chunk_key);
 	}
-	state.desired_chunks = desired_chunks;
+	camera_voxel_loader.desired_chunks = desired_chunks;
 	chunks_to_fetch
 }
 
-fn handle_non_desired_tile(state: &mut VoxelCamera, key: TileKey) {
-	let Some(record) = state.tiles.get_mut(&key) else { return };
+fn handle_non_desired_tile(camera_voxel_loader: &mut CameraVoxelLoader, key: TileKey) {
+	let Some(record) = camera_voxel_loader.tiles.get_mut(&key) else { return };
 	match record.status {
 		// Already-renderable tiles must stay visible until replacement coverage is ready.
 		TileStatus::Ready | TileStatus::Retiring => {
@@ -254,11 +254,11 @@ fn handle_non_desired_tile(state: &mut VoxelCamera, key: TileKey) {
 		TileStatus::Loading | TileStatus::LoadedWaitingGpu => {}
 		// Queued work has not been sent yet, so it can be safely dropped.
 		TileStatus::Queued => {
-			state.tiles.remove(&key);
+			camera_voxel_loader.tiles.remove(&key);
 		}
 		// Empty records render nothing. Drop them instead of treating them as coverage.
 		TileStatus::Empty => {
-			state.tiles.remove(&key);
+			camera_voxel_loader.tiles.remove(&key);
 		}
 	}
 }
@@ -270,7 +270,12 @@ fn tile_priority(camera_world: Vec3, key: TileKey, grid_transforms: &Query<&Glob
 	-camera_world.distance(center_world)
 }
 
-fn receive_camera_lod_results(mut commands: Commands, mut camera_voxel_loaders: Query<&mut CameraVoxelLoader>, mut consumers: Query<&mut CameraLodConsumer>) {
+fn receive_camera_voxel_loader_results(
+	mut commands: Commands,
+	mut camera_voxel_loaders: Query<&mut CameraVoxelLoader>,
+	mut consumers: Query<&mut CameraVoxelLoaderConsumer>,
+	grid_transforms: Query<&GlobalTransform, With<GridStreaming>>,
+) {
 	for mut consumer in &mut consumers {
 		let results = consumer.drain_lod();
 		if results.is_empty() {
@@ -287,9 +292,11 @@ fn receive_camera_lod_results(mut commands: Commands, mut camera_voxel_loaders: 
 			}
 			match result.voxels {
 				Some(voxels) if !voxels.is_empty() => {
+					let Ok(grid_transform) = grid_transforms.get(result.grid) else { continue };
+					let world_transform = grid_transform.compute_transform() * Transform::from_translation((result.min * CHUNK_SIZE).as_vec3());
 					let entity = commands
 						.spawn((
-							LodVoxels { voxels, grid: result.grid, min: result.min, size: result.size, lod: result.lod, priority: result.priority },
+							LodVoxels { voxels, world_transform, lod: result.lod, priority: result.priority },
 							ChildOf(result.grid),
 						))
 						.id();
@@ -304,7 +311,7 @@ fn receive_camera_lod_results(mut commands: Commands, mut camera_voxel_loaders: 
 	}
 }
 
-fn refresh_camera_lod_visibility(
+fn refresh_camera_voxel_loader_visibility(
 	mut cameras: Query<(&mut CameraVoxelLoader, &mut VoxelCamera)>, lod_gpu: Query<&SubGridGpuState, With<LodVoxels>>, grids: Query<&Grid>,
 	subgrids: Query<&SubGrid>,
 ) {
@@ -315,14 +322,16 @@ fn refresh_camera_lod_visibility(
 			}
 		}
 
-		let mut visible = Vec::new();
-		let mut seen = HashSet::new();
+		let mut subgrids_to_render = Vec::new();
+		let mut lods_to_render = Vec::new();
+		let mut seen_subgrids = HashSet::new();
+		let mut seen_lods = HashSet::new();
 		for chunk in camera_voxel_loader.desired_chunks.iter().chain(camera_voxel_loader.retiring_chunks.iter()) {
 			let Ok(grid) = grids.get(chunk.grid) else { continue };
 			let min = chunk.chunk * CHUNK_SIZE;
 			for entity in grid.subgrid_entities_in_area(min, IVec3::splat(CHUNK_SIZE)) {
-				if subgrids.get(entity).is_ok() && seen.insert((entity, LodVisibleKind::SubGrid)) {
-					visible.push(LodVisible { entity, kind: LodVisibleKind::SubGrid });
+				if subgrids.get(entity).is_ok() && seen_subgrids.insert(entity) {
+					subgrids_to_render.push(entity);
 				}
 			}
 		}
@@ -334,20 +343,21 @@ fn refresh_camera_lod_visibility(
 			}
 			if record.status == TileStatus::Ready {
 				if let Some(entity) = record.entity {
-					if seen.insert((entity, LodVisibleKind::Lod)) {
-						visible.push(LodVisible { entity, kind: LodVisibleKind::Lod });
+					if seen_lods.insert(entity) {
+						lods_to_render.push(entity);
 					}
 				}
 			} else if record.status == TileStatus::Retiring {
 				if let Some(entity) = record.entity {
-					if seen.insert((entity, LodVisibleKind::Lod)) {
-						visible.push(LodVisible { entity, kind: LodVisibleKind::Lod });
+					if seen_lods.insert(entity) {
+						lods_to_render.push(entity);
 					}
 				}
 			}
 			let _ = key;
 		}
-		request_map.visible = visible;
+		request_map.subgrids_to_render = subgrids_to_render;
+		request_map.lods_to_render = lods_to_render;
 	}
 }
 
@@ -368,7 +378,7 @@ fn retire_replaced_tiles(mut commands: Commands, mut camera_voxel_loaders: Query
 	}
 }
 
-fn retire_replaced_chunks(mut camera_voxel_loaders: Query<(&mut CameraVoxelLoader, &mut CameraLodConsumer)>, mut grids: Query<&mut GridStreaming>) {
+fn retire_replaced_chunks(mut camera_voxel_loaders: Query<(&mut CameraVoxelLoader, &mut CameraVoxelLoaderConsumer)>, mut grids: Query<&mut GridStreaming>) {
 	for (mut camera_voxel_loader, mut consumer) in &mut camera_voxel_loaders {
 		let max_lod = camera_voxel_loader.settings.max_lod;
 		let retiring = std::mem::take(&mut camera_voxel_loader.retiring_chunks);
@@ -384,27 +394,27 @@ fn retire_replaced_chunks(mut camera_voxel_loaders: Query<(&mut CameraVoxelLoade
 			}
 		}
 
-		controller.state.retiring_chunks = still_retiring;
+		camera_voxel_loader.retiring_chunks = still_retiring;
 	}
 }
 
-fn retiring_chunk_still_needs_high_res(voxel_camera: &VoxelCamera, chunk: ChunkKey, max_lod: u8) -> bool {
-	chunk_is_wanted_by_desired_tile(voxel_camera, chunk, max_lod) && !chunk_is_covered_by_renderable_tile(state, chunk, max_lod)
+fn retiring_chunk_still_needs_high_res(camera_voxel_loader: &CameraVoxelLoader, chunk: ChunkKey, max_lod: u8) -> bool {
+	chunk_is_wanted_by_desired_tile(camera_voxel_loader, chunk, max_lod) && !chunk_is_covered_by_renderable_tile(camera_voxel_loader, chunk, max_lod)
 }
 
-fn chunk_is_wanted_by_desired_tile(voxel_camera: &VoxelCamera, chunk: ChunkKey, max_lod: u8) -> bool {
+fn chunk_is_wanted_by_desired_tile(camera_voxel_loader: &CameraVoxelLoader, chunk: ChunkKey, max_lod: u8) -> bool {
 	(1..=max_lod).any(|lod| {
 		let tile_size = 1i32 << lod;
 		let key = TileKey { grid: chunk.grid, lod, min: align_chunk_to_tile(chunk.chunk, tile_size) };
-		voxel_camera.desired_tiles.contains(&key)
+		camera_voxel_loader.desired_tiles.contains(&key)
 	})
 }
 
-fn chunk_is_covered_by_renderable_tile(voxel_camera: &VoxelCamera, chunk: ChunkKey, max_lod: u8) -> bool {
+fn chunk_is_covered_by_renderable_tile(camera_voxel_loader: &CameraVoxelLoader, chunk: ChunkKey, max_lod: u8) -> bool {
 	(1..=max_lod).any(|lod| {
 		let tile_size = 1i32 << lod;
 		let key = TileKey { grid: chunk.grid, lod, min: align_chunk_to_tile(chunk.chunk, tile_size) };
-		state.tiles.get(&key).is_some_and(|record| matches!(record.status, TileStatus::Ready | TileStatus::Retiring) && record.entity.is_some())
+		camera_voxel_loader.tiles.get(&key).is_some_and(|record| matches!(record.status, TileStatus::Ready | TileStatus::Retiring) && record.entity.is_some())
 	})
 }
 
@@ -415,7 +425,7 @@ fn draw_lod_bounds_gizmos(
 ) {
 	for camera_voxel_loader in &camera_voxel_loaders {
 		for (grid, grid_transform) in &grids {
-			if let Some((min_chunk, max_chunk)) = lod0_chunk_bounds(&controller, grid) {
+			if let Some((min_chunk, max_chunk)) = lod0_chunk_bounds(camera_voxel_loader, grid) {
 				draw_lod_bound_box(&mut gizmos, grid_transform, min_chunk, max_chunk, lod_bound_color(0, camera_voxel_loader.settings.max_lod));
 			}
 
@@ -426,11 +436,11 @@ fn draw_lod_bounds_gizmos(
 	}
 }
 
-fn lod0_chunk_bounds(state: &CameraLodState, grid: GridId) -> Option<(IVec3, IVec3)> {
+fn lod0_chunk_bounds(camera_voxel_loader: &CameraVoxelLoader, grid: GridId) -> Option<(IVec3, IVec3)> {
 	let mut min = IVec3::splat(i32::MAX);
 	let mut max = IVec3::splat(i32::MIN);
 	let mut any = false;
-	for chunk in state.desired_chunks.iter().filter(|chunk| chunk.grid == grid) {
+	for chunk in camera_voxel_loader.desired_chunks.iter().filter(|chunk| chunk.grid == grid) {
 		any = true;
 		min = min.min(chunk.chunk);
 		max = max.max(chunk.chunk + IVec3::ONE);
@@ -470,8 +480,8 @@ fn draw_retiring_lod_gizmos(
 	grid_transforms: Query<&GlobalTransform, With<GridStreaming>>,
 ) {
 	let color = Color::srgba(1.0, 0.15, 0.0, 0.9);
-	for controller in &cameras {
-		for (key, record) in &controller.state.tiles {
+	for camera_voxel_loader in &cameras {
+		for (key, record) in &camera_voxel_loader.tiles {
 			if record.status != TileStatus::Retiring {
 				continue;
 			}
@@ -512,7 +522,7 @@ fn draw_transformed_box(gizmos: &mut Gizmos, transform: &GlobalTransform, min: V
 	}
 }
 
-fn area_is_covered_by_ready_desired(state: &CameraLodState, old: TileKey) -> bool {
+fn area_is_covered_by_ready_desired(state: &CameraVoxelLoader, old: TileKey) -> bool {
 	let max_lod = state.tiles.keys().map(|key| key.lod).max().unwrap_or(old.lod);
 	let old_min = old.min;
 	let old_max = old.min + old.size();
@@ -536,7 +546,7 @@ fn area_is_covered_by_ready_desired(state: &CameraLodState, old: TileKey) -> boo
 	true
 }
 
-fn chunk_is_covered_by_ready_tile_except(state: &CameraLodState, chunk: ChunkKey, except: TileKey, max_lod: u8) -> bool {
+fn chunk_is_covered_by_ready_tile_except(state: &CameraVoxelLoader, chunk: ChunkKey, except: TileKey, max_lod: u8) -> bool {
 	(1..=max_lod).any(|lod| {
 		let tile_size = 1i32 << lod;
 		let key = TileKey { grid: chunk.grid, lod, min: align_chunk_to_tile(chunk.chunk, tile_size) };
@@ -544,7 +554,7 @@ fn chunk_is_covered_by_ready_tile_except(state: &CameraLodState, chunk: ChunkKey
 	})
 }
 
-fn chunk_is_wanted_by_non_retiring_tile_except(state: &CameraLodState, chunk: ChunkKey, except: TileKey) -> bool {
+fn chunk_is_wanted_by_non_retiring_tile_except(state: &CameraVoxelLoader, chunk: ChunkKey, except: TileKey) -> bool {
 	state.tiles.iter().any(|(key, record)| {
 		*key != except
 			&& key.grid == chunk.grid
