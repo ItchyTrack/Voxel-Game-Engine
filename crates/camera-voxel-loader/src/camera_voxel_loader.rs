@@ -41,3 +41,17 @@ pub struct CameraVoxelLoader {
 	pub(crate) queue: VecDeque<TileKey>,
 	pub(crate) tiles: HashMap<TileKey, TileRecord>,
 }
+
+impl CameraVoxelLoader {
+	pub fn with_settings(settings: CameraVoxelLoaderSettings) -> Self {
+		Self { settings, ..Default::default() }
+	}
+
+	pub fn settings(&self) -> &CameraVoxelLoaderSettings {
+		&self.settings
+	}
+
+	pub fn set_settings(&mut self, settings: CameraVoxelLoaderSettings) {
+		self.settings = settings;
+	}
+}
