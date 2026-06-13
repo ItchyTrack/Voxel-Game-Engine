@@ -16,6 +16,10 @@ bevy = { workspace = true }
 tracy-client = { workspace = true }
 tokio = { workspace = true }
 
+[[bench]]
+name = "splat_voxels"
+harness = false
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true }
 getrandom_0_3 = { workspace = true }

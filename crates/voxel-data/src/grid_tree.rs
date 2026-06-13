@@ -157,6 +157,13 @@ pub struct GridTree<C: GridCell, Co: GridCoord> {
 	_coord: PhantomData<Co>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct AreaOp<D: Copy> {
+	min: IVec3,
+	end: IVec3,
+	data: D,
+}
+
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	pub fn new() -> Self {
 		Self { nodes: vec![GridTreeNode::new_root()], root_pos: IVec3::ZERO, root_depth: 0, item_count: 0, dead_nodes: 0, _coord: PhantomData }
@@ -215,14 +222,565 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		true
 	}
 
+	pub fn ensure_area_covered(&mut self, pos: &Co::Pos, size: IVec3) -> bool {
+		if size.cmple(IVec3::ZERO).any() {
+			return true;
+		}
+		let min = Co::to_ivec3(*pos);
+		let max = min + size - IVec3::ONE;
+		self.make_sure_root_covers_area(min, max)
+	}
+
 	pub fn add_area(&mut self, pos: &Co::Pos, size: IVec3, data: C::Data) {
-		let base = Co::to_ivec3(*pos);
-		for x in 0..size.x {
-			for y in 0..size.y {
-				for z in 0..size.z {
-					self.insert(&Co::from_ivec3(base + IVec3::new(x, y, z)), data);
+		self.add_areas(&[(*pos, size, data)]);
+	}
+
+	pub fn add_single_voxels(&mut self, voxels: &[(Co::Pos, C::Data)]) {
+		let mut bounds: Option<(IVec3, IVec3)> = None;
+		for (pos, data) in voxels {
+			debug_assert!(*data <= C::MAX_DATA);
+			let pos = Co::to_ivec3(*pos);
+			bounds = Some(match bounds {
+				Some((lo, hi)) => (lo.min(pos), hi.max(pos)),
+				None => (pos, pos),
+			});
+		}
+		let Some((min, max)) = bounds else { return };
+		self.add_single_voxels_in_bounds(voxels, min, max);
+	}
+
+	pub fn add_single_voxels_in_bounds(&mut self, voxels: &[(Co::Pos, C::Data)], min: IVec3, max: IVec3) {
+		for (_, data) in voxels {
+			debug_assert!(*data <= C::MAX_DATA);
+		}
+		if self.is_empty() && self.try_build_single_voxel_pairs(min, max, voxels) {
+			return;
+		}
+		if !self.make_sure_root_covers_area(min, max) { return; }
+		for (pos, data) in voxels {
+			self.insert(pos, *data);
+		}
+	}
+
+	pub fn add_areas(&mut self, areas: &[(Co::Pos, IVec3, C::Data)]) {
+		let mut ops = Vec::with_capacity(areas.len());
+		let mut bounds: Option<(IVec3, IVec3)> = None;
+		for (pos, size, data) in areas {
+			debug_assert!(*data <= C::MAX_DATA);
+			if size.cmple(IVec3::ZERO).any() {
+				continue;
+			}
+			let min = Co::to_ivec3(*pos);
+			let end = min + *size;
+			let max = end - IVec3::ONE;
+			ops.push(AreaOp { min, end, data: *data });
+			bounds = Some(match bounds {
+				Some((lo, hi)) => (lo.min(min), hi.max(max)),
+				None => (min, max),
+			});
+		}
+		let Some((min, max)) = bounds else { return };
+		if self.is_empty() && ops.iter().all(|op| op.end - op.min == IVec3::ONE) && self.try_build_single_voxel_batch(min, max, &ops) {
+			return;
+		}
+		if !self.make_sure_root_covers_area(min, max) || !self.has_node_budget() {
+			return;
+		}
+
+		for attempt in 0..3 {
+			if self.add_areas_recurse(0, self.root_depth, self.root_pos, &ops) {
+				return;
+			}
+			if attempt < 2 {
+				self.compact();
+			}
+		}
+		bevy::log::warn!("GridTree could not finish add_areas after compaction retries");
+	}
+
+	fn try_build_single_voxel_pairs(&mut self, min: IVec3, max: IVec3, voxels: &[(Co::Pos, C::Data)]) -> bool {
+		let span = (max - min).max_element() as i64 + 1;
+		let mut depth = 0u8;
+		while (size(depth) as i64) < span {
+			if depth >= Co::MAX_ROOT_DEPTH { return false; }
+			depth += 1;
+		}
+		self.nodes = vec![GridTreeNode::new_root()];
+		self.root_pos = min;
+		self.root_depth = depth;
+		self.item_count = 0;
+		self.dead_nodes = 0;
+		if depth > 2 { return false; }
+		match depth {
+			0 => {
+				let root = &mut self.nodes[0];
+				for (pos, data) in voxels {
+					let rel = Co::to_ivec3(*pos) - min;
+					let i = (rel.x + rel.y * SIZE as i32 + rel.z * SIZE as i32 * SIZE as i32) as usize;
+					if root.contents[i].kind() == CellKind::Empty { root.used_cell_count += 1; self.item_count += 1; }
+					root.contents[i] = C::data(*data);
 				}
 			}
+			1 => {
+				let mut leaves = vec![GridTreeNode::<C>::new(0); SIZE_USIZE_CUBED];
+				for (pos, data) in voxels {
+					let rel = Co::to_ivec3(*pos) - min;
+					let child = rel / SIZE as i32;
+					let leaf_i = (child.x + child.y * SIZE as i32 + child.z * SIZE as i32 * SIZE as i32) as usize;
+					let local = rel - child * SIZE as i32;
+					let cell_i = (local.x + local.y * SIZE as i32 + local.z * SIZE as i32 * SIZE as i32) as usize;
+					let leaf = &mut leaves[leaf_i];
+					if leaf.contents[cell_i].kind() == CellKind::Empty { leaf.used_cell_count += 1; self.item_count += 1; }
+					leaf.contents[cell_i] = C::data(*data);
+				}
+				for (i, leaf) in leaves.iter_mut().enumerate() {
+					if leaf.used_cell_count == 0 { continue; }
+					let child_index = self.nodes.len() as u32;
+					if child_index > C::MAX_NODE_OFFSET { return false; }
+					self.nodes[0].contents[i] = C::node(child_index);
+					self.nodes[0].used_cell_count += 1;
+					leaf.parent_offset = child_index as u16;
+					self.nodes.push(leaf.clone());
+				}
+			}
+			2 => {
+				let mut leaves = vec![GridTreeNode::<C>::new(0); SIZE_USIZE_CUBED * SIZE_USIZE_CUBED];
+				for (pos, data) in voxels {
+					let rel = Co::to_ivec3(*pos) - min;
+					let root_child = rel / 16;
+					let mid_rel = rel - root_child * 16;
+					let mid_child = mid_rel / 4;
+					let local = mid_rel - mid_child * 4;
+					let root_i = (root_child.x + root_child.y * SIZE as i32 + root_child.z * SIZE as i32 * SIZE as i32) as usize;
+					let mid_i = (mid_child.x + mid_child.y * SIZE as i32 + mid_child.z * SIZE as i32 * SIZE as i32) as usize;
+					let cell_i = (local.x + local.y * SIZE as i32 + local.z * SIZE as i32 * SIZE as i32) as usize;
+					let leaf = &mut leaves[root_i * SIZE_USIZE_CUBED + mid_i];
+					if leaf.contents[cell_i].kind() == CellKind::Empty { leaf.used_cell_count += 1; self.item_count += 1; }
+					leaf.contents[cell_i] = C::data(*data);
+				}
+				for root_i in 0..SIZE_USIZE_CUBED {
+					if !(0..SIZE_USIZE_CUBED).any(|mid_i| leaves[root_i * SIZE_USIZE_CUBED + mid_i].used_cell_count != 0) { continue; }
+					let mid_index = self.nodes.len() as u32;
+					if mid_index > C::MAX_NODE_OFFSET { return false; }
+					self.nodes[0].contents[root_i] = C::node(mid_index);
+					self.nodes[0].used_cell_count += 1;
+					self.nodes.push(GridTreeNode::new(mid_index as u16));
+					for mid_i in 0..SIZE_USIZE_CUBED {
+						let leaf_key = root_i * SIZE_USIZE_CUBED + mid_i;
+						if leaves[leaf_key].used_cell_count == 0 { continue; }
+						let leaf_index = self.nodes.len() as u32;
+						let leaf_offset = leaf_index - mid_index;
+						if leaf_offset > C::MAX_NODE_OFFSET { return false; }
+						self.nodes[mid_index as usize].contents[mid_i] = C::node(leaf_offset);
+						self.nodes[mid_index as usize].used_cell_count += 1;
+						leaves[leaf_key].parent_offset = leaf_offset as u16;
+						self.nodes.push(leaves[leaf_key].clone());
+					}
+				}
+			}
+			_ => unreachable!(),
+		}
+		true
+	}
+
+	fn try_build_single_voxel_batch(&mut self, min: IVec3, max: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
+		let span = (max - min).max_element() as i64 + 1;
+		let mut depth = 0u8;
+		while (size(depth) as i64) < span {
+			if depth >= Co::MAX_ROOT_DEPTH {
+				return false;
+			}
+			depth += 1;
+		}
+
+		self.nodes = vec![GridTreeNode::new_root()];
+		self.root_pos = min;
+		self.root_depth = depth;
+		self.item_count = 0;
+		self.dead_nodes = 0;
+		if depth <= 2 {
+			return self.build_single_voxel_depth2_or_less(depth, min, ops);
+		}
+		self.build_single_voxel_node(0, depth, min, ops)
+	}
+
+	fn build_single_voxel_depth2_or_less(&mut self, depth: u8, origin: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
+		match depth {
+			0 => {
+				let root = &mut self.nodes[0];
+				for op in ops {
+					let rel = op.min - origin;
+					let i = (rel.x + rel.y * SIZE as i32 + rel.z * SIZE as i32 * SIZE as i32) as usize;
+					if root.contents[i].kind() == CellKind::Empty {
+						root.used_cell_count += 1;
+						self.item_count += 1;
+					}
+					root.contents[i] = C::data(op.data);
+				}
+				true
+			}
+			1 => {
+				let mut leaves = vec![GridTreeNode::<C>::new(0); SIZE_USIZE_CUBED];
+				for op in ops {
+					let rel = op.min - origin;
+					let child = rel / SIZE as i32;
+					let leaf_i = (child.x + child.y * SIZE as i32 + child.z * SIZE as i32 * SIZE as i32) as usize;
+					let local = rel - child * SIZE as i32;
+					let cell_i = (local.x + local.y * SIZE as i32 + local.z * SIZE as i32 * SIZE as i32) as usize;
+					let leaf = &mut leaves[leaf_i];
+					if leaf.contents[cell_i].kind() == CellKind::Empty {
+						leaf.used_cell_count += 1;
+						self.item_count += 1;
+					}
+					leaf.contents[cell_i] = C::data(op.data);
+				}
+				for i in 0..SIZE_USIZE_CUBED {
+					if leaves[i].used_cell_count == 0 { continue; }
+					let child_index = self.nodes.len() as u32;
+					let offset = child_index;
+					if offset > C::MAX_NODE_OFFSET { return false; }
+					self.nodes[0].contents[i] = C::node(offset);
+					self.nodes[0].used_cell_count += 1;
+					leaves[i].parent_offset = offset as u16;
+					self.nodes.push(leaves[i].clone());
+				}
+				true
+			}
+			2 => {
+				let mut leaves = vec![GridTreeNode::<C>::new(0); SIZE_USIZE_CUBED * SIZE_USIZE_CUBED];
+				for op in ops {
+					let rel = op.min - origin;
+					let root_child = rel / 16;
+					let mid_rel = rel - root_child * 16;
+					let mid_child = mid_rel / 4;
+					let local = mid_rel - mid_child * 4;
+					let root_i = (root_child.x + root_child.y * SIZE as i32 + root_child.z * SIZE as i32 * SIZE as i32) as usize;
+					let mid_i = (mid_child.x + mid_child.y * SIZE as i32 + mid_child.z * SIZE as i32 * SIZE as i32) as usize;
+					let cell_i = (local.x + local.y * SIZE as i32 + local.z * SIZE as i32 * SIZE as i32) as usize;
+					let leaf = &mut leaves[root_i * SIZE_USIZE_CUBED + mid_i];
+					if leaf.contents[cell_i].kind() == CellKind::Empty {
+						leaf.used_cell_count += 1;
+						self.item_count += 1;
+					}
+					leaf.contents[cell_i] = C::data(op.data);
+				}
+
+				for root_i in 0..SIZE_USIZE_CUBED {
+					let has_root = (0..SIZE_USIZE_CUBED).any(|mid_i| leaves[root_i * SIZE_USIZE_CUBED + mid_i].used_cell_count != 0);
+					if !has_root { continue; }
+					let mid_index = self.nodes.len() as u32;
+					let root_offset = mid_index;
+					if root_offset > C::MAX_NODE_OFFSET { return false; }
+					self.nodes[0].contents[root_i] = C::node(root_offset);
+					self.nodes[0].used_cell_count += 1;
+					self.nodes.push(GridTreeNode::new(root_offset as u16));
+					for mid_i in 0..SIZE_USIZE_CUBED {
+						let leaf_key = root_i * SIZE_USIZE_CUBED + mid_i;
+						if leaves[leaf_key].used_cell_count == 0 { continue; }
+						let leaf_index = self.nodes.len() as u32;
+						let leaf_offset = leaf_index - mid_index;
+						if leaf_offset > C::MAX_NODE_OFFSET { return false; }
+						self.nodes[mid_index as usize].contents[mid_i] = C::node(leaf_offset);
+						self.nodes[mid_index as usize].used_cell_count += 1;
+						leaves[leaf_key].parent_offset = leaf_offset as u16;
+						self.nodes.push(leaves[leaf_key].clone());
+					}
+				}
+				true
+			}
+			_ => unreachable!(),
+		}
+	}
+
+	fn build_single_voxel_node(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
+		let cell_size = child_size(node_depth) as i32;
+		let mut child_ops: [Vec<AreaOp<C::Data>>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
+		for op in ops {
+			let child = (op.min - node_origin).div_euclid(IVec3::splat(cell_size));
+			debug_assert!(child.cmpge(IVec3::ZERO).all() && child.cmplt(IVec3::splat(SIZE as i32)).all());
+			let i = (child.x + child.y * SIZE as i32 + child.z * SIZE as i32 * SIZE as i32) as usize;
+			child_ops[i].push(*op);
+		}
+
+		if node_depth == 0 {
+			let node = &mut self.nodes[node_index as usize];
+			for i in 0..SIZE_CUBED {
+				let Some(last) = child_ops[i as usize].last() else { continue };
+				node.contents[i as usize] = C::data(last.data);
+				node.used_cell_count += 1;
+				self.item_count += 1;
+			}
+			return true;
+		}
+
+		let mut uniform_children = 0u8;
+		let mut uniform_value: Option<C::Data> = None;
+		for i in 0..SIZE_CUBED {
+			let bucket = &child_ops[i as usize];
+			if bucket.is_empty() {
+				continue;
+			}
+			let child_origin = node_origin + (get_child_contents_pos(i).as_uvec3() * cell_size as u32).as_ivec3();
+			let child_volume = child_size(node_depth) as usize;
+			let child_volume = child_volume * child_volume * child_volume;
+			let same_data = bucket.iter().all(|op| op.data == bucket[0].data);
+			if bucket.len() == child_volume && same_data {
+				let data = bucket[0].data;
+				self.nodes[node_index as usize].contents[i as usize] = C::data(data);
+				self.nodes[node_index as usize].used_cell_count += 1;
+				self.item_count += child_volume as u64;
+				uniform_children += 1;
+				uniform_value = Some(match uniform_value {
+					Some(existing) if existing == data => existing,
+					Some(existing) => existing,
+					None => data,
+				});
+				continue;
+			}
+
+			let child_index = self.nodes.len() as u32;
+			let offset = child_index - node_index;
+			if offset == 0 || offset > C::MAX_NODE_OFFSET {
+				return false;
+			}
+			self.nodes[node_index as usize].contents[i as usize] = C::node(offset);
+			self.nodes[node_index as usize].used_cell_count += 1;
+			self.nodes.push(GridTreeNode::new(offset as u16));
+			if !self.build_single_voxel_node(child_index, node_depth - 1, child_origin, bucket) {
+				return false;
+			}
+		}
+
+		if self.nodes[node_index as usize].used_cell_count == SIZE_CUBED {
+			let first = self.nodes[node_index as usize].contents[0];
+			if first.kind() == CellKind::Data && self.nodes[node_index as usize].contents.iter().all(|cell| *cell == first) {
+				// Keep root as a node so iterator/root invariants match the existing tree,
+				// but let parents collapse this child after construction.
+				let _ = (uniform_children, uniform_value);
+			}
+		}
+		true
+	}
+
+	fn occupied_count_in_cell(&self, node_index: u32, node_depth: u8, cell: C) -> u64 {
+		match cell.kind() {
+			CellKind::Empty => 0,
+			CellKind::Data => {
+				let s = child_size(node_depth) as u64;
+				s * s * s
+			}
+			// A node at depth 0 cannot represent more than this single voxel-sized
+			// cell. Treat it as occupied if encountered while replacing legacy or
+			// partially-collapsed structure instead of underflowing the depth.
+			CellKind::Node if node_depth == 0 => 1,
+			CellKind::Node => self.occupied_count_in_node(node_index + cell.node_offset(), node_depth - 1),
+		}
+	}
+
+	fn occupied_count_in_node(&self, node_index: u32, node_depth: u8) -> u64 {
+		self.nodes[node_index as usize]
+			.contents
+			.iter()
+			.map(|cell| self.occupied_count_in_cell(node_index, node_depth, *cell))
+			.sum()
+	}
+
+	fn mark_subtree_dead(&mut self, node_index: u32) {
+		for i in 0..SIZE_CUBED {
+			let cell = self.nodes[node_index as usize].contents[i as usize];
+			if cell.kind() == CellKind::Node {
+				self.mark_subtree_dead(node_index + cell.node_offset());
+			}
+		}
+		self.remove_node(node_index);
+	}
+
+	fn set_child_area_to_data(&mut self, node_index: u32, node_depth: u8, child_index: u8, data: C::Data) {
+		let old = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
+		let old_count = self.occupied_count_in_cell(node_index, node_depth, old);
+		if old.kind() == CellKind::Node {
+			self.mark_subtree_dead(node_index + old.node_offset());
+		}
+
+		let s = child_size(node_depth) as u64;
+		let new_count = s * s * s;
+		let node = &mut self.nodes[node_index as usize];
+		if old.kind() == CellKind::Empty {
+			node.used_cell_count += 1;
+			assert!(node.used_cell_count <= 64);
+		}
+		node.set_child_cell_from_index(child_index, C::data(data));
+		self.item_count = self.item_count + new_count - old_count;
+	}
+
+	fn set_voxel_child_to_data(&mut self, node_index: u32, child_index: u8, data: C::Data) {
+		let old = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
+		let node = &mut self.nodes[node_index as usize];
+		match old.kind() {
+			CellKind::Empty => {
+				node.used_cell_count += 1;
+				assert!(node.used_cell_count <= 64);
+				self.item_count += 1;
+			}
+			CellKind::Data => {}
+			CellKind::Node => {
+				// A depth-0 child should not normally be a node, but preserve the
+				// replacement semantics if older/corrupt structure is encountered.
+				self.mark_subtree_dead(node_index + old.node_offset());
+			}
+		}
+		self.nodes[node_index as usize].set_child_cell_from_index(child_index, C::data(data));
+	}
+
+	fn allocate_child_node(&mut self, parent_index: u32, child_index: u8, contents: C) -> Option<u32> {
+		if self.nodes.len() + MAX_TREE_DEPTH_USIZE > C::MAX_NODE_OFFSET as usize {
+			bevy::log::warn!("GridTree node arena full ({} live); skipping partial add_area edit", self.nodes.len());
+			return None;
+		}
+		let child_index_u32 = self.nodes.len() as u32;
+		let offset = child_index_u32 - parent_index;
+		if offset == 0 || offset > C::MAX_NODE_OFFSET {
+			bevy::log::warn!("GridTree node offset overflow; skipping partial add_area edit");
+			return None;
+		}
+		let used_cell_count = if contents.kind() == CellKind::Empty { 0 } else { SIZE_CUBED };
+		let old = self.nodes[parent_index as usize].get_child_cell_from_index(child_index);
+		let parent = &mut self.nodes[parent_index as usize];
+		if old.kind() == CellKind::Empty {
+			parent.used_cell_count += 1;
+			assert!(parent.used_cell_count <= 64);
+		}
+		parent.set_child_cell_to_node_from_index(child_index, offset);
+		self.nodes.push(GridTreeNode { contents: [contents; SIZE_USIZE_CUBED], parent_offset: offset as u16, used_cell_count });
+		Some(child_index_u32)
+	}
+
+	fn collapse_child_node_if_possible(&mut self, parent_index: u32, child_index: u8) {
+		let cell = self.nodes[parent_index as usize].get_child_cell_from_index(child_index);
+		if cell.kind() != CellKind::Node {
+			return;
+		}
+		let child_index_abs = parent_index + cell.node_offset();
+		let child = &self.nodes[child_index_abs as usize];
+		if child.used_cell_count == 0 {
+			self.remove_node(child_index_abs);
+			let parent = &mut self.nodes[parent_index as usize];
+			parent.used_cell_count -= 1;
+			parent.set_child_cell_to_none_from_index(child_index);
+			return;
+		}
+		if child.used_cell_count != SIZE_CUBED {
+			return;
+		}
+		let first = child.contents[0];
+		if first.kind() != CellKind::Data || child.contents.iter().any(|cell| *cell != first) {
+			return;
+		}
+		let data = first.data_value();
+		self.remove_node(child_index_abs);
+		self.nodes[parent_index as usize].set_child_cell_from_index(child_index, C::data(data));
+	}
+
+	fn add_areas_recurse(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
+		if ops.is_empty() {
+			return true;
+		}
+
+		let cell_size = child_size(node_depth);
+		let mut child_ops: [Vec<AreaOp<C::Data>>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
+
+		// Spatially bucket the whole batch by this node's children while preserving
+		// input order inside each bucket, so overlapping writes retain sequential
+		// semantics but traversal is shared by neighbouring/sibling edits. Compute
+		// the intersected child index range directly instead of testing all 64
+		// children for every op; dense single-voxel batches hit exactly one child per
+		// level.
+		let node_end = node_origin + IVec3::splat(size(node_depth) as i32);
+		let cell_size_i = cell_size as i32;
+		for op in ops {
+			let overlap_min = op.min.max(node_origin);
+			let overlap_end = op.end.min(node_end);
+			if overlap_min.cmpge(overlap_end).any() {
+				continue;
+			}
+			let child_min = (overlap_min - node_origin).div_euclid(IVec3::splat(cell_size_i));
+			let child_max = (overlap_end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size_i));
+			for z in child_min.z..=child_max.z {
+				for y in child_min.y..=child_max.y {
+					for x in child_min.x..=child_max.x {
+						let i = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as usize;
+						child_ops[i].push(*op);
+					}
+				}
+			}
+		}
+
+		if node_depth == 0 {
+			for i in 0..SIZE_CUBED {
+				let Some(last) = child_ops[i as usize].last() else { continue };
+				self.set_voxel_child_to_data(node_index, i, last.data);
+			}
+			return true;
+		}
+
+		for i in 0..SIZE_CUBED {
+			let bucket = &child_ops[i as usize];
+			if bucket.is_empty() {
+				continue;
+			}
+
+			let child_origin = node_origin + (get_child_contents_pos(i).as_uvec3() * cell_size).as_ivec3();
+			let child_end = child_origin + IVec3::splat(cell_size as i32);
+			let mut partial_run_start = 0usize;
+
+			for op_index in 0..bucket.len() {
+				let op = bucket[op_index];
+				let fully_covered = op.min.cmple(child_origin).all() && child_end.cmple(op.end).all();
+				if !fully_covered && node_depth != 0 {
+					continue;
+				}
+
+				if partial_run_start < op_index {
+					let child_node_index = match self.child_node_for_partial_area(node_index, i) {
+						Some(index) => index,
+						None => return false,
+					};
+					if !self.add_areas_recurse(child_node_index, node_depth - 1, child_origin, &bucket[partial_run_start..op_index]) {
+						return false;
+					}
+					self.collapse_child_node_if_possible(node_index, i);
+				}
+
+				self.set_child_area_to_data(node_index, node_depth, i, op.data);
+				partial_run_start = op_index + 1;
+			}
+
+			if partial_run_start < bucket.len() {
+				if node_depth == 0 {
+					for op in &bucket[partial_run_start..] {
+						self.set_child_area_to_data(node_index, node_depth, i, op.data);
+					}
+					continue;
+				}
+				let child_node_index = match self.child_node_for_partial_area(node_index, i) {
+					Some(index) => index,
+					None => return false,
+				};
+				if !self.add_areas_recurse(child_node_index, node_depth - 1, child_origin, &bucket[partial_run_start..]) {
+					return false;
+				}
+				self.collapse_child_node_if_possible(node_index, i);
+			}
+		}
+		true
+	}
+
+	fn child_node_for_partial_area(&mut self, node_index: u32, child_index: u8) -> Option<u32> {
+		let cell = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
+		match cell.kind() {
+			CellKind::Node => Some(node_index + cell.node_offset()),
+			CellKind::Empty => self.allocate_child_node(node_index, child_index, C::EMPTY),
+			CellKind::Data => self.allocate_child_node(node_index, child_index, cell),
 		}
 	}
 
@@ -256,9 +814,35 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		r.min_element() >= 0 && (r.max_element() as i64) < size(self.root_depth) as i64
 	}
 
+	fn make_sure_root_covers_area(&mut self, min: IVec3, max: IVec3) -> bool {
+		if self.nodes[0].used_cell_count == 0 {
+			let span = (max - min).max_element() as i64 + 1;
+			let mut depth = 0u8;
+			while (size(depth) as i64) < span {
+				if depth >= Co::MAX_ROOT_DEPTH {
+					bevy::log::warn!("GridTree can't cover span {span} for area {min:?}..={max:?}; skipping add_area");
+					return false;
+				}
+				depth += 1;
+			}
+			self.nodes = vec![GridTreeNode::new_root()];
+			self.root_pos = min;
+			self.root_depth = depth;
+			self.item_count = 0;
+			self.dead_nodes = 0;
+			return true;
+		}
+		if self.root_covers(min) && self.root_covers(max) {
+			return true;
+		}
+		self.rebuild_to_cover_bounds(min, max)
+	}
+
 	fn rebuild_to_cover(&mut self, pos: IVec3) -> bool {
-		let mut min = pos;
-		let mut max = pos;
+		self.rebuild_to_cover_bounds(pos, pos)
+	}
+
+	fn rebuild_to_cover_bounds(&mut self, mut min: IVec3, mut max: IVec3) -> bool {
 		let mut voxels: Vec<(IVec3, C::Data)> = Vec::new();
 		self.each_leaf(|origin, cell_size, value| {
 			min = min.min(origin);
@@ -275,7 +859,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		let mut depth = 0u8;
 		while (size(depth) as i64) < span {
 			if depth >= Co::MAX_ROOT_DEPTH {
-				bevy::log::warn!("GridTree can't cover span {span} for {pos:?}; skipping insert");
+				bevy::log::warn!("GridTree can't cover span {span} for bounds {min:?}..={max:?}; skipping edit");
 				return false;
 			}
 			depth += 1;
@@ -852,5 +1436,26 @@ impl<'a, C: GridCell, Co: GridCoord> Iterator for GridTreeIterator<'a, C, Co> {
 				self.stack.pop();
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::voxel_grid_tree::PackedCell;
+	use bevy::math::I16Vec3;
+
+	#[test]
+	fn add_area_preserves_large_runs() {
+		let mut tree = GridTree::<PackedCell, I16Coord>::new();
+		tree.add_area(&I16Vec3::ZERO, IVec3::splat(16), 7);
+
+		assert_eq!(tree.len(), 16 * 16 * 16);
+		let leaves: Vec<_> = tree.iter().collect();
+		assert_eq!(leaves.len(), SIZE_CUBED as usize);
+		assert!(leaves.iter().all(|(_, size, value)| *size == 4 && *value == 7));
+		assert_eq!(tree.get(&I16Vec3::new(0, 0, 0)), Some(7));
+		assert_eq!(tree.get(&I16Vec3::new(15, 15, 15)), Some(7));
+		assert_eq!(tree.get(&I16Vec3::new(16, 0, 0)), None);
 	}
 }

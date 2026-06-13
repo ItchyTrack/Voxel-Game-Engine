@@ -1,6 +1,6 @@
 use bevy::math::I16Vec3;
 use tracy_client::span;
-use std::{sync::{Mutex, atomic::{AtomicBool, Ordering}}};
+use std::{collections::HashMap, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
 
 use super::voxel_grid_tree::VoxelGridTree;
@@ -78,15 +78,103 @@ impl Voxels {
 		self.voxel_palette.voxel(out).cloned()
 	}
 
+	pub fn ensure_area_covered(&mut self, pos: I16Vec3, size: I16Vec3) -> bool {
+		self.voxels.ensure_area_covered(&pos, size.as_ivec3())
+	}
+
 	pub fn add_area(&mut self, pos: I16Vec3, size: I16Vec3, voxel: Voxel) {
-		if size.cmple(I16Vec3::ZERO).any() { return; }
-		let id = self.voxel_palette.palette_id(&voxel);
-		self.voxels.add_area(&pos, size.as_ivec3(), id);
-		let max = pos + size - I16Vec3::ONE;
+		self.add_areas(&[(pos, size, voxel)]);
+	}
+
+	pub fn add_areas(&mut self, areas: &[(I16Vec3, I16Vec3, Voxel)]) {
+		let mut tree_areas = Vec::with_capacity(areas.len());
+		let mut palette_cache = HashMap::new();
+		let mut bounds: Option<(I16Vec3, I16Vec3)> = None;
+		for (pos, size, voxel) in areas {
+			if size.cmple(I16Vec3::ZERO).any() { continue; }
+			let id = *palette_cache.entry(*voxel).or_insert_with(|| self.voxel_palette.palette_id(voxel));
+			tree_areas.push((*pos, size.as_ivec3(), id));
+			let max = *pos + *size - I16Vec3::ONE;
+			bounds = Some(match bounds {
+				Some((mn, mx)) => (mn.min(*pos), mx.max(max)),
+				None => (*pos, max),
+			});
+		}
+		self.add_tree_areas(tree_areas, bounds);
+	}
+
+	pub fn add_palette_voxels(&mut self, voxels: &[(I16Vec3, u16)], source_palette: &VoxelPalette) {
+		if voxels.is_empty() { return; }
+		let (min, max) = voxels.iter().fold((I16Vec3::splat(i16::MAX), I16Vec3::splat(i16::MIN)), |(mn, mx), (pos, _)| (mn.min(*pos), mx.max(*pos)));
+		self.add_palette_voxels_in_bounds(voxels, source_palette, min, max);
+	}
+
+	pub fn add_palette_voxels_in_bounds(&mut self, voxels: &[(I16Vec3, u16)], source_palette: &VoxelPalette, min: I16Vec3, max: I16Vec3) {
+		if voxels.is_empty() { return; }
+		if self.is_empty() {
+			self.voxel_palette = source_palette.clone();
+			self.voxels.add_single_voxels_in_bounds(voxels, min.as_ivec3(), max.as_ivec3());
+		} else {
+			let mut palette_cache = HashMap::new();
+			let mapped: Vec<_> = voxels.iter().map(|(pos, source_id)| {
+				let id = *palette_cache.entry(*source_id).or_insert_with(|| {
+					let voxel = source_palette.voxel(*source_id).expect("source palette id missing");
+					self.voxel_palette.palette_id(voxel)
+				});
+				(*pos, id)
+			}).collect();
+			self.voxels.add_single_voxels_in_bounds(&mapped, min.as_ivec3(), max.as_ivec3());
+		}
 		let bb = self.bounding_box.get_mut().unwrap();
 		*bb = Some(match *bb {
-			Some((mn, mx)) => (mn.min(pos), mx.max(max)),
-			None => (pos, max),
+			Some((mn, mx)) => (mn.min(min), mx.max(max)),
+			None => (min, max),
+		});
+	}
+
+	pub fn add_palette_areas(&mut self, areas: &[(I16Vec3, I16Vec3, u16)], source_palette: &VoxelPalette) {
+		let mut tree_areas = Vec::with_capacity(areas.len());
+		let mut bounds: Option<(I16Vec3, I16Vec3)> = None;
+		if self.is_empty() {
+			self.voxel_palette = source_palette.clone();
+			for (pos, size, id) in areas {
+				if size.cmple(I16Vec3::ZERO).any() { continue; }
+				tree_areas.push((*pos, size.as_ivec3(), *id));
+				let max = *pos + *size - I16Vec3::ONE;
+				bounds = Some(match bounds {
+					Some((mn, mx)) => (mn.min(*pos), mx.max(max)),
+					None => (*pos, max),
+				});
+			}
+		} else {
+			let mut palette_cache = HashMap::new();
+			for (pos, size, source_id) in areas {
+				if size.cmple(I16Vec3::ZERO).any() { continue; }
+				let id = *palette_cache.entry(*source_id).or_insert_with(|| {
+					let voxel = source_palette.voxel(*source_id).expect("source palette id missing");
+					self.voxel_palette.palette_id(voxel)
+				});
+				tree_areas.push((*pos, size.as_ivec3(), id));
+				let max = *pos + *size - I16Vec3::ONE;
+				bounds = Some(match bounds {
+					Some((mn, mx)) => (mn.min(*pos), mx.max(max)),
+					None => (*pos, max),
+				});
+			}
+		}
+		self.add_tree_areas(tree_areas, bounds);
+	}
+
+	fn add_tree_areas(&mut self, tree_areas: Vec<(I16Vec3, bevy::math::IVec3, u16)>, bounds: Option<(I16Vec3, I16Vec3)>) {
+		if tree_areas.is_empty() {
+			return;
+		}
+		self.voxels.add_areas(&tree_areas);
+		let Some((min, max)) = bounds else { return };
+		let bb = self.bounding_box.get_mut().unwrap();
+		*bb = Some(match *bb {
+			Some((mn, mx)) => (mn.min(min), mx.max(max)),
+			None => (min, max),
 		});
 	}
 

@@ -8,20 +8,24 @@ use tracy_client::span;
 use crate::subgrid::{SubGrid, SubGridId, SubGridRef};
 use crate::voxels::{Voxel, Voxels};
 
+// Temporary fixed sub-grid extent. Do not rely on sub-grids staying aligned to
+// this grid: future physics/rendering work is expected to choose more optimal
+// sub-grid placements dynamically, so callers should treat sub-grid origins as
+// implementation details rather than stable chunk/grid boundaries.
 pub const SUB_GRID_SIZE: i32 = 57;
 
 /// A [`Grid`] entity. Each rigid voxel object owns one.
 pub type GridId = Entity;
 
 #[derive(Debug)]
-struct SubGridSlot {
-	voxels: Voxels,
-	entity: SubGridId,
+pub(crate) struct SubGridSlot {
+	pub(crate) voxels: Voxels,
+	pub(crate) entity: SubGridId,
 }
 
 #[derive(Debug, Component, Default)]
 pub struct Grid {
-	subgrids: HashMap<IVec3, SubGridSlot>,
+	pub(crate) subgrids: HashMap<IVec3, SubGridSlot>,
 }
 
 impl Grid {
@@ -175,13 +179,41 @@ impl Grid {
 	/// sub-grid boundaries. Returns the touched origins for [`reconcile_subgrids`].
 	pub fn splat_voxels(&mut self, base: IVec3, src: &Voxels) -> HashSet<IVec3> {
 		let _zone = span!();
-		let mut touched = HashSet::new();
+		struct Batch {
+			origin: IVec3,
+			voxels: Vec<(I16Vec3, u16)>,
+			areas: Vec<(I16Vec3, I16Vec3, u16)>,
+			voxel_min: I16Vec3,
+			voxel_max: I16Vec3,
+		}
+		impl Batch {
+			fn new(origin: IVec3) -> Self {
+				Self { origin, voxels: Vec::new(), areas: Vec::new(), voxel_min: I16Vec3::splat(i16::MAX), voxel_max: I16Vec3::splat(i16::MIN) }
+			}
+			fn push_voxel(&mut self, local: I16Vec3, palette_id: u16) {
+				self.voxel_min = self.voxel_min.min(local);
+				self.voxel_max = self.voxel_max.max(local);
+				self.voxels.push((local, palette_id));
+			}
+		}
+		let mut batches: Vec<Batch> = Vec::new();
 		let palette = src.palette();
 		let sub = IVec3::splat(SUB_GRID_SIZE);
 		for (pos, size, palette_id) in src.grid_tree().iter() {
-			let Some(voxel) = palette.voxel(palette_id) else { continue };
-			let voxel = *voxel;
+			if palette.voxel(palette_id).is_none() { continue; }
 			let lo = base + pos.as_ivec3();
+			if size == 1 {
+				let sub_origin = lo.div_euclid(sub) * SUB_GRID_SIZE;
+				let local = (lo - sub_origin).as_i16vec3();
+				if let Some(batch) = batches.iter_mut().find(|batch| batch.origin == sub_origin) {
+					batch.push_voxel(local, palette_id);
+				} else {
+					let mut batch = Batch::new(sub_origin);
+					batch.push_voxel(local, palette_id);
+					batches.push(batch);
+				}
+				continue;
+			}
 			let hi = lo + IVec3::splat(size as i32);
 			let sg_lo = lo.div_euclid(sub);
 			let sg_hi = (hi - IVec3::ONE).div_euclid(sub);
@@ -193,15 +225,32 @@ impl Grid {
 						let cell_hi = hi.min(sub_origin + sub);
 						let local = (cell_lo - sub_origin).as_i16vec3();
 						let extent = (cell_hi - cell_lo).as_i16vec3();
-						self.subgrids
-							.entry(sub_origin)
-							.or_insert_with(|| SubGridSlot { voxels: Voxels::new(), entity: Entity::PLACEHOLDER })
-							.voxels
-							.add_area(local, extent, voxel);
-						touched.insert(sub_origin);
+						if let Some(batch) = batches.iter_mut().find(|batch| batch.origin == sub_origin) {
+							batch.areas.push((local, extent, palette_id));
+						} else {
+							let mut batch = Batch::new(sub_origin);
+							batch.areas.push((local, extent, palette_id));
+							batches.push(batch);
+						}
 					}
 				}
 			}
+		}
+
+		let mut touched = HashSet::with_capacity(batches.len());
+		for batch in batches {
+			let slot = self
+				.subgrids
+				.entry(batch.origin)
+				.or_insert_with(|| SubGridSlot { voxels: Voxels::new(), entity: Entity::PLACEHOLDER });
+
+			if !batch.voxels.is_empty() {
+				slot.voxels.add_palette_voxels_in_bounds(&batch.voxels, palette, batch.voxel_min, batch.voxel_max);
+			}
+			if !batch.areas.is_empty() {
+				slot.voxels.add_palette_areas(&batch.areas, palette);
+			}
+			touched.insert(batch.origin);
 		}
 		touched
 	}

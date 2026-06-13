@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use tracy_client::span;
 
 use voxel_data::grid::{reconcile_subgrids, Grid, GridId};
+use voxel_data::splat::{splat_voxels_blocking, GridSplat};
 use voxel_data::subgrid::SubGrid;
 use voxel_edit::{EditGate, GridEdit, GridEdits};
 
@@ -193,10 +194,12 @@ pub fn receive_results(
 	mut sub_grids: Query<&mut SubGrid>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
+	let mut loaded_by_grid: HashMap<GridId, Vec<(IVec3, voxel_data::voxels::Voxels)>> = HashMap::new();
+
 	while let Some(result) = channel.try_recv() {
 		let _zone = span!("receive result");
 		let was_empty = result.voxels.is_none();
-		if let Ok((mut streaming, mut grid, mut edits)) = grids.get_mut(result.grid) {
+		if let Ok((mut streaming, _grid, mut edits)) = grids.get_mut(result.grid) {
 			match streaming.presence.state(result.chunk) {
 				Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
 					match result.voxels {
@@ -205,10 +208,7 @@ pub fn receive_results(
 						}
 						Some(voxels) => {
 							streaming.mark_loaded(result.chunk);
-							let base = chunk_origin(result.chunk);
-							let touched = grid.splat_voxels(base, &voxels);
-							reconcile_subgrids(result.grid, grid.as_mut(), touched, &mut commands, &mut sub_grids);
-							streaming.replay_stalled(result.chunk, &mut edits);
+							loaded_by_grid.entry(result.grid).or_default().push((result.chunk, voxels));
 						}
 						None => {
 							streaming.mark_empty(result.chunk);
@@ -235,6 +235,21 @@ pub fn receive_results(
 					}
 				}
 			}
+		}
+	}
+
+	for (grid_entity, loaded) in loaded_by_grid {
+		let _zone = span!("apply grouped chunk splats");
+		let Ok((mut streaming, mut grid, mut edits)) = grids.get_mut(grid_entity) else { continue };
+		let splats: Vec<_> = loaded
+			.iter()
+			.map(|(chunk, voxels)| GridSplat { grid: 0, base: chunk_origin(*chunk), voxels })
+			.collect();
+		let mut touched_by_grid = splat_voxels_blocking(std::slice::from_mut(grid.as_mut()), &splats);
+		let touched = touched_by_grid.remove(&0).unwrap_or_default();
+		reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
+		for (chunk, _) in loaded {
+			streaming.replay_stalled(chunk, &mut edits);
 		}
 	}
 }

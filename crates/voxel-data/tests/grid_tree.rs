@@ -194,6 +194,58 @@ mod tests {
 		assert_eq!(t.len(), 8 * 8 * 8 - 3 * 3 * 3);
 	}
 
+	#[test]
+	fn add_areas_matches_sequential_single_voxels_across_existing_merged_cells() {
+		let mut t = VoxelGridTree::new();
+		let mut oracle = HashMap::new();
+
+		t.add_area(&p(-32, -32, -32), IVec3::splat(16), 1);
+		for x in -32..-16 {
+			for y in -32..-16 {
+				for z in -32..-16 {
+					oracle.insert(p(x, y, z), 1);
+				}
+			}
+		}
+
+		let mut batch = Vec::new();
+		for i in 0..512i16 {
+			let x = ((i * 17 + 11).rem_euclid(96)) - 48;
+			let y = ((i * 29 + 7).rem_euclid(96)) - 48;
+			let z = ((i * 43 + 3).rem_euclid(96)) - 48;
+			let pos = p(x, y, z);
+			let value = 10 + (i as u16 % 5);
+			batch.push((pos, IVec3::ONE, value));
+			oracle.insert(pos, value);
+		}
+		t.add_areas(&batch);
+
+		assert_matches_oracle(&t, &oracle);
+	}
+
+	#[test]
+	fn add_areas_matches_sequential_mixed_runs_and_single_voxels() {
+		let mut batched = VoxelGridTree::new();
+		let mut sequential = VoxelGridTree::new();
+		let mut areas = Vec::new();
+
+		for i in 0..256i16 {
+			let pos = p(
+				((i * 19 + 5).rem_euclid(120)) - 60,
+				((i * 31 + 9).rem_euclid(120)) - 60,
+				((i * 47 + 13).rem_euclid(120)) - 60,
+			);
+			let size = if i % 7 == 0 { IVec3::splat(4) } else if i % 5 == 0 { IVec3::new(3, 2, 5) } else { IVec3::ONE };
+			let value = 1 + (i as u16 % 17);
+			areas.push((pos, size, value));
+			sequential.add_area(&pos, size, value);
+		}
+
+		batched.add_areas(&areas);
+		assert_eq!(tree_voxels(&batched), tree_voxels(&sequential));
+		assert_eq!(batched.len(), sequential.len());
+	}
+
 	// ---- iteration ----
 
 	#[test]
