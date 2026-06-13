@@ -1161,6 +1161,14 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		self.region_recurse(0, self.root_depth, self.root_pos, min, max, &mut |o, s, v| f(Co::from_ivec3(o), Co::size_from_u32(s), v));
 	}
 
+	pub fn any_in_region(&self, min: Co::Pos, max: Co::Pos) -> bool {
+		if self.is_empty() {
+			return false;
+		}
+		let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
+		self.region_any_recurse(0, self.root_depth, self.root_pos, min, max)
+	}
+
 	fn region_recurse(&self, node_index: u32, node_depth: u8, node_origin: IVec3, min: IVec3, max: IVec3, f: &mut dyn FnMut(IVec3, u32, C::Data)) {
 		let node = &self.nodes[node_index as usize];
 		let cell_size = child_size(node_depth);
@@ -1181,6 +1189,33 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 				CellKind::Empty => unreachable!(),
 			}
 		}
+	}
+
+	fn region_any_recurse(&self, node_index: u32, node_depth: u8, node_origin: IVec3, min: IVec3, max: IVec3) -> bool {
+		let node = &self.nodes[node_index as usize];
+		let cell_size = child_size(node_depth);
+		for i in 0..SIZE_CUBED {
+			let cell = node.contents[i as usize];
+			if cell.kind() == CellKind::Empty {
+				continue;
+			}
+			let contents_pos = get_child_contents_pos(i);
+			let child_origin = node_origin + (contents_pos.as_uvec3() * cell_size).as_ivec3();
+			let child_end = child_origin + IVec3::splat(cell_size as i32); // exclusive
+			if child_origin.cmpgt(max).any() || child_end.cmple(min).any() {
+				continue;
+			}
+			match cell.kind() {
+				CellKind::Data => return true,
+				CellKind::Node => {
+					if self.region_any_recurse(node_index + cell.node_offset(), node_depth - 1, child_origin, min, max) {
+						return true;
+					}
+				}
+				CellKind::Empty => unreachable!(),
+			}
+		}
+		false
 	}
 
 	fn ray_aabb_intersection(start: &Vec3, direction: &Vec3, aabb: &(Vec3, Vec3)) -> Option<f32> {

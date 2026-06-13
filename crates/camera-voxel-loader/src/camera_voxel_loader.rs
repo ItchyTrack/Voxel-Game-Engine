@@ -4,9 +4,9 @@ use bevy::{ecs::component::Component, math::IVec3};
 use voxel_data::grid::GridId;
 
 use crate::retirement::{RetireDeps, RetireTarget};
-use crate::types::{ChunkKey, TileKey, TileRecord};
+use crate::types::{ChunkKey, PolicyDebugBox, TileKey, TileRecord};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CameraVoxelLoaderSettings {
 	pub max_lod: u8,
 	pub near_radius_chunks: i32,
@@ -36,6 +36,8 @@ pub struct CameraVoxelLoader {
 	pub(crate) retiring_tiles: HashMap<TileKey, RetireDeps>,
 	pub(crate) tile_dependents: HashMap<TileKey, Vec<RetireTarget>>,
 	pub(crate) grid_centers: HashMap<GridId, IVec3>,
+	pub(crate) applied_settings: Option<CameraVoxelLoaderSettings>,
+	pub(crate) policy_debug_boxes: Vec<PolicyDebugBox>,
 	pub(crate) queue: VecDeque<TileKey>,
 	pub(crate) tiles: HashMap<TileKey, TileRecord>,
 }

@@ -8,7 +8,7 @@ use voxel_renderer::voxel_camera::VoxelCamera;
 use voxel_streaming::{ChunkConsumer, ChunkRequestChannel, GridStreaming, LodRequestChannel, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
-use crate::lod_policy::{add_lod_tiles, add_near_chunks, nearest_chunk_center};
+use crate::lod_policy::{add_lod_tiles, add_near_chunks, nearest_chunk_center, update_lod_tiles_delta, update_near_chunks_delta};
 use crate::retirement::{cancel_retirement, notify_tile_resolved, ready_retiring_chunks, ready_retiring_tiles, register_chunk_retirement, register_tile_retirement, RetireTarget};
 use crate::types::{ChunkKey, TileKey, TileRecord, TileStatus};
 use crate::CameraVoxelLoaderConsumer;
@@ -23,17 +23,33 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			continue;
 		}
 		let camera_world = camera_global.translation();
-		let mut desired_chunks = HashSet::new();
-		let mut desired_tiles = HashSet::new();
+		let settings_changed = camera_voxel_loader.applied_settings.as_ref() != Some(&camera_voxel_loader.settings);
+		let settings = camera_voxel_loader.settings.clone();
+		let mut policy_debug_boxes = Vec::new();
+		let mut desired_chunks = if settings_changed { HashSet::new() } else { camera_voxel_loader.desired_chunks.clone() };
+		let mut desired_tiles = if settings_changed { HashSet::new() } else { camera_voxel_loader.desired_tiles.clone() };
 
 		for (grid, grid_global, streaming) in &mut grids {
 			let local = grid_global.affine().inverse().transform_point3(camera_world);
 			let camera_chunk = nearest_chunk_center(local);
+			let previous_center = if settings_changed { None } else { camera_voxel_loader.grid_centers.get(&grid).copied() };
+			let rebuild_grid = previous_center.map_or(true, |old| should_rebuild_policy(old, camera_chunk));
+
+			if rebuild_grid {
+				desired_chunks.retain(|key| key.grid != grid);
+				desired_tiles.retain(|key| key.grid != grid);
+				add_near_chunks(&mut desired_chunks, grid, camera_chunk, &camera_voxel_loader);
+				add_lod_tiles(&mut desired_tiles, grid, camera_chunk, &camera_voxel_loader, streaming.as_ref());
+			} else if let Some(old_center) = previous_center {
+				update_near_chunks_delta(&mut desired_chunks, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings);
+				update_lod_tiles_delta(&mut desired_tiles, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
+			}
+
 			camera_voxel_loader.grid_centers.insert(grid, camera_chunk);
-			add_near_chunks(&mut desired_chunks, grid, camera_chunk, &camera_voxel_loader);
-			add_lod_tiles(&mut desired_tiles, grid, camera_chunk, &camera_voxel_loader, streaming.as_ref());
 		}
 
+		camera_voxel_loader.applied_settings = Some(settings);
+		camera_voxel_loader.policy_debug_boxes = policy_debug_boxes;
 		camera_voxel_loader.desired_tiles = desired_tiles.clone();
 
 		let chunks_to_fetch = update_desired_chunks(&mut camera_voxel_loader, desired_chunks);
@@ -96,6 +112,11 @@ pub(crate) fn update_camera_voxel_loader_requests(
 
 fn in_flight_count(camera_voxel_loader: &CameraVoxelLoader) -> usize {
 	camera_voxel_loader.tiles.values().filter(|r| r.status == TileStatus::Loading).count()
+}
+
+fn should_rebuild_policy(old_center: IVec3, new_center: IVec3) -> bool {
+	const MAX_INCREMENTAL_DELTA_CHUNKS: i32 = 8;
+	(new_center - old_center).abs().max_element() > MAX_INCREMENTAL_DELTA_CHUNKS
 }
 
 fn update_desired_chunks(camera_voxel_loader: &mut CameraVoxelLoader, desired_chunks: HashSet<ChunkKey>) -> Vec<ChunkKey> {

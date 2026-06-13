@@ -115,6 +115,10 @@ impl ChunkPresence {
 		self.tree.get(&chunk).is_some()
 	}
 
+	pub fn any_present_in_region(&self, min: IVec3, max: IVec3) -> bool {
+		self.tree.any_in_region(min, max)
+	}
+
 	/// `transform` rotation maps +Z onto the ray direction (matches the voxel tree).
 	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(IVec3, f32)> {
 		self.tree.raycast(transform, max_length).map(|(pos, _, dist)| (pos, dist))
