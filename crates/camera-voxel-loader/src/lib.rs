@@ -28,7 +28,7 @@ impl Plugin for CameraVoxelLoaderPlugin {
 			.register_chunk_consumer::<CameraVoxelLoaderConsumer>()
 			.add_systems(Update, ensure_camera_voxel_loader_components)
 			.add_systems(
-				StreamingSchedule,
+				Update,
 				update_camera_voxel_loader_requests.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0).in_set(StreamingPhase::Request),
 			)
 			.add_systems(StreamingSchedule, receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive))
