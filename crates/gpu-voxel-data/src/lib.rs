@@ -7,7 +7,7 @@ pub mod lod_voxels;
 pub mod residency;
 pub mod upload;
 
-use bevy::prelude::*;
+use bevy::{prelude::*, render::RenderApp};
 
 use crate::world_gpu_data::WorldGpuData;
 
@@ -36,6 +36,8 @@ impl Plugin for GpuVoxelDataPlugin {
 
 	fn finish(&self, app: &mut App) {
 		app.init_resource::<WorldGpuData>();
-		app.init_resource::<residency::ResidencyBuffers>();
+
+		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+		render_app.init_resource::<residency::ResidencyBuffers>();
 	}
 }

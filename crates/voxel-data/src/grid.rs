@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::math::{I16Vec3, IVec3, Quat, Vec3};
 
+use tracy_client::span;
+
 use crate::subgrid::{SubGrid, SubGridId, SubGridRef};
 use crate::voxels::{Voxel, Voxels};
 
@@ -172,6 +174,7 @@ impl Grid {
 	/// bypassing the pending queue. Cells are bulk-filled and split across
 	/// sub-grid boundaries. Returns the touched origins for [`reconcile_subgrids`].
 	pub fn splat_voxels(&mut self, base: IVec3, src: &Voxels) -> HashSet<IVec3> {
+		let _zone = span!();
 		let mut touched = HashSet::new();
 		let palette = src.palette();
 		let sub = IVec3::splat(SUB_GRID_SIZE);
@@ -272,6 +275,7 @@ pub fn reconcile_subgrids(
 	commands: &mut Commands,
 	sub_grids: &mut Query<&mut SubGrid>,
 ) {
+	let _zone = span!();
 	for pos in touched {
 		let Some(slot) = grid.subgrids.get(&pos) else { continue };
 		let entity = slot.entity;

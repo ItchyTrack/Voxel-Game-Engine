@@ -1,0 +1,37 @@
+use bevy::{ecs::entity::Entity, math::IVec3};
+use voxel_data::grid::GridId;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ChunkKey {
+	pub(crate) grid: GridId,
+	pub(crate) chunk: IVec3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TileKey {
+	pub(crate) grid: GridId,
+	pub(crate) lod: u8,
+	pub(crate) min: IVec3,
+}
+
+impl TileKey {
+	pub(crate) fn size(self) -> IVec3 {
+		IVec3::splat(1i32 << self.lod)
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TileRecord {
+	pub(crate) status: TileStatus,
+	pub(crate) entity: Option<Entity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate)  enum TileStatus {
+	Queued,
+	Loading,
+	LoadedWaitingGpu,
+	Ready,
+	Empty,
+	Retiring,
+}

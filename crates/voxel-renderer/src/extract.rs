@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
 use bevy::camera::{Camera, Projection};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::math::Vec3;
@@ -11,10 +13,12 @@ use bevy::transform::components::{GlobalTransform, Transform};
 use gpu_voxel_data::lod_voxels::LodVoxels;
 use gpu_voxel_data::residency::ResidencyBuffers;
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
+use gpu_voxel_data::world_gpu_data::WorldGpuData;
 use voxel_bvh::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
-use camera_lods::{LodRequestMap, LodVisibleKind};
-use voxel_streaming::CHUNK_SIZE;
+
+use crate::hit_count_feedback::HitCountFeedback;
+use crate::voxel_camera::VoxelCamera;
 
 #[derive(Resource, Default)]
 pub struct ExtractedVoxelScene {
@@ -27,76 +31,98 @@ pub struct ExtractedVoxelScene {
 	pub voxel_buffer: Option<wgpu::Buffer>,
 }
 
+struct Candidate {
+	entity: Entity,
+	tree_id: u32,
+	voxels_id: u32,
+	priority: f32,
+}
+
+impl Hash for Candidate {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.entity.hash(state);
+		self.tree_id.hash(state);
+		self.voxels_id.hash(state);
+	}
+}
+impl Eq for Candidate {
+
+}
+impl PartialEq for Candidate {
+	fn eq(&self, other: &Self) -> bool {
+		self.entity == other.entity && self.tree_id == other.tree_id && self.voxels_id == other.voxels_id && self.priority == other.priority
+	}
+}
+
 pub fn extract_voxel_scene(
 	mut extracted: ResMut<ExtractedVoxelScene>,
-	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform, Option<&LodRequestMap>)>>,
-	sub_grids: Extract<Query<(Entity, &SubGrid, &SubGridGpuState)>>,
-	lod_voxels: Extract<Query<(Entity, &LodVoxels, &SubGridGpuState)>>,
-	grid_transforms: Extract<Query<&GlobalTransform>>,
-	residency: Extract<Res<ResidencyBuffers>>,
+	mut residency: ResMut<ResidencyBuffers>,
+	hit_feedback: Res<HitCountFeedback>,
+	cameras: Extract<Query<(&VoxelCamera, &Camera, &Projection, &GlobalTransform)>>,
+	sub_grids: Extract<Query<(&SubGridGpuState, &GlobalTransform), With<SubGrid>>>,
+	lod_voxels: Extract<Query<(&LodVoxels, &SubGridGpuState, &GlobalTransform)>>,
+	world_gpu: Extract<Res<WorldGpuData>>,
 ) {
 	extracted.has_camera = false;
 	extracted.bvh = None;
 	extracted.id_to_offsets.clear();
 
-	let mut lod_requests = None;
-	for (camera, projection, global_transform, requests) in cameras.iter() {
+	let mut bvh_items: Vec<(SubGridId, (Vec3, Vec3))> = Vec::new();
+	let mut id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)> = HashMap::new();
+	let mut candidates = HashSet::new();
+
+	let offsets = residency.offsets();
+
+	for (voxel_camera, camera, projection, global_transform) in cameras.iter() {
 		if !camera.is_active { continue; }
 		extracted.camera_transform = global_transform.compute_transform();
 		extracted.camera_projection = Some(projection.clone());
 		extracted.has_camera = true;
-		lod_requests = requests;
+
+		for entity in voxel_camera.subgrids_to_render.iter() {
+			let Ok((sub_grid_gpu_state, sub_grid_global_transform)) = sub_grids.get(*entity) else { continue; };
+			let Some(&(tree_offset, voxel_offset)) = offsets.get(&entity) else { continue };
+			let sub_grid_global_transform = sub_grid_global_transform.compute_transform();
+			let placement = sub_grid_gpu_state.placement();
+			let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &sub_grid_global_transform);
+			let grid_tree_transform = sub_grid_global_transform * Transform::from_translation(placement.tree_root_pos.as_vec3());
+
+			bvh_items.push((*entity, aabb));
+			id_to_offsets.insert(*entity, (tree_offset, voxel_offset, grid_tree_transform));
+			let Some(&hit_count) = hit_feedback.0.get(&entity) else { continue; };
+			if hit_count == 0 { continue; }
+			candidates.insert(Candidate {
+				entity: *entity,
+				tree_id: sub_grid_gpu_state.tree_id(),
+				voxels_id: sub_grid_gpu_state.voxels_id(),
+				priority: (-global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) + hit_count as f32 * 0.001,
+			});
+		}
+
+		for entity in voxel_camera.lods_to_render.iter() {
+			let Ok((lod_grid, lod_grid_gpu_state, lod_grid_global_transform)) = lod_voxels.get(*entity) else { continue; };
+			let Some(&(tree_offset, voxel_offset)) = offsets.get(&entity) else { continue };
+			let lod_grid_global_transform = lod_grid_global_transform.compute_transform();
+			let scale = (1u32 << lod_grid.lod.max(0.0).floor() as u32) as f32;
+			let area_world = lod_grid_global_transform * Transform::from_scale(Vec3::splat(scale));
+			let placement = lod_grid_gpu_state.placement();
+			let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &area_world);
+			let dda_transform = area_world * Transform::from_translation(placement.tree_root_pos.as_vec3());
+
+			bvh_items.push((*entity, aabb));
+			id_to_offsets.insert(*entity, (tree_offset, voxel_offset, dda_transform));
+			let Some(&hit_count) = hit_feedback.0.get(&entity) else { continue; };
+			if hit_count == 0 { continue; }
+			candidates.insert(Candidate {
+				entity: *entity,
+				tree_id: lod_grid_gpu_state.tree_id(),
+				voxels_id: lod_grid_gpu_state.voxels_id(),
+				priority: (-global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) + hit_count as f32 * 0.001,
+			});
+		}
 		break;
 	}
 	if !extracted.has_camera { return; }
-
-	let render_subgrids: Option<HashSet<Entity>> = lod_requests.map(|requests| {
-		requests.visible().iter().filter(|v| v.kind == LodVisibleKind::SubGrid).map(|v| v.entity).collect()
-	});
-	let render_lods: Option<HashSet<Entity>> = lod_requests.map(|requests| {
-		requests.visible().iter().filter(|v| v.kind == LodVisibleKind::Lod).map(|v| v.entity).collect()
-	});
-	let mut bvh_items: Vec<(SubGridId, (Vec3, Vec3))> = Vec::new();
-	let mut id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)> = HashMap::new();
-
-	let offsets = residency.offsets();
-	for (entity, sub_grid, gpu_state) in sub_grids.iter() {
-		if render_subgrids.as_ref().is_some_and(|set| !set.contains(&entity)) { continue; }
-		let Some(&(tree_offset, voxel_offset)) = offsets.get(&entity) else { continue };
-
-		let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue };
-		let sub_world = grid_global.compute_transform()
-			* Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
-
-		let placement = gpu_state.placement();
-		let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &sub_world);
-		let dda_transform = sub_world
-			* Transform::from_translation(placement.tree_root_pos.as_vec3());
-
-		bvh_items.push((entity, aabb));
-		id_to_offsets.insert(entity, (tree_offset, voxel_offset, dda_transform));
-	}
-
-	for (entity, lod_voxels, gpu_state) in lod_voxels.iter() {
-		if render_lods.as_ref().is_some_and(|set| !set.contains(&entity)) { continue; }
-		let Some(&(tree_offset, voxel_offset)) = offsets.get(&entity) else { continue };
-
-		let Ok(grid_global) = grid_transforms.get(lod_voxels.grid) else { continue };
-		let scale = (1u32 << lod_voxels.lod.max(0.0).floor() as u32) as f32;
-		let area_origin = (lod_voxels.min * CHUNK_SIZE).as_vec3();
-		let area_world = grid_global.compute_transform()
-			* Transform::from_translation(area_origin)
-			* Transform::from_scale(Vec3::splat(scale));
-
-		let placement = gpu_state.placement();
-		let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &area_world);
-		let dda_transform = area_world
-			* Transform::from_translation(placement.tree_root_pos.as_vec3());
-
-		bvh_items.push((entity, aabb));
-		id_to_offsets.insert(entity, (tree_offset, voxel_offset, dda_transform));
-	}
-
 	if !bvh_items.is_empty() {
 		extracted.bvh = Some(BVH::new(bvh_items));
 	}
@@ -104,4 +130,43 @@ pub fn extract_voxel_scene(
 
 	extracted.tree_buffer = Some(residency.tree_buffer().clone());
 	extracted.voxel_buffer = Some(residency.voxel_buffer().clone());
+
+
+	let tree_alignment = residency.tree_alignment();
+	let voxel_alignment = residency.voxel_alignment();
+
+	let candidates = {
+		let mut candidates = candidates.drain().collect::<Vec<_>>();
+		candidates.sort_by(|a, b| b.priority.total_cmp(&a.priority));
+		candidates
+	};
+
+	let limit = residency.binding_limit();
+	let mut tree_total = 0u64;
+	let mut voxel_total = 0u64;
+	let mut resident: Vec<(Entity, u32, u32)> = Vec::with_capacity(candidates.len());
+	let mut dropped = 0usize;
+	for candidate in &candidates {
+		let Some(tree_held) = world_gpu.packed_64_tree_dynamic_buffer.held_buffer(candidate.tree_id) else { continue; };
+		let Some(voxel_held) = world_gpu.packed_voxel_data_dynamic_buffer.held_buffer(candidate.voxels_id) else { continue; };
+		let next_tree = tree_total + tree_held.size().next_multiple_of(tree_alignment) as u64;
+		let next_voxel = voxel_total + voxel_held.size().next_multiple_of(voxel_alignment) as u64;
+		if next_tree > limit || next_voxel > limit {
+			dropped += 1;
+			continue;
+		}
+		tree_total = next_tree;
+		voxel_total = next_voxel;
+		resident.push((candidate.entity, candidate.tree_id, candidate.voxels_id));
+	}
+
+	if dropped > 0 {
+		log::warn!(
+			"residency budget hit: {dropped} of {} sub-grids dropped this frame ({} resident)",
+			candidates.len(),
+			resident.len()
+		);
+	}
+
+	residency.upload(&world_gpu, &resident);
 }

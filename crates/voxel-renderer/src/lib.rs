@@ -2,15 +2,15 @@ pub mod camera;
 pub mod graphics_settings;
 pub mod hit_count_feedback;
 pub mod voxel_renderer;
+pub mod voxel_camera;
 pub mod voxel_renderer_resource;
 
 mod extract;
 mod render_node;
-mod residency_select;
 
 pub use render_node::VoxelRenderLabel;
 
-use bevy::app::{App, Plugin, Update};
+use bevy::app::{App, Plugin};
 use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::render::extract_resource::ExtractResourcePlugin;
@@ -18,8 +18,7 @@ use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::render::render_graph::{RenderGraphExt, ViewNodeRunner};
 
 use voxel_data::VoxelDataPlugin;
-use camera_lods::CameraLodsPlugin;
-use gpu_voxel_data::{GpuUploadSet, GpuVoxelDataPlugin};
+use gpu_voxel_data::{GpuVoxelDataPlugin};
 
 use graphics_settings::GraphicsSettings;
 use hit_count_feedback::{HitCountFeedback, LastGpuBvh, RenderStats};
@@ -35,23 +34,15 @@ impl Plugin for VoxelRendererPlugin {
 		if !app.is_plugin_added::<GpuVoxelDataPlugin>() {
 			app.add_plugins(GpuVoxelDataPlugin);
 		}
-		let hit_count_feedback = HitCountFeedback::default();
 		let render_stats = RenderStats::default();
-		app.insert_resource(hit_count_feedback.clone())
-			.insert_resource(render_stats.clone())
+		app.insert_resource(render_stats.clone())
 			.init_resource::<GraphicsSettings>()
-			.add_plugins((CameraLodsPlugin, ExtractResourcePlugin::<GraphicsSettings>::default()))
-			.add_systems(
-				Update,
-				residency_select::build_residency
-					.after(GpuUploadSet::Upload)
-					.after(voxel_data::task_system::drain_task_queue),
-			);
+			.add_plugins(ExtractResourcePlugin::<GraphicsSettings>::default());
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
-			.insert_resource(hit_count_feedback)
 			.insert_resource(render_stats)
+			.init_resource::<HitCountFeedback>()
 			.init_resource::<LastGpuBvh>()
 			.init_resource::<extract::ExtractedVoxelScene>()
 			.init_resource::<render_node::VoxelViewBindGroups>()

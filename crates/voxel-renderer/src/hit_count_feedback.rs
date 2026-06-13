@@ -10,7 +10,7 @@ use voxel_bvh::gpu_bvh::GpuBvh;
 use voxel_data::subgrid::SubGridId;
 
 #[derive(Resource, Clone, Default)]
-pub struct HitCountFeedback(pub Arc<Mutex<HashMap<SubGridId, u32>>>);
+pub struct HitCountFeedback(pub HashMap<SubGridId, u32>);
 
 #[derive(Resource, Default)]
 pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<SubGridId>>>);
@@ -33,7 +33,7 @@ const READBACK_TIMEOUT: Duration = Duration::from_millis(100);
 pub fn read_back_hit_counts(
 	render_device: Res<RenderDevice>,
 	last_gpu_bvh: ResMut<LastGpuBvh>,
-	feedback: Res<HitCountFeedback>,
+	mut feedback: ResMut<HitCountFeedback>,
 ) {
 	let Some(prev) = last_gpu_bvh.0.lock().ok().and_then(
 		|mut slot| slot.take()
@@ -56,11 +56,9 @@ pub fn read_back_hit_counts(
 	let counts: &[u32] = bytemuck::cast_slice(&view);
 	let n = counts.len().min(prev.item_count).min(prev.item_ids.len());
 
-	if let Ok(mut feedback) = feedback.0.lock() {
-		feedback.clear();
-		for (id, count) in prev.item_ids.iter().zip(&counts[..n]) {
-			feedback.insert(*id, *count);
-		}
+	feedback.0.clear();
+	for (id, count) in prev.item_ids.iter().zip(&counts[..n]) {
+		feedback.0.insert(*id, *count);
 	}
 	drop(view);
 	prev.item_hit_count_staging_buffer.unmap();

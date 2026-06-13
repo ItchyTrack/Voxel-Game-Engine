@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use bevy::math::IVec3;
 use bevy::prelude::*;
 
+use tracy_client::span;
+
 use voxel_data::grid::{reconcile_subgrids, Grid, GridId};
 use voxel_data::subgrid::SubGrid;
 use voxel_edit::{EditGate, GridEdit, GridEdits};
@@ -122,6 +124,7 @@ impl GridStreaming {
 	}
 
 	fn replay_stalled(&mut self, chunk: IVec3, edits: &mut Option<Mut<GridEdits>>) {
+		let _zone = span!();
 		let Some(stalled) = self.stalled_edits.remove(&chunk) else { return; };
 		if let Some(edits) = edits.as_mut() {
 			for edit in stalled {
@@ -191,6 +194,7 @@ pub fn receive_results(
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
 	while let Some(result) = channel.try_recv() {
+		let _zone = span!("receive result");
 		let was_empty = result.voxels.is_none();
 		if let Ok((mut streaming, mut grid, mut edits)) = grids.get_mut(result.grid) {
 			match streaming.presence.state(result.chunk) {
@@ -217,6 +221,7 @@ pub fn receive_results(
 				}
 			}
 		}
+		let _zone = span!("update consumers");
 		for mut entity_consumers in consumers.iter_mut() {
 			for mut consumer in &mut entity_consumers {
 				if !consumer.needed().get(&result.grid).is_some_and(|set| set.contains(&result.chunk)) {
