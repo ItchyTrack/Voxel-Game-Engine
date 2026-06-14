@@ -132,3 +132,4 @@ fn setup(mut commands: Commands) {
 		FlyCamera::default(),
 	));
 }
+

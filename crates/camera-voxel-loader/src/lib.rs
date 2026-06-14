@@ -1,6 +1,5 @@
 mod camera_voxel_loader;
 mod coverage;
-mod debug;
 mod loading;
 mod lod_policy;
 mod types;
@@ -54,7 +53,6 @@ impl Plugin for CameraVoxelLoaderPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<FreezeCameraVoxelLoader>()
 			.init_resource::<CameraVoxelLoaderDefaultSettings>()
-			.init_gizmo_group::<debug::CameraVoxelLoaderGizmos>()
 			.register_chunk_consumer::<CameraVoxelLoaderConsumer>()
 			.add_systems(Update, ensure_camera_voxel_loader_components)
 			.add_systems(
@@ -79,10 +77,6 @@ impl Plugin for CameraVoxelLoaderPlugin {
 					.chain()
 					.after(gpu_voxel_data::GpuUploadSet::Upload),
 			)
-			.add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
-				store.config_mut::<debug::CameraVoxelLoaderGizmos>().0.line.width = 3.0;
-			})
-			.add_systems(Update, debug::draw_waiting_coverage_gizmos.after(gpu_voxel_data::GpuUploadSet::Upload));
-		// .add_systems(Update, (debug::draw_policy_delta_gizmos, debug::draw_retiring_lod_gizmos));
+			;
 	}
 }

@@ -12,11 +12,15 @@ pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
 }
 
 pub(crate) fn add_near_chunks(out: &mut HashSet<ChunkKey>, grid: GridId, center: IVec3, camera_voxel_loader: &CameraVoxelLoader, streaming: &GridStreaming) {
-	let r = camera_voxel_loader.settings.near_radius_chunks;
-	for x in -r..=r {
-		for y in -r..=r {
-			for z in -r..=r {
-				let chunk = center + IVec3::new(x, y, z);
+	add_near_chunks_for_settings(out, grid, center, &camera_voxel_loader.settings, streaming);
+}
+
+fn add_near_chunks_for_settings(out: &mut HashSet<ChunkKey>, grid: GridId, center: IVec3, settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming) {
+	let (min, max) = near_bounds(center, settings);
+	for x in min.x..max.x {
+		for y in min.y..max.y {
+			for z in min.z..max.z {
+				let chunk = IVec3::new(x, y, z);
 				if streaming.presence().is_present(chunk) {
 					out.insert(ChunkKey { grid, chunk });
 				}
@@ -26,31 +30,28 @@ pub(crate) fn add_near_chunks(out: &mut HashSet<ChunkKey>, grid: GridId, center:
 }
 
 pub(crate) fn add_lod_tiles(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, camera_voxel_loader: &CameraVoxelLoader, streaming: &GridStreaming) {
+	add_lod_tiles_for_settings(out, grid, center, &camera_voxel_loader.settings, streaming);
+}
+
+fn add_lod_tiles_for_settings(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming) {
 	if presence_bounds(streaming).is_none() { return; }
 
-	let mut inner = camera_voxel_loader.settings.near_radius_chunks + 1;
-	for lod in 1..=camera_voxel_loader.settings.max_lod {
+	for lod in 1..=settings.max_lod {
 		let tile_size = 1i32 << lod;
-		let outer = inner + camera_voxel_loader.settings.rings_per_lod * tile_size;
-		let lod_min = center - IVec3::splat(outer);
-		let lod_max = center + IVec3::splat(outer);
-		let min_tile = align_chunk_to_tile(lod_min, tile_size);
-		let max_tile = align_chunk_to_tile(lod_max, tile_size);
-		let band_inner = if lod == 1 { 0 } else { inner };
-		for x in (min_tile.x..=max_tile.x).step_by(tile_size as usize) {
-			for y in (min_tile.y..=max_tile.y).step_by(tile_size as usize) {
-				for z in (min_tile.z..=max_tile.z).step_by(tile_size as usize) {
+		let (inner_min, inner_max) = lod_inner_bounds(center, settings, lod);
+		let (outer_min, outer_max) = lod_outer_bounds(center, settings, lod);
+		for x in (outer_min.x..outer_max.x).step_by(tile_size as usize) {
+			for y in (outer_min.y..outer_max.y).step_by(tile_size as usize) {
+				for z in (outer_min.z..outer_max.z).step_by(tile_size as usize) {
 					let min = IVec3::new(x, y, z);
-					if tile_intersects_ring(center, min, tile_size, band_inner, outer)
-						&& !tile_inside_near_box(center, min, tile_size, camera_voxel_loader.settings.near_radius_chunks)
-						&& tile_has_present_chunk(streaming, min, tile_size)
-					{
+					let max = min + IVec3::splat(tile_size);
+					let inside_inner = min.cmpge(inner_min).all() && max.cmple(inner_max).all();
+					if !inside_inner && tile_has_present_chunk(streaming, min, tile_size) {
 						out.insert(TileKey { grid, lod, min });
 					}
 				}
 			}
 		}
-		inner = outer + 1;
 	}
 }
 
@@ -80,6 +81,11 @@ pub(crate) fn tile_key_covering_chunk(grid: GridId, chunk: IVec3, lod: u8) -> Ti
 	TileKey { grid, lod, min: align_chunk_to_tile(chunk, tile_size) }
 }
 
+pub(crate) fn is_near_chunk_wanted(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, chunk: IVec3) -> bool {
+	let (min, max) = near_bounds(center, settings);
+	chunk.cmpge(min).all() && chunk.cmplt(max).all() && streaming.presence().is_present(chunk)
+}
+
 pub(crate) fn update_near_chunks_delta(
 	out: &mut HashSet<ChunkKey>,
 	debug_boxes: &mut Vec<PolicyDebugBox>,
@@ -89,30 +95,13 @@ pub(crate) fn update_near_chunks_delta(
 	settings: &CameraVoxelLoaderSettings,
 	streaming: &GridStreaming,
 ) {
-	let r = settings.near_radius_chunks;
-	let old_min = old_center - IVec3::splat(r);
-	let old_max = old_center + IVec3::splat(r);
-	let new_min = new_center - IVec3::splat(r);
-	let new_max = new_center + IVec3::splat(r);
-
-	for_each_changed_slab(old_min, old_max, new_min, new_max, |min, max, entering| {
+	let (old_min, old_max) = near_bounds(old_center, settings);
+	let (new_min, new_max) = near_bounds(new_center, settings);
+	for_each_changed_slab(old_min, old_max - IVec3::ONE, new_min, new_max - IVec3::ONE, |min, max, entering| {
 		push_policy_debug_box(debug_boxes, grid, min, max, entering, PolicyDebugBoxKind::NearChunks);
-		for x in min.x..=max.x {
-			for y in min.y..=max.y {
-				for z in min.z..=max.z {
-					let chunk = IVec3::new(x, y, z);
-					let key = ChunkKey { grid, chunk };
-					if entering {
-						if streaming.presence().is_present(chunk) {
-							out.insert(key);
-						}
-					} else {
-						out.remove(&key);
-					}
-				}
-			}
-		}
 	});
+	out.retain(|key| key.grid != grid);
+	add_near_chunks_for_settings(out, grid, new_center, settings, streaming);
 }
 
 pub(crate) fn update_lod_tiles_delta(
@@ -126,226 +115,83 @@ pub(crate) fn update_lod_tiles_delta(
 ) {
 	for lod in 1..=settings.max_lod {
 		let tile_size = 1i32 << lod;
-		let mut candidates = HashSet::new();
-		let (old_inner, old_outer, old_band_inner) = lod_bounds(settings, lod, old_center);
-		let (new_inner, new_outer, new_band_inner) = lod_bounds(settings, lod, new_center);
-
-		add_changed_tile_slabs(
-			&mut candidates,
-			debug_boxes,
-			grid,
-			lod,
-			old_outer.0,
-			old_outer.1,
-			new_outer.0,
-			new_outer.1,
-			tile_size,
-			PolicyDebugBoxKind::LodOuter(lod),
-		);
-		add_changed_tile_slabs(
-			&mut candidates,
-			debug_boxes,
-			grid,
-			lod,
-			old_inner.0,
-			old_inner.1,
-			new_inner.0,
-			new_inner.1,
-			tile_size,
-			PolicyDebugBoxKind::LodInner(lod),
-		);
-		add_tile_boundary_surfaces(
-			&mut candidates,
-			debug_boxes,
-			grid,
-			lod,
-			old_center,
-			old_outer.2,
-			old_outer.2,
-			tile_size,
-			false,
-			PolicyDebugBoxKind::LodOuter(lod),
-		);
-		add_tile_boundary_surfaces(
-			&mut candidates,
-			debug_boxes,
-			grid,
-			lod,
-			new_center,
-			new_outer.2,
-			new_outer.2,
-			tile_size,
-			true,
-			PolicyDebugBoxKind::LodOuter(lod),
-		);
-		if old_band_inner > 0 {
-			add_tile_boundary_surfaces(
-				&mut candidates,
-				debug_boxes,
-				grid,
-				lod,
-				old_center,
-				old_band_inner,
-				old_outer.2,
-				tile_size,
-				false,
-				PolicyDebugBoxKind::LodInner(lod),
-			);
-		}
-		if new_band_inner > 0 {
-			add_tile_boundary_surfaces(
-				&mut candidates,
-				debug_boxes,
-				grid,
-				lod,
-				new_center,
-				new_band_inner,
-				new_outer.2,
-				tile_size,
-				true,
-				PolicyDebugBoxKind::LodInner(lod),
-			);
-		}
-
-		let near = settings.near_radius_chunks;
-		add_changed_tile_slabs(
-			&mut candidates,
-			debug_boxes,
-			grid,
-			lod,
-			old_center - IVec3::splat(near),
-			old_center + IVec3::splat(near),
-			new_center - IVec3::splat(near),
-			new_center + IVec3::splat(near),
-			tile_size,
-			PolicyDebugBoxKind::LodNearExclusion(lod),
-		);
-		add_tile_boundary_surfaces(
-			&mut candidates,
-			debug_boxes,
-			grid,
-			lod,
-			old_center,
-			near,
-			near,
-			tile_size,
-			false,
-			PolicyDebugBoxKind::LodNearExclusion(lod),
-		);
-		add_tile_boundary_surfaces(
-			&mut candidates,
-			debug_boxes,
-			grid,
-			lod,
-			new_center,
-			near,
-			near,
-			tile_size,
-			true,
-			PolicyDebugBoxKind::LodNearExclusion(lod),
-		);
-
-		for key in candidates {
-			let old_wanted = wants_lod_tile(settings, streaming, old_center, key, old_band_inner, old_outer.2);
-			let new_wanted = wants_lod_tile(settings, streaming, new_center, key, new_band_inner, new_outer.2);
-			match (old_wanted, new_wanted) {
-				(false, true) => {
-					out.insert(key);
-				}
-				(true, false) => {
-					out.remove(&key);
-				}
-				_ => {}
-			}
-		}
+		let (old_inner_min, old_inner_max) = lod_inner_bounds(old_center, settings, lod);
+		let (old_outer_min, old_outer_max) = lod_outer_bounds(old_center, settings, lod);
+		let (new_inner_min, new_inner_max) = lod_inner_bounds(new_center, settings, lod);
+		let (new_outer_min, new_outer_max) = lod_outer_bounds(new_center, settings, lod);
+		add_changed_tile_slabs(debug_boxes, grid, lod, old_outer_min, old_outer_max - IVec3::ONE, new_outer_min, new_outer_max - IVec3::ONE, tile_size, PolicyDebugBoxKind::LodOuter(lod));
+		add_changed_tile_slabs(debug_boxes, grid, lod, old_inner_min, old_inner_max - IVec3::ONE, new_inner_min, new_inner_max - IVec3::ONE, tile_size, PolicyDebugBoxKind::LodInner(lod));
 	}
+	out.retain(|key| key.grid != grid);
+	add_lod_tiles_for_settings(out, grid, new_center, settings, streaming);
 }
 
 pub(crate) fn is_lod_tile_wanted(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, key: TileKey) -> bool {
-	let (_, outer, band_inner) = lod_bounds(settings, key.lod, center);
-	wants_lod_tile(settings, streaming, center, key, band_inner, outer.2)
+	wants_lod_tile(settings, streaming, center, key)
 }
 
-fn wants_lod_tile(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, key: TileKey, band_inner: i32, outer: i32) -> bool {
+fn wants_lod_tile(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, key: TileKey) -> bool {
 	let tile_size = 1i32 << key.lod;
-	tile_intersects_ring(center, key.min, tile_size, band_inner, outer)
-		&& !tile_inside_near_box(center, key.min, tile_size, settings.near_radius_chunks)
+	let (inner_min, inner_max) = lod_inner_bounds(center, settings, key.lod);
+	let (outer_min, outer_max) = lod_outer_bounds(center, settings, key.lod);
+	let max = key.min + IVec3::splat(tile_size);
+	key.min.cmpge(outer_min).all()
+		&& max.cmple(outer_max).all()
+		&& !(key.min.cmpge(inner_min).all() && max.cmple(inner_max).all())
 		&& tile_has_present_chunk(streaming, key.min, tile_size)
 }
 
-fn lod_bounds(settings: &CameraVoxelLoaderSettings, lod: u8, center: IVec3) -> ((IVec3, IVec3, i32), (IVec3, IVec3, i32), i32) {
-	let mut inner = settings.near_radius_chunks + 1;
-	for current_lod in 1..=lod {
-		let outer = inner + settings.rings_per_lod * (1i32 << current_lod);
-		let band_inner = if current_lod == 1 { 0 } else { inner };
-		if current_lod == lod {
-			return (
-				(center - IVec3::splat(band_inner), center + IVec3::splat(band_inner), band_inner),
-				(center - IVec3::splat(outer), center + IVec3::splat(outer), outer),
-				band_inner,
-			);
-		}
-		inner = outer + 1;
+fn near_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings) -> (IVec3, IVec3) {
+	let min = center - IVec3::splat(settings.near_radius_chunks);
+	let max = center + IVec3::splat(settings.near_radius_chunks + 1);
+	align_bounds_to_tile(min, max, 2)
+}
+
+fn lod_inner_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings, lod: u8) -> (IVec3, IVec3) {
+	if lod == 1 {
+		near_bounds(center, settings)
+	} else {
+		lod_outer_bounds(center, settings, lod - 1)
 	}
-	unreachable!()
+}
+
+fn lod_outer_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings, lod: u8) -> (IVec3, IVec3) {
+	let bounds = expand_bounds_by_tile_rings(lod_inner_bounds(center, settings, lod), 1i32 << lod, settings.rings_per_lod);
+	if lod < settings.max_lod {
+		align_bounds_to_tile(bounds.0, bounds.1, 1i32 << (lod + 1))
+	} else {
+		bounds
+	}
+}
+
+fn expand_bounds_by_tile_rings((min, max): (IVec3, IVec3), tile_size: i32, rings: i32) -> (IVec3, IVec3) {
+	let expansion = IVec3::splat(tile_size * rings);
+	(min - expansion, max + expansion)
+}
+
+fn align_bounds_to_tile(min: IVec3, max: IVec3, tile_size: i32) -> (IVec3, IVec3) {
+	let tile = IVec3::splat(tile_size);
+	(min.div_euclid(tile) * tile, (max + tile - IVec3::ONE).div_euclid(tile) * tile)
 }
 
 fn add_changed_tile_slabs(
-	out: &mut HashSet<TileKey>,
 	debug_boxes: &mut Vec<PolicyDebugBox>,
 	grid: GridId,
-	lod: u8,
+	_lod: u8,
 	old_min: IVec3,
 	old_max: IVec3,
 	new_min: IVec3,
 	new_max: IVec3,
-	tile_size: i32,
+	_tile_size: i32,
 	kind: PolicyDebugBoxKind,
 ) {
 	for_each_changed_slab(old_min, old_max, new_min, new_max, |min, max, entering| {
 		push_policy_debug_box(debug_boxes, grid, min, max, entering, kind);
-		add_tiles_intersecting_box(out, grid, lod, min, max, tile_size);
 	});
 }
 
 fn push_policy_debug_box(debug_boxes: &mut Vec<PolicyDebugBox>, grid: GridId, min: IVec3, max: IVec3, entering: bool, kind: PolicyDebugBoxKind) {
 	debug_boxes.push(PolicyDebugBox { grid, min, max: max + IVec3::ONE, entering, kind });
-}
-
-fn add_tile_boundary_surfaces(
-	out: &mut HashSet<TileKey>,
-	debug_boxes: &mut Vec<PolicyDebugBox>,
-	grid: GridId,
-	lod: u8,
-	center: IVec3,
-	radius: i32,
-	extent: i32,
-	tile_size: i32,
-	entering: bool,
-	kind: PolicyDebugBoxKind,
-) {
-	for axis in 0..3 {
-		for side in [-1, 1] {
-			let mut min = center - IVec3::splat(extent);
-			let mut max = center + IVec3::splat(extent);
-			min[axis] = center[axis] + side * radius;
-			max[axis] = min[axis];
-			push_policy_debug_box(debug_boxes, grid, min, max, entering, kind);
-			add_tiles_intersecting_box(out, grid, lod, min, max, tile_size);
-		}
-	}
-}
-
-fn add_tiles_intersecting_box(out: &mut HashSet<TileKey>, grid: GridId, lod: u8, min: IVec3, max: IVec3, tile_size: i32) {
-	let min_tile = align_chunk_to_tile(min - IVec3::splat(tile_size - 1), tile_size);
-	let max_tile = align_chunk_to_tile(max, tile_size);
-	for x in (min_tile.x..=max_tile.x).step_by(tile_size as usize) {
-		for y in (min_tile.y..=max_tile.y).step_by(tile_size as usize) {
-			for z in (min_tile.z..=max_tile.z).step_by(tile_size as usize) {
-				out.insert(TileKey { grid, lod, min: IVec3::new(x, y, z) });
-			}
-		}
-	}
 }
 
 fn for_each_changed_slab(old_min: IVec3, old_max: IVec3, new_min: IVec3, new_max: IVec3, mut f: impl FnMut(IVec3, IVec3, bool)) {
@@ -374,38 +220,6 @@ fn for_each_changed_slab(old_min: IVec3, old_max: IVec3, new_min: IVec3, new_max
 			f(min, max, false);
 		}
 	}
-}
-
-fn axis_min_abs_delta(center: i32, lo: i32, hi: i32) -> i32 {
-	if center < lo {
-		lo - center
-	} else if center > hi {
-		center - hi
-	} else {
-		0
-	}
-}
-
-fn tile_intersects_ring(center: IVec3, min: IVec3, tile_size: i32, inner: i32, outer: i32) -> bool {
-	let max = min + IVec3::splat(tile_size - 1);
-	let min_dist = axis_min_abs_delta(center.x, min.x, max.x)
-		.max(axis_min_abs_delta(center.y, min.y, max.y))
-		.max(axis_min_abs_delta(center.z, min.z, max.z));
-	let max_dist = (min.x - center.x)
-		.abs()
-		.max((max.x - center.x).abs())
-		.max((min.y - center.y).abs())
-		.max((max.y - center.y).abs())
-		.max((min.z - center.z).abs())
-		.max((max.z - center.z).abs());
-	max_dist >= inner && min_dist <= outer
-}
-
-fn tile_inside_near_box(center: IVec3, min: IVec3, tile_size: i32, near_radius: i32) -> bool {
-	let max = min + IVec3::splat(tile_size - 1);
-	(min.x - center.x).abs().max((max.x - center.x).abs()) <= near_radius
-		&& (min.y - center.y).abs().max((max.y - center.y).abs()) <= near_radius
-		&& (min.z - center.z).abs().max((max.z - center.z).abs()) <= near_radius
 }
 
 #[cfg(test)]

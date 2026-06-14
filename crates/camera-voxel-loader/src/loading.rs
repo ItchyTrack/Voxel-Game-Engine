@@ -9,7 +9,7 @@ use voxel_renderer::voxel_camera::VoxelCamera;
 use voxel_streaming::{ChunkBecameDirty, ChunkBecamePresent, ChunkConsumer, ChunkLoadResolved, ChunkRequestChannel, GridStreaming, LodRequestChannel, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
-use crate::lod_policy::{add_lod_tiles, add_near_chunks, is_lod_tile_wanted, nearest_chunk_center, tile_key_covering_chunk, update_lod_tiles_delta, update_near_chunks_delta};
+use crate::lod_policy::{add_lod_tiles, add_near_chunks, is_lod_tile_wanted, is_near_chunk_wanted, nearest_chunk_center, tile_key_covering_chunk, update_lod_tiles_delta, update_near_chunks_delta};
 use crate::coverage::{chunks_for_subgrid_bounds, ready_retiring_sources, remove_source, request_source, resolve_empty, resolve_visible, retiring_visible_chunks, undesire_source, CoverageSource, SourceResolution, SourceState};
 use crate::types::{ChunkKey, TileKey, TileRecord, TileStatus};
 use crate::CameraVoxelLoaderConsumer;
@@ -53,7 +53,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			desired_chunks.retain(|key| key.grid != grid || streaming.presence().is_present(key.chunk));
 
 			for event in present_events.iter().filter(|event| event.grid == grid) {
-				if chunk_inside_near_box(camera_chunk, event.chunk, settings.near_radius_chunks) {
+				if is_near_chunk_wanted(&settings, streaming.as_ref(), camera_chunk, event.chunk) {
 					desired_chunks.insert(ChunkKey { grid, chunk: event.chunk });
 				}
 				for lod in 1..=settings.max_lod {
@@ -255,10 +255,6 @@ fn should_rebuild_policy(old_center: IVec3, new_center: IVec3) -> bool {
 	(new_center - old_center).abs().max_element() > MAX_INCREMENTAL_DELTA_CHUNKS
 }
 
-fn chunk_inside_near_box(center: IVec3, chunk: IVec3, radius: i32) -> bool {
-	(chunk - center).abs().max_element() <= radius
-}
-
 fn sync_desired_coverage(camera_voxel_loader: &mut CameraVoxelLoader, desired_chunks: &HashSet<ChunkKey>, desired_tiles: &HashSet<TileKey>) {
 	let desired_sources: HashSet<_> = desired_chunks
 		.iter()
@@ -277,10 +273,15 @@ fn sync_desired_coverage(camera_voxel_loader: &mut CameraVoxelLoader, desired_ch
 		.filter_map(|(&source, record)| matches!(record.state, SourceState::Desired(_)).then_some(source))
 		.collect();
 	for source in old_desired {
-		if !desired_sources.contains(&source) {
+		if !desired_sources.contains(&source) && !keep_undesired_source_until_result(camera_voxel_loader, source) {
 			undesire_source(camera_voxel_loader, source);
 		}
 	}
+}
+
+fn keep_undesired_source_until_result(camera_voxel_loader: &CameraVoxelLoader, source: CoverageSource) -> bool {
+	let CoverageSource::Tile(key) = source else { return false };
+	matches!(camera_voxel_loader.tiles.get(&key).map(|record| record.status), Some(TileStatus::Loading | TileStatus::LoadedWaitingGpu))
 }
 
 fn update_desired_chunks(camera_voxel_loader: &mut CameraVoxelLoader, desired_chunks: HashSet<ChunkKey>) -> Vec<ChunkKey> {
