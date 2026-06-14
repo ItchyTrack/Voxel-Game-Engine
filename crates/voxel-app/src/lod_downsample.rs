@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use bevy::math::{I16Vec3, IVec3};
 
 use voxel_data::voxels::{Voxel, Voxels};
+use voxel_sources::VoxelLodGenerator;
 use voxel_streaming::CHUNK_SIZE;
 
 /// Volume-weighted accumulator for one coarse voxel.
@@ -62,6 +63,59 @@ pub fn downsample_region(
 							}
 						}
 					}
+				}
+			}
+		}
+	}
+
+	let mut out = Voxels::new();
+	for (coarse_pos, accum) in coarse {
+		if accum.weight <= 0.0 { continue; }
+		let average: [f64; 4] = std::array::from_fn(|channel| accum.color[channel] / accum.weight);
+		out.add_voxel(
+			I16Vec3::new(coarse_pos.x as i16, coarse_pos.y as i16, coarse_pos.z as i16),
+			quantized_lod_voxel(average),
+		);
+	}
+	out
+}
+
+pub struct AverageVoxelLodGenerator;
+
+impl VoxelLodGenerator for AverageVoxelLodGenerator {
+	fn generate(&self, voxels: &Voxels, lod: f32) -> Option<Voxels> {
+		let out = downsample_voxels(voxels, lod);
+		(!out.is_empty()).then_some(out)
+	}
+}
+
+pub fn downsample_voxels(src: &Voxels, lod: f32) -> Voxels {
+	let step = 1i32 << lod.max(0.0).floor() as u32;
+	if step <= 1 {
+		return src.clone();
+	}
+	let step_v = IVec3::splat(step);
+	let mut coarse: HashMap<IVec3, CoarseAccum> = HashMap::new();
+	for (pos, run, id) in src.grid_tree().iter() {
+		let Some(voxel) = src.palette().voxel(id).copied() else { continue };
+		let cell_min = IVec3::new(pos.x as i32, pos.y as i32, pos.z as i32);
+		let cell_max = cell_min + IVec3::splat(run as i32);
+		let lo = cell_min.div_euclid(step_v);
+		let hi = (cell_max - IVec3::ONE).div_euclid(step_v);
+		for z in lo.z..=hi.z {
+			for y in lo.y..=hi.y {
+				for x in lo.x..=hi.x {
+					let coarse_pos = IVec3::new(x, y, z);
+					let coarse_lo = coarse_pos * step;
+					let coarse_hi = coarse_lo + step_v;
+					let overlap = (cell_max.min(coarse_hi) - cell_min.max(coarse_lo)).max(IVec3::ZERO);
+					let weight = overlap.x as f64 * overlap.y as f64 * overlap.z as f64;
+					if weight <= 0.0 { continue; }
+					let accum = coarse.entry(coarse_pos).or_default();
+					for channel in 0..4 {
+						accum.color[channel] += voxel.color[channel] as f64 * weight;
+					}
+					accum.weight += weight;
 				}
 			}
 		}

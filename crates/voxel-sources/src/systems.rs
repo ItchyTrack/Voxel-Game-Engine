@@ -1,13 +1,14 @@
 use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 
+use voxel_data::voxels::Voxels;
 use voxel_streaming::{
 	ChunkBecamePresent, ChunkLoaderChannel, ChunkLoadResult, ChunkSaveChannel,
 	ChunkState, GridStreaming, LodLoaderChannel, LodLoadResult,
 };
 
 use crate::handle::{SourceEvent, SourceHandle};
-use crate::registry::{LodRequestKey, SourceRegistry};
+use crate::registry::{LodRequestKey, PendingLodJob, SourceRegistry};
 use crate::source::{GridKey, SourceId};
 
 pub(crate) fn init_sources(registry: ResMut<SourceRegistry>) {
@@ -99,27 +100,63 @@ pub(crate) fn drain_source_lod_results(
 	while let Ok(result) = rx.try_recv() {
 		let Some(grid) = registry.entity(result.grid) else { continue };
 		let key = LodRequestKey::new(result.grid, result.min, result.size, result.lod);
-		let request = {
+		let completed = {
 			let mut pending_lod = registry.pending_lod.lock().unwrap();
-			let Some(requests) = pending_lod.get_mut(&key) else { continue };
-			let request = requests.pop();
-			if requests.is_empty() {
-				pending_lod.remove(&key);
+			let Some(job) = pending_lod.get_mut(&key) else { continue };
+			match job {
+				PendingLodJob::Direct { requests } => {
+					let requests = std::mem::take(requests);
+					pending_lod.remove(&key);
+					Some((requests, result.lod, result.voxels))
+				}
+				PendingLodJob::Composite { requests, expected, received, final_lod, intermediate_lod } => {
+					received.insert(result.source, result.voxels);
+					if !expected.iter().all(|source| received.contains_key(source)) {
+						None
+					} else {
+						let requests = std::mem::take(requests);
+						let final_lod = *final_lod;
+						let intermediate_lod = *intermediate_lod;
+						let parts: Vec<_> = received.values().filter_map(Clone::clone).collect();
+						pending_lod.remove(&key);
+						let merged = merge_voxels(parts);
+						let voxels = if final_lod <= intermediate_lod {
+							(!merged.is_empty()).then_some(merged)
+						} else {
+							registry.lod_generator.generate(&merged, final_lod - intermediate_lod)
+						};
+						Some((requests, final_lod, voxels))
+					}
+				}
 			}
-			request
 		};
-		let Some(request) = request else { continue };
-		loader.report(LodLoadResult {
-			grid,
-			requester: request.requester,
-			min: result.min,
-			size: result.size,
-			lod: result.lod,
-			priority: request.priority,
-			generation: request.generation,
-			voxels: result.voxels,
-		});
+		let Some((requests, lod, voxels)) = completed else { continue };
+		for request in requests {
+			loader.report(LodLoadResult {
+				grid,
+				requester: request.requester,
+				min: request.min,
+				size: request.size,
+				lod,
+				priority: request.priority,
+				generation: request.generation,
+				voxels: voxels.clone(),
+			});
+		}
 	}
+}
+
+fn merge_voxels(parts: Vec<Voxels>) -> Voxels {
+	let mut merged = Voxels::new();
+	for voxels in parts {
+		let areas: Vec<_> = voxels
+			.grid_tree()
+			.iter()
+			.map(|(pos, size, id)| (pos, bevy::math::I16Vec3::splat(size as i16), id))
+			.collect();
+		merged.add_palette_areas(&areas, voxels.palette());
+	}
+	merged
 }
 
 pub(crate) fn serve_saves(

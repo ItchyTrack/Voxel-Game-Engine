@@ -34,10 +34,19 @@ use streaming_test::StreamingTestPlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use voxel_renderer::VoxelRendererPlugin;
 use voxel_edit::VoxelEditPlugin;
-use voxel_sources::VoxelSourcesPlugin;
+use voxel_sources::{VoxelSourcesAppExt, VoxelSourcesPlugin};
 use voxel_streaming::VoxelStreamingPlugin;
 use memory_store::MemoryStorePlugin;
+use crate::lod_downsample::AverageVoxelLodGenerator;
 use world_interaction::WorldInteractionPlugin;
+
+struct VoxelLodGeneratorPlugin;
+
+impl Plugin for VoxelLodGeneratorPlugin {
+	fn build(&self, app: &mut App) {
+		app.set_voxel_lod_generator(AverageVoxelLodGenerator);
+	}
+}
 
 /// All gameplay, rendering, physics, and debug plugins that make up the app.
 struct GamePlugins;
@@ -48,6 +57,7 @@ impl PluginGroup for GamePlugins {
 			.add(VoxelEditPlugin)
 			.add(VoxelStreamingPlugin)
 			.add(VoxelSourcesPlugin)
+			.add(VoxelLodGeneratorPlugin)
 			.add(MemoryStorePlugin)
 			// .add(SphereSourcePlugin)
 			.add(CameraVoxelLoaderPlugin)

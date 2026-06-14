@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 
 use bevy::math::IVec3;
@@ -6,10 +6,11 @@ use bevy::ecs::resource::Resource;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use voxel_data::grid::GridId;
+use voxel_data::voxels::Voxels;
 use voxel_streaming::LodLoadRequest;
 
 use crate::handle::{SourceEvent, SourceLodResult, SourceResult};
-use crate::source::{ChunkSource, GridKey, SourceId};
+use crate::source::{ChunkSource, GridKey, SourceId, VoxelLodGenerator};
 
 /// [`ChunkSource`] takes `&self` and synchronizes internally.
 pub(crate) type SharedSource = Arc<dyn ChunkSource>;
@@ -31,12 +32,26 @@ impl LodRequestKey {
 	}
 }
 
+pub(crate) enum PendingLodJob {
+	Direct {
+		requests: Vec<LodLoadRequest>,
+	},
+	Composite {
+		requests: Vec<LodLoadRequest>,
+		expected: HashSet<SourceId>,
+		received: HashMap<SourceId, Option<Voxels>>,
+		final_lod: f32,
+		intermediate_lod: f32,
+	},
+}
+
 /// LOD requests awaiting results, shared with the serve worker threads.
-pub(crate) type PendingLod = Arc<Mutex<HashMap<LodRequestKey, Vec<LodLoadRequest>>>>;
+pub(crate) type PendingLod = Arc<Mutex<HashMap<LodRequestKey, PendingLodJob>>>;
 
 #[derive(Resource)]
 pub struct SourceRegistry {
 	pub(crate) sources: Vec<SharedSource>,
+	pub(crate) lod_generator: Arc<dyn VoxelLodGenerator>,
 	pub(crate) keys: HashMap<GridKey, GridId>,
 	pub(crate) grid_keys: GridKeyMap,
 	pub(crate) event_tx: Sender<SourceEvent>,
@@ -55,6 +70,7 @@ impl Default for SourceRegistry {
 		let (lod_result_tx, lod_result_rx) = unbounded();
 		Self {
 			sources: Vec::new(),
+			lod_generator: Arc::new(IdentityVoxelLodGenerator),
 			keys: HashMap::new(),
 			grid_keys: Arc::new(RwLock::new(HashMap::new())),
 			event_tx,
@@ -71,6 +87,10 @@ impl Default for SourceRegistry {
 impl SourceRegistry {
 	pub(crate) fn push(&mut self, source: SharedSource) {
 		self.sources.push(source);
+	}
+
+	pub(crate) fn set_lod_generator(&mut self, generator: Arc<dyn VoxelLodGenerator>) {
+		self.lod_generator = generator;
 	}
 
 	pub(crate) fn entity(&self, grid: GridKey) -> Option<GridId> {
@@ -95,11 +115,18 @@ pub(crate) fn cheapest(sources: &[SharedSource], grid: GridKey, chunk: IVec3) ->
 		.map(|(_, id)| id)
 }
 
-pub(crate) fn cheapest_lod(sources: &[SharedSource], grid: GridKey, min: IVec3, size: IVec3, lod: f32) -> Option<SourceId> {
+pub(crate) fn lod_sources_with_any_chunks(sources: &[SharedSource], grid: GridKey, min: IVec3, size: IVec3) -> Vec<SourceId> {
 	sources
 		.iter()
 		.enumerate()
-		.filter_map(|(i, s)| s.cost_lod(grid, min, size, lod).map(|c| (c, SourceId(i))))
-		.min_by_key(|(c, _)| *c)
-		.map(|(_, id)| id)
+		.filter_map(|(i, source)| source.has_any_chunks_in_area(grid, min, size).then_some(SourceId(i)))
+		.collect()
+}
+
+struct IdentityVoxelLodGenerator;
+
+impl VoxelLodGenerator for IdentityVoxelLodGenerator {
+	fn generate(&self, voxels: &Voxels, _lod: f32) -> Option<Voxels> {
+		(!voxels.is_empty()).then(|| voxels.clone())
+	}
 }

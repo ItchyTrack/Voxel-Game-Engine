@@ -19,6 +19,7 @@ pub(crate) struct SourceResult {
 }
 
 pub(crate) struct SourceLodResult {
+	pub source: SourceId,
 	pub grid: GridKey,
 	pub min: IVec3,
 	pub size: IVec3,
@@ -45,7 +46,7 @@ impl SourceHandle {
 	}
 
 	pub fn loaded_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32, voxels: Option<Voxels>) {
-		let _ = self.lod_results.send(SourceLodResult { grid, min, size, lod, voxels });
+		let _ = self.lod_results.send(SourceLodResult { source: self.id, grid, min, size, lod, voxels });
 	}
 
 	pub fn available(&self, grid: GridKey, chunk: IVec3) {
