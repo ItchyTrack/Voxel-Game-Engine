@@ -52,11 +52,10 @@ impl TileRecord {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate)  enum TileStatus {
+pub(crate) enum TileStatus {
 	Queued,
 	Loading,
 	LoadedWaitingGpu,
 	Ready,
-	Empty,
 	Retiring,
 }

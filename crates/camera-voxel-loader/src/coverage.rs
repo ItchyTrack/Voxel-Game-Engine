@@ -163,6 +163,17 @@ pub(crate) fn ready_retiring_sources(loader: &CameraVoxelLoader) -> Vec<Coverage
 		.collect()
 }
 
+pub(crate) fn retiring_visible_chunks(loader: &CameraVoxelLoader) -> Vec<ChunkKey> {
+	loader
+		.coverage_sources
+		.iter()
+		.filter_map(|(&source, record)| match (source, record.state) {
+			(CoverageSource::Chunk(chunk), SourceState::RetiringVisible(_)) => Some(chunk),
+			_ => None,
+		})
+		.collect()
+}
+
 pub(crate) fn remove_source(loader: &mut CameraVoxelLoader, source: CoverageSource) {
 	let Some(record) = loader.coverage_sources.remove(&source) else { return };
 	for chunk in record.cells.iter().copied() {
@@ -217,11 +228,45 @@ fn can_retire(loader: &CameraVoxelLoader, source: CoverageSource) -> bool {
 	let Some(record) = loader.coverage_sources.get(&source) else { return true };
 	record.cells.iter().all(|chunk| {
 		let Some(cell) = loader.coverage_cells.get(chunk) else { return true };
-		if cell.desired.is_empty() {
-			return true;
-		}
-		cell.empty.iter().any(|candidate| *candidate != source) || cell.visible.iter().any(|candidate| *candidate != source)
+		!matches!(coverage_cell_replacement_state(loader, cell, source), CoverageCellReplacementState::Waiting)
 	})
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CoverageCellReplacementState {
+	NoDesiredCoverage,
+	Waiting,
+	Replaced,
+}
+
+pub(crate) fn coverage_cell_replacement_state(loader: &CameraVoxelLoader, cell: &CoverageCell, retiring_source: CoverageSource) -> CoverageCellReplacementState {
+	if cell.desired.is_empty() {
+		return CoverageCellReplacementState::NoDesiredCoverage;
+	}
+	if coverage_cell_has_desired_replacement(loader, cell, retiring_source) {
+		CoverageCellReplacementState::Replaced
+	} else {
+		CoverageCellReplacementState::Waiting
+	}
+}
+
+fn coverage_cell_has_desired_replacement(loader: &CameraVoxelLoader, cell: &CoverageCell, retiring_source: CoverageSource) -> bool {
+	cell.empty.iter().any(|candidate| *candidate != retiring_source && source_is_desired_empty(loader, *candidate))
+		|| cell.visible.iter().any(|candidate| *candidate != retiring_source && source_is_desired_visible(loader, *candidate))
+}
+
+fn source_is_desired_visible(loader: &CameraVoxelLoader, source: CoverageSource) -> bool {
+	matches!(
+		loader.coverage_sources.get(&source).map(|record| record.state),
+		Some(SourceState::Desired(SourceResolution::Visible(_)))
+	)
+}
+
+fn source_is_desired_empty(loader: &CameraVoxelLoader, source: CoverageSource) -> bool {
+	matches!(
+		loader.coverage_sources.get(&source).map(|record| record.state),
+		Some(SourceState::Desired(SourceResolution::Empty))
+	)
 }
 
 fn add_source_once(sources: &mut Vec<CoverageSource>, source: CoverageSource) {

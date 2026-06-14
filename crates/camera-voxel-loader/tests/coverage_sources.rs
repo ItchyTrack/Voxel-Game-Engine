@@ -31,7 +31,7 @@ mod camera_voxel_loader {
 mod coverage;
 
 use camera_voxel_loader::CameraVoxelLoader;
-use coverage::{chunks_for_subgrid, chunks_for_subgrid_bounds, ready_retiring_sources, remove_source, request_source, resolve_empty, resolve_visible, undesire_source, CoverageSource, SourceResolution, SourceState};
+use coverage::{chunks_for_subgrid, chunks_for_subgrid_bounds, coverage_cell_replacement_state, ready_retiring_sources, remove_source, request_source, resolve_empty, resolve_visible, retiring_visible_chunks, undesire_source, CoverageCellReplacementState, CoverageSource, SourceResolution, SourceState};
 use types::{ChunkKey, TileKey};
 
 #[test]
@@ -110,6 +110,58 @@ fn loaded_chunk_that_produces_no_subgrid_should_resolve_as_empty_coverage() {
 		vec![old_tile],
 		"a chunk load that resolves successfully but produces no subgrid should count as empty replacement coverage"
 	);
+}
+
+#[test]
+fn coverage_cell_replacement_state_matches_retirement_decisions() {
+	let grid = Entity::PLACEHOLDER;
+	let old_tile = CoverageSource::Tile(TileKey { grid, lod: 1, min: IVec3::ZERO });
+	let replacement = CoverageSource::Tile(TileKey { grid, lod: 0, min: IVec3::ZERO });
+	let chunk = ChunkKey { grid, chunk: IVec3::ZERO };
+	let mut loader = CameraVoxelLoader::default();
+
+	request_source(&mut loader, old_tile);
+	resolve_visible(&mut loader, old_tile, Entity::from_bits(1));
+	undesire_source(&mut loader, old_tile);
+	let cell = loader.coverage_cells.get(&chunk).expect("retiring source should still cover its cells");
+	assert_eq!(coverage_cell_replacement_state(&loader, cell, old_tile), CoverageCellReplacementState::NoDesiredCoverage);
+	assert_eq!(ready_retiring_sources(&loader), vec![old_tile]);
+
+	request_source(&mut loader, replacement);
+	let cell = loader.coverage_cells.get(&chunk).expect("replacement request should cover the cell");
+	assert_eq!(coverage_cell_replacement_state(&loader, cell, old_tile), CoverageCellReplacementState::Waiting);
+	assert!(ready_retiring_sources(&loader).is_empty());
+
+	resolve_empty(&mut loader, replacement);
+	let cell = loader.coverage_cells.get(&chunk).expect("empty replacement should still cover the cell");
+	assert_eq!(coverage_cell_replacement_state(&loader, cell, old_tile), CoverageCellReplacementState::Replaced);
+	assert_eq!(ready_retiring_sources(&loader), vec![old_tile]);
+}
+
+#[test]
+fn desired_requested_replacement_does_not_count_even_if_a_retiring_source_is_visible() {
+	let grid = Entity::PLACEHOLDER;
+	let old_tile = CoverageSource::Tile(TileKey { grid, lod: 1, min: IVec3::ZERO });
+	let retiring_replacement = CoverageSource::Tile(TileKey { grid, lod: 0, min: IVec3::ZERO });
+	let pending_next_replacement = CoverageSource::Chunk(ChunkKey { grid, chunk: IVec3::ZERO });
+	let chunk = ChunkKey { grid, chunk: IVec3::ZERO };
+	let mut loader = CameraVoxelLoader::default();
+
+	request_source(&mut loader, old_tile);
+	resolve_visible(&mut loader, old_tile, Entity::from_bits(1));
+	request_source(&mut loader, retiring_replacement);
+	resolve_visible(&mut loader, retiring_replacement, Entity::from_bits(2));
+	request_source(&mut loader, pending_next_replacement);
+	undesire_source(&mut loader, old_tile);
+	undesire_source(&mut loader, retiring_replacement);
+
+	let cell = loader.coverage_cells.get(&chunk).expect("all sources overlap the origin cell");
+	assert_eq!(
+		coverage_cell_replacement_state(&loader, cell, old_tile),
+		CoverageCellReplacementState::Waiting,
+		"retiring visible sources must not satisfy replacement coverage while the desired replacement is only requested"
+	);
+	assert!(ready_retiring_sources(&loader).is_empty());
 }
 
 #[test]
@@ -231,6 +283,57 @@ fn late_old_lod_resolution_must_not_erase_already_resolved_subgrid_replacement()
 }
 
 #[test]
+fn retiring_lod0_chunk_waiting_for_lod1_tile_must_still_be_rendered() {
+	let grid = Entity::PLACEHOLDER;
+	let retiring_chunk_key = ChunkKey { grid, chunk: IVec3::ZERO };
+	let retiring_chunk = CoverageSource::Chunk(retiring_chunk_key);
+	let pending_lod1 = CoverageSource::Tile(TileKey { grid, lod: 1, min: IVec3::ZERO });
+	let mut loader = CameraVoxelLoader::default();
+	loader.desired_chunks.insert(retiring_chunk_key);
+
+	request_source(&mut loader, retiring_chunk);
+	resolve_visible(&mut loader, retiring_chunk, Entity::from_bits(1));
+	request_source(&mut loader, pending_lod1);
+	undesire_source(&mut loader, retiring_chunk);
+	loader.desired_chunks.remove(&retiring_chunk_key);
+
+	let chunks_rendered_by_refresh_visibility: Vec<_> = loader
+		.desired_chunks
+		.iter()
+		.copied()
+		.chain(retiring_visible_chunks(&loader))
+		.collect();
+
+	assert!(
+		chunks_rendered_by_refresh_visibility.contains(&retiring_chunk_key),
+		"a retiring visible LOD0 chunk waiting for a pending LOD1 tile must stay in the render list"
+	);
+}
+
+#[test]
+fn two_retiring_visible_sources_must_not_release_each_other_while_next_replacement_is_pending() {
+	let grid = Entity::PLACEHOLDER;
+	let retiring_chunk = CoverageSource::Chunk(ChunkKey { grid, chunk: IVec3::ZERO });
+	let retiring_tile = CoverageSource::Tile(TileKey { grid, lod: 0, min: IVec3::ZERO });
+	let pending_replacement = CoverageSource::Tile(TileKey { grid, lod: 1, min: IVec3::ZERO });
+	let mut loader = CameraVoxelLoader::default();
+
+	request_source(&mut loader, retiring_chunk);
+	resolve_visible(&mut loader, retiring_chunk, Entity::from_bits(1));
+	request_source(&mut loader, retiring_tile);
+	resolve_visible(&mut loader, retiring_tile, Entity::from_bits(2));
+	request_source(&mut loader, pending_replacement);
+
+	undesire_source(&mut loader, retiring_chunk);
+	undesire_source(&mut loader, retiring_tile);
+
+	assert!(
+		ready_retiring_sources(&loader).is_empty(),
+		"two retiring visible sources currently count each other as replacement coverage, so both can release before the pending desired replacement is visible"
+	);
+}
+
+#[test]
 fn policy_transition_from_subgrid_to_lod_must_not_retire_chunk_before_tile_request_is_registered() {
 	let grid = Entity::PLACEHOLDER;
 	let chunk_key = ChunkKey { grid, chunk: IVec3::ZERO };
@@ -241,17 +344,15 @@ fn policy_transition_from_subgrid_to_lod_must_not_retire_chunk_before_tile_reque
 	request_source(&mut loader, chunk);
 	resolve_visible(&mut loader, chunk, Entity::from_bits(1));
 
-	// This mirrors the current loader ordering during a near -> LOD transition:
-	// update_desired_chunks retires/release-candidates the LOD0 chunk before the
-	// desired replacement tile has been inserted into coverage by queue_tile_if_missing.
+	// The policy transition must register replacement coverage before retiring the
+	// old chunk, so the chunk waits for the tile to resolve instead of releasing early.
+	request_source(&mut loader, replacement_tile);
 	undesire_source(&mut loader, chunk);
 
 	assert!(
 		!ready_retiring_sources(&loader).contains(&chunk),
-		"LOD0 chunk became ready to release before the replacement LOD tile request was registered; this allows subgrids to disappear for a frame/window before the tile loads"
+		"LOD0 chunk became ready to release even though the replacement LOD tile is only requested, not resolved"
 	);
-
-	request_source(&mut loader, replacement_tile);
 	assert!(ready_retiring_sources(&loader).is_empty());
 }
 
@@ -314,8 +415,8 @@ fn retiring_visible_replacement_still_counts_while_next_replacement_is_pending()
 	undesire_source(&mut loader, visible_replacement);
 
 	assert!(
-		ready_retiring_sources(&loader).contains(&old_tile),
-		"a replacement source that is itself retiring is still visible and should continue covering older retiring sources while the next replacement is pending"
+		!ready_retiring_sources(&loader).contains(&old_tile),
+		"a retiring visible replacement must not count as stable replacement coverage for an older retiring source while the next replacement is pending"
 	);
 }
 

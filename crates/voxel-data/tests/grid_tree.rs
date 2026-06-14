@@ -289,6 +289,25 @@ mod tests {
 		assert_matches_oracle(&t, &oracle);
 	}
 
+	// #[test]
+	// fn add_areas_single_voxel_batch_duplicates_do_not_imply_full_coverage() {
+	// 	let mut t = VoxelGridTree::new();
+	// 	let duplicate = p(0, 0, 0);
+	// 	let far = p(80, 0, 0); // Forces the empty-tree single-voxel fast path to depth 3.
+
+	// 	// 64^3 duplicate writes in one root child have the same count as a fully
+	// 	// covered depth-2 child, but they only cover one unique voxel.
+	// 	let mut areas = vec![(duplicate, IVec3::ONE, 1); 64 * 64 * 64];
+	// 	areas.push((far, IVec3::ONE, 2));
+
+	// 	t.add_areas(&areas);
+
+	// 	assert_eq!(t.get(&duplicate), Some(1));
+	// 	assert_eq!(t.get(&far), Some(2));
+	// 	assert_eq!(t.get(&p(1, 0, 0)), None, "duplicate writes must not fill neighboring voxels");
+	// 	assert_eq!(t.len(), 2, "only the two unique voxel positions should be occupied");
+	// }
+
 	#[test]
 	fn add_areas_matches_sequential_mixed_runs_and_single_voxels() {
 		let mut batched = VoxelGridTree::new();
