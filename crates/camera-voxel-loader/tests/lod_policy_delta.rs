@@ -81,6 +81,21 @@ use lod_policy::{add_lod_tiles, add_near_chunks, is_lod_tile_wanted, update_lod_
 use types::{ChunkKey, PolicyDebugBox, TileKey};
 
 #[test]
+fn near_chunks_only_include_present_chunks() {
+	let grid: GridId = Entity::PLACEHOLDER;
+	let settings = CameraVoxelLoaderSettings::default();
+	let controller = CameraVoxelLoader { settings };
+	let mut streaming = GridStreaming::default();
+	let present_chunk = IVec3::new(1, 0, 0);
+	streaming.presence_mut().mark_present(present_chunk);
+
+	let mut desired_chunks = HashSet::<ChunkKey>::new();
+	add_near_chunks(&mut desired_chunks, grid, IVec3::ZERO, &controller, &streaming);
+
+	assert_eq!(desired_chunks, HashSet::from([ChunkKey { grid, chunk: present_chunk }]));
+}
+
+#[test]
 fn minimal_delta_misses_lod3_tile_when_inner_ring_boundary_moves_one_chunk() {
 	let grid: GridId = Entity::PLACEHOLDER;
 	let settings = CameraVoxelLoaderSettings {
@@ -256,14 +271,14 @@ fn incremental_lod_policy_matches_full_rebuild_while_camera_flies() {
 	let mut debug_boxes = Vec::<PolicyDebugBox>::new();
 
 	let first = centers[0];
-	add_near_chunks(&mut incremental_chunks, grid, first, &controller);
+	add_near_chunks(&mut incremental_chunks, grid, first, &controller, &streaming);
 	add_lod_tiles(&mut incremental_tiles, grid, first, &controller, &streaming);
 	assert_matches_full_rebuild(grid, &controller, &streaming, first, &incremental_chunks, &incremental_tiles);
 
 	let mut previous = first;
 	for center in centers.into_iter().skip(1) {
 		debug_boxes.clear();
-		update_near_chunks_delta(&mut incremental_chunks, &mut debug_boxes, grid, previous, center, &settings);
+		update_near_chunks_delta(&mut incremental_chunks, &mut debug_boxes, grid, previous, center, &settings, &streaming);
 		update_lod_tiles_delta(&mut incremental_tiles, &mut debug_boxes, grid, previous, center, &settings, &streaming);
 
 		assert_matches_full_rebuild(grid, &controller, &streaming, center, &incremental_chunks, &incremental_tiles);
@@ -281,7 +296,7 @@ fn assert_matches_full_rebuild(
 ) {
 	let mut rebuilt_chunks = HashSet::new();
 	let mut rebuilt_tiles = HashSet::new();
-	add_near_chunks(&mut rebuilt_chunks, grid, center, controller);
+	add_near_chunks(&mut rebuilt_chunks, grid, center, controller, streaming);
 	add_lod_tiles(&mut rebuilt_tiles, grid, center, controller, streaming);
 
 	let missing_chunks: Vec<_> = rebuilt_chunks.difference(incremental_chunks).take(16).copied().collect();

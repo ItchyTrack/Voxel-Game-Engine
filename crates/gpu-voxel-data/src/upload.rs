@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use bevy::camera::Camera;
+use bevy::ecs::message::Messages;
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 use tracy_client::span;
@@ -13,6 +14,7 @@ use crate::gpu_grid_tree::make_gpu_grid_tree;
 use crate::lod_voxels::LodVoxels;
 use crate::sub_grid_gpu_state::{SubGridGpuState, SubGridPlacement};
 use crate::world_gpu_data::WorldGpuData;
+use crate::VoxelGpuUploadFinished;
 
 #[derive(Resource, Default)]
 pub(crate) struct InFlightUploads(HashSet<Entity>);
@@ -157,6 +159,9 @@ fn apply_gpu_upload(
 	if let Some(new_state) = new_state {
 		if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
 			entity_mut.insert(new_state);
+		}
+		if let Some(mut messages) = world.get_resource_mut::<Messages<VoxelGpuUploadFinished>>() {
+			messages.write(VoxelGpuUploadFinished { entity });
 		}
 	}
 }

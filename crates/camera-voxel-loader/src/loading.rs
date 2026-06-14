@@ -2,15 +2,15 @@ use std::collections::HashSet;
 
 use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
-use gpu_voxel_data::{LodVoxels, SubGridGpuState};
+use gpu_voxel_data::{LodVoxels, SubGridGpuState, VoxelGpuUploadFinished};
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::subgrid::SubGrid;
 use voxel_renderer::voxel_camera::VoxelCamera;
-use voxel_streaming::{ChunkBecameDirty, ChunkBecamePresent, ChunkConsumer, ChunkRequestChannel, GridStreaming, LodRequestChannel, CHUNK_SIZE};
+use voxel_streaming::{ChunkBecameDirty, ChunkBecamePresent, ChunkConsumer, ChunkLoadResolved, ChunkRequestChannel, GridStreaming, LodRequestChannel, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::lod_policy::{add_lod_tiles, add_near_chunks, is_lod_tile_wanted, nearest_chunk_center, tile_key_covering_chunk, update_lod_tiles_delta, update_near_chunks_delta};
-use crate::retirement::{cancel_retirement, notify_tile_resolved, ready_retiring_chunks, ready_retiring_tiles, register_chunk_retirement, register_tile_retirement, RetireTarget};
+use crate::coverage::{chunks_for_subgrid_bounds, ready_retiring_sources, remove_source, request_source, resolve_empty, resolve_visible, undesire_source, CoverageSource};
 use crate::types::{ChunkKey, TileKey, TileRecord, TileStatus};
 use crate::CameraVoxelLoaderConsumer;
 
@@ -20,6 +20,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 	mut present_events: MessageReader<ChunkBecamePresent>, mut dirty_events: MessageReader<ChunkBecameDirty>,
 	mut cameras: Query<(Entity, &Camera, &GlobalTransform, &mut CameraVoxelLoader, &mut CameraVoxelLoaderConsumer), With<Camera3d>>,
 	mut grids: Query<(GridId, &GlobalTransform, &mut GridStreaming)>, grid_transforms: Query<&GlobalTransform, With<GridStreaming>>,
+	grid_data: Query<&Grid>, subgrids: Query<&SubGrid>, subgrid_gpu: Query<&SubGridGpuState, With<SubGrid>>,
 ) {
 	let present_events: Vec<_> = present_events.read().copied().collect();
 	let dirty_events: Vec<_> = dirty_events.read().copied().collect();
@@ -43,14 +44,18 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			if rebuild_grid {
 				desired_chunks.retain(|key| key.grid != grid);
 				desired_tiles.retain(|key| key.grid != grid);
-				add_near_chunks(&mut desired_chunks, grid, camera_chunk, &camera_voxel_loader);
+				add_near_chunks(&mut desired_chunks, grid, camera_chunk, &camera_voxel_loader, streaming.as_ref());
 				add_lod_tiles(&mut desired_tiles, grid, camera_chunk, &camera_voxel_loader, streaming.as_ref());
 			} else if let Some(old_center) = previous_center {
-				update_near_chunks_delta(&mut desired_chunks, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings);
+				update_near_chunks_delta(&mut desired_chunks, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
 				update_lod_tiles_delta(&mut desired_tiles, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
 			}
+			desired_chunks.retain(|key| key.grid != grid || streaming.presence().is_present(key.chunk));
 
 			for event in present_events.iter().filter(|event| event.grid == grid) {
+				if chunk_inside_near_box(camera_chunk, event.chunk, settings.near_radius_chunks) {
+					desired_chunks.insert(ChunkKey { grid, chunk: event.chunk });
+				}
 				for lod in 1..=settings.max_lod {
 					let key = tile_key_covering_chunk(grid, event.chunk, lod);
 					if is_lod_tile_wanted(&settings, streaming.as_ref(), camera_chunk, key) {
@@ -71,6 +76,9 @@ pub(crate) fn update_camera_voxel_loader_requests(
 		for chunk_key in chunks_to_fetch {
 			if let Ok((_, _, mut streaming)) = grids.get_mut(chunk_key.grid) {
 				streaming.fetch_needed(chunk_key.grid, consumer.as_mut(), &chunk_channel, chunk_key.chunk);
+				if matches!(streaming.state(chunk_key.chunk), Some(voxel_streaming::ChunkState::Loaded | voxel_streaming::ChunkState::InternalDirty)) {
+					resolve_chunk_source_if_ready(&mut camera_voxel_loader, &grid_data, &subgrids, &subgrid_gpu, chunk_key);
+				}
 			}
 		}
 
@@ -80,7 +88,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 				if let Some(record) = camera_voxel_loader.tiles.get_mut(&key) {
 					if record.status == TileStatus::Retiring {
 						record.status = if record.entity.is_some() { TileStatus::Ready } else { TileStatus::Empty };
-						cancel_retirement(&mut camera_voxel_loader, RetireTarget::Tile(key));
+						request_source(&mut camera_voxel_loader, CoverageSource::Tile(key));
 					}
 				}
 				continue;
@@ -117,7 +125,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 					record.status = TileStatus::Empty;
 					despawn_stale_entity(&mut commands, record);
 				}
-				notify_tile_resolved(&mut camera_voxel_loader, key);
+				resolve_empty(&mut camera_voxel_loader, CoverageSource::Tile(key));
 			}
 		}
 	}
@@ -156,6 +164,7 @@ fn queue_tile_if_missing(camera_voxel_loader: &mut CameraVoxelLoader, key: TileK
 		return;
 	}
 	camera_voxel_loader.tiles.insert(key, TileRecord::queued());
+	request_source(camera_voxel_loader, CoverageSource::Tile(key));
 	camera_voxel_loader.queue.push_back(key);
 }
 
@@ -164,6 +173,7 @@ fn requeue_empty_or_missing_tile(camera_voxel_loader: &mut CameraVoxelLoader, ke
 		Some(record) if record.status == TileStatus::Empty => {
 			record.status = TileStatus::Queued;
 			record.generation += 1;
+			request_source(camera_voxel_loader, CoverageSource::Tile(key));
 			camera_voxel_loader.queue.push_back(key);
 		}
 		Some(_) => {}
@@ -184,25 +194,34 @@ fn invalidate_dirty_tile(commands: &mut Commands, camera_voxel_loader: &mut Came
 			if desired {
 				record.stale_entity = record.stale_entity.or(record.entity.take());
 				record.status = TileStatus::Queued;
+				request_source(camera_voxel_loader, CoverageSource::Tile(key));
 				camera_voxel_loader.queue.push_back(key);
 			} else {
 				despawn_tile_entities(commands, record);
 				camera_voxel_loader.tiles.remove(&key);
-				cancel_retirement(camera_voxel_loader, RetireTarget::Tile(key));
+				remove_source(camera_voxel_loader, CoverageSource::Tile(key));
 			}
 		}
 		TileStatus::Empty => {
 			if desired {
 				record.status = TileStatus::Queued;
+				request_source(camera_voxel_loader, CoverageSource::Tile(key));
 				camera_voxel_loader.queue.push_back(key);
 			} else {
 				camera_voxel_loader.tiles.remove(&key);
-				cancel_retirement(camera_voxel_loader, RetireTarget::Tile(key));
+				remove_source(camera_voxel_loader, CoverageSource::Tile(key));
 			}
 		}
 		TileStatus::Queued | TileStatus::Loading | TileStatus::LoadedWaitingGpu => {
 			if desired {
+				if record.status == TileStatus::LoadedWaitingGpu {
+					if let Some(entity) = record.entity.take() {
+						camera_voxel_loader.waiting_gpu_lods.remove(&entity);
+						commands.entity(entity).despawn();
+					}
+				}
 				record.status = TileStatus::Queued;
+				request_source(camera_voxel_loader, CoverageSource::Tile(key));
 				camera_voxel_loader.queue.push_back(key);
 			}
 		}
@@ -227,15 +246,19 @@ fn should_rebuild_policy(old_center: IVec3, new_center: IVec3) -> bool {
 	(new_center - old_center).abs().max_element() > MAX_INCREMENTAL_DELTA_CHUNKS
 }
 
+fn chunk_inside_near_box(center: IVec3, chunk: IVec3, radius: i32) -> bool {
+	(chunk - center).abs().max_element() <= radius
+}
+
 fn update_desired_chunks(camera_voxel_loader: &mut CameraVoxelLoader, desired_chunks: HashSet<ChunkKey>) -> Vec<ChunkKey> {
 	let old_chunks = camera_voxel_loader.desired_chunks.clone();
 	for &chunk_key in old_chunks.difference(&desired_chunks) {
-		register_chunk_retirement(camera_voxel_loader, chunk_key);
+		undesire_source(camera_voxel_loader, CoverageSource::Chunk(chunk_key));
 	}
 
 	let chunks_to_fetch: Vec<ChunkKey> = desired_chunks.difference(&old_chunks).copied().collect();
 	for chunk_key in &chunks_to_fetch {
-		cancel_retirement(camera_voxel_loader, RetireTarget::Chunk(*chunk_key));
+		request_source(camera_voxel_loader, CoverageSource::Chunk(*chunk_key));
 	}
 	camera_voxel_loader.desired_chunks = desired_chunks;
 	chunks_to_fetch
@@ -249,7 +272,7 @@ fn handle_non_desired_tile(camera_voxel_loader: &mut CameraVoxelLoader, key: Til
 			if let Some(record) = camera_voxel_loader.tiles.get_mut(&key) {
 				record.status = TileStatus::Retiring;
 			}
-			register_tile_retirement(camera_voxel_loader, key);
+			undesire_source(camera_voxel_loader, CoverageSource::Tile(key));
 		}
 		// In-flight work may still produce valid voxel data. Keep the record so the
 		// late result can be applied, then retire it through the same no-gap path.
@@ -257,12 +280,12 @@ fn handle_non_desired_tile(camera_voxel_loader: &mut CameraVoxelLoader, key: Til
 		// Queued work has not been sent yet, so it can be safely dropped.
 		TileStatus::Queued => {
 			camera_voxel_loader.tiles.remove(&key);
-			cancel_retirement(camera_voxel_loader, RetireTarget::Tile(key));
+			remove_source(camera_voxel_loader, CoverageSource::Tile(key));
 		}
 		// Empty records render nothing. Drop them instead of treating them as coverage.
 		TileStatus::Empty => {
 			camera_voxel_loader.tiles.remove(&key);
-			cancel_retirement(camera_voxel_loader, RetireTarget::Tile(key));
+			remove_source(camera_voxel_loader, CoverageSource::Tile(key));
 		}
 	}
 }
@@ -272,6 +295,30 @@ fn tile_priority(camera_world: Vec3, key: TileKey, grid_transforms: &Query<&Glob
 	let center_local = ((key.min + key.size() / 2) * CHUNK_SIZE).as_vec3();
 	let center_world = grid_global.transform_point(center_local);
 	-camera_world.distance(center_world)
+}
+
+fn resolve_chunk_source_if_ready(
+	camera_voxel_loader: &mut CameraVoxelLoader,
+	grids: &Query<&Grid>,
+	subgrids: &Query<&SubGrid>,
+	subgrid_gpu: &Query<&SubGridGpuState, With<SubGrid>>,
+	chunk: ChunkKey,
+) {
+	let Ok(grid) = grids.get(chunk.grid) else { return };
+	let min = chunk.chunk * CHUNK_SIZE;
+	let mut found_subgrid = false;
+	for entity in grid.subgrid_entities_in_area(min, IVec3::splat(CHUNK_SIZE)) {
+		if subgrids.get(entity).is_err() {
+			continue;
+		}
+		found_subgrid = true;
+		if subgrid_gpu.get(entity).is_ok() {
+			resolve_visible(camera_voxel_loader, CoverageSource::Chunk(chunk), entity);
+		}
+	}
+	if !found_subgrid {
+		resolve_empty(camera_voxel_loader, CoverageSource::Chunk(chunk));
+	}
 }
 
 pub(crate) fn receive_camera_voxel_loader_results(
@@ -306,13 +353,14 @@ pub(crate) fn receive_camera_voxel_loader_results(
 						record.entity = Some(entity);
 						record.status = TileStatus::LoadedWaitingGpu;
 					}
+					camera_voxel_loader.waiting_gpu_lods.insert(entity, key);
 				}
 				_ => {
 					if let Some(record) = camera_voxel_loader.tiles.get_mut(&key) {
 						record.status = TileStatus::Empty;
 						despawn_stale_entity(&mut commands, record);
 					}
-					notify_tile_resolved(&mut camera_voxel_loader, key);
+					resolve_empty(&mut camera_voxel_loader, CoverageSource::Tile(key));
 				}
 			}
 		}
@@ -321,28 +369,52 @@ pub(crate) fn receive_camera_voxel_loader_results(
 
 pub(crate) fn refresh_camera_voxel_loader_visibility(
 	mut commands: Commands,
-	mut cameras: Query<(&mut CameraVoxelLoader, &mut VoxelCamera)>, lod_gpu: Query<&SubGridGpuState, With<LodVoxels>>, grids: Query<&Grid>,
-	subgrids: Query<&SubGrid>,
+	mut gpu_events: MessageReader<VoxelGpuUploadFinished>,
+	mut chunk_events: MessageReader<ChunkLoadResolved>,
+	mut cameras: Query<(&mut CameraVoxelLoader, &mut VoxelCamera)>, grids: Query<&Grid>,
+	subgrids: Query<&SubGrid>, subgrid_gpu: Query<&SubGridGpuState, With<SubGrid>>,
 ) {
+	let gpu_events: Vec<_> = gpu_events.read().copied().collect();
+	let chunk_events: Vec<_> = chunk_events.read().copied().collect();
 	for (mut camera_voxel_loader, mut request_map) in &mut cameras {
-		let waiting_for_gpu: Vec<TileKey> = camera_voxel_loader
-			.tiles
-			.iter()
-			.filter_map(|(key, record)| {
-				(record.status == TileStatus::LoadedWaitingGpu && record.entity.is_some_and(|e| lod_gpu.get(e).is_ok())).then_some(*key)
-			})
-			.collect();
-		for key in waiting_for_gpu {
-			if let Some(record) = camera_voxel_loader.tiles.get_mut(&key) {
-				record.status = TileStatus::Ready;
-				despawn_stale_entity(&mut commands, record);
+		for event in &chunk_events {
+			let source = CoverageSource::Chunk(ChunkKey { grid: event.grid, chunk: event.chunk });
+			if !event.visible {
+				resolve_empty(&mut camera_voxel_loader, source);
 			}
-			notify_tile_resolved(&mut camera_voxel_loader, key);
+		}
+		for event in &gpu_events {
+			if let (Ok(subgrid), Ok(gpu_state)) = (subgrids.get(event.entity), subgrid_gpu.get(event.entity)) {
+				let placement = gpu_state.placement();
+				for chunk in chunks_for_subgrid_bounds(
+					subgrid.grid(),
+					subgrid.sub_grid_pos(),
+					placement.bounds_min.as_ivec3(),
+					placement.bounds_max.as_ivec3(),
+				) {
+					if camera_voxel_loader.desired_chunks.contains(&chunk) {
+						resolve_visible(&mut camera_voxel_loader, CoverageSource::Chunk(chunk), event.entity);
+					}
+				}
+			}
+			let Some(key) = camera_voxel_loader.waiting_gpu_lods.remove(&event.entity) else { continue };
+			let mut resolved = false;
+			if let Some(record) = camera_voxel_loader.tiles.get_mut(&key) {
+				if record.status == TileStatus::LoadedWaitingGpu && record.entity == Some(event.entity) {
+					record.status = TileStatus::Ready;
+					despawn_stale_entity(&mut commands, record);
+					resolved = true;
+				}
+			}
+			if !resolved {
+				continue;
+			}
+			resolve_visible(&mut camera_voxel_loader, CoverageSource::Tile(key), event.entity);
 			if !camera_voxel_loader.desired_tiles.contains(&key) {
 				if let Some(record) = camera_voxel_loader.tiles.get_mut(&key) {
 					record.status = TileStatus::Retiring;
 				}
-				register_tile_retirement(&mut camera_voxel_loader, key);
+				undesire_source(&mut camera_voxel_loader, CoverageSource::Tile(key));
 			}
 		}
 
@@ -350,7 +422,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 		let mut lods_to_render = Vec::new();
 		let mut seen_subgrids = HashSet::new();
 		let mut seen_lods = HashSet::new();
-		for chunk in camera_voxel_loader.desired_chunks.iter().chain(camera_voxel_loader.retiring_chunks.keys()) {
+		for chunk in camera_voxel_loader.desired_chunks.iter() {
 			let Ok(grid) = grids.get(chunk.grid) else { continue };
 			let min = chunk.chunk * CHUNK_SIZE;
 			for entity in grid.subgrid_entities_in_area(min, IVec3::splat(CHUNK_SIZE)) {
@@ -381,22 +453,24 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 
 pub(crate) fn retire_replaced_tiles(mut commands: Commands, mut camera_voxel_loaders: Query<&mut CameraVoxelLoader>) {
 	for mut camera_voxel_loader in &mut camera_voxel_loaders {
-		for key in ready_retiring_tiles(&camera_voxel_loader) {
-			cancel_retirement(&mut camera_voxel_loader, RetireTarget::Tile(key));
+		for source in ready_retiring_sources(&camera_voxel_loader) {
+			let CoverageSource::Tile(key) = source else { continue };
 			if let Some(mut record) = camera_voxel_loader.tiles.remove(&key) {
 				despawn_tile_entities(&mut commands, &mut record);
 			}
+			remove_source(&mut camera_voxel_loader, source);
 		}
 	}
 }
 
 pub(crate) fn retire_replaced_chunks(mut camera_voxel_loaders: Query<(&mut CameraVoxelLoader, &mut CameraVoxelLoaderConsumer)>, mut grids: Query<&mut GridStreaming>) {
 	for (mut camera_voxel_loader, mut consumer) in &mut camera_voxel_loaders {
-		for chunk in ready_retiring_chunks(&camera_voxel_loader) {
-			cancel_retirement(&mut camera_voxel_loader, RetireTarget::Chunk(chunk));
+		for source in ready_retiring_sources(&camera_voxel_loader) {
+			let CoverageSource::Chunk(chunk) = source else { continue };
 			if let Ok(mut streaming) = grids.get_mut(chunk.grid) {
 				streaming.release_needed(chunk.grid, consumer.as_mut(), chunk.chunk);
 			}
+			remove_source(&mut camera_voxel_loader, source);
 		}
 	}
 }

@@ -7,7 +7,7 @@ pub mod lod_voxels;
 pub mod residency;
 pub mod upload;
 
-use bevy::{prelude::*, render::RenderApp};
+use bevy::{ecs::message::Message, prelude::*, render::RenderApp};
 
 use crate::world_gpu_data::WorldGpuData;
 
@@ -16,6 +16,11 @@ pub use sub_grid_gpu_state::SubGridGpuState;
 
 #[doc(hidden)]
 pub use bevy as __bevy;
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VoxelGpuUploadFinished {
+	pub entity: Entity,
+}
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GpuUploadSet {
@@ -29,6 +34,7 @@ pub struct GpuVoxelDataPlugin;
 impl Plugin for GpuVoxelDataPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<upload::InFlightUploads>()
+			.add_message::<VoxelGpuUploadFinished>()
 			.configure_sets(Update, (GpuUploadSet::Clear, GpuUploadSet::Upload).chain())
 			.add_systems(Update, upload::flag_changed_sub_grids.in_set(GpuUploadSet::Clear))
 			.add_systems(Update, (upload::manage_gpu_uploads, upload::manage_lod_uploads).in_set(GpuUploadSet::Upload));

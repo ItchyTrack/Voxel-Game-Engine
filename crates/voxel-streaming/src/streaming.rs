@@ -14,7 +14,7 @@ use voxel_edit::{EditGate, GridEdit, GridEdits};
 use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
 use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodLoadRequest, LodLoaderChannel, LodRequestChannel};
-use crate::ChunkBecameDirty;
+use crate::{ChunkBecameDirty, ChunkLoadResolved};
 use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
@@ -197,11 +197,14 @@ pub fn receive_results(
 	mut grids: Query<(&mut GridStreaming, &mut Grid, Option<&mut GridEdits>)>,
 	mut sub_grids: Query<&mut SubGrid>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
+	mut chunk_resolved: MessageWriter<ChunkLoadResolved>,
 ) {
 	let mut loaded_by_grid: HashMap<GridId, Vec<(IVec3, voxel_data::voxels::Voxels)>> = HashMap::new();
 
 	while let Some(result) = channel.try_recv() {
 		let _zone = span!("receive result");
+		let result_grid = result.grid;
+		let result_chunk = result.chunk;
 		let was_empty = result.voxels.is_none();
 		if let Ok((mut streaming, _grid, mut edits)) = grids.get_mut(result.grid) {
 			match streaming.presence.state(result.chunk) {
@@ -225,6 +228,10 @@ pub fn receive_results(
 				}
 			}
 		}
+		if was_empty {
+			chunk_resolved.write(ChunkLoadResolved { grid: result_grid, chunk: result_chunk, visible: false });
+		}
+
 		let _zone = span!("update consumers");
 		for mut entity_consumers in consumers.iter_mut() {
 			for mut consumer in &mut entity_consumers {
@@ -251,9 +258,16 @@ pub fn receive_results(
 			.collect();
 		let mut touched_by_grid = splat_voxels_blocking(std::slice::from_mut(grid.as_mut()), &splats);
 		let touched = touched_by_grid.remove(&0).unwrap_or_default();
-		reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
+		reconcile_subgrids(grid_entity, grid.as_mut(), touched.iter().copied(), &mut commands, &mut sub_grids);
 		for (chunk, _) in loaded {
 			streaming.replay_stalled(chunk, &mut edits);
+			let min = chunk_origin(chunk);
+			let visible = touched.iter().any(|subgrid| {
+				let subgrid_max = *subgrid + IVec3::splat(voxel_data::grid::SUB_GRID_SIZE);
+				let chunk_max = min + IVec3::splat(CHUNK_SIZE);
+				subgrid.cmplt(chunk_max).all() && subgrid_max.cmpgt(min).all()
+			});
+			chunk_resolved.write(ChunkLoadResolved { grid: grid_entity, chunk, visible });
 		}
 	}
 }

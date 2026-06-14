@@ -11,12 +11,15 @@ pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
 	(local_voxels / CHUNK_SIZE as f32).round().as_ivec3()
 }
 
-pub(crate) fn add_near_chunks(out: &mut HashSet<ChunkKey>, grid: GridId, center: IVec3, camera_voxel_loader: &CameraVoxelLoader) {
+pub(crate) fn add_near_chunks(out: &mut HashSet<ChunkKey>, grid: GridId, center: IVec3, camera_voxel_loader: &CameraVoxelLoader, streaming: &GridStreaming) {
 	let r = camera_voxel_loader.settings.near_radius_chunks;
 	for x in -r..=r {
 		for y in -r..=r {
 			for z in -r..=r {
-				out.insert(ChunkKey { grid, chunk: center + IVec3::new(x, y, z) });
+				let chunk = center + IVec3::new(x, y, z);
+				if streaming.presence().is_present(chunk) {
+					out.insert(ChunkKey { grid, chunk });
+				}
 			}
 		}
 	}
@@ -84,6 +87,7 @@ pub(crate) fn update_near_chunks_delta(
 	old_center: IVec3,
 	new_center: IVec3,
 	settings: &CameraVoxelLoaderSettings,
+	streaming: &GridStreaming,
 ) {
 	let r = settings.near_radius_chunks;
 	let old_min = old_center - IVec3::splat(r);
@@ -96,9 +100,12 @@ pub(crate) fn update_near_chunks_delta(
 		for x in min.x..=max.x {
 			for y in min.y..=max.y {
 				for z in min.z..=max.z {
-					let key = ChunkKey { grid, chunk: IVec3::new(x, y, z) };
+					let chunk = IVec3::new(x, y, z);
+					let key = ChunkKey { grid, chunk };
 					if entering {
-						out.insert(key);
+						if streaming.presence().is_present(chunk) {
+							out.insert(key);
+						}
 					} else {
 						out.remove(&key);
 					}

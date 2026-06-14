@@ -40,6 +40,13 @@ pub struct ChunkBecameDirty {
 	pub chunk: IVec3,
 }
 
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChunkLoadResolved {
+	pub grid: voxel_data::grid::GridId,
+	pub chunk: IVec3,
+	pub visible: bool,
+}
+
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StreamingPhase {
 	Ingest,
@@ -65,6 +72,7 @@ impl Plugin for VoxelStreamingPlugin {
 		app.init_resource::<ChunkRequestChannel>()
 			.add_message::<ChunkBecamePresent>()
 			.add_message::<ChunkBecameDirty>()
+			.add_message::<ChunkLoadResolved>()
 			.init_resource::<ChunkLoaderChannel>()
 			.init_resource::<ChunkSaveChannel>()
 			.init_resource::<LodRequestChannel>()

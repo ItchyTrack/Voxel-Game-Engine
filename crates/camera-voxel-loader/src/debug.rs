@@ -1,11 +1,14 @@
 #![allow(dead_code)]
 
 use bevy::prelude::*;
-use voxel_data::grid::GridId;
+use gpu_voxel_data::SubGridGpuState;
+use voxel_data::grid::{Grid, GridId, SUB_GRID_SIZE};
+use voxel_data::subgrid::SubGrid;
 use voxel_streaming::{GridStreaming, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
-use crate::types::{PolicyDebugBoxKind, TileStatus};
+use crate::coverage::{CoverageCell, CoverageSource, SourceState};
+use crate::types::{ChunkKey, PolicyDebugBoxKind, TileStatus};
 
 pub(crate) fn draw_lod_policy_bounds_gizmos(
 	mut gizmos: Gizmos,
@@ -88,6 +91,102 @@ fn policy_delta_color(kind: PolicyDebugBoxKind, entering: bool) -> Color {
 		Color::srgba(0.1, 1.0, 0.15, alpha)
 	} else {
 		Color::srgba(1.0, 0.1, 0.05, alpha)
+	}
+}
+
+pub(crate) fn draw_waiting_coverage_gizmos(
+	mut gizmos: Gizmos,
+	cameras: Query<&CameraVoxelLoader>,
+	grid_transforms: Query<&GlobalTransform, With<GridStreaming>>,
+	grids: Query<&Grid>,
+	subgrids: Query<&SubGrid>,
+	subgrid_gpu: Query<&SubGridGpuState, With<SubGrid>>,
+) {
+	let blocked_cell_color = Color::srgba(1.0, 0.0, 0.85, 0.95);
+	let waiting_source_color = Color::srgba(1.0, 0.95, 0.05, 0.9);
+	let waiting_subgrid_color = Color::srgba(0.0, 1.0, 1.0, 0.9);
+	let retiring_source_color = Color::srgba(1.0, 0.25, 0.0, 0.65);
+
+	for camera_voxel_loader in &cameras {
+		for (&retiring_source, record) in &camera_voxel_loader.coverage_sources {
+			if !matches!(record.state, SourceState::RetiringVisible(_)) {
+				continue;
+			}
+			draw_coverage_source_box(&mut gizmos, &grid_transforms, retiring_source, retiring_source_color);
+
+			for &chunk in record.cells.iter() {
+				let Some(cell) = camera_voxel_loader.coverage_cells.get(&chunk) else { continue };
+				if !coverage_cell_is_waiting_on_replacement(cell, retiring_source) {
+					continue;
+				}
+
+				draw_chunk_key_box(&mut gizmos, &grid_transforms, chunk, blocked_cell_color);
+				for &desired_source in &cell.desired {
+					if desired_source == retiring_source {
+						continue;
+					}
+					draw_coverage_source_box(&mut gizmos, &grid_transforms, desired_source, waiting_source_color);
+					if let CoverageSource::Chunk(waiting_chunk) = desired_source {
+						draw_waiting_subgrid_uploads(
+							&mut gizmos,
+							&grid_transforms,
+							&grids,
+							&subgrids,
+							&subgrid_gpu,
+							waiting_chunk,
+							waiting_subgrid_color,
+						);
+					}
+				}
+			}
+		}
+	}
+}
+
+fn coverage_cell_is_waiting_on_replacement(cell: &CoverageCell, retiring_source: CoverageSource) -> bool {
+	if cell.desired.is_empty() {
+		return false;
+	}
+	let has_replacement = cell.empty.iter().any(|source| *source != retiring_source)
+		|| cell.visible.iter().any(|source| *source != retiring_source);
+	!has_replacement
+}
+
+fn draw_coverage_source_box(gizmos: &mut Gizmos, grid_transforms: &Query<&GlobalTransform, With<GridStreaming>>, source: CoverageSource, color: Color) {
+	match source {
+		CoverageSource::Chunk(chunk) => draw_chunk_key_box(gizmos, grid_transforms, chunk, color),
+		CoverageSource::Tile(tile) => {
+			let Ok(grid_transform) = grid_transforms.get(tile.grid) else { return };
+			draw_lod_bound_box(gizmos, grid_transform, tile.min, tile.min + tile.size(), color);
+		}
+	}
+}
+
+fn draw_chunk_key_box(gizmos: &mut Gizmos, grid_transforms: &Query<&GlobalTransform, With<GridStreaming>>, chunk: ChunkKey, color: Color) {
+	let Ok(grid_transform) = grid_transforms.get(chunk.grid) else { return };
+	draw_lod_bound_box(gizmos, grid_transform, chunk.chunk, chunk.chunk + IVec3::ONE, color);
+}
+
+fn draw_waiting_subgrid_uploads(
+	gizmos: &mut Gizmos,
+	grid_transforms: &Query<&GlobalTransform, With<GridStreaming>>,
+	grids: &Query<&Grid>,
+	subgrids: &Query<&SubGrid>,
+	subgrid_gpu: &Query<&SubGridGpuState, With<SubGrid>>,
+	chunk: ChunkKey,
+	color: Color,
+) {
+	let Ok(grid) = grids.get(chunk.grid) else { return };
+	let Ok(grid_transform) = grid_transforms.get(chunk.grid) else { return };
+	let min = chunk.chunk * CHUNK_SIZE;
+	for entity in grid.subgrid_entities_in_area(min, IVec3::splat(CHUNK_SIZE)) {
+		if subgrid_gpu.get(entity).is_ok() {
+			continue;
+		}
+		let Ok(subgrid) = subgrids.get(entity) else { continue };
+		let min = subgrid.sub_grid_pos();
+		let max = min + IVec3::splat(SUB_GRID_SIZE);
+		draw_transformed_box(gizmos, grid_transform, min.as_vec3(), max.as_vec3(), color);
 	}
 }
 
