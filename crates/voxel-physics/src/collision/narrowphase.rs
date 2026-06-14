@@ -1,8 +1,8 @@
 use bevy::math::{I16Vec3, Quat, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
-use voxel_data::grid_tree::{get_child_contents_pos, size, child_size, CellKind, GridCell, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
-use voxel_data::voxel_grid_tree::PackedNode;
+use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, I16Coord, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
+use voxel_data::voxel_grid_tree::PackedCell;
 use voxel_data::transform_ext::TransformExt;
 use voxel_data::voxels;
 
@@ -26,7 +26,7 @@ struct DescendBox {
 
 #[derive(Clone, Copy)]
 enum BoxSrc {
-	Node { node_index: u32, depth: u8 },
+	Node(NodeRef),
 	Solid,
 }
 
@@ -38,11 +38,13 @@ pub(super) fn get_collisions_between_subgrids(
 	let mut collisions = vec![];
 	if voxels_1.grid_tree().is_empty() || voxels_2.grid_tree().is_empty() { return collisions; }
 	let separating_axes = compute_1x1x1_cube_separating_axes(transform_of_1_in_2.rotation);
-	let (nodes_1, root_pos_1, root_depth_1) = voxels_1.grid_tree().internals();
-	let (nodes_2, root_pos_2, root_depth_2) = voxels_2.grid_tree().internals();
-	let box_1 = DescendBox { origin: root_pos_1, size: size(root_depth_1) as u16, src: BoxSrc::Node { node_index: 0, depth: root_depth_1 } };
-	let box_2 = DescendBox { origin: root_pos_2, size: size(root_depth_2) as u16, src: BoxSrc::Node { node_index: 0, depth: root_depth_2 } };
-	descend(&mut collisions, &separating_axes, transform_of_1_in_2, nodes_1, box_1, nodes_2, box_2);
+	let view_1 = voxels_1.grid_tree().view();
+	let view_2 = voxels_2.grid_tree().view();
+	let root_1 = view_1.root();
+	let root_2 = view_2.root();
+	let box_1 = DescendBox { origin: root_1.origin.as_i16vec3(), size: voxel_data::grid_tree::size(root_1.depth) as u16, src: BoxSrc::Node(root_1) };
+	let box_2 = DescendBox { origin: root_2.origin.as_i16vec3(), size: voxel_data::grid_tree::size(root_2.depth) as u16, src: BoxSrc::Node(root_2) };
+	descend(&mut collisions, &separating_axes, transform_of_1_in_2, view_1, box_1, view_2, box_2);
 	collisions
 }
 
@@ -50,9 +52,9 @@ fn descend(
 	collisions: &mut Vec<SubgridContact>,
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,
-	nodes_1: &[PackedNode],
+	view_1: GridTreeView<'_, PackedCell, I16Coord>,
 	box_1: DescendBox,
-	nodes_2: &[PackedNode],
+	view_2: GridTreeView<'_, PackedCell, I16Coord>,
 	box_2: DescendBox,
 ) {
 	let center_1 = *transform_of_1_in_2 * (box_1.origin.as_vec3() + Vec3::splat(box_1.size as f32 * 0.5));
@@ -67,32 +69,30 @@ fn descend(
 	// Subdivide whichever box is larger so the two stay roughly the same scale as we descend.
 	if box_1.size >= box_2.size {
 		let mut children = [box_1; SIZE_USIZE_CUBED];
-		let count = collect_children(&box_1, nodes_1, &mut children);
+		let count = collect_children(&box_1, view_1, &mut children);
 		for child in &children[..count] {
-			descend(collisions, separating_axes, transform_of_1_in_2, nodes_1, *child, nodes_2, box_2);
+			descend(collisions, separating_axes, transform_of_1_in_2, view_1, *child, view_2, box_2);
 		}
 	} else {
 		let mut children = [box_2; SIZE_USIZE_CUBED];
-		let count = collect_children(&box_2, nodes_2, &mut children);
+		let count = collect_children(&box_2, view_2, &mut children);
 		for child in &children[..count] {
-			descend(collisions, separating_axes, transform_of_1_in_2, nodes_1, box_1, nodes_2, *child);
+			descend(collisions, separating_axes, transform_of_1_in_2, view_1, box_1, view_2, *child);
 		}
 	}
 }
 
-fn collect_children(parent: &DescendBox, nodes: &[PackedNode], out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
+fn collect_children(parent: &DescendBox, view: GridTreeView<'_, PackedCell, I16Coord>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
 	let mut count = 0;
 	match parent.src {
-		BoxSrc::Node { node_index, depth } => {
-			let child_size = child_size(depth) as u16;
-			let node = &nodes[node_index as usize];
-			for i in 0..SIZE_CUBED {
-				let cell = node.contents[i as usize];
-				let origin = parent.origin + (get_child_contents_pos(i).as_u16vec3() * child_size).as_i16vec3();
-				match cell.kind() {
+		BoxSrc::Node(node) => {
+			for child in view.occupied_children(node) {
+				let origin = child.origin.as_i16vec3();
+				let size = child.size as u16;
+				match child.kind() {
 					CellKind::Empty => {}
-					CellKind::Data => { out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Solid }; count += 1; }
-					CellKind::Node => { out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Node { node_index: node_index + cell.node_offset(), depth: depth - 1 } }; count += 1; }
+					CellKind::Data => { out[count] = DescendBox { origin, size, src: BoxSrc::Solid }; count += 1; }
+					CellKind::Node => { out[count] = DescendBox { origin, size, src: BoxSrc::Node(view.child_node(child).expect("node cell has child")) }; count += 1; }
 				}
 			}
 		}

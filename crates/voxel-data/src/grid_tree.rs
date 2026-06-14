@@ -1,8 +1,16 @@
-use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use bevy::math::{I8Vec3, IVec3, U8Vec3, UVec3, Vec3};
+use bevy::math::{I8Vec3, IVec3, U8Vec3, UVec3};
 use bevy::transform::components::Transform;
+
+mod cell;
+mod coord;
+mod raycast;
+mod traversal;
+mod view;
+pub use cell::{CellKind, GridCell};
+pub use coord::{GridCoord, I16Coord, I32Coord};
+pub use view::{CellRef, ChildCells, GridTreeView, LeafCells, NodeRef};
 
 pub const LOG_SIZE: u8 = 2;
 pub const SIZE: u8 = 1u8 << LOG_SIZE;
@@ -12,79 +20,6 @@ pub const SIZE_USIZE_CUBED: usize = SIZE_USIZE * SIZE_USIZE * SIZE_USIZE;
 
 pub const MAX_TREE_DEPTH: u8 = 10; // it is lower than this but im being safe
 pub const MAX_TREE_DEPTH_USIZE: usize = MAX_TREE_DEPTH as usize;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CellKind {
-	Empty,
-	Data,
-	Node,
-}
-
-/// How a single cell of a node is encoded (empty / data leaf / child-node offset).
-pub trait GridCell: Copy + Eq + Debug {
-	type Data: Copy + Eq + Ord + Debug;
-	const EMPTY: Self;
-	const MAX_DATA: Self::Data;
-	const MAX_NODE_OFFSET: u32;
-	fn data(value: Self::Data) -> Self;
-	fn node(offset: u32) -> Self;
-	fn kind(self) -> CellKind;
-	fn data_value(self) -> Self::Data;
-	fn node_offset(self) -> u32;
-}
-
-/// The coordinate system a tree is keyed in. The tree stores and traverses
-/// everything in `IVec3`/`u32` internally; this trait only bridges the public
-/// position/size types at the API boundary, plus the per-system depth cap.
-pub trait GridCoord: Copy + Debug + 'static {
-	/// Public signed world-space position vector (e.g. `I16Vec3` or `IVec3`).
-	type Pos: Copy + Eq + Debug;
-	/// Public size scalar yielded for cells (e.g. `u16` or `u32`).
-	type Size: Copy + Eq + Ord + Debug;
-	/// Highest root depth allowed before an out-of-range insert is skipped.
-	const MAX_ROOT_DEPTH: u8;
-	fn to_ivec3(pos: Self::Pos) -> IVec3;
-	fn from_ivec3(v: IVec3) -> Self::Pos;
-	fn size_from_u32(s: u32) -> Self::Size;
-}
-
-/// `i16` coordinate system (world voxels).
-#[derive(Clone, Copy, Debug)]
-pub struct I16Coord;
-impl GridCoord for I16Coord {
-	type Pos = bevy::math::I16Vec3;
-	type Size = u16;
-	// size(7) = 1<<16 is the first depth no i16 span can reach, so 6 is the cap.
-	const MAX_ROOT_DEPTH: u8 = 6;
-	fn to_ivec3(pos: Self::Pos) -> IVec3 {
-		pos.as_ivec3()
-	}
-	fn from_ivec3(v: IVec3) -> Self::Pos {
-		v.as_i16vec3()
-	}
-	fn size_from_u32(s: u32) -> Self::Size {
-		s as u16
-	}
-}
-
-/// `i32` coordinate system (chunk-space and other coarse grids).
-#[derive(Clone, Copy, Debug)]
-pub struct I32Coord;
-impl GridCoord for I32Coord {
-	type Pos = IVec3;
-	type Size = u32;
-	// size(15) = 1<<32 overflows u32; the node-arena cap bounds us long before this.
-	const MAX_ROOT_DEPTH: u8 = 13;
-	fn to_ivec3(pos: Self::Pos) -> IVec3 {
-		pos
-	}
-	fn from_ivec3(v: IVec3) -> Self::Pos {
-		v
-	}
-	fn size_from_u32(s: u32) -> Self::Size {
-		s
-	}
-}
 
 pub fn size(node_depth: u8) -> u32 {
 	1 << (LOG_SIZE * (node_depth + 1))
@@ -120,9 +55,6 @@ impl<C: GridCell> GridTreeNode<C> {
 	}
 	fn get_child_cell_from_index(&self, contents_index: u8) -> C {
 		self.contents[contents_index as usize]
-	}
-	fn get_child_cell(&self, contents_pos: U8Vec3) -> C {
-		self.get_child_cell_from_index(get_child_contents_index(contents_pos))
 	}
 	fn set_child_cell_from_index(&mut self, contents_index: u8, cell: C) {
 		self.contents[contents_index as usize] = cell;
@@ -169,39 +101,12 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		Self { nodes: vec![GridTreeNode::new_root()], root_pos: IVec3::ZERO, root_depth: 0, item_count: 0, dead_nodes: 0, _coord: PhantomData }
 	}
 
-	pub fn get(&self, pos: &Co::Pos) -> Option<C::Data> {
-		self.get_internal(Co::to_ivec3(*pos))
+	pub fn view(&self) -> GridTreeView<'_, C, Co> {
+		GridTreeView::new(&self.nodes, self.root_pos, self.root_depth, self.item_count)
 	}
 
-	fn get_internal(&self, pos: IVec3) -> Option<C::Data> {
-		let root_relative_pos = pos - self.root_pos;
-		if root_relative_pos.is_negative_bitmask() != 0 {
-			return None;
-		}
-		let root_relative_pos = root_relative_pos.as_uvec3();
-		if root_relative_pos.x >= size(self.root_depth)
-			|| root_relative_pos.y >= size(self.root_depth)
-			|| root_relative_pos.z >= size(self.root_depth)
-		{
-			return None;
-		}
-		let mut current_node_index: u32 = 0;
-		let mut current_relative_pos = root_relative_pos;
-		let mut current_depth = self.root_depth;
-		loop {
-			let node = &self.nodes[current_node_index as usize];
-			let contents_pos = (current_relative_pos / child_size(current_depth)).as_u8vec3();
-			let cell = node.get_child_cell(contents_pos);
-			match cell.kind() {
-				CellKind::Empty => return None,
-				CellKind::Data => return Some(cell.data_value()),
-				CellKind::Node => {
-					current_relative_pos %= child_size(current_depth);
-					current_node_index += cell.node_offset();
-					current_depth -= 1;
-				}
-			}
-		}
+	pub fn get(&self, pos: &Co::Pos) -> Option<C::Data> {
+		traversal::get(self.view(), *pos)
 	}
 
 	pub fn contains_key(&self, pos: &Co::Pos) -> bool {
@@ -213,7 +118,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		for x in 0..size.x {
 			for y in 0..size.y {
 				for z in 0..size.z {
-					if self.get_internal(base + IVec3::new(x, y, z)).is_none() {
+					if traversal::get(self.view(), Co::from_ivec3(base + IVec3::new(x, y, z))).is_none() {
 						return false;
 					}
 				}
@@ -1153,252 +1058,16 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	/// `[min, max]`, pruning subtrees that don't overlap. `f` receives
 	/// (cell origin, cell size, value). Far cheaper than `iter` when the region
 	/// is small relative to the tree.
-	pub fn for_each_in_region(&self, min: Co::Pos, max: Co::Pos, mut f: impl FnMut(Co::Pos, Co::Size, C::Data)) {
-		if self.is_empty() {
-			return;
-		}
-		let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
-		self.region_recurse(0, self.root_depth, self.root_pos, min, max, &mut |o, s, v| f(Co::from_ivec3(o), Co::size_from_u32(s), v));
+	pub fn for_each_in_region(&self, min: Co::Pos, max: Co::Pos, f: impl FnMut(Co::Pos, Co::Size, C::Data)) {
+		traversal::for_each_in_region(self.view(), min, max, f);
 	}
 
 	pub fn any_in_region(&self, min: Co::Pos, max: Co::Pos) -> bool {
-		if self.is_empty() {
-			return false;
-		}
-		let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
-		self.region_any_recurse(0, self.root_depth, self.root_pos, min, max)
-	}
-
-	fn region_recurse(&self, node_index: u32, node_depth: u8, node_origin: IVec3, min: IVec3, max: IVec3, f: &mut dyn FnMut(IVec3, u32, C::Data)) {
-		let node = &self.nodes[node_index as usize];
-		let cell_size = child_size(node_depth);
-		for i in 0..SIZE_CUBED {
-			let cell = node.contents[i as usize];
-			if cell.kind() == CellKind::Empty {
-				continue;
-			}
-			let contents_pos = get_child_contents_pos(i);
-			let child_origin = node_origin + (contents_pos.as_uvec3() * cell_size).as_ivec3();
-			let child_end = child_origin + IVec3::splat(cell_size as i32); // exclusive
-			if child_origin.cmpgt(max).any() || child_end.cmple(min).any() {
-				continue;
-			}
-			match cell.kind() {
-				CellKind::Data => f(child_origin, cell_size, cell.data_value()),
-				CellKind::Node => self.region_recurse(node_index + cell.node_offset(), node_depth - 1, child_origin, min, max, f),
-				CellKind::Empty => unreachable!(),
-			}
-		}
-	}
-
-	fn region_any_recurse(&self, node_index: u32, node_depth: u8, node_origin: IVec3, min: IVec3, max: IVec3) -> bool {
-		let node = &self.nodes[node_index as usize];
-		let cell_size = child_size(node_depth);
-		for i in 0..SIZE_CUBED {
-			let cell = node.contents[i as usize];
-			if cell.kind() == CellKind::Empty {
-				continue;
-			}
-			let contents_pos = get_child_contents_pos(i);
-			let child_origin = node_origin + (contents_pos.as_uvec3() * cell_size).as_ivec3();
-			let child_end = child_origin + IVec3::splat(cell_size as i32); // exclusive
-			if child_origin.cmpgt(max).any() || child_end.cmple(min).any() {
-				continue;
-			}
-			match cell.kind() {
-				CellKind::Data => return true,
-				CellKind::Node => {
-					if self.region_any_recurse(node_index + cell.node_offset(), node_depth - 1, child_origin, min, max) {
-						return true;
-					}
-				}
-				CellKind::Empty => unreachable!(),
-			}
-		}
-		false
-	}
-
-	fn ray_aabb_intersection(start: &Vec3, direction: &Vec3, aabb: &(Vec3, Vec3)) -> Option<f32> {
-		let (min, max) = aabb;
-
-		if start.cmpge(*min).all() && start.cmple(*max).all() {
-			return Some(0.0);
-		}
-
-		let inv = Vec3::ONE / *direction;
-		let t1 = (*min - *start) * inv;
-		let t2 = (*max - *start) * inv;
-
-		let tmin = t1.min(t2).max_element();
-		let tmax = t1.max(t2).min_element();
-
-		if tmax < 0.0 || tmin > tmax {
-			return None;
-		}
-
-		Some(tmin)
+		traversal::any_in_region(self.view(), min, max)
 	}
 
 	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(Co::Pos, I8Vec3, f32)> {
-		let max_length = max_length.unwrap_or(f32::MAX);
-
-		let origin = transform.translation;
-		let dir = transform.rotation * Vec3::Z;
-
-		let root_min = self.root_pos.as_vec3();
-		let root_max = root_min + Vec3::splat(size(self.root_depth) as f32);
-
-		// Ray vs root AABB
-		let distance_to_aabb = match Self::ray_aabb_intersection(&origin, &dir, &(root_min, root_max)) {
-			Some(dis) => dis,
-			None => return None,
-		};
-		let post_aabb_origin_pre_shift = origin + dir * distance_to_aabb;
-		let post_aabb_origin = post_aabb_origin_pre_shift
-			.min(self.root_pos.as_vec3() + Vec3::splat(((size(self.root_depth)) as f32) - 0.00001))
-			.max(self.root_pos.as_vec3());
-		let post_aabb_origin = post_aabb_origin.move_towards(post_aabb_origin.floor() + 0.5, 0.001);
-		let root_relative_post_aabb_origin = post_aabb_origin - self.root_pos.as_vec3();
-		let delta = dir.recip().abs();
-		let step = dir.signum().as_i8vec3();
-		let mut axis_distances = dir.recip()
-			* Vec3::new(
-				if step.x > 0 { root_relative_post_aabb_origin.x.ceil() } else { root_relative_post_aabb_origin.x.floor() }
-					- root_relative_post_aabb_origin.x,
-				if step.y > 0 { root_relative_post_aabb_origin.y.ceil() } else { root_relative_post_aabb_origin.y.floor() }
-					- root_relative_post_aabb_origin.y,
-				if step.z > 0 { root_relative_post_aabb_origin.z.ceil() } else { root_relative_post_aabb_origin.z.floor() }
-					- root_relative_post_aabb_origin.z,
-			)
-			+ distance_to_aabb;
-		let mut root_relative_grid_pos = root_relative_post_aabb_origin.as_uvec3();
-		let mut last_step_axis = (post_aabb_origin_pre_shift - post_aabb_origin).abs().max_position() as u8;
-		let mut current_node_index = 0u32;
-		let mut current_depth = self.root_depth;
-		let mut last_distance = distance_to_aabb;
-		if max_length < last_distance {
-			return None;
-		}
-		loop {
-			let mut current_node = &self.nodes[current_node_index as usize];
-			let node_relative_grid_pos = root_relative_grid_pos % size(current_depth);
-			let contents_pos = (node_relative_grid_pos / child_size(current_depth)).as_u8vec3();
-			let cell = current_node.get_child_cell(contents_pos);
-			match cell.kind() {
-				CellKind::Empty => {
-					if child_size(current_depth) != 1 {
-						let node_cell_relative_grid_pos = node_relative_grid_pos % child_size(current_depth);
-						let mut step_amount = UVec3::select(
-							step.cmpgt(I8Vec3::ZERO),
-							UVec3::splat(child_size(current_depth) - 1) - node_cell_relative_grid_pos,
-							node_cell_relative_grid_pos,
-						);
-						// step to edge of cell. step_amount is 0 if child_size is 0
-						let distance_to_edge_of_cell = axis_distances + step_amount.as_vec3() * delta;
-						match distance_to_edge_of_cell.min_position() {
-							0 => {
-								step_amount.y = ((distance_to_edge_of_cell.x - axis_distances.y + delta.y) / delta.y).abs() as u32;
-								step_amount.z = ((distance_to_edge_of_cell.x - axis_distances.z + delta.z) / delta.z).abs() as u32;
-							}
-							1 => {
-								step_amount.x = ((distance_to_edge_of_cell.y - axis_distances.x + delta.x) / delta.x).abs() as u32;
-								step_amount.z = ((distance_to_edge_of_cell.y - axis_distances.z + delta.z) / delta.z).abs() as u32;
-							}
-							2 => {
-								step_amount.x = ((distance_to_edge_of_cell.z - axis_distances.x + delta.x) / delta.x).abs() as u32;
-								step_amount.y = ((distance_to_edge_of_cell.z - axis_distances.y + delta.y) / delta.y).abs() as u32;
-							}
-							_ => unreachable!(),
-						}
-						axis_distances += delta * step_amount.as_vec3();
-						root_relative_grid_pos = (root_relative_grid_pos.as_ivec3() + step_amount.as_ivec3() * step.as_ivec3()).as_uvec3();
-					}
-					match axis_distances.min_position() {
-						0 => {
-							if max_length < axis_distances.x {
-								return None;
-							}
-							let root_relative_grid_pos_x = root_relative_grid_pos.x as i64 + step.x as i64;
-							if root_relative_grid_pos_x < 0 || root_relative_grid_pos_x >= size(self.root_depth) as i64 {
-								return None;
-							}
-							let root_relative_grid_pos_x = root_relative_grid_pos_x as u32;
-							loop {
-								if root_relative_grid_pos.x / size(current_depth) == root_relative_grid_pos_x / size(current_depth) {
-									break;
-								}
-								current_depth += 1;
-								let parent_offset = current_node.get_parent_offset()?;
-								current_node_index -= parent_offset as u32;
-								current_node = &self.nodes[current_node_index as usize];
-							}
-							root_relative_grid_pos.x = root_relative_grid_pos_x;
-							last_distance = axis_distances.x;
-							axis_distances.x += delta.x;
-							last_step_axis = 0;
-						}
-						1 => {
-							if max_length < axis_distances.y {
-								return None;
-							}
-							let root_relative_grid_pos_y = root_relative_grid_pos.y as i64 + step.y as i64;
-							if root_relative_grid_pos_y < 0 || root_relative_grid_pos_y >= size(self.root_depth) as i64 {
-								return None;
-							}
-							let root_relative_grid_pos_y = root_relative_grid_pos_y as u32;
-							loop {
-								if root_relative_grid_pos.y / size(current_depth) == root_relative_grid_pos_y / size(current_depth) {
-									break;
-								}
-								current_depth += 1;
-								let parent_offset = current_node.get_parent_offset()?;
-								current_node_index -= parent_offset as u32;
-								current_node = &self.nodes[current_node_index as usize];
-							}
-							root_relative_grid_pos.y = root_relative_grid_pos_y;
-							last_distance = axis_distances.y;
-							axis_distances.y += delta.y;
-							last_step_axis = 1;
-						}
-						2 => {
-							if max_length < axis_distances.z {
-								return None;
-							}
-							let root_relative_grid_pos_z = root_relative_grid_pos.z as i64 + step.z as i64;
-							if root_relative_grid_pos_z < 0 || root_relative_grid_pos_z >= size(self.root_depth) as i64 {
-								return None;
-							}
-							let root_relative_grid_pos_z = root_relative_grid_pos_z as u32;
-							loop {
-								if root_relative_grid_pos.z / size(current_depth) == root_relative_grid_pos_z / size(current_depth) {
-									break;
-								}
-								current_depth += 1;
-								let parent_offset = current_node.get_parent_offset()?;
-								current_node_index -= parent_offset as u32;
-								current_node = &self.nodes[current_node_index as usize];
-							}
-							root_relative_grid_pos.z = root_relative_grid_pos_z;
-							last_distance = axis_distances.z;
-							axis_distances.z += delta.z;
-							last_step_axis = 2;
-						}
-						_ => unreachable!(),
-					}
-				}
-				CellKind::Data => {
-					return Some((
-						Co::from_ivec3(root_relative_grid_pos.as_ivec3() + self.root_pos),
-						-step.to_array()[last_step_axis as usize] * I8Vec3::AXES[last_step_axis as usize],
-						last_distance,
-					));
-				}
-				CellKind::Node => {
-					current_depth -= 1;
-					current_node_index += cell.node_offset();
-				}
-			}
-		}
+		raycast::raycast(self.view(), transform, max_length)
 	}
 }
 
@@ -1412,16 +1081,12 @@ impl<'a, C: GridCell, Co: GridCoord> IntoIterator for &'a GridTree<C, Co> {
 }
 
 pub struct GridTreeIterator<'a, C: GridCell, Co: GridCoord> {
-	tree: &'a GridTree<C, Co>,
-	stack: Vec<(u32, u8, u8, IVec3)>,
+	leaves: LeafCells<'a, C, Co>,
 }
 
 impl<'a, C: GridCell, Co: GridCoord> GridTreeIterator<'a, C, Co> {
 	pub fn new(tree: &'a GridTree<C, Co>) -> Self {
-		if tree.nodes.is_empty() {
-			return Self { tree, stack: vec![] };
-		}
-		Self { tree, stack: vec![(0, 0, tree.root_depth, tree.root_pos)] }
+		Self { leaves: tree.view().leaves() }
 	}
 }
 
@@ -1429,48 +1094,7 @@ impl<'a, C: GridCell, Co: GridCoord> Iterator for GridTreeIterator<'a, C, Co> {
 	type Item = (Co::Pos, Co::Size, C::Data);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		loop {
-			let (node_index, start_child, node_depth, node_origin) = self.stack.last_mut()?;
-			let node_index = *node_index;
-			let node_origin = *node_origin;
-			let node_depth = *node_depth;
-
-			let node = &self.tree.nodes[node_index as usize];
-			let child_size = child_size(node_depth); // size of one cell in this node
-
-			// Scan forward from where we left off
-			let scan_start = *start_child;
-			let mut found = false;
-
-			for i in scan_start..SIZE_CUBED {
-				let cell = node.contents[i as usize];
-				let contents_pos = get_child_contents_pos(i);
-				let child_world_origin = node_origin + (contents_pos.as_uvec3() * child_size).as_ivec3();
-
-				match cell.kind() {
-					CellKind::Empty => { /* skip */ }
-					CellKind::Data => {
-						// DATA leaf – yield it and resume after this cell next time
-						*self.stack.last_mut().unwrap() = (node_index, i + 1, node_depth, node_origin);
-						return Some((Co::from_ivec3(child_world_origin), Co::size_from_u32(child_size), cell.data_value()));
-					}
-					CellKind::Node => {
-						// NODE – push child onto stack, restart inner loop from there
-						let child_node_index = node_index + cell.node_offset();
-						// Record that we should resume from i+1 when we pop back
-						*self.stack.last_mut().unwrap() = (node_index, i + 1, node_depth, node_origin);
-						self.stack.push((child_node_index, 0, node_depth - 1, child_world_origin));
-						found = true;
-						break;
-					}
-				}
-			}
-
-			if !found {
-				// Exhausted this node – pop it
-				self.stack.pop();
-			}
-		}
+		self.leaves.next().map(|leaf| (Co::from_ivec3(leaf.origin), Co::size_from_u32(leaf.size), leaf.data_value()))
 	}
 }
 

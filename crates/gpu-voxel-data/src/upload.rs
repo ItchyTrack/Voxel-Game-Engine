@@ -56,7 +56,7 @@ pub(crate) fn manage_gpu_uploads(
 		let Some(view) = grids.get(sub_grid.grid()).ok().and_then(|g| g.view(sub_grid)) else { continue };
 		let Some((bounds_min, bounds_max)) = view.voxels().bounding_box() else { continue };
 		let placement = SubGridPlacement {
-			tree_root_pos: view.voxels().grid_tree().internals().1,
+			tree_root_pos: view.voxels().grid_tree().view().root_pos(),
 			bounds_min,
 			bounds_max,
 		};
@@ -104,7 +104,7 @@ pub(crate) fn manage_lod_uploads(
 		if gpu_state.is_some() || in_flight.0.contains(&entity) { continue; }
 		let Some((bounds_min, bounds_max)) = lod_voxels.voxels.bounding_box() else { continue };
 		let placement = SubGridPlacement {
-			tree_root_pos: lod_voxels.voxels.grid_tree().internals().1,
+			tree_root_pos: lod_voxels.voxels.grid_tree().view().root_pos(),
 			bounds_min,
 			bounds_max,
 		};

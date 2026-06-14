@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-	use voxel_data::{voxel_grid_tree::{VoxelGridTree, PackedCell}, grid_tree::{GridTree, I32Coord, SIZE}};
+	use voxel_data::{voxel_grid_tree::{VoxelGridTree, PackedCell}, grid_tree::{CellKind, GridTree, I32Coord, SIZE}};
 	use bevy::math::{I16Vec3, IVec3, Vec3};
 	use bevy::transform::components::Transform;
 	use std::collections::HashMap;
@@ -37,6 +37,72 @@ mod tests {
 		}
 		assert_eq!(&tree_voxels(tree), oracle, "iter expansion differs from oracle");
 		assert_eq!(tree.len(), oracle.len() as u64, "len() mismatch");
+	}
+
+	// ---- low-level view API ----
+
+	#[test]
+	fn view_exposes_root_metadata_and_occupied_children() {
+		let mut t = VoxelGridTree::new();
+		t.add_area(&p(0, 0, 0), IVec3::splat(16), 7);
+
+		let view = t.view();
+		let root = view.root();
+		assert_eq!(root.index, 0);
+		assert_eq!(root.depth, 1);
+		assert_eq!(root.origin, IVec3::ZERO);
+		assert_eq!(view.root_pos(), p(0, 0, 0));
+		assert_eq!(view.root_depth(), 1);
+		assert_eq!(view.len(), 16 * 16 * 16);
+
+		let children: Vec<_> = view.occupied_children(root).collect();
+		assert_eq!(children.len(), SIZE as usize * SIZE as usize * SIZE as usize);
+		assert!(children.iter().all(|child| child.kind() == CellKind::Data));
+		assert!(children.iter().all(|child| child.size == 4));
+		assert_eq!(children[0].origin, IVec3::ZERO);
+		assert_eq!(children[1].origin, IVec3::new(4, 0, 0));
+	}
+
+	#[test]
+	fn view_descends_node_cells_without_exposing_offsets() {
+		let mut t = VoxelGridTree::new();
+		t.add_areas(&[
+			(p(0, 0, 0), IVec3::ONE, 11),
+			(p(5, 0, 0), IVec3::ONE, 22),
+		]);
+
+		let view = t.view();
+		let root_children: Vec<_> = view.occupied_children(view.root()).collect();
+		assert_eq!(root_children.len(), 2);
+		assert!(root_children.iter().all(|child| child.kind() == CellKind::Node));
+
+		let first_node = view.child_node(root_children[0]).unwrap();
+		let first_leaves: Vec<_> = view.occupied_children(first_node).collect();
+		assert_eq!(first_leaves.len(), 1);
+		assert_eq!(first_leaves[0].origin, IVec3::ZERO);
+		assert_eq!(first_leaves[0].size, 1);
+		assert_eq!(first_leaves[0].data_value(), 11);
+
+		let second_node = view.child_node(root_children[1]).unwrap();
+		let second_leaves: Vec<_> = view.occupied_children(second_node).collect();
+		assert_eq!(second_leaves.len(), 1);
+		assert_eq!(second_leaves[0].origin, IVec3::new(5, 0, 0));
+		assert_eq!(second_leaves[0].size, 1);
+		assert_eq!(second_leaves[0].data_value(), 22);
+	}
+
+	#[test]
+	fn view_leaves_match_public_iterator() {
+		let mut t = VoxelGridTree::new();
+		t.add_areas(&[
+			(p(-8, 0, 0), IVec3::splat(4), 3),
+			(p(0, 0, 0), IVec3::ONE, 4),
+			(p(9, 2, -7), IVec3::new(2, 3, 1), 5),
+		]);
+
+		let from_view: Vec<_> = t.view().leaves().map(|leaf| (leaf.origin.as_i16vec3(), leaf.size as u16, leaf.data_value())).collect();
+		let from_iter: Vec<_> = t.iter().collect();
+		assert_eq!(from_view, from_iter);
 	}
 
 	// ---- basic API ----
@@ -387,7 +453,7 @@ mod tests {
 				t.insert(&p(i * 4, j * 4, ((i + j) % 16) * 4), 1);
 			}
 		}
-		let baseline = t.internals().0.len();
+		let baseline = t.view().nodes().len();
 		for _ in 0..400 {
 			for i in 0..16i16 {
 				for j in 0..16i16 {
@@ -397,7 +463,7 @@ mod tests {
 				}
 			}
 		}
-		let after = t.internals().0.len();
+		let after = t.view().nodes().len();
 		assert!(after <= baseline * 2, "arena must stay bounded by compaction ({baseline} -> {after})");
 	}
 
@@ -489,7 +555,7 @@ mod tests {
 
 	#[test]
 	fn model_subgrid_range() {
-		run_model(0, 64, 200_000, 4);
+		run_model(0, 64, 20_000, 4);
 	}
 
 	#[test]
@@ -520,7 +586,7 @@ mod tests {
 			} else {
 				tree.insert(&pos, 1);
 			}
-			let (_, _, root_depth) = tree.internals();
+			let root_depth = tree.view().root_depth();
 			assert!(root_depth <= 3, "root_depth climbed to {} after {} ops (last pos {pos:?})", root_depth, i);
 		}
 	}

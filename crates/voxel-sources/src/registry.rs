@@ -130,3 +130,4 @@ impl VoxelLodGenerator for IdentityVoxelLodGenerator {
 		(!voxels.is_empty()).then(|| voxels.clone())
 	}
 }
+
