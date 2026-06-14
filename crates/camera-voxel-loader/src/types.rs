@@ -41,6 +41,14 @@ impl TileKey {
 pub(crate) struct TileRecord {
 	pub(crate) status: TileStatus,
 	pub(crate) entity: Option<Entity>,
+	pub(crate) generation: u64,
+	pub(crate) stale_entity: Option<Entity>,
+}
+
+impl TileRecord {
+	pub(crate) fn queued() -> Self {
+		Self { status: TileStatus::Queued, entity: None, generation: 0, stale_entity: None }
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

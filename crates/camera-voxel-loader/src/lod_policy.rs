@@ -72,6 +72,11 @@ pub(crate) fn align_chunk_to_tile(chunk: IVec3, tile_size: i32) -> IVec3 {
 	chunk.div_euclid(IVec3::splat(tile_size)) * tile_size
 }
 
+pub(crate) fn tile_key_covering_chunk(grid: GridId, chunk: IVec3, lod: u8) -> TileKey {
+	let tile_size = 1i32 << lod;
+	TileKey { grid, lod, min: align_chunk_to_tile(chunk, tile_size) }
+}
+
 pub(crate) fn update_near_chunks_delta(
 	out: &mut HashSet<ChunkKey>,
 	debug_boxes: &mut Vec<PolicyDebugBox>,
@@ -247,6 +252,11 @@ pub(crate) fn update_lod_tiles_delta(
 			}
 		}
 	}
+}
+
+pub(crate) fn is_lod_tile_wanted(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, key: TileKey) -> bool {
+	let (_, outer, band_inner) = lod_bounds(settings, key.lod, center);
+	wants_lod_tile(settings, streaming, center, key, band_inner, outer.2)
 }
 
 fn wants_lod_tile(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, key: TileKey, band_inner: i32, outer: i32) -> bool {

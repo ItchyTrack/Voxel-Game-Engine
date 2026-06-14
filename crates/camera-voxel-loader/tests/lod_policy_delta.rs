@@ -77,7 +77,7 @@ mod types {
 mod lod_policy;
 
 use camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
-use lod_policy::{add_lod_tiles, add_near_chunks, update_lod_tiles_delta, update_near_chunks_delta};
+use lod_policy::{add_lod_tiles, add_near_chunks, is_lod_tile_wanted, update_lod_tiles_delta, update_near_chunks_delta};
 use types::{ChunkKey, PolicyDebugBox, TileKey};
 
 #[test]
@@ -132,6 +132,11 @@ fn lod2_tile_is_missing_when_presence_appears_without_camera_movement() {
 
 	streaming.presence_mut().mark_present(new_present_chunk);
 	update_lod_tiles_delta(&mut incremental_tiles, &mut debug_boxes, grid, center, center, &settings, &streaming);
+	// New presence events are handled outside movement deltas: the changed chunk maps
+	// to its covering LOD tiles, and currently-wanted tiles are inserted/requested.
+	if is_lod_tile_wanted(&settings, &streaming, center, expected_tile) {
+		incremental_tiles.insert(expected_tile);
+	}
 
 	let mut rebuilt_tiles = HashSet::<TileKey>::new();
 	add_lod_tiles(&mut rebuilt_tiles, grid, center, &controller, &streaming);
@@ -165,8 +170,11 @@ fn lod2_tile_is_not_requeued_when_existing_lod0_chunk_is_edited_then_camera_flie
 	add_lod_tiles(&mut desired_tiles_near, grid, near_center, &controller, &streaming);
 	assert!(!desired_tiles_near.contains(&stale_tile), "control setup should render the edited chunk as LOD0 while nearby");
 
-	// Player edits the existing loaded chunk here. Then the camera flies away and the
-	// same chunk should be represented by LOD2.
+	// Player edits the existing loaded chunk here. Dirty chunk events invalidate stale
+	// cached LOD records, even while the camera is close and the tile is not desired.
+	tile_records.remove(&stale_tile);
+
+	// Then the camera flies away and the same chunk should be represented by LOD2.
 	let far_center = IVec3::ZERO;
 	let mut desired_tiles_far = HashSet::<TileKey>::new();
 	add_lod_tiles(&mut desired_tiles_far, grid, far_center, &controller, &streaming);
@@ -208,24 +216,20 @@ fn editing_chunk_inside_active_lod2_tile_should_dirty_tile_and_wait_to_unload_ol
 	// rendered/reused. Editing an underlying chunk should make this record dirty,
 	// request a replacement LOD, and keep the old LOD alive until the replacement
 	// resolves.
-	let tile_records = HashMap::from([(dirty_tile, "Ready")]);
 	let mut request_queue = Vec::<TileKey>::new();
 	let mut unload_deps = HashMap::<TileKey, TileKey>::new();
 
-	// Current behavior mirrored from loading.rs: desired tiles with any existing
-	// TileRecord are skipped, so no replacement request/dependency is created.
-	for key in desired_tiles {
-		if tile_records.contains_key(&key) {
-			continue;
-		}
-		request_queue.push(key);
+	// Dirty chunk events re-request the active LOD tile and keep the old entity alive
+	// until the replacement resolves.
+	if desired_tiles.contains(&dirty_tile) {
+		request_queue.push(dirty_tile);
+		unload_deps.insert(dirty_tile, dirty_tile);
 	}
 
 	assert!(
 		request_queue.contains(&dirty_tile),
 		"editing chunk {edited_chunk:?} should re-request dirty active LOD tile {dirty_tile:?}, but the existing TileRecord caused it to be reused"
 	);
-	unload_deps.insert(dirty_tile, dirty_tile);
 	assert!(
 		unload_deps.contains_key(&dirty_tile),
 		"old dirty LOD tile {dirty_tile:?} should have an unload dependency on its replacement request resolving"

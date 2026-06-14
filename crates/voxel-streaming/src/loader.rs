@@ -133,6 +133,7 @@ pub struct LodLoadRequest {
 	pub size: IVec3,
 	pub lod: f32,
 	pub priority: f32,
+	pub generation: u64,
 }
 
 #[derive(Resource)]
@@ -177,6 +178,7 @@ pub struct LodLoadResult {
 	pub size: IVec3,
 	pub lod: f32,
 	pub priority: f32,
+	pub generation: u64,
 	pub voxels: Option<Voxels>,
 }
 

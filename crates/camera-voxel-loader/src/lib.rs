@@ -77,8 +77,7 @@ impl Plugin for CameraVoxelLoaderPlugin {
 				)
 					.chain()
 					.after(gpu_voxel_data::GpuUploadSet::Upload),
-			);
-			// .add_systems(Update, debug::draw_lod_policy_bounds_gizmos);
+			)
 		// .add_systems(Update, (debug::draw_policy_delta_gizmos, debug::draw_retiring_lod_gizmos));
 	}
 }

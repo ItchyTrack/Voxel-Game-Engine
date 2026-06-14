@@ -1,8 +1,9 @@
+use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 
 use voxel_streaming::{
-	ChunkLoaderChannel, ChunkLoadResult, ChunkSaveChannel, ChunkState,
-	GridStreaming, LodLoaderChannel, LodLoadResult,
+	ChunkBecamePresent, ChunkLoaderChannel, ChunkLoadResult, ChunkSaveChannel,
+	ChunkState, GridStreaming, LodLoaderChannel, LodLoadResult,
 };
 
 use crate::handle::{SourceEvent, SourceHandle};
@@ -39,6 +40,7 @@ pub(crate) fn sync_grid_keys(mut registry: ResMut<SourceRegistry>, grids: Query<
 pub(crate) fn apply_source_events(
 	registry: Res<SourceRegistry>,
 	mut grids: Query<&mut GridStreaming>,
+	mut present_events: MessageWriter<ChunkBecamePresent>,
 ) {
 	let rx = registry.event_rx.clone();
 	while let Ok(event) = rx.try_recv() {
@@ -47,6 +49,7 @@ pub(crate) fn apply_source_events(
 				let Some(entity) = registry.entity(grid) else { continue };
 				if let Ok(mut s) = grids.get_mut(entity) {
 					if s.presence().state(chunk).is_none() {
+						present_events.write(ChunkBecamePresent { grid: entity, chunk });
 						s.presence_mut().mark_present(chunk);
 					}
 				}
@@ -54,6 +57,16 @@ pub(crate) fn apply_source_events(
 			SourceEvent::AvailableArea { grid, min, size } => {
 				let Some(entity) = registry.entity(grid) else { continue };
 				if let Ok(mut s) = grids.get_mut(entity) {
+					for x in min.x..min.x + size.x {
+						for y in min.y..min.y + size.y {
+							for z in min.z..min.z + size.z {
+								let chunk = IVec3::new(x, y, z);
+								if s.presence().state(chunk).is_none() {
+									present_events.write(ChunkBecamePresent { grid: entity, chunk });
+								}
+							}
+						}
+					}
 					s.presence_mut().mark_present_area(min, size);
 				}
 			}
@@ -103,6 +116,7 @@ pub(crate) fn drain_source_lod_results(
 			size: result.size,
 			lod: result.lod,
 			priority: request.priority,
+			generation: request.generation,
 			voxels: result.voxels,
 		});
 	}
