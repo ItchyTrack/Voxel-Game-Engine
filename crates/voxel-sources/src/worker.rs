@@ -85,7 +85,7 @@ fn serve_lod_requests(
 ) {
 	while let Ok(request) = requests.recv() {
 		let Some(key) = grid_keys.read().unwrap().get(&request.grid).copied() else { continue };
-		let source_ids = lod_sources_with_any_chunks(&sources, key, request.min, request.size);
+		let source_ids = lod_sources_with_any_chunks(&sources, key, request.min, request.size, request.lod);
 		match source_ids.as_slice() {
 			[] => {
 				pending_lod

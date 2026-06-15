@@ -10,7 +10,7 @@ use voxel_streaming::{ChunkBecameDirty, ChunkBecamePresent, ChunkConsumer, Chunk
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::lod_policy::{add_lod_tiles, add_near_chunks, is_lod_tile_wanted, is_near_chunk_wanted, nearest_chunk_center, tile_key_covering_chunk, update_lod_tiles_delta, update_near_chunks_delta};
-use crate::coverage::{chunks_for_subgrid_bounds, ready_retiring_sources, remove_source, request_source, resolve_empty, resolve_visible, retiring_visible_chunks, undesire_source, CoverageSource, SourceResolution, SourceState};
+use crate::coverage::{chunks_in_bounds, ready_retiring_sources, remove_source, request_source, resolve_empty, resolve_visible, retiring_visible_chunks, undesire_source, CoverageSource, SourceResolution, SourceState};
 use crate::types::{ChunkKey, TileKey, TileRecord, TileStatus};
 use crate::CameraVoxelLoaderConsumer;
 
@@ -34,6 +34,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 		let mut policy_debug_boxes = Vec::new();
 		let mut desired_chunks = if settings_changed { HashSet::new() } else { camera_voxel_loader.desired_chunks.clone() };
 		let mut desired_tiles = if settings_changed { HashSet::new() } else { camera_voxel_loader.desired_tiles.clone() };
+		let mut desired_changed = settings_changed;
 
 		for (grid, grid_global, streaming) in &mut grids {
 			let local = grid_global.affine().inverse().transform_point3(camera_world);
@@ -42,24 +43,30 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			let rebuild_grid = previous_center.map_or(true, |old| should_rebuild_policy(old, camera_chunk));
 
 			if rebuild_grid {
+				desired_changed = true;
 				desired_chunks.retain(|key| key.grid != grid);
 				desired_tiles.retain(|key| key.grid != grid);
 				add_near_chunks(&mut desired_chunks, grid, camera_chunk, &camera_voxel_loader, streaming.as_ref());
 				add_lod_tiles(&mut desired_tiles, grid, camera_chunk, &camera_voxel_loader, streaming.as_ref());
 			} else if let Some(old_center) = previous_center {
-				update_near_chunks_delta(&mut desired_chunks, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
-				update_lod_tiles_delta(&mut desired_tiles, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
+				if old_center != camera_chunk {
+					desired_changed = true;
+					update_near_chunks_delta(&mut desired_chunks, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
+					update_lod_tiles_delta(&mut desired_tiles, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
+				}
 			}
+			let before_retain = desired_chunks.len();
 			desired_chunks.retain(|key| key.grid != grid || streaming.presence().is_present(key.chunk));
+			desired_changed |= desired_chunks.len() != before_retain;
 
 			for event in present_events.iter().filter(|event| event.grid == grid) {
 				if is_near_chunk_wanted(&settings, streaming.as_ref(), camera_chunk, event.chunk) {
-					desired_chunks.insert(ChunkKey { grid, chunk: event.chunk });
+					desired_changed |= desired_chunks.insert(ChunkKey { grid, chunk: event.chunk });
 				}
 				for lod in 1..=settings.max_lod {
 					let key = tile_key_covering_chunk(grid, event.chunk, lod);
 					if is_lod_tile_wanted(&settings, streaming.as_ref(), camera_chunk, key) {
-						desired_tiles.insert(key);
+						desired_changed |= desired_tiles.insert(key);
 					}
 				}
 			}
@@ -69,11 +76,13 @@ pub(crate) fn update_camera_voxel_loader_requests(
 
 		camera_voxel_loader.applied_settings = Some(settings);
 		camera_voxel_loader.policy_debug_boxes = policy_debug_boxes;
-		sync_desired_coverage(&mut camera_voxel_loader, &desired_chunks, &desired_tiles);
-		camera_voxel_loader.desired_tiles = desired_tiles.clone();
+		if desired_changed {
+			sync_desired_coverage(&mut camera_voxel_loader, &desired_chunks, &desired_tiles);
+			camera_voxel_loader.desired_tiles = desired_tiles.clone();
+		}
 		apply_chunk_change_events(&mut commands, &mut camera_voxel_loader, &desired_tiles, &present_events, &dirty_events);
 
-		let chunks_to_fetch = update_desired_chunks(&mut camera_voxel_loader, desired_chunks);
+		let chunks_to_fetch = if desired_changed { update_desired_chunks(&mut camera_voxel_loader, desired_chunks) } else { Vec::new() };
 		for chunk_key in chunks_to_fetch {
 			if let Ok((_, _, mut streaming)) = grids.get_mut(chunk_key.grid) {
 				streaming.fetch_needed(chunk_key.grid, consumer.as_mut(), &chunk_channel, chunk_key.chunk);
@@ -83,29 +92,31 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			}
 		}
 
-		let old_tiles: Vec<TileKey> = camera_voxel_loader.tiles.keys().copied().collect();
-		for key in old_tiles {
-			if desired_tiles.contains(&key) {
-				let visible_entity = if let Some(record) = camera_voxel_loader.tiles.get_mut(&key) {
-					if record.status == TileStatus::Retiring {
-						record.status = TileStatus::Ready;
+		if desired_changed {
+			let old_tiles: Vec<TileKey> = camera_voxel_loader.tiles.keys().copied().collect();
+			for key in old_tiles {
+				if desired_tiles.contains(&key) {
+					let visible_entity = if let Some(record) = camera_voxel_loader.tiles.get_mut(&key) {
+						if record.status == TileStatus::Retiring {
+							record.status = TileStatus::Ready;
+						}
+						(record.status == TileStatus::Ready).then_some(record.entity).flatten()
+					} else {
+						None
+					};
+					if let Some(entity) = visible_entity {
+						request_source(&mut camera_voxel_loader, CoverageSource::Tile(key));
+						resolve_visible(&mut camera_voxel_loader, CoverageSource::Tile(key), entity);
 					}
-					(record.status == TileStatus::Ready).then_some(record.entity).flatten()
-				} else {
-					None
-				};
-				if let Some(entity) = visible_entity {
-					request_source(&mut camera_voxel_loader, CoverageSource::Tile(key));
-					resolve_visible(&mut camera_voxel_loader, CoverageSource::Tile(key), entity);
+					continue;
 				}
-				continue;
+
+				handle_non_desired_tile(&mut camera_voxel_loader, key);
 			}
 
-			handle_non_desired_tile(&mut camera_voxel_loader, key);
-		}
-
-		for key in desired_tiles {
-			queue_tile_if_missing(&mut camera_voxel_loader, key);
+			for key in desired_tiles {
+				queue_tile_if_missing(&mut camera_voxel_loader, key);
+			}
 		}
 
 		let mut sent = 0usize;
@@ -407,11 +418,10 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 		for event in &gpu_events {
 			if let (Ok(subgrid), Ok(gpu_state)) = (subgrids.get(event.entity), subgrid_gpu.get(event.entity)) {
 				let placement = gpu_state.placement();
-				for chunk in chunks_for_subgrid_bounds(
+				for chunk in chunks_in_bounds(
 					subgrid.grid(),
-					subgrid.sub_grid_pos(),
-					placement.bounds_min.as_ivec3(),
-					placement.bounds_max.as_ivec3(),
+					subgrid.sub_grid_pos() + placement.bounds_min.as_ivec3(),
+					subgrid.sub_grid_pos() + placement.bounds_max.as_ivec3(),
 				) {
 					if camera_voxel_loader.desired_chunks.contains(&chunk) {
 						resolve_visible(&mut camera_voxel_loader, CoverageSource::Chunk(chunk), event.entity);

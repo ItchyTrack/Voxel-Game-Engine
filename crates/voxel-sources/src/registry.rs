@@ -115,11 +115,11 @@ pub(crate) fn cheapest(sources: &[SharedSource], grid: GridKey, chunk: IVec3) ->
 		.map(|(_, id)| id)
 }
 
-pub(crate) fn lod_sources_with_any_chunks(sources: &[SharedSource], grid: GridKey, min: IVec3, size: IVec3) -> Vec<SourceId> {
+pub(crate) fn lod_sources_with_any_chunks(sources: &[SharedSource], grid: GridKey, min: IVec3, size: IVec3, lod: f32) -> Vec<SourceId> {
 	sources
 		.iter()
 		.enumerate()
-		.filter_map(|(i, source)| source.has_any_chunks_in_area(grid, min, size).then_some(SourceId(i)))
+		.filter_map(|(i, source)| source.cost_lod(grid, min, size, lod).is_some().then_some(SourceId(i)))
 		.collect()
 }
 

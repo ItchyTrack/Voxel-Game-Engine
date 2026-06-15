@@ -31,7 +31,7 @@ mod camera_voxel_loader {
 mod coverage;
 
 use camera_voxel_loader::CameraVoxelLoader;
-use coverage::{chunks_for_subgrid, chunks_for_subgrid_bounds, coverage_cell_replacement_state, ready_retiring_sources, remove_source, request_source, resolve_empty, resolve_visible, retiring_visible_chunks, undesire_source, CoverageCellReplacementState, CoverageSource, SourceResolution, SourceState};
+use coverage::{chunks_in_bounds, coverage_cell_replacement_state, ready_retiring_sources, remove_source, request_source, resolve_empty, resolve_visible, retiring_visible_chunks, undesire_source, CoverageCellReplacementState, CoverageSource, SourceResolution, SourceState};
 use types::{ChunkKey, TileKey};
 
 #[test]
@@ -40,7 +40,7 @@ fn subgrid_upload_must_not_resolve_chunks_outside_uploaded_voxel_bounds() {
 	let subgrid_origin = IVec3::splat(57);
 	let uploaded_bounds_min = subgrid_origin;
 	let uploaded_bounds_max_exclusive = uploaded_bounds_min + IVec3::ONE;
-	let chunks = chunks_for_subgrid_bounds(grid, subgrid_origin, IVec3::ZERO, IVec3::ZERO);
+	let chunks = chunks_in_bounds(grid, subgrid_origin, subgrid_origin);
 
 	assert!(uploaded_bounds_max_exclusive.x <= 64, "control setup should occupy only streaming chunk x=0");
 	assert!(
@@ -50,14 +50,14 @@ fn subgrid_upload_must_not_resolve_chunks_outside_uploaded_voxel_bounds() {
 }
 
 #[test]
-fn subgrid_upload_covers_every_chunk_in_the_subgrid_extent() {
+fn subgrid_upload_covers_every_chunk_in_uploaded_bounds() {
 	let grid = Entity::PLACEHOLDER;
-	let chunks = chunks_for_subgrid(grid, IVec3::splat(57));
+	let chunks = chunks_in_bounds(grid, IVec3::splat(63), IVec3::splat(64));
 
 	assert!(chunks.contains(&ChunkKey { grid, chunk: IVec3::ZERO }));
 	assert!(
-		chunks.contains(&ChunkKey { grid, chunk: IVec3::new(1, 0, 0) }),
-		"a subgrid can straddle streaming chunk boundaries, so upload completion must resolve all covered chunks, not just the origin chunk"
+		chunks.contains(&ChunkKey { grid, chunk: IVec3::new(1, 1, 1) }),
+		"upload completion must resolve all chunks covered by the uploaded voxel bounds, not just the origin chunk"
 	);
 }
 

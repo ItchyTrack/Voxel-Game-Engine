@@ -2,7 +2,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use bevy::math::{I16Vec3, IVec3};
-use voxel_data::grid::{Grid, SUB_GRID_SIZE};
+use voxel_data::grid::Grid;
 use voxel_data::voxel_grid_tree::VoxelGridTree;
 use voxel_data::voxels::{Voxel, Voxels};
 
@@ -117,77 +117,6 @@ fn bench_splat(name: &str, source: &Voxels, base: IVec3) {
 	});
 }
 
-fn make_splat_batches(source: &Voxels, base: IVec3) -> Vec<(IVec3, Vec<(I16Vec3, I16Vec3, Voxel)>)> {
-	let mut batches: Vec<(IVec3, Vec<(I16Vec3, I16Vec3, Voxel)>)> = Vec::new();
-	let palette = source.palette();
-	let sub = IVec3::splat(SUB_GRID_SIZE);
-	for (pos, size, palette_id) in source.grid_tree().iter() {
-		let Some(voxel) = palette.voxel(palette_id) else { continue };
-		let voxel = *voxel;
-		let lo = base + pos.as_ivec3();
-		if size == 1 {
-			let sub_origin = lo.div_euclid(sub) * SUB_GRID_SIZE;
-			let local = (lo - sub_origin).as_i16vec3();
-			if let Some((_, batch)) = batches.iter_mut().find(|(origin, _)| *origin == sub_origin) {
-				batch.push((local, I16Vec3::ONE, voxel));
-			} else {
-				batches.push((sub_origin, vec![(local, I16Vec3::ONE, voxel)]));
-			}
-			continue;
-		}
-		let hi = lo + IVec3::splat(size as i32);
-		let sg_lo = lo.div_euclid(sub);
-		let sg_hi = (hi - IVec3::ONE).div_euclid(sub);
-		for sx in sg_lo.x..=sg_hi.x {
-			for sy in sg_lo.y..=sg_hi.y {
-				for sz in sg_lo.z..=sg_hi.z {
-					let sub_origin = IVec3::new(sx, sy, sz) * SUB_GRID_SIZE;
-					let cell_lo = lo.max(sub_origin);
-					let cell_hi = hi.min(sub_origin + sub);
-					let local = (cell_lo - sub_origin).as_i16vec3();
-					let extent = (cell_hi - cell_lo).as_i16vec3();
-					if let Some((_, batch)) = batches.iter_mut().find(|(origin, _)| *origin == sub_origin) {
-						batch.push((local, extent, voxel));
-					} else {
-						batches.push((sub_origin, vec![(local, extent, voxel)]));
-					}
-				}
-			}
-		}
-	}
-	batches
-}
-
-fn bench_breakdown(name: &str, source: &Voxels, base: IVec3) {
-	let batches = make_splat_batches(source, base);
-	let flat_areas: Vec<_> = batches.iter().flat_map(|(_, batch)| batch.iter().copied()).collect();
-	let tree_areas: Vec<_> = flat_areas.iter().map(|(pos, size, i)| (*pos, size.as_ivec3(), i.color[0] as u16)).collect();
-	println!();
-	println!("breakdown for {name}: leaves={}, subgrid_batches={}, areas={}", source.grid_tree().iter().count(), batches.len(), flat_areas.len());
-
-	measure("breakdown: source tree iter only", ITERS, || source.grid_tree().iter().count());
-	measure("breakdown: make splat batches", ITERS, || make_splat_batches(source, base).iter().map(|(_, b)| b.len()).sum());
-	measure("breakdown: apply Voxels batches", ITERS, || {
-		let mut total = 0usize;
-		for (_, batch) in &batches {
-			let mut voxels = Voxels::new();
-			voxels.add_areas(batch);
-			total += voxels.grid_tree().len() as usize;
-		}
-		total
-	});
-	measure("breakdown: Voxels::add_areas flat", ITERS, || {
-		let mut voxels = Voxels::new();
-		voxels.add_areas(&flat_areas);
-		voxels.grid_tree().len() as usize
-	});
-	measure("breakdown: GridTree::add_areas flat", ITERS, || {
-		let mut tree = VoxelGridTree::new();
-		tree.add_areas(&tree_areas);
-		tree.len() as usize
-	});
-}
-
 fn main() {
 	println!("voxel-data splat/add_areas microbench ({ITERS} iterations, release recommended)");
 	println!();
@@ -222,6 +151,4 @@ fn main() {
 		voxels.grid_tree().len() as usize
 	});
 
-	bench_breakdown("gradient 64^3 unaligned", &gradient, IVec3::new(-17, 5, -70));
-	bench_breakdown("sphere octant unaligned", &sphere_octant, IVec3::new(-17, 5, -70));
 }

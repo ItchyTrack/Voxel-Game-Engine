@@ -55,14 +55,9 @@ pub(crate) fn source_chunks(source: CoverageSource) -> Vec<ChunkKey> {
 	}
 }
 
-#[cfg(test)]
-pub(crate) fn chunks_for_subgrid(grid: Entity, subgrid_pos: IVec3) -> Vec<ChunkKey> {
-	chunks_for_subgrid_bounds(grid, subgrid_pos, IVec3::ZERO, IVec3::splat(voxel_data::grid::SUB_GRID_SIZE - 1))
-}
-
-pub(crate) fn chunks_for_subgrid_bounds(grid: Entity, subgrid_pos: IVec3, bounds_min: IVec3, bounds_max: IVec3) -> Vec<ChunkKey> {
-	let min = (subgrid_pos + bounds_min).div_euclid(IVec3::splat(CHUNK_SIZE));
-	let max = (subgrid_pos + bounds_max).div_euclid(IVec3::splat(CHUNK_SIZE));
+pub(crate) fn chunks_in_bounds(grid: Entity, min: IVec3, max: IVec3) -> Vec<ChunkKey> {
+	let min = min.div_euclid(IVec3::splat(CHUNK_SIZE));
+	let max = max.div_euclid(IVec3::splat(CHUNK_SIZE));
 	let mut chunks = Vec::new();
 	for x in min.x..=max.x {
 		for y in min.y..=max.y {

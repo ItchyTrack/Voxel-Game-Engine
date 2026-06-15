@@ -11,8 +11,11 @@ impl ChunkSource for AreaSource {
 	fn init(&self, _handle: SourceHandle) {}
 	fn cost(&self, _grid: GridKey, chunk: IVec3) -> Option<u32> { self.chunks.contains(&chunk).then_some(0) }
 	fn request_load(&self, _grid: GridKey, _chunk: IVec3) {}
-	fn cost_lod(&self, grid: GridKey, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
-		self.has_any_chunks_in_area(grid, min, size).then_some(0)
+	fn cost_lod(&self, _grid: GridKey, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+		self.chunks
+			.iter()
+			.any(|chunk| chunk.cmpge(min).all() && chunk.cmplt(min + size).all())
+			.then_some(0)
 	}
 	fn request_load_lod(&self, _grid: GridKey, _min: IVec3, _size: IVec3, _lod: f32) {}
 }
@@ -28,12 +31,12 @@ impl VoxelLodGenerator for MarkerGenerator {
 }
 
 #[test]
-fn chunk_source_default_has_any_chunks_in_area_detects_overlap() {
+fn chunk_source_lod_cost_detects_overlap() {
 	let source = AreaSource { chunks: vec![IVec3::new(4, 0, 0)] };
 	let grid = GridKey(1);
 
-	assert!(source.has_any_chunks_in_area(grid, IVec3::ZERO, IVec3::new(8, 1, 1)));
-	assert!(!source.has_any_chunks_in_area(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1)));
+	assert_eq!(source.cost_lod(grid, IVec3::ZERO, IVec3::new(8, 1, 1), 1.0), Some(0));
+	assert_eq!(source.cost_lod(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1), 1.0), None);
 }
 
 #[test]

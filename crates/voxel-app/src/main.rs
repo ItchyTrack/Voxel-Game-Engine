@@ -59,7 +59,7 @@ impl PluginGroup for GamePlugins {
 			.add(VoxelSourcesPlugin)
 			.add(VoxelLodGeneratorPlugin)
 			.add(MemoryStorePlugin)
-			// .add(SphereSourcePlugin)
+			.add(SphereSourcePlugin)
 			.add(CameraVoxelLoaderPlugin)
 			.add(VoxelRendererPlugin)
 			.add(SkyboxPlugin)

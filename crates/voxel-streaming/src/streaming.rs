@@ -262,11 +262,9 @@ pub fn receive_results(
 		for (chunk, _) in loaded {
 			streaming.replay_stalled(chunk, &mut edits);
 			let min = chunk_origin(chunk);
-			let visible = touched.iter().any(|subgrid| {
-				let subgrid_max = *subgrid + IVec3::splat(voxel_data::grid::SUB_GRID_SIZE);
-				let chunk_max = min + IVec3::splat(CHUNK_SIZE);
-				subgrid.cmplt(chunk_max).all() && subgrid_max.cmpgt(min).all()
-			});
+			let visible = touched
+				.iter()
+				.any(|subgrid| grid.subgrid_owned_area_intersects(*subgrid, min, IVec3::splat(CHUNK_SIZE)));
 			chunk_resolved.write(ChunkLoadResolved { grid: grid_entity, chunk, visible });
 		}
 	}

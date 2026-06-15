@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::math::{I16Vec3, IVec3};
-use bevy::prelude::Entity;
 use bevy::tasks::ComputeTaskPool;
 use tracy_client::span;
 
-use crate::grid::{Grid, SubGridSlot, SUB_GRID_SIZE};
+use crate::grid::{Grid, SubGridSlot};
 use crate::voxels::{Voxel, Voxels};
 
 pub struct GridSplat<'a> {
@@ -62,7 +61,6 @@ struct SubGridSplatResult {
 /// worker tasks instead of serially on the caller thread.
 pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> HashMap<usize, HashSet<IVec3>> {
 	let _zone = span!("splat_voxels_blocking");
-	let sub = IVec3::splat(SUB_GRID_SIZE);
 
 	let _group_zone = span!("group splats by subgrid");
 	let mut grouped: Vec<SubGridSliceGroup<'_>> = Vec::new();
@@ -71,26 +69,16 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 		let Some((bounds_min, bounds_max)) = splat.voxels.bounding_box() else { continue };
 		let world_min = splat.base + bounds_min.as_ivec3();
 		let world_end = splat.base + bounds_max.as_ivec3() + IVec3::ONE;
-		let sg_lo = world_min.div_euclid(sub);
-		let sg_hi = (world_end - IVec3::ONE).div_euclid(sub);
 
-		for sx in sg_lo.x..=sg_hi.x {
-			for sy in sg_lo.y..=sg_hi.y {
-				for sz in sg_lo.z..=sg_hi.z {
-					let sub_origin = IVec3::new(sx, sy, sz) * SUB_GRID_SIZE;
-					let cell_lo = world_min.max(sub_origin);
-					let cell_hi = world_end.min(sub_origin + sub);
-					if cell_lo.cmpge(cell_hi).any() { continue; }
-					let source_min = (cell_lo - splat.base).as_i16vec3();
-					let source_size = (cell_hi - cell_lo).as_i16vec3();
-					SubGridSliceGroup::push(
-						&mut grouped,
-						splat.grid,
-						sub_origin,
-						SourceSlice { base: splat.base, voxels: splat.voxels, source_min, source_size },
-					);
-				}
-			}
+		for (sub_origin, cell_lo, cell_hi) in grids[splat.grid].write_regions(world_min, world_end) {
+			let source_min = (cell_lo - splat.base).as_i16vec3();
+			let source_size = (cell_hi - cell_lo).as_i16vec3();
+			SubGridSliceGroup::push(
+				&mut grouped,
+				splat.grid,
+				sub_origin,
+				SourceSlice { base: splat.base, voxels: splat.voxels, source_min, source_size },
+			);
 		}
 	}
 	drop(_group_zone);
@@ -141,8 +129,13 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 	let mut touched: HashMap<usize, HashSet<IVec3>> = HashMap::new();
 	for result in results {
 		let Some(grid) = grids.get_mut(result.grid) else { continue };
-		let entity = grid.subgrids.get(&result.sub_origin).map(|slot| slot.entity).unwrap_or(Entity::PLACEHOLDER);
-		grid.subgrids.insert(result.sub_origin, SubGridSlot { voxels: result.voxels, entity });
+		if let Some(slot) = grid.subgrids.get_mut(&result.sub_origin) {
+			slot.voxels = result.voxels;
+		} else {
+			let mut slot = SubGridSlot::new_default(result.sub_origin);
+			slot.voxels = result.voxels;
+			grid.subgrids.insert(result.sub_origin, slot);
+		}
 		touched.entry(result.grid).or_default().insert(result.sub_origin);
 	}
 	touched
