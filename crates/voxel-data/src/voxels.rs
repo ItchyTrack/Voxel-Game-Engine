@@ -3,7 +3,7 @@ use tracy_client::span;
 use std::{collections::HashMap, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
 
-use super::voxel_grid_tree::VoxelGridTree;
+use super::{grid_tree::{GridRegion, size as grid_tree_size}, voxel_grid_tree::VoxelGridTree};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Voxel {
@@ -84,6 +84,30 @@ impl Voxels {
 
 	pub fn add_area(&mut self, pos: I16Vec3, size: I16Vec3, voxel: Voxel) {
 		self.add_areas(&[(pos, size, voxel)]);
+	}
+
+	pub fn add_voxels(&mut self, voxels: &[(I16Vec3, Voxel)]) {
+		if voxels.is_empty() {
+			return;
+		}
+		let mut palette_cache = HashMap::new();
+		let mut tree_voxels = Vec::with_capacity(voxels.len());
+		let mut bounds: Option<(I16Vec3, I16Vec3)> = None;
+		for (pos, voxel) in voxels {
+			let id = *palette_cache.entry(*voxel).or_insert_with(|| self.voxel_palette.palette_id(voxel));
+			tree_voxels.push((*pos, id));
+			bounds = Some(match bounds {
+				Some((mn, mx)) => (mn.min(*pos), mx.max(*pos)),
+				None => (*pos, *pos),
+			});
+		}
+		let Some((min, max)) = bounds else { return };
+		self.voxels.add_single_voxels_in_bounds(&tree_voxels, min.as_ivec3(), max.as_ivec3());
+		let bb = self.bounding_box.get_mut().unwrap();
+		*bb = Some(match *bb {
+			Some((mn, mx)) => (mn.min(min), mx.max(max)),
+			None => (min, max),
+		});
 	}
 
 	pub fn add_areas(&mut self, areas: &[(I16Vec3, I16Vec3, Voxel)]) {
@@ -185,9 +209,74 @@ impl Voxels {
 	}
 
 	pub fn remove_area(&mut self, pos: I16Vec3, size: I16Vec3) {
-		if size.cmple(I16Vec3::ZERO).any() { return; }
-		self.voxels.remove_area(&pos, size.as_ivec3());
+		let Some(region) = GridRegion::from_min_size(pos.as_ivec3(), size.as_ivec3()) else { return };
+		self.voxels.clear_region(region);
 		self.bounding_box_dirty.store(true, Ordering::Release);
+	}
+
+	pub fn merge_from(&mut self, source: &Voxels, offset: bevy::math::IVec3) {
+		self.merge_region_from(source, None, offset);
+	}
+
+	pub fn merge_region_from(&mut self, source: &Voxels, source_region: Option<GridRegion>, offset: bevy::math::IVec3) {
+		let mut bounds: Option<(I16Vec3, I16Vec3)> = None;
+		let mut include_bounds = |min: bevy::math::IVec3, end: bevy::math::IVec3| {
+			let bb_min = (min + offset).as_i16vec3();
+			let bb_max = (end + offset - bevy::math::IVec3::ONE).as_i16vec3();
+			bounds = Some(match bounds {
+				Some((lo, hi)) => (lo.min(bb_min), hi.max(bb_max)),
+				None => (bb_min, bb_max),
+			});
+		};
+
+		match source_region {
+			Some(region) => source.voxels.for_each_in_region(region, |pos, size, _| {
+				let run_min = pos.as_ivec3().max(region.min);
+				let run_end = (pos.as_ivec3() + bevy::math::IVec3::splat(size as i32)).min(region.end);
+				if run_min.cmplt(run_end).all() {
+					include_bounds(run_min, run_end);
+				}
+			}),
+			None => {
+				for (pos, size, _) in source.voxels.iter() {
+					let min = pos.as_ivec3();
+					include_bounds(min, min + bevy::math::IVec3::splat(size as i32));
+				}
+			}
+		}
+
+		if self.voxels.is_empty() {
+			self.voxel_palette = source.voxel_palette.clone();
+			match source_region {
+				Some(region) => self.voxels.merge_region_from(&source.voxels, region, offset),
+				None => self.voxels.merge_tree(&source.voxels, offset),
+			}
+		} else {
+			let mut palette_cache = HashMap::new();
+			let palette = &mut self.voxel_palette;
+			let mut map_id = |source_id| {
+				*palette_cache.entry(source_id).or_insert_with(|| {
+					let voxel = source.voxel_palette.voxel(source_id).expect("source palette id missing");
+					palette.palette_id(voxel)
+				})
+			};
+			match source_region {
+				Some(region) => self.voxels.merge_region_from_mapped(&source.voxels, region, offset, &mut map_id),
+				None => {
+					let (_, root_pos, root_depth) = source.voxels.internals();
+					let root = GridRegion { min: root_pos.as_ivec3(), end: root_pos.as_ivec3() + bevy::math::IVec3::splat(grid_tree_size(root_depth) as i32) };
+					self.voxels.merge_region_from_mapped(&source.voxels, root, offset, &mut map_id);
+				}
+			}
+		}
+
+		if let Some((min, max)) = bounds {
+			let bb = self.bounding_box.get_mut().unwrap();
+			*bb = Some(match *bb {
+				Some((lo, hi)) => (lo.min(min), hi.max(max)),
+				None => (min, max),
+			});
+		}
 	}
 
 	pub fn voxel(&self, pos: &I16Vec3) -> Option<&Voxel> {

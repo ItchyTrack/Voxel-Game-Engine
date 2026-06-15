@@ -5,7 +5,7 @@ use bevy::tasks::ComputeTaskPool;
 use tracy_client::span;
 
 use crate::grid::{Grid, SubGridSlot};
-use crate::voxels::{Voxel, Voxels};
+use crate::voxels::Voxels;
 
 pub struct GridSplat<'a> {
 	pub grid: usize,
@@ -101,24 +101,10 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 			scope.spawn(async move {
 				let _zone = span!("build one subgrid splat");
 				let mut destination = job.existing.unwrap_or_else(Voxels::new);
-				let mut writes: Vec<(I16Vec3, I16Vec3, Voxel)> = Vec::new();
 				for slice in job.slices {
-					let palette = slice.voxels.palette();
-					let region_min = slice.source_min;
-					let region_end = slice.source_min + slice.source_size;
-					let region_max = region_end - I16Vec3::ONE;
-					slice.voxels.grid_tree().for_each_in_region(region_min, region_max, |pos, size, palette_id| {
-						let Some(voxel) = palette.voxel(palette_id).copied() else { return };
-						let run_min = pos.max(region_min);
-						let run_end = (pos + I16Vec3::splat(size as i16)).min(region_end);
-						let extent = run_end - run_min;
-						if extent.cmple(I16Vec3::ZERO).any() { return; }
-						let world = slice.base + run_min.as_ivec3();
-						let local = (world - job.sub_origin).as_i16vec3();
-						writes.push((local, extent, voxel));
-					});
+					let source_region = crate::grid_tree::GridRegion::from_min_size(slice.source_min.as_ivec3(), slice.source_size.as_ivec3()).unwrap();
+					destination.merge_region_from(slice.voxels, Some(source_region), slice.base - job.sub_origin);
 				}
-				destination.add_areas(&writes);
 				SubGridSplatResult { grid: job.grid, sub_origin: job.sub_origin, voxels: destination }
 			});
 		}

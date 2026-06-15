@@ -1,9 +1,12 @@
 #[cfg(test)]
 mod tests {
-	use voxel_data::{voxel_grid_tree::{VoxelGridTree, PackedCell}, grid_tree::{CellKind, GridTree, I32Coord, SIZE}};
 	use bevy::math::{I16Vec3, IVec3, Vec3};
 	use bevy::transform::components::Transform;
 	use std::collections::HashMap;
+	use voxel_data::{
+		grid_tree::{CellKind, GridRegion, GridTree, I32Coord, SIZE},
+		voxel_grid_tree::{PackedCell, VoxelGridTree},
+	};
 
 	fn lcg(state: &mut u64) -> u64 {
 		*state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -35,7 +38,11 @@ mod tests {
 		for (pos, v) in oracle {
 			assert_eq!(tree.get(pos), Some(*v), "get({pos:?}) mismatch");
 		}
-		assert_eq!(&tree_voxels(tree), oracle, "iter expansion differs from oracle");
+		let actual = tree_voxels(tree);
+		for (pos, v) in &actual {
+			assert_eq!(oracle.get(pos), Some(v), "unexpected or wrong iter voxel at {pos:?}");
+		}
+		assert_eq!(&actual, oracle, "iter expansion differs from oracle");
 		assert_eq!(tree.len(), oracle.len() as u64, "len() mismatch");
 	}
 
@@ -66,10 +73,7 @@ mod tests {
 	#[test]
 	fn view_descends_node_cells_without_exposing_offsets() {
 		let mut t = VoxelGridTree::new();
-		t.add_areas(&[
-			(p(0, 0, 0), IVec3::ONE, 11),
-			(p(5, 0, 0), IVec3::ONE, 22),
-		]);
+		t.add_areas(&[(p(0, 0, 0), IVec3::ONE, 11), (p(5, 0, 0), IVec3::ONE, 22)]);
 
 		let view = t.view();
 		let root_children: Vec<_> = view.occupied_children(view.root()).collect();
@@ -94,11 +98,7 @@ mod tests {
 	#[test]
 	fn view_leaves_match_public_iterator() {
 		let mut t = VoxelGridTree::new();
-		t.add_areas(&[
-			(p(-8, 0, 0), IVec3::splat(4), 3),
-			(p(0, 0, 0), IVec3::ONE, 4),
-			(p(9, 2, -7), IVec3::new(2, 3, 1), 5),
-		]);
+		t.add_areas(&[(p(-8, 0, 0), IVec3::splat(4), 3), (p(0, 0, 0), IVec3::ONE, 4), (p(9, 2, -7), IVec3::new(2, 3, 1), 5)]);
 
 		let from_view: Vec<_> = t.view().leaves().map(|leaf| (leaf.origin.as_i16vec3(), leaf.size as u16, leaf.data_value())).collect();
 		let from_iter: Vec<_> = t.iter().collect();
@@ -251,6 +251,26 @@ mod tests {
 	}
 
 	#[test]
+	fn is_area_filled_detects_internal_holes() {
+		let mut t = VoxelGridTree::new();
+		t.add_area(&p(0, 0, 0), IVec3::splat(16), 1);
+		t.remove(&p(8, 8, 8));
+
+		assert!(!t.is_area_filled(&p(0, 0, 0), IVec3::splat(16)));
+		assert!(t.is_area_filled(&p(0, 0, 0), IVec3::splat(8)));
+	}
+
+	#[test]
+	fn is_area_filled_requires_region_inside_tree_bounds() {
+		let mut t = VoxelGridTree::new();
+		t.add_area(&p(0, 0, 0), IVec3::splat(8), 1);
+
+		assert!(!t.is_area_filled(&p(-1, 0, 0), IVec3::splat(2)));
+		assert!(!t.is_area_filled(&p(7, 7, 7), IVec3::splat(2)));
+		assert!(t.is_area_filled(&p(0, 0, 0), IVec3::ZERO));
+	}
+
+	#[test]
 	fn remove_area_clears_region() {
 		let mut t = VoxelGridTree::new();
 		t.add_area(&p(0, 0, 0), IVec3::new(8, 8, 8), 1);
@@ -315,12 +335,14 @@ mod tests {
 		let mut areas = Vec::new();
 
 		for i in 0..256i16 {
-			let pos = p(
-				((i * 19 + 5).rem_euclid(120)) - 60,
-				((i * 31 + 9).rem_euclid(120)) - 60,
-				((i * 47 + 13).rem_euclid(120)) - 60,
-			);
-			let size = if i % 7 == 0 { IVec3::splat(4) } else if i % 5 == 0 { IVec3::new(3, 2, 5) } else { IVec3::ONE };
+			let pos = p(((i * 19 + 5).rem_euclid(120)) - 60, ((i * 31 + 9).rem_euclid(120)) - 60, ((i * 47 + 13).rem_euclid(120)) - 60);
+			let size = if i % 7 == 0 {
+				IVec3::splat(4)
+			} else if i % 5 == 0 {
+				IVec3::new(3, 2, 5)
+			} else {
+				IVec3::ONE
+			};
 			let value = 1 + (i as u16 % 17);
 			areas.push((pos, size, value));
 			sequential.add_area(&pos, size, value);
@@ -514,7 +536,7 @@ mod tests {
 		}
 		let (lo, hi) = (p(10, 10, 10), p(40, 40, 40));
 		let mut region: HashMap<I16Vec3, u16> = HashMap::new();
-		t.for_each_in_region(lo, hi, |origin, size, v| {
+		t.for_each_in_region(GridRegion::from_min_max_inclusive(lo.as_ivec3(), hi.as_ivec3()).unwrap(), |origin, size, v| {
 			for dx in 0..size as i16 {
 				for dy in 0..size as i16 {
 					for dz in 0..size as i16 {
@@ -608,6 +630,16 @@ mod tests {
 			let root_depth = tree.view().root_depth();
 			assert!(root_depth <= 3, "root_depth climbed to {} after {} ops (last pos {pos:?})", root_depth, i);
 		}
+	}
+
+	// ---- region operations ----
+
+	mod region {
+		include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/grid_tree_cases/region.rs"));
+	}
+
+	mod region_transfer {
+		include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/grid_tree_cases/region_transfer.rs"));
 	}
 
 	// ---- i32 coordinate system (chunk-space) ----

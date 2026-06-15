@@ -1,7 +1,7 @@
 use bevy::math::IVec3;
 use bevy::transform::components::Transform;
 
-use voxel_data::grid_tree::{GridTree, I32Coord};
+use voxel_data::grid_tree::{GridRegion, GridTree, I32Coord};
 use voxel_data::voxel_grid_tree::PackedCell;
 
 type ChunkGridTree = GridTree<PackedCell, I32Coord>;
@@ -116,7 +116,8 @@ impl ChunkPresence {
 	}
 
 	pub fn any_present_in_region(&self, min: IVec3, max: IVec3) -> bool {
-		self.tree.any_in_region(min, max)
+		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return false };
+		self.tree.any_in_region(region)
 	}
 
 	/// `transform` rotation maps +Z onto the ray direction (matches the voxel tree).
@@ -137,7 +138,8 @@ impl ChunkPresence {
 	/// descending only into subtrees that overlap it. Used for collision
 	/// broad-phase so cost scales with the region, not the whole footprint.
 	pub fn for_each_in_region(&self, min: IVec3, max: IVec3, mut f: impl FnMut(IVec3)) {
-		self.tree.for_each_in_region(min, max, |origin, size, _| {
+		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return };
+		self.tree.for_each_in_region(region, |origin, size, _| {
 			let lo = origin.max(min);
 			let hi = (origin + IVec3::splat(size as i32) - IVec3::ONE).min(max);
 			for x in lo.x..=hi.x {

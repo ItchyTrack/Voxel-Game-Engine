@@ -55,6 +55,24 @@ pub fn any_in_region<C: GridCell, Co: GridCoord>(view: GridTreeView<'_, C, Co>, 
 }
 
 #[inline]
+pub fn is_area_filled<C: GridCell, Co: GridCoord>(view: GridTreeView<'_, C, Co>, pos: Co::Pos, size: IVec3) -> bool {
+	if size.cmple(IVec3::ZERO).any() {
+		return true;
+	}
+	if view.is_empty() {
+		return false;
+	}
+	let min = Co::to_ivec3(pos);
+	let end = min + size;
+	let root = view.root();
+	let root_end = root.origin + IVec3::splat(super::size(root.depth) as i32);
+	if min.cmplt(root.origin).any() || end.cmpgt(root_end).any() {
+		return false;
+	}
+	region_filled_recurse(view, root, min, end)
+}
+
+#[inline]
 fn region_recurse<C, Co, F>(view: GridTreeView<'_, C, Co>, node: NodeRef, min: IVec3, max: IVec3, f: &mut F)
 where
 	C: GridCell,
@@ -92,4 +110,24 @@ fn region_any_recurse<C: GridCell, Co: GridCoord>(view: GridTreeView<'_, C, Co>,
 		}
 	}
 	false
+}
+
+#[inline]
+fn region_filled_recurse<C: GridCell, Co: GridCoord>(view: GridTreeView<'_, C, Co>, node: NodeRef, min: IVec3, end: IVec3) -> bool {
+	for child in view.children(node) {
+		let child_end = child.origin + IVec3::splat(child.size as i32);
+		if child.origin.cmpge(end).any() || child_end.cmple(min).any() {
+			continue;
+		}
+		match child.kind() {
+			CellKind::Empty => return false,
+			CellKind::Data => {}
+			CellKind::Node => {
+				if !region_filled_recurse(view, view.child_node(child).expect("node cell has child"), min, end) {
+					return false;
+				}
+			}
+		}
+	}
+	true
 }

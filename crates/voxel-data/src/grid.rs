@@ -11,7 +11,7 @@ use crate::voxels::{Voxel, Voxels};
 // Temporary default sub-grid extent. New sub-grids still start on this grid, but
 // ownership is stored per sub-grid so future optimization can grow/shrink owned
 // AABBs without changing the public sub-grid handle model.
-const SUB_GRID_SIZE: i32 = 57;
+const SUB_GRID_SIZE: i32 = 64;
 
 /// A [`Grid`] entity. Each rigid voxel object owns one.
 pub type GridId = Entity;
@@ -59,10 +59,11 @@ impl Grid {
 	}
 
 	fn sub_grid_pos_of(&self, pos: IVec3) -> IVec3 {
-		self.subgrids
-			.iter()
-			.find_map(|(sub_grid_pos, slot)| slot.owns(pos).then_some(*sub_grid_pos))
-			.unwrap_or_else(|| Self::default_sub_grid_pos_of(pos))
+		let default = Self::default_sub_grid_pos_of(pos);
+		if self.subgrids.get(&default).is_some_and(|slot| slot.owns(pos)) {
+			return default;
+		}
+		self.subgrids.iter().find_map(|(sub_grid_pos, slot)| slot.owns(pos).then_some(*sub_grid_pos)).unwrap_or(default)
 	}
 
 	fn local_of(sub_grid_pos: IVec3, pos: IVec3) -> I16Vec3 {
@@ -129,7 +130,7 @@ impl Grid {
 		let region_lo = Self::local_of(sub_grid_pos, cell_lo);
 		let region_hi = Self::local_of(sub_grid_pos, cell_hi);
 		let palette = slot.voxels.palette();
-		slot.voxels.grid_tree().for_each_in_region(region_lo, region_hi - I16Vec3::ONE, |pos, run, id| {
+		slot.voxels.grid_tree().for_each_in_region(crate::grid_tree::GridRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_ivec3()).unwrap(), |pos, run, id| {
 			let Some(voxel) = palette.voxel(id) else { return };
 			let run_lo = pos.max(region_lo);
 			let run_hi = (pos + I16Vec3::splat(run as i16)).min(region_hi);
@@ -224,67 +225,18 @@ impl Grid {
 	/// [`reconcile_subgrids`].
 	pub fn splat_voxels(&mut self, base: IVec3, src: &Voxels) -> HashSet<IVec3> {
 		let _zone = span!();
-		struct Batch {
-			origin: IVec3,
-			voxels: Vec<(I16Vec3, u16)>,
-			areas: Vec<(I16Vec3, I16Vec3, u16)>,
-			voxel_min: I16Vec3,
-			voxel_max: I16Vec3,
-		}
-		impl Batch {
-			fn new(origin: IVec3) -> Self {
-				Self { origin, voxels: Vec::new(), areas: Vec::new(), voxel_min: I16Vec3::splat(i16::MAX), voxel_max: I16Vec3::splat(i16::MIN) }
-			}
-			fn push_voxel(&mut self, local: I16Vec3, palette_id: u16) {
-				self.voxel_min = self.voxel_min.min(local);
-				self.voxel_max = self.voxel_max.max(local);
-				self.voxels.push((local, palette_id));
-			}
-		}
-		let mut batches: Vec<Batch> = Vec::new();
-		let palette = src.palette();
-		for (pos, size, palette_id) in src.grid_tree().iter() {
-			if palette.voxel(palette_id).is_none() {
-				continue;
-			}
-			let lo = base + pos.as_ivec3();
-			if size == 1 {
-				let sub_grid_pos = self.sub_grid_pos_of(lo);
-				let local = Self::local_of(sub_grid_pos, lo);
-				if let Some(batch) = batches.iter_mut().find(|batch| batch.origin == sub_grid_pos) {
-					batch.push_voxel(local, palette_id);
-				} else {
-					let mut batch = Batch::new(sub_grid_pos);
-					batch.push_voxel(local, palette_id);
-					batches.push(batch);
-				}
-				continue;
-			}
-			let hi = lo + IVec3::splat(size as i32);
-			for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(lo, hi) {
-				let local = Self::local_of(sub_grid_pos, cell_lo);
-				let extent = (cell_hi - cell_lo).as_i16vec3();
-				if let Some(batch) = batches.iter_mut().find(|batch| batch.origin == sub_grid_pos) {
-					batch.areas.push((local, extent, palette_id));
-				} else {
-					let mut batch = Batch::new(sub_grid_pos);
-					batch.areas.push((local, extent, palette_id));
-					batches.push(batch);
-				}
-			}
-		}
+		let mut touched = HashSet::new();
+		let Some((src_min, src_max)) = src.bounding_box() else { return touched };
+		let world_min = base + src_min.as_ivec3();
+		let world_end = base + src_max.as_ivec3() + IVec3::ONE;
 
-		let mut touched = HashSet::with_capacity(batches.len());
-		for batch in batches {
-			let slot = self.subgrids.entry(batch.origin).or_insert_with(|| SubGridSlot::new_default(batch.origin));
-
-			if !batch.voxels.is_empty() {
-				slot.voxels.add_palette_voxels_in_bounds(&batch.voxels, palette, batch.voxel_min, batch.voxel_max);
-			}
-			if !batch.areas.is_empty() {
-				slot.voxels.add_palette_areas(&batch.areas, palette);
-			}
-			touched.insert(batch.origin);
+		for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(world_min, world_end) {
+			let source_min = cell_lo - base;
+			let source_size = cell_hi - cell_lo;
+			let Some(source_region) = crate::grid_tree::GridRegion::from_min_size(source_min, source_size) else { continue };
+			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos));
+			slot.voxels.merge_region_from(src, Some(source_region), base - sub_grid_pos);
+			touched.insert(sub_grid_pos);
 		}
 		touched
 	}
@@ -388,6 +340,33 @@ mod tests {
 
 	fn vox(c: u8) -> Voxel {
 		Voxel { color: [c, c, c, 255], mass: 1 }
+	}
+
+	#[test]
+	fn splat_voxels_blocking_uses_tree_merge_for_empty_single_subgrid() {
+		bevy::tasks::ComputeTaskPool::get_or_init(|| bevy::tasks::TaskPoolBuilder::new().build());
+		let mut src = Voxels::new();
+		src.add_area(I16Vec3::ZERO, I16Vec3::splat(16), vox(7));
+
+		let mut grid = Grid::new();
+		let touched = crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::ZERO, voxels: &src }]);
+
+		assert_eq!(touched.get(&0).cloned().unwrap_or_default(), HashSet::from([IVec3::ZERO]));
+		let slot = grid.subgrids.get(&IVec3::ZERO).unwrap();
+		assert_eq!(slot.voxels.grid_tree().iter().collect::<Vec<_>>(), src.grid_tree().iter().collect::<Vec<_>>());
+	}
+
+	#[test]
+	fn splat_voxels_uses_tree_merge_for_empty_single_subgrid() {
+		let mut src = Voxels::new();
+		src.add_area(I16Vec3::ZERO, I16Vec3::splat(16), vox(7));
+
+		let mut grid = Grid::new();
+		let touched = grid.splat_voxels(IVec3::ZERO, &src);
+
+		assert_eq!(touched, HashSet::from([IVec3::ZERO]));
+		let slot = grid.subgrids.get(&IVec3::ZERO).unwrap();
+		assert_eq!(slot.voxels.grid_tree().iter().collect::<Vec<_>>(), src.grid_tree().iter().collect::<Vec<_>>());
 	}
 
 	#[test]

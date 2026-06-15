@@ -16,6 +16,13 @@ bevy = { workspace = true }
 tracy-client = { workspace = true }
 tokio = { workspace = true }
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "grid_tree"
+harness = false
+
 [[bench]]
 name = "splat_voxels"
 harness = false
