@@ -1,9 +1,9 @@
 use std::{cmp::Ordering, collections::BinaryHeap, fmt::Debug};
 
 use bevy::math::Vec3;
+use bevy::transform::components::Transform;
 
 use tracy_client::span;
-use bevy::transform::components::Transform;
 
 #[derive(Debug)]
 pub enum BVHInternal {
@@ -349,26 +349,6 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 		BVHRaycastIterator { bvh: self, start, direction, max_length, heap }
 	}
 
-	// pub fn render_debug(&self) {
-	// 	let mut stack = vec![0];
-
-	// 	while let Some(idx) = stack.pop() {
-	// 		let node = &self.nodes[idx as usize];
-	// 		match node.sub_nodes {
-	// 			BVHInternal::SubNodes { sub1, sub2 } => {
-	// 				debug_draw::aabb(node.min_corner, node.max_corner, &Vec4::ONE);
-	// 				stack.push(sub1);
-	// 				stack.push(sub2);
-	// 			}
-	// 			BVHInternal::Leaf { start, count } => {
-	// 				for item in self.items[start as usize..(start + count) as usize].iter() {
-	// 					debug_draw::aabb(item.1.0, item.1.1, &Vec4::W);
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-	// }
-
 	pub fn internals(&self) -> (&Vec<BVHNode>, &Vec<(Index, (Vec3, Vec3))>) {
 		(&self.nodes, &self.items)
 	}
@@ -404,7 +384,7 @@ pub struct BVHRaycastIterator<'a, Index: Copy + Debug + PartialEq> {
 	heap:       BinaryHeap<Candidate<Index>>,
 }
 
-impl<'a, Index: Copy + Debug + PartialEq + PartialEq> Iterator for BVHRaycastIterator<'a, Index> {
+impl<'a, Index: Copy + Debug + PartialEq> Iterator for BVHRaycastIterator<'a, Index> {
 	type Item = (Index, f32);
 
 	fn next(&mut self) -> Option<Self::Item> {

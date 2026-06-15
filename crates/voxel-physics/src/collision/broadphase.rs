@@ -2,7 +2,7 @@ use bevy::tasks::ComputeTaskPool;
 use tracy_client::span;
 
 use bevy::transform::components::Transform;
-use voxel_bvh::bvh::BVH;
+use voxel_data::bvh::BVH;
 use voxel_data::subgrid::{SubGridId, SubGridRef};
 use voxel_data::transform_ext::TransformExt;
 

@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod graphics_settings;
+pub mod gpu_bvh;
 pub mod hit_count_feedback;
 pub mod voxel_renderer;
 pub mod voxel_camera;

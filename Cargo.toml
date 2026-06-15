@@ -9,7 +9,6 @@ members = [
 	"crates/camera-voxel-loader",
 	"crates/voxel-sources",
 	"crates/voxel-renderer",
-	"crates/voxel-bvh",
 	"crates/voxel-physics",
 	"crates/voxel-app",
 ]

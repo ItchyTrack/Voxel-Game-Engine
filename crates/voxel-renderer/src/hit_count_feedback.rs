@@ -6,8 +6,9 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::render::renderer::RenderDevice;
 
-use voxel_bvh::gpu_bvh::GpuBvh;
 use voxel_data::subgrid::SubGridId;
+
+use crate::gpu_bvh::GpuBvh;
 
 #[derive(Resource, Clone, Default)]
 pub struct HitCountFeedback(pub HashMap<SubGridId, u32>);

@@ -12,7 +12,7 @@ use gpu_voxel_data::lod_voxels::LodVoxels;
 use gpu_voxel_data::residency::ResidencyBuffers;
 use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
 use gpu_voxel_data::world_gpu_data::WorldGpuData;
-use voxel_bvh::bvh::BVH;
+use voxel_data::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
 
 use crate::hit_count_feedback::HitCountFeedback;

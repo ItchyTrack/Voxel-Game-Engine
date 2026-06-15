@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use voxel_bvh::{gpu_bvh::GpuBvh, bvh};
+use voxel_data::bvh;
+use crate::gpu_bvh::GpuBvh;
 use bevy::transform::components::Transform;
 use bevy::ecs::entity::Entity;
 

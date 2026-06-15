@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy::math::{I16Vec3, IVec3, Quat, Vec3};
+use bevy::math::{I8Vec3, I16Vec3, IVec3, Quat, Vec3};
 use bevy::prelude::*;
 
 use tracy_client::span;
@@ -330,10 +330,10 @@ impl Grid {
 		self.subgrids()
 			.filter_map(|sub_grid| {
 				let sub_origin = sub_grid.sub_grid_pos().as_vec3();
-				raycast_sub_grid(sub_grid, origin - sub_origin, dir).map(|(hit_local, normal_local, distance)| GridRaycastHit {
-					voxel_pos: sub_grid.sub_grid_pos() + hit_local.as_ivec3(),
-					normal: normal_local.as_ivec3(),
-					distance,
+				sub_grid.raycast(origin - sub_origin, dir, None).map(|hit| GridRaycastHit {
+					voxel_pos: sub_grid.sub_grid_pos() + hit.voxel_pos.as_ivec3(),
+					normal: hit.normal.as_ivec3(),
+					distance: hit.distance,
 				})
 			})
 			.min_by(|a, b| a.distance.total_cmp(&b.distance))
@@ -346,10 +346,18 @@ pub struct GridRaycastHit {
 	pub distance: f32,
 }
 
-fn raycast_sub_grid(sub_grid: SubGridRef, origin: Vec3, dir: Vec3) -> Option<(I16Vec3, bevy::math::I8Vec3, f32)> {
-	// GridTree::raycast takes a Transform whose rotation maps +Z to the ray dir.
-	let transform = Transform { translation: origin, rotation: Quat::from_rotation_arc(Vec3::Z, dir), scale: Vec3::ONE };
-	sub_grid.voxels().grid_tree().raycast(&transform, None)
+pub struct SubGridRaycastHit {
+	pub voxel_pos: I16Vec3,
+	pub normal: I8Vec3,
+	pub distance: f32,
+}
+
+impl SubGridRef<'_> {
+	pub fn raycast(&self, origin: Vec3, dir: Vec3, max_distance: Option<f32>) -> Option<SubGridRaycastHit> {
+		// GridTree::raycast takes a Transform whose rotation maps +Z to the ray dir.
+		let transform = Transform { translation: origin, rotation: Quat::from_rotation_arc(Vec3::Z, dir), scale: Vec3::ONE };
+		self.voxels().grid_tree().raycast(&transform, max_distance).map(|(voxel_pos, normal, distance)| SubGridRaycastHit { voxel_pos, normal, distance })
+	}
 }
 
 pub fn reconcile_subgrids(

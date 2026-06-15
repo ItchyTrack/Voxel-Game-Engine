@@ -1,3 +1,4 @@
+pub mod bvh;
 pub mod grid_tree;
 pub mod voxel_grid_tree;
 pub mod voxels;
@@ -7,6 +8,7 @@ pub mod splat;
 pub mod task_queue;
 pub mod transform_ext;
 pub mod task_system;
+pub mod world_query;
 
 use bevy::prelude::*;
 

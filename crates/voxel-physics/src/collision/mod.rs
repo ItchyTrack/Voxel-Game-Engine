@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use num::Zero;
 
-use voxel_bvh::bvh::BVH;
+use voxel_data::bvh::BVH;
 use voxel_data::grid::Grid;
 use voxel_data::subgrid::{SubGrid, SubGridId, SubGridRef};
 
