@@ -11,11 +11,6 @@ mod types {
 	#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 	pub(crate) struct ChunkKey { pub(crate) grid: GridId, pub(crate) chunk: IVec3 }
 
-	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-	pub(crate) enum PolicyDebugBoxKind { NearChunks, LodOuter(u8), LodInner(u8), LodNearExclusion(u8) }
-	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-	pub(crate) struct PolicyDebugBox { pub(crate) grid: GridId, pub(crate) min: IVec3, pub(crate) max: IVec3, pub(crate) entering: bool, pub(crate) kind: PolicyDebugBoxKind }
-
 	#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 	pub(crate) struct TileKey { pub(crate) grid: GridId, pub(crate) lod: u8, pub(crate) min: IVec3 }
 	impl TileKey { pub(crate) fn size(self) -> IVec3 { IVec3::splat(1i32 << self.lod) } }
@@ -28,7 +23,7 @@ mod camera_voxel_loader {
 	use super::*;
 	use crate::coverage::{CoverageRecord, CoverageSource};
 	use crate::replacement_graph::ReplacementGraph;
-	use crate::types::{ChunkKey, PolicyDebugBox, TileKey};
+	use crate::types::{ChunkKey, TileKey};
 
 	#[derive(Debug, Clone, PartialEq, Eq)]
 	pub struct CameraVoxelLoaderSettings { pub max_lod: u8, pub near_radius_chunks: i32, pub rings_per_lod: i32, pub requests_per_frame: usize, pub max_in_flight: usize }
@@ -43,7 +38,6 @@ mod camera_voxel_loader {
 		pub(crate) desired_tiles: HashSet<TileKey>,
 		pub(crate) coverage_sources: HashMap<CoverageSource, CoverageRecord>,
 		pub(crate) replacement_graph: ReplacementGraph,
-		pub(crate) policy_debug_boxes: Vec<PolicyDebugBox>,
 	}
 }
 

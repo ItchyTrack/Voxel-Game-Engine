@@ -7,23 +7,6 @@ pub(crate) struct ChunkKey {
 	pub(crate) chunk: IVec3,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PolicyDebugBoxKind {
-	NearChunks,
-	LodOuter(u8),
-	LodInner(u8),
-	LodNearExclusion(u8),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PolicyDebugBox {
-	pub(crate) grid: GridId,
-	pub(crate) min: IVec3,
-	pub(crate) max: IVec3,
-	pub(crate) entering: bool,
-	pub(crate) kind: PolicyDebugBoxKind,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TileKey {
 	pub(crate) grid: GridId,

@@ -78,45 +78,45 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> 
 	//
 	// Solid halfspace:  dot(n, pos − root_centre) <= m_actual * root_size
 
-	const TREE_LOG_SIZE: u32 = 2;
-	let root_size_f = (1u32 << (TREE_LOG_SIZE * (root_depth as u32 + 1))) as f32;
-	let root_half   = root_size_f / 2.0;
+	// const TREE_LOG_SIZE: u32 = 2;
+	// let root_size_f = (1u32 << (TREE_LOG_SIZE * (root_depth as u32 + 1))) as f32;
+	// let root_half   = root_size_f / 2.0;
 
 	// Collect leaf-level cells with their centres (root-relative) and half-extent.
-	struct TaggedCell { center_x: f32, center_y: f32, center_z: f32, half: f32, solid: bool }
-	let mut tagged_cells: Vec<TaggedCell> = Vec::new();
-	{
-		let mut stack: Vec<(u32, u8, [u32; 3])> = vec![(0u32, root_depth, [0u32; 3])];
-		while let Some((cpu_idx, depth, node_origin)) = stack.pop() {
-			let node_size = 1u32 << (TREE_LOG_SIZE * (depth as u32 + 1));
-			let cell_size = node_size >> TREE_LOG_SIZE;
-			let half      = cell_size as f32 * 0.5;
-			let node      = &nodes[cpu_idx as usize];
+	// struct TaggedCell { center_x: f32, center_y: f32, center_z: f32, half: f32, solid: bool }
+	// let mut tagged_cells: Vec<TaggedCell> = Vec::new();
+	// {
+	// 	let mut stack: Vec<(u32, u8, [u32; 3])> = vec![(0u32, root_depth, [0u32; 3])];
+	// 	while let Some((cpu_idx, depth, node_origin)) = stack.pop() {
+	// 		let node_size = 1u32 << (TREE_LOG_SIZE * (depth as u32 + 1));
+	// 		let cell_size = node_size >> TREE_LOG_SIZE;
+	// 		let half      = cell_size as f32 * 0.5;
+	// 		let node      = &nodes[cpu_idx as usize];
 
-			for (i, cell) in node.contents.iter().enumerate() {
-				let cell_x = (i % grid_tree::SIZE_USIZE) as u32;
-				let cell_y = ((i / grid_tree::SIZE_USIZE) % grid_tree::SIZE_USIZE) as u32;
-				let cell_z = (i / (grid_tree::SIZE_USIZE * grid_tree::SIZE_USIZE)) as u32;
-				let center_x = node_origin[0] as f32 + cell_x as f32 * cell_size as f32 + half - root_half;
-				let center_y = node_origin[1] as f32 + cell_y as f32 * cell_size as f32 + half - root_half;
-				let center_z = node_origin[2] as f32 + cell_z as f32 * cell_size as f32 + half - root_half;
-				let solid = match cell.kind() {
-					CellKind::Empty => false,
-					CellKind::Data => true,
-					CellKind::Node => {
-						let child_cpu = cpu_idx + cell.node_offset();
-						stack.push((child_cpu, depth - 1, [
-							node_origin[0] + cell_x * cell_size,
-							node_origin[1] + cell_y * cell_size,
-							node_origin[2] + cell_z * cell_size,
-						]));
-						continue;
-					}
-				};
-				tagged_cells.push(TaggedCell { center_x, center_y, center_z, half, solid });
-			}
-		}
-	}
+	// 		for (i, cell) in node.contents.iter().enumerate() {
+	// 			let cell_x = (i % grid_tree::SIZE_USIZE) as u32;
+	// 			let cell_y = ((i / grid_tree::SIZE_USIZE) % grid_tree::SIZE_USIZE) as u32;
+	// 			let cell_z = (i / (grid_tree::SIZE_USIZE * grid_tree::SIZE_USIZE)) as u32;
+	// 			let center_x = node_origin[0] as f32 + cell_x as f32 * cell_size as f32 + half - root_half;
+	// 			let center_y = node_origin[1] as f32 + cell_y as f32 * cell_size as f32 + half - root_half;
+	// 			let center_z = node_origin[2] as f32 + cell_z as f32 * cell_size as f32 + half - root_half;
+	// 			let solid = match cell.kind() {
+	// 				CellKind::Empty => false,
+	// 				CellKind::Data => true,
+	// 				CellKind::Node => {
+	// 					let child_cpu = cpu_idx + cell.node_offset();
+	// 					stack.push((child_cpu, depth - 1, [
+	// 						node_origin[0] + cell_x * cell_size,
+	// 						node_origin[1] + cell_y * cell_size,
+	// 						node_origin[2] + cell_z * cell_size,
+	// 					]));
+	// 					continue;
+	// 				}
+	// 			};
+	// 			tagged_cells.push(TaggedCell { center_x, center_y, center_z, half, solid });
+	// 		}
+	// 	}
+	// }
 
 	// (ox, oy, oz, half)
 	// let mut solid_cells: Vec<parry3d::math::Vec3> = vec![];

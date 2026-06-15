@@ -31,7 +31,6 @@ pub(crate) fn update_camera_voxel_loader_requests(
 		let camera_world = camera_global.translation();
 		let settings_changed = camera_voxel_loader.applied_settings.as_ref() != Some(&camera_voxel_loader.settings);
 		let settings = camera_voxel_loader.settings.clone();
-		let mut policy_debug_boxes = Vec::new();
 		let mut desired_chunks = if settings_changed { HashSet::new() } else { camera_voxel_loader.desired_chunks.clone() };
 		let mut desired_tiles = if settings_changed { HashSet::new() } else { camera_voxel_loader.desired_tiles.clone() };
 		let mut desired_changed = settings_changed;
@@ -51,8 +50,8 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			} else if let Some(old_center) = previous_center {
 				if old_center != camera_chunk {
 					desired_changed = true;
-					update_near_chunks_delta(&mut desired_chunks, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
-					update_lod_tiles_delta(&mut desired_tiles, &mut policy_debug_boxes, grid, old_center, camera_chunk, &settings, streaming.as_ref());
+					update_near_chunks_delta(&mut desired_chunks, grid, old_center, camera_chunk, &settings, streaming.as_ref());
+					update_lod_tiles_delta(&mut desired_tiles, grid, old_center, camera_chunk, &settings, streaming.as_ref());
 				}
 			}
 			let before_retain = desired_chunks.len();
@@ -75,7 +74,6 @@ pub(crate) fn update_camera_voxel_loader_requests(
 		}
 
 		camera_voxel_loader.applied_settings = Some(settings);
-		camera_voxel_loader.policy_debug_boxes = policy_debug_boxes;
 		let chunks_to_fetch = if desired_changed {
 			let chunks_to_fetch = update_desired_chunks(&mut camera_voxel_loader, desired_chunks.clone());
 			camera_voxel_loader.desired_tiles = desired_tiles.clone();

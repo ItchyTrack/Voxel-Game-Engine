@@ -42,23 +42,6 @@ mod types {
 		pub(crate) chunk: IVec3,
 	}
 
-	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-	pub(crate) enum PolicyDebugBoxKind {
-		NearChunks,
-		LodOuter(u8),
-		LodInner(u8),
-		LodNearExclusion(u8),
-	}
-
-	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-	pub(crate) struct PolicyDebugBox {
-		pub(crate) grid: GridId,
-		pub(crate) min: IVec3,
-		pub(crate) max: IVec3,
-		pub(crate) entering: bool,
-		pub(crate) kind: PolicyDebugBoxKind,
-	}
-
 	#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 	pub(crate) struct TileKey {
 		pub(crate) grid: GridId,
@@ -78,7 +61,7 @@ mod lod_policy;
 
 use camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
 use lod_policy::{add_lod_tiles, add_near_chunks, is_lod_tile_wanted, update_lod_tiles_delta, update_near_chunks_delta};
-use types::{ChunkKey, PolicyDebugBox, TileKey};
+use types::{ChunkKey, TileKey};
 
 #[test]
 fn near_chunks_only_include_present_chunks() {
@@ -114,9 +97,8 @@ fn minimal_delta_misses_lod3_tile_when_inner_ring_boundary_moves_one_chunk() {
 	let missed = TileKey { grid, lod: 3, min: IVec3::new(-24, 0, 0) };
 
 	let mut incremental_tiles = HashSet::<TileKey>::new();
-	let mut debug_boxes = Vec::<PolicyDebugBox>::new();
 	add_lod_tiles(&mut incremental_tiles, grid, old_center, &controller, &streaming);
-	update_lod_tiles_delta(&mut incremental_tiles, &mut debug_boxes, grid, old_center, new_center, &settings, &streaming);
+	update_lod_tiles_delta(&mut incremental_tiles, grid, old_center, new_center, &settings, &streaming);
 
 	let mut rebuilt_tiles = HashSet::<TileKey>::new();
 	add_lod_tiles(&mut rebuilt_tiles, grid, new_center, &controller, &streaming);
@@ -176,12 +158,11 @@ fn lod2_tile_is_missing_when_presence_appears_without_camera_movement() {
 
 	let mut streaming = GridStreaming::default();
 	let mut incremental_tiles = HashSet::<TileKey>::new();
-	let mut debug_boxes = Vec::<PolicyDebugBox>::new();
 	add_lod_tiles(&mut incremental_tiles, grid, center, &controller, &streaming);
 	assert!(!incremental_tiles.contains(&expected_tile), "control setup should start with no LOD2 tile because no chunks are present");
 
 	streaming.presence_mut().mark_present(new_present_chunk);
-	update_lod_tiles_delta(&mut incremental_tiles, &mut debug_boxes, grid, center, center, &settings, &streaming);
+	update_lod_tiles_delta(&mut incremental_tiles, grid, center, center, &settings, &streaming);
 	// New presence events are handled outside movement deltas: the changed chunk maps
 	// to its covering LOD tiles, and currently-wanted tiles are inserted/requested.
 	if is_lod_tile_wanted(&settings, &streaming, center, expected_tile) {
@@ -513,7 +494,6 @@ fn incremental_lod_policy_matches_full_rebuild_for_deterministic_flight_stress()
 
 	let mut incremental_chunks = HashSet::<ChunkKey>::new();
 	let mut incremental_tiles = HashSet::<TileKey>::new();
-	let mut debug_boxes = Vec::<PolicyDebugBox>::new();
 	let mut center = IVec3::ZERO;
 	add_near_chunks(&mut incremental_chunks, grid, center, &controller, &streaming);
 	add_lod_tiles(&mut incremental_tiles, grid, center, &controller, &streaming);
@@ -529,9 +509,8 @@ fn incremental_lod_policy_matches_full_rebuild_for_deterministic_flight_stress()
 		let delta = if delta == IVec3::ZERO { IVec3::X } else { delta };
 		let next = (center + delta).clamp(IVec3::splat(-24), IVec3::splat(24));
 
-		debug_boxes.clear();
-		update_near_chunks_delta(&mut incremental_chunks, &mut debug_boxes, grid, center, next, &settings, &streaming);
-		update_lod_tiles_delta(&mut incremental_tiles, &mut debug_boxes, grid, center, next, &settings, &streaming);
+		update_near_chunks_delta(&mut incremental_chunks, grid, center, next, &settings, &streaming);
+		update_lod_tiles_delta(&mut incremental_tiles, grid, center, next, &settings, &streaming);
 		assert_matches_full_rebuild(grid, &controller, &streaming, next, &incremental_chunks, &incremental_tiles);
 		center = next;
 
@@ -563,7 +542,6 @@ fn incremental_lod_policy_matches_full_rebuild_while_camera_flies() {
 	let centers = flying_camera_path();
 	let mut incremental_chunks = HashSet::<ChunkKey>::new();
 	let mut incremental_tiles = HashSet::<TileKey>::new();
-	let mut debug_boxes = Vec::<PolicyDebugBox>::new();
 
 	let first = centers[0];
 	add_near_chunks(&mut incremental_chunks, grid, first, &controller, &streaming);
@@ -572,9 +550,8 @@ fn incremental_lod_policy_matches_full_rebuild_while_camera_flies() {
 
 	let mut previous = first;
 	for center in centers.into_iter().skip(1) {
-		debug_boxes.clear();
-		update_near_chunks_delta(&mut incremental_chunks, &mut debug_boxes, grid, previous, center, &settings, &streaming);
-		update_lod_tiles_delta(&mut incremental_tiles, &mut debug_boxes, grid, previous, center, &settings, &streaming);
+		update_near_chunks_delta(&mut incremental_chunks, grid, previous, center, &settings, &streaming);
+		update_lod_tiles_delta(&mut incremental_tiles, grid, previous, center, &settings, &streaming);
 
 		assert_matches_full_rebuild(grid, &controller, &streaming, center, &incremental_chunks, &incremental_tiles);
 		previous = center;
@@ -708,11 +685,10 @@ fn assert_single_delta_matches_full_rebuild(
 ) {
 	let mut incremental_chunks = HashSet::<ChunkKey>::new();
 	let mut incremental_tiles = HashSet::<TileKey>::new();
-	let mut debug_boxes = Vec::<PolicyDebugBox>::new();
 	add_near_chunks(&mut incremental_chunks, grid, old_center, controller, streaming);
 	add_lod_tiles(&mut incremental_tiles, grid, old_center, controller, streaming);
-	update_near_chunks_delta(&mut incremental_chunks, &mut debug_boxes, grid, old_center, new_center, settings, streaming);
-	update_lod_tiles_delta(&mut incremental_tiles, &mut debug_boxes, grid, old_center, new_center, settings, streaming);
+	update_near_chunks_delta(&mut incremental_chunks, grid, old_center, new_center, settings, streaming);
+	update_lod_tiles_delta(&mut incremental_tiles, grid, old_center, new_center, settings, streaming);
 	assert_matches_full_rebuild(grid, controller, streaming, new_center, &incremental_chunks, &incremental_tiles);
 }
 

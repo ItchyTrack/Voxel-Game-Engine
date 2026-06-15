@@ -5,7 +5,7 @@ use voxel_data::grid::GridId;
 use voxel_streaming::{GridStreaming, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
-use crate::types::{ChunkKey, PolicyDebugBox, PolicyDebugBoxKind, TileKey};
+use crate::types::{ChunkKey, TileKey};
 
 pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
 	(local_voxels / CHUNK_SIZE as f32).round().as_ivec3()
@@ -88,7 +88,6 @@ pub(crate) fn is_near_chunk_wanted(settings: &CameraVoxelLoaderSettings, streami
 
 pub(crate) fn update_near_chunks_delta(
 	out: &mut HashSet<ChunkKey>,
-	debug_boxes: &mut Vec<PolicyDebugBox>,
 	grid: GridId,
 	old_center: IVec3,
 	new_center: IVec3,
@@ -98,7 +97,6 @@ pub(crate) fn update_near_chunks_delta(
 	let (old_min, old_max) = near_bounds(old_center, settings);
 	let (new_min, new_max) = near_bounds(new_center, settings);
 	for_each_changed_slab(old_min, old_max - IVec3::ONE, new_min, new_max - IVec3::ONE, |min, max, entering| {
-		push_policy_debug_box(debug_boxes, grid, min, max, entering, PolicyDebugBoxKind::NearChunks);
 		for x in min.x..=max.x {
 			for y in min.y..=max.y {
 				for z in min.z..=max.z {
@@ -119,7 +117,6 @@ pub(crate) fn update_near_chunks_delta(
 
 pub(crate) fn update_lod_tiles_delta(
 	out: &mut HashSet<TileKey>,
-	debug_boxes: &mut Vec<PolicyDebugBox>,
 	grid: GridId,
 	old_center: IVec3,
 	new_center: IVec3,
@@ -133,8 +130,8 @@ pub(crate) fn update_lod_tiles_delta(
 		let (old_outer_min, old_outer_max) = lod_outer_bounds(old_center, settings, lod);
 		let (new_inner_min, new_inner_max) = lod_inner_bounds(new_center, settings, lod);
 		let (new_outer_min, new_outer_max) = lod_outer_bounds(new_center, settings, lod);
-		add_changed_tile_slabs(&mut candidates, debug_boxes, grid, lod, old_outer_min, old_outer_max - IVec3::ONE, new_outer_min, new_outer_max - IVec3::ONE, tile_size, PolicyDebugBoxKind::LodOuter(lod));
-		add_changed_tile_slabs(&mut candidates, debug_boxes, grid, lod, old_inner_min, old_inner_max - IVec3::ONE, new_inner_min, new_inner_max - IVec3::ONE, tile_size, PolicyDebugBoxKind::LodInner(lod));
+		add_changed_tile_slabs(&mut candidates, grid, lod, old_outer_min, old_outer_max - IVec3::ONE, new_outer_min, new_outer_max - IVec3::ONE, tile_size);
+		add_changed_tile_slabs(&mut candidates, grid, lod, old_inner_min, old_inner_max - IVec3::ONE, new_inner_min, new_inner_max - IVec3::ONE, tile_size);
 
 		for key in candidates {
 			let old_wanted = wants_lod_tile(settings, streaming, old_center, key);
@@ -202,7 +199,6 @@ fn align_bounds_to_tile(min: IVec3, max: IVec3, tile_size: i32) -> (IVec3, IVec3
 
 fn add_changed_tile_slabs(
 	out: &mut HashSet<TileKey>,
-	debug_boxes: &mut Vec<PolicyDebugBox>,
 	grid: GridId,
 	lod: u8,
 	old_min: IVec3,
@@ -210,10 +206,8 @@ fn add_changed_tile_slabs(
 	new_min: IVec3,
 	new_max: IVec3,
 	tile_size: i32,
-	kind: PolicyDebugBoxKind,
 ) {
-	for_each_changed_slab(old_min, old_max, new_min, new_max, |min, max, entering| {
-		push_policy_debug_box(debug_boxes, grid, min, max, entering, kind);
+	for_each_changed_slab(old_min, old_max, new_min, new_max, |min, max, _entering| {
 		add_tiles_intersecting_box(out, grid, lod, min, max, tile_size);
 	});
 }
@@ -228,10 +222,6 @@ fn add_tiles_intersecting_box(out: &mut HashSet<TileKey>, grid: GridId, lod: u8,
 			}
 		}
 	}
-}
-
-fn push_policy_debug_box(debug_boxes: &mut Vec<PolicyDebugBox>, grid: GridId, min: IVec3, max: IVec3, entering: bool, kind: PolicyDebugBoxKind) {
-	debug_boxes.push(PolicyDebugBox { grid, min, max: max + IVec3::ONE, entering, kind });
 }
 
 fn for_each_changed_slab(old_min: IVec3, old_max: IVec3, new_min: IVec3, new_max: IVec3, mut f: impl FnMut(IVec3, IVec3, bool)) {

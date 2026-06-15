@@ -5,7 +5,7 @@ use voxel_data::grid::GridId;
 
 use crate::coverage::{CoverageRecord, CoverageSource};
 use crate::replacement_graph::ReplacementGraph;
-use crate::types::{ChunkKey, PolicyDebugBox, TileKey, TileRecord};
+use crate::types::{ChunkKey, TileKey, TileRecord};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CameraVoxelLoaderSettings {
@@ -38,7 +38,6 @@ pub struct CameraVoxelLoader {
 	pub(crate) waiting_gpu_lods: HashMap<bevy::ecs::entity::Entity, TileKey>,
 	pub(crate) grid_centers: HashMap<GridId, IVec3>,
 	pub(crate) applied_settings: Option<CameraVoxelLoaderSettings>,
-	pub(crate) policy_debug_boxes: Vec<PolicyDebugBox>,
 	pub(crate) queue: VecDeque<TileKey>,
 	pub(crate) tiles: HashMap<TileKey, TileRecord>,
 }
