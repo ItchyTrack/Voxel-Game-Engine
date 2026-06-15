@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use bevy::{ecs::component::Component, math::IVec3};
 use voxel_data::grid::GridId;
 
-use crate::coverage::{CoverageCell, CoverageRecord, CoverageSource};
+use crate::coverage::{CoverageRecord, CoverageSource};
+use crate::replacement_graph::ReplacementGraph;
 use crate::types::{ChunkKey, PolicyDebugBox, TileKey, TileRecord};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +34,7 @@ pub struct CameraVoxelLoader {
 	pub(crate) desired_chunks: HashSet<ChunkKey>,
 	pub(crate) desired_tiles: HashSet<TileKey>,
 	pub(crate) coverage_sources: HashMap<CoverageSource, CoverageRecord>,
-	pub(crate) coverage_cells: HashMap<ChunkKey, CoverageCell>,
+	pub(crate) replacement_graph: ReplacementGraph,
 	pub(crate) waiting_gpu_lods: HashMap<bevy::ecs::entity::Entity, TileKey>,
 	pub(crate) grid_centers: HashMap<GridId, IVec3>,
 	pub(crate) applied_settings: Option<CameraVoxelLoaderSettings>,

@@ -1,6 +1,5 @@
 mod camera_voxel_loader;
 mod coverage;
-#[allow(dead_code)]
 mod replacement_graph;
 mod loading;
 mod lod_policy;

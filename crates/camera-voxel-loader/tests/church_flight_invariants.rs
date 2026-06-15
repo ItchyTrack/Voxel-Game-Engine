@@ -21,9 +21,13 @@ mod types {
 	impl TileKey { pub(crate) fn size(self) -> IVec3 { IVec3::splat(1i32 << self.lod) } }
 }
 
+#[path = "../src/replacement_graph.rs"]
+mod replacement_graph;
+
 mod camera_voxel_loader {
 	use super::*;
-	use crate::coverage::{CoverageCell, CoverageRecord, CoverageSource};
+	use crate::coverage::{CoverageRecord, CoverageSource};
+	use crate::replacement_graph::ReplacementGraph;
 	use crate::types::{ChunkKey, PolicyDebugBox, TileKey};
 
 	#[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +42,7 @@ mod camera_voxel_loader {
 		pub(crate) desired_chunks: HashSet<ChunkKey>,
 		pub(crate) desired_tiles: HashSet<TileKey>,
 		pub(crate) coverage_sources: HashMap<CoverageSource, CoverageRecord>,
-		pub(crate) coverage_cells: HashMap<ChunkKey, CoverageCell>,
+		pub(crate) replacement_graph: ReplacementGraph,
 		pub(crate) policy_debug_boxes: Vec<PolicyDebugBox>,
 	}
 }
@@ -89,6 +93,7 @@ fn re_desired_ready_lod_tile_resolves_visible_without_new_gpu_event() {
 	let ready_replacement = TileKey { grid, lod: 1, min: IVec3::ZERO };
 	let ready_replacement_source = CoverageSource::Tile(ready_replacement);
 	let mut loader = CameraVoxelLoader::default();
+	loader.desired_tiles.insert(ready_replacement);
 
 	request_source(&mut loader, old_tile);
 	resolve_visible(&mut loader, old_tile, Entity::from_bits(1));
@@ -104,17 +109,13 @@ fn re_desired_ready_lod_tile_resolves_visible_without_new_gpu_event() {
 	// the existing entity instead of remaining Desired(Requested) forever.
 	let existing_ready_tile_entity = Entity::from_bits(2);
 	request_source(&mut loader, ready_replacement_source);
-	resolve_visible(&mut loader, ready_replacement_source, existing_ready_tile_entity);
+	let ready = resolve_visible(&mut loader, ready_replacement_source, existing_ready_tile_entity);
 
 	assert!(
 		matches!(loader.coverage_sources.get(&ready_replacement_source).map(|record| record.state), Some(SourceState::Desired(SourceResolution::Visible(entity))) if entity == existing_ready_tile_entity),
 		"a desired tile that is already Ready must resolve coverage visible without waiting for another event"
 	);
-	assert_eq!(
-		coverage::ready_retiring_sources(&loader),
-		vec![old_tile],
-		"the old LOD can retire once the already-ready replacement is synced into coverage"
-	);
+	assert_eq!(ready, vec![old_tile], "the old LOD can retire once the already-ready replacement is synced into coverage");
 }
 
 #[test]
@@ -152,7 +153,7 @@ fn church_flight_never_waits_on_empty_lod_tile_that_will_not_request_again() {
 
 		for tile in desired_tiles.iter().copied() {
 			match tile_records.get(&tile).copied() {
-				Some(SimTileStatus::Visible) => resolve_visible(&mut loader, CoverageSource::Tile(tile), Entity::from_bits(20)),
+				Some(SimTileStatus::Visible) => { let _ = resolve_visible(&mut loader, CoverageSource::Tile(tile), Entity::from_bits(20)); }
 				Some(SimTileStatus::Loading(_)) => {}
 				None if tile_coverage_is_desired_empty(&loader, tile) => {}
 				None => { tile_records.insert(tile, SimTileStatus::Loading(2)); }
@@ -185,6 +186,8 @@ fn church_flight_never_waits_on_empty_lod_tile_that_will_not_request_again() {
 }
 
 fn sync_desired_coverage(loader: &mut CameraVoxelLoader, desired_chunks: &HashSet<ChunkKey>, desired_tiles: &HashSet<TileKey>) {
+	loader.desired_chunks = desired_chunks.clone();
+	loader.desired_tiles = desired_tiles.clone();
 	let desired_sources: HashSet<_> = desired_chunks.iter().copied().map(CoverageSource::Chunk).chain(desired_tiles.iter().copied().map(CoverageSource::Tile)).collect();
 	for source in &desired_sources { request_source(loader, *source); }
 	let old_desired: Vec<_> = loader
