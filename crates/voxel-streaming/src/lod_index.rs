@@ -49,11 +49,7 @@ impl LodIndex {
 		out
 	}
 
-	pub(crate) fn clear(&mut self) {
-		self.bins.clear();
-		self.max_lod = 0;
-	}
-
+	#[cfg(test)]
 	pub(crate) fn is_empty(&self) -> bool {
 		self.bins.is_empty()
 	}

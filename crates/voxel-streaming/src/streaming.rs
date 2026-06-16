@@ -14,6 +14,7 @@ use voxel_edit::{EditGate, GridEdit, GridEdits};
 use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
 use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaderChannel, LodRequestChannel};
+use crate::lod_index::LodIndex;
 use crate::ChunkLoadResolved;
 use crate::presence::{ChunkPresence, ChunkState};
 
@@ -38,6 +39,7 @@ pub struct GridStreaming {
 	newly_dirty: Vec<IVec3>,
 	lods: HashMap<LodKey, LodTileState>,
 	pending_lod_requests: HashSet<LodKey>,
+	lod_index: LodIndex,
 }
 
 impl GridStreaming {
@@ -75,6 +77,7 @@ impl GridStreaming {
 
 	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {
 		if !valid_lod_key(key) { return false; }
+		if !self.lods.contains_key(&key) { self.lod_index.insert(key); }
 		let state = self.lods.entry(key).or_insert_with(|| LodTileState { requesters: HashMap::new(), status: LodStatus::Requested, revision: 0 });
 		state.requesters.insert(requester, priority);
 		if matches!(state.status, LodStatus::Requested) { self.pending_lod_requests.insert(key); }
@@ -87,6 +90,7 @@ impl GridStreaming {
 		if state.requesters.is_empty() {
 			self.pending_lod_requests.remove(&key);
 			self.lods.remove(&key);
+			self.lod_index.remove(key);
 		}
 	}
 
@@ -173,13 +177,12 @@ impl GridStreaming {
 	}
 
 	fn dirty_lods_covering(&mut self, chunk: IVec3) {
-		for (key, state) in &mut self.lods {
-			let max = key.min + key.size;
-			if chunk.cmpge(key.min).all() && chunk.cmplt(max).all() && !state.requesters.is_empty() {
-				state.revision += 1;
-				state.status = LodStatus::Requested;
-				self.pending_lod_requests.insert(*key);
-			}
+		for key in self.lod_index.lods_covering_chunk(chunk) {
+			let Some(state) = self.lods.get_mut(&key) else { continue };
+			if state.requesters.is_empty() { continue; }
+			state.revision += 1;
+			state.status = LodStatus::Requested;
+			self.pending_lod_requests.insert(key);
 		}
 	}
 }

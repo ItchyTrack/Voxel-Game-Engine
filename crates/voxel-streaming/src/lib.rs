@@ -5,7 +5,6 @@ use bevy::prelude::*;
 mod chunk;
 mod consumer;
 mod loader;
-#[allow(dead_code)]
 mod lod_index;
 mod presence;
 mod streaming;
