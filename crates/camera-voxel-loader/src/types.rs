@@ -14,12 +14,11 @@ impl TileKey {
 pub(crate) struct TileRecord {
 	pub(crate) status: TileStatus,
 	pub(crate) entity: Option<Entity>,
-	pub(crate) stale_entity: Option<Entity>,
 }
 
 impl TileRecord {
-	pub(crate) fn queued() -> Self { Self { status: TileStatus::Queued, entity: None, stale_entity: None } }
+	pub(crate) fn queued() -> Self { Self { status: TileStatus::Queued, entity: None } }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TileStatus { Queued, Loading, LoadedWaitingGpu, Ready, Retiring }
+pub(crate) enum TileStatus { Queued, Loading, Ready, Retiring }

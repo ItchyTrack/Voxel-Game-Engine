@@ -183,6 +183,7 @@ pub struct LodLoadResult {
 	pub priority: f32,
 	pub generation: u64,
 	pub voxels: Option<Voxels>,
+	pub entity: Option<Entity>,
 }
 
 #[derive(Resource)]

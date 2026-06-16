@@ -25,7 +25,6 @@ pub struct CameraVoxelLoader {
 	pub(crate) desired_tiles: HashSet<TileKey>,
 	pub(crate) coverage_sources: HashMap<CoverageSource, CoverageRecord>,
 	pub(crate) replacement_graph: ReplacementGraph,
-	pub(crate) waiting_gpu_lods: HashMap<bevy::ecs::entity::Entity, TileKey>,
 	pub(crate) queue: VecDeque<TileKey>,
 	pub(crate) tiles: HashMap<TileKey, TileRecord>,
 }

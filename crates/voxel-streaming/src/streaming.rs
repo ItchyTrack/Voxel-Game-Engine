@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy::ecs::message::MessageWriter;
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::math::IVec3;
 use bevy::prelude::*;
+use gpu_voxel_data::{LodVoxels, VoxelGpuUploadFinished};
 
 use tracy_client::span;
 
@@ -13,7 +14,7 @@ use voxel_edit::{EditGate, GridEdit, GridEdits};
 
 use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
-use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaderChannel, LodRequestChannel};
+use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
 use crate::lod_index::LodIndex;
 use crate::ChunkLoadResolved;
 use crate::presence::{ChunkPresence, ChunkState};
@@ -25,6 +26,9 @@ struct LodTileState {
 	requesters: HashMap<Entity, f32>,
 	status: LodStatus,
 	revision: u64,
+	entity: Option<Entity>,
+	waiting_entity: Option<Entity>,
+	stale_entities: Vec<Entity>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,7 +82,7 @@ impl GridStreaming {
 	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {
 		if !valid_lod_key(key) { return false; }
 		if !self.lods.contains_key(&key) { self.lod_index.insert(key); }
-		let state = self.lods.entry(key).or_insert_with(|| LodTileState { requesters: HashMap::new(), status: LodStatus::Requested, revision: 0 });
+		let state = self.lods.entry(key).or_insert_with(|| LodTileState { requesters: HashMap::new(), status: LodStatus::Requested, revision: 0, entity: None, waiting_entity: None, stale_entities: Vec::new() });
 		state.requesters.insert(requester, priority);
 		if matches!(state.status, LodStatus::Requested) { self.pending_lod_requests.insert(key); }
 		true
@@ -89,7 +93,6 @@ impl GridStreaming {
 		state.requesters.remove(&requester);
 		if state.requesters.is_empty() {
 			self.pending_lod_requests.remove(&key);
-			self.lods.remove(&key);
 			self.lod_index.remove(key);
 		}
 	}
@@ -298,25 +301,79 @@ pub fn receive_results(
 }
 
 pub fn receive_lod_results(
+	mut commands: Commands,
 	channel: Res<LodLoaderChannel>,
 	mut grids: Query<&mut GridStreaming>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
 	let mut updates = Vec::new();
-	while let Some(result) = channel.try_recv() {
+	while let Some(mut result) = channel.try_recv() {
 		let Ok(mut streaming) = grids.get_mut(result.grid) else { continue };
 		let Some(state) = streaming.lods.get_mut(&result.key) else { continue };
 		if result.generation != state.revision { continue; }
-		state.status = if result.voxels.is_some() { LodStatus::Loaded } else { LodStatus::Empty };
-		for &requester in state.requesters.keys() {
-			let mut update = result.clone();
-			update.requester = requester;
-			updates.push(update);
+		match result.voxels.take() {
+			Some(voxels) if !voxels.is_empty() => {
+				let entity = commands.spawn((
+					LodVoxels { voxels, lod: result.key.lod as f32, priority: result.priority },
+					Transform::from_translation((result.key.min * CHUNK_SIZE).as_vec3()),
+					ChildOf(result.grid),
+				)).id();
+				if let Some(waiting) = state.waiting_entity.replace(entity) { commands.entity(waiting).despawn(); }
+				state.status = LodStatus::Loading;
+			}
+			_ => {
+				if let Some(entity) = state.entity.take() { commands.entity(entity).despawn(); }
+				if let Some(entity) = state.waiting_entity.take() { commands.entity(entity).despawn(); }
+				state.status = LodStatus::Empty;
+				for &requester in state.requesters.keys() {
+					let mut update = result.clone();
+					update.requester = requester;
+					update.entity = None;
+					updates.push(update);
+				}
+			}
 		}
 	}
 	for update in updates {
 		let Ok(mut entity_consumers) = consumers.get_mut(update.requester) else { continue };
 		for mut consumer in &mut entity_consumers { consumer.push_lod(update.clone()); }
+	}
+}
+
+pub fn refresh_lod_uploads(
+	mut gpu_events: MessageReader<VoxelGpuUploadFinished>,
+	mut grids: Query<(GridId, &mut GridStreaming)>,
+	mut consumers: Query<&mut dyn ChunkConsumer>,
+) {
+	let mut updates = Vec::new();
+	for event in gpu_events.read().copied() {
+		for (grid, mut streaming) in &mut grids {
+			let Some((&key, state)) = streaming.lods.iter_mut().find(|(_, state)| state.waiting_entity == Some(event.entity)) else { continue };
+			if let Some(old) = state.entity.replace(event.entity) { state.stale_entities.push(old); }
+			state.waiting_entity = None;
+			state.status = LodStatus::Loaded;
+			for &requester in state.requesters.keys() {
+				updates.push(LodLoadResult { grid, requester, key, priority: state.requesters[&requester], generation: state.revision, voxels: None, entity: Some(event.entity) });
+			}
+		}
+	}
+	for update in updates {
+		let Ok(mut entity_consumers) = consumers.get_mut(update.requester) else { continue };
+		for mut consumer in &mut entity_consumers { consumer.push_lod(update.clone()); }
+	}
+}
+
+pub fn cleanup_released_lods(mut commands: Commands, mut grids: Query<&mut GridStreaming>) {
+	for mut streaming in &mut grids {
+		for state in streaming.lods.values_mut() {
+			for entity in state.stale_entities.drain(..) { commands.entity(entity).despawn(); }
+		}
+		let released: Vec<_> = streaming.lods.iter().filter_map(|(&key, state)| state.requesters.is_empty().then_some(key)).collect();
+		for key in released {
+			let Some(state) = streaming.lods.remove(&key) else { continue };
+			if let Some(entity) = state.entity { commands.entity(entity).despawn(); }
+			if let Some(entity) = state.waiting_entity { commands.entity(entity).despawn(); }
+		}
 	}
 }
 

@@ -13,7 +13,7 @@ pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
 pub use presence::{ChunkPresence, ChunkState};
-pub use streaming::{apply_chunk_clears, handle_dirty_chunks, receive_lod_results, receive_results, request_lod_tiles, request_stalled_chunks, GridStreaming};
+pub use streaming::{apply_chunk_clears, cleanup_released_lods, handle_dirty_chunks, receive_lod_results, receive_results, refresh_lod_uploads, request_lod_tiles, request_stalled_chunks, GridStreaming};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -93,7 +93,8 @@ impl Plugin for VoxelStreamingPlugin {
 						.in_set(StreamingPhase::Receive),
 				),
 			)
-			.add_systems(StreamingMaintenance, streaming::apply_chunk_clears)
+			.add_systems(Update, streaming::refresh_lod_uploads.after(gpu_voxel_data::GpuUploadSet::Upload))
+			.add_systems(StreamingMaintenance, (streaming::cleanup_released_lods, streaming::apply_chunk_clears).chain())
 			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain());
 	}
 }

@@ -139,6 +139,7 @@ pub(crate) fn drain_source_lod_results(
 				priority: request.priority,
 				generation: request.generation,
 				voxels: voxels.clone(),
+				entity: None,
 			});
 		}
 	}
