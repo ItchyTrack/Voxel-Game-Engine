@@ -135,9 +135,7 @@ pub(crate) fn drain_source_lod_results(
 			loader.report(LodLoadResult {
 				grid,
 				requester: request.requester,
-				min: request.min,
-				size: request.size,
-				lod,
+				key: voxel_streaming::LodKey { min: request.key.min, size: request.key.size, lod: lod.max(0.0).floor() as u8 },
 				priority: request.priority,
 				generation: request.generation,
 				voxels: voxels.clone(),

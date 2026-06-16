@@ -85,24 +85,24 @@ fn serve_lod_requests(
 ) {
 	while let Ok(request) = requests.recv() {
 		let Some(key) = grid_keys.read().unwrap().get(&request.grid).copied() else { continue };
-		let source_ids = lod_sources_with_any_chunks(&sources, key, request.min, request.size, request.lod);
+		let source_ids = lod_sources_with_any_chunks(&sources, key, request.key.min, request.key.size, request.key.lod as f32);
 		match source_ids.as_slice() {
 			[] => {
 				pending_lod
 					.lock()
 					.unwrap()
-					.insert(LodRequestKey::new(key, request.min, request.size, request.lod), PendingLodJob::Direct { requests: vec![request] });
+					.insert(LodRequestKey::new(key, request.key.min, request.key.size, request.key.lod as f32), PendingLodJob::Direct { requests: vec![request] });
 				let _ = lod_result_tx.send(SourceLodResult {
 					source: crate::source::SourceId(usize::MAX),
 					grid: key,
-					min: request.min,
-					size: request.size,
-					lod: request.lod,
+					min: request.key.min,
+					size: request.key.size,
+					lod: request.key.lod as f32,
 					voxels: None,
 				});
 			}
 			[id] => {
-				let lod_key = LodRequestKey::new(key, request.min, request.size, request.lod);
+				let lod_key = LodRequestKey::new(key, request.key.min, request.key.size, request.key.lod as f32);
 				let should_request = {
 					let mut pending = pending_lod.lock().unwrap();
 					match pending.get_mut(&lod_key) {
@@ -125,14 +125,14 @@ fn serve_lod_requests(
 					let request = request.clone();
 					pusher.push(PriorityTask::new(request.priority, async move {
 						let _zone = span!("source request_load_lod direct");
-						tracy_client::plot!("source lod request volume chunks", (request.size.x * request.size.y * request.size.z) as f64);
-						source.request_load_lod(key, request.min, request.size, request.lod);
+						tracy_client::plot!("source lod request volume chunks", (request.key.size.x * request.key.size.y * request.key.size.z) as f64);
+						source.request_load_lod(key, request.key.min, request.key.size, request.key.lod as f32);
 					}));
 				}
 			}
 			_ => {
-				let intermediate_lod = request.lod.min(6.0);
-				let lod_key = LodRequestKey::new(key, request.min, request.size, intermediate_lod);
+				let intermediate_lod = (request.key.lod as f32).min(6.0);
+				let lod_key = LodRequestKey::new(key, request.key.min, request.key.size, intermediate_lod);
 				let should_request = {
 					let mut pending = pending_lod.lock().unwrap();
 					match pending.get_mut(&lod_key) {
@@ -149,7 +149,7 @@ fn serve_lod_requests(
 								requests: vec![request.clone()],
 								expected: source_ids.iter().copied().collect(),
 								received: Default::default(),
-								final_lod: request.lod,
+								final_lod: request.key.lod as f32,
 								intermediate_lod,
 							});
 							true
@@ -162,8 +162,8 @@ fn serve_lod_requests(
 						let request = request.clone();
 						pusher.push(PriorityTask::new(request.priority, async move {
 							let _zone = span!("source request_load_lod composite part");
-							tracy_client::plot!("source lod request volume chunks", (request.size.x * request.size.y * request.size.z) as f64);
-							source.request_load_lod(key, request.min, request.size, intermediate_lod);
+							tracy_client::plot!("source lod request volume chunks", (request.key.size.x * request.key.size.y * request.key.size.z) as f64);
+							source.request_load_lod(key, request.key.min, request.key.size, intermediate_lod);
 						}));
 					}
 				}

@@ -35,10 +35,6 @@ pub(crate) fn add_lod_tiles(out: &mut HashSet<TileKey>, grid: GridId, center: IV
     add_lod_tiles_for_settings(out, grid, center, &loader.settings, streaming);
 }
 
-pub(crate) fn tile_key_covering_chunk(grid: GridId, chunk: IVec3, lod: u8) -> TileKey {
-    TileKey { grid, lod, min: align_chunk_to_tile(chunk, 1i32 << lod) }
-}
-
 pub(crate) fn is_tile_wanted(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, key: TileKey) -> bool {
     if key.lod == 0 {
         let (min, max) = near_bounds(center, settings);
@@ -122,6 +118,7 @@ fn tile_has_present_chunk(streaming: &GridStreaming, min: IVec3, size: i32) -> b
     streaming.presence().any_present_in_region(min, min + IVec3::splat(size) - IVec3::ONE)
 }
 
+#[allow(dead_code)]
 pub(crate) fn align_chunk_to_tile(chunk: IVec3, size: i32) -> IVec3 {
     chunk.div_euclid(IVec3::splat(size)) * size
 }

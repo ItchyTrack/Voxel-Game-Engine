@@ -10,9 +10,9 @@ mod streaming;
 
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
-pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
+pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
 pub use presence::{ChunkPresence, ChunkState};
-pub use streaming::{apply_chunk_clears, handle_dirty_chunks, receive_lod_results, receive_results, request_stalled_chunks, GridStreaming};
+pub use streaming::{apply_chunk_clears, handle_dirty_chunks, receive_lod_results, receive_results, request_lod_tiles, request_stalled_chunks, GridStreaming};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -30,12 +30,6 @@ pub struct StreamingMaintenance;
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChunkBecamePresent {
-	pub grid: voxel_data::grid::GridId,
-	pub chunk: IVec3,
-}
-
-#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ChunkBecameDirty {
 	pub grid: voxel_data::grid::GridId,
 	pub chunk: IVec3,
 }
@@ -71,7 +65,6 @@ impl Plugin for VoxelStreamingPlugin {
 		use voxel_edit::VoxelEditAppExt;
 		app.init_resource::<ChunkRequestChannel>()
 			.add_message::<ChunkBecamePresent>()
-			.add_message::<ChunkBecameDirty>()
 			.add_message::<ChunkLoadResolved>()
 			.init_resource::<ChunkLoaderChannel>()
 			.init_resource::<ChunkSaveChannel>()
@@ -93,7 +86,7 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(streaming::handle_dirty_chunks, streaming::request_stalled_chunks)
+					(streaming::handle_dirty_chunks, streaming::request_stalled_chunks, streaming::request_lod_tiles)
 						.in_set(StreamingPhase::Request),
 					(streaming::receive_results, streaming::receive_lod_results)
 						.in_set(StreamingPhase::Receive),

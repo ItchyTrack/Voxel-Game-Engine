@@ -13,11 +13,21 @@ use voxel_edit::{EditGate, GridEdit, GridEdits};
 
 use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
-use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodLoadRequest, LodLoaderChannel, LodRequestChannel};
-use crate::{ChunkBecameDirty, ChunkLoadResolved};
+use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaderChannel, LodRequestChannel};
+use crate::ChunkLoadResolved;
 use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
+
+#[derive(Clone, Debug)]
+struct LodTileState {
+	requesters: HashMap<Entity, f32>,
+	status: LodStatus,
+	revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LodStatus { Requested, Loading, Loaded, Empty }
 
 #[derive(Component, Default)]
 pub struct GridStreaming {
@@ -26,6 +36,8 @@ pub struct GridStreaming {
 	stalled_edits: HashMap<IVec3, Vec<GridEdit>>,
 	stalled_pinned: HashSet<IVec3>,
 	newly_dirty: Vec<IVec3>,
+	lods: HashMap<LodKey, LodTileState>,
+	pending_lod_requests: HashSet<LodKey>,
 }
 
 impl GridStreaming {
@@ -61,27 +73,21 @@ impl GridStreaming {
 		self.start_request(grid, channel, chunk);
 	}
 
-	pub fn fetch_lod(
-		&self,
-		grid: GridId,
-		requester: Entity,
-		channel: &LodRequestChannel,
-		min: IVec3,
-		size: IVec3,
-		lod: f32,
-		priority: f32,
-		generation: u64,
-	) -> bool {
-		if size.cmple(IVec3::ZERO).any() { return false; }
-		let factor = 1i32 << lod.max(0.0).floor() as u32;
-		let coarse_extent = (size * CHUNK_SIZE) / factor;
-		// One coarse voxel must fit the area, and the downsampled result must fit a
-		// single grid tree (capped at one chunk's extent).
-		if coarse_extent.cmplt(IVec3::ONE).any() || coarse_extent.cmpgt(IVec3::splat(CHUNK_SIZE)).any() {
-			return false;
-		}
-		channel.request(LodLoadRequest { grid, requester, min, size, lod, priority, generation });
+	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {
+		if !valid_lod_key(key) { return false; }
+		let state = self.lods.entry(key).or_insert_with(|| LodTileState { requesters: HashMap::new(), status: LodStatus::Requested, revision: 0 });
+		state.requesters.insert(requester, priority);
+		if matches!(state.status, LodStatus::Requested) { self.pending_lod_requests.insert(key); }
 		true
+	}
+
+	pub fn release_lod(&mut self, requester: Entity, key: LodKey) {
+		let Some(state) = self.lods.get_mut(&key) else { return; };
+		state.requesters.remove(&requester);
+		if state.requesters.is_empty() {
+			self.pending_lod_requests.remove(&key);
+			self.lods.remove(&key);
+		}
 	}
 
 	pub fn fetch_needed<C: ChunkConsumer>(
@@ -165,6 +171,24 @@ impl GridStreaming {
 			channel.request(ChunkLoadRequest { grid, chunk });
 		}
 	}
+
+	fn dirty_lods_covering(&mut self, chunk: IVec3) {
+		for (key, state) in &mut self.lods {
+			let max = key.min + key.size;
+			if chunk.cmpge(key.min).all() && chunk.cmplt(max).all() && !state.requesters.is_empty() {
+				state.revision += 1;
+				state.status = LodStatus::Requested;
+				self.pending_lod_requests.insert(*key);
+			}
+		}
+	}
+}
+
+fn valid_lod_key(key: LodKey) -> bool {
+	if key.lod == 0 || key.size.cmple(IVec3::ZERO).any() { return false; }
+	let factor = 1i32 << key.lod;
+	let coarse_extent = (key.size * CHUNK_SIZE) / factor;
+	!coarse_extent.cmplt(IVec3::ONE).any() && !coarse_extent.cmpgt(IVec3::splat(CHUNK_SIZE)).any()
 }
 
 impl EditGate for GridStreaming {
@@ -272,12 +296,40 @@ pub fn receive_results(
 
 pub fn receive_lod_results(
 	channel: Res<LodLoaderChannel>,
+	mut grids: Query<&mut GridStreaming>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
+	let mut updates = Vec::new();
 	while let Some(result) = channel.try_recv() {
-		let Ok(mut entity_consumers) = consumers.get_mut(result.requester) else { continue };
-		for mut consumer in &mut entity_consumers {
-			consumer.push_lod(result.clone());
+		let Ok(mut streaming) = grids.get_mut(result.grid) else { continue };
+		let Some(state) = streaming.lods.get_mut(&result.key) else { continue };
+		if result.generation != state.revision { continue; }
+		state.status = if result.voxels.is_some() { LodStatus::Loaded } else { LodStatus::Empty };
+		for &requester in state.requesters.keys() {
+			let mut update = result.clone();
+			update.requester = requester;
+			updates.push(update);
+		}
+	}
+	for update in updates {
+		let Ok(mut entity_consumers) = consumers.get_mut(update.requester) else { continue };
+		for mut consumer in &mut entity_consumers { consumer.push_lod(update.clone()); }
+	}
+}
+
+pub fn request_lod_tiles(
+	channel: Res<LodRequestChannel>,
+	mut grids: Query<(GridId, &mut GridStreaming)>,
+) {
+	for (grid, mut streaming) in grids.iter_mut() {
+		let pending: Vec<_> = std::mem::take(&mut streaming.pending_lod_requests).into_iter().collect();
+		for key in pending {
+			let Some(state) = streaming.lods.get_mut(&key) else { continue };
+			if state.requesters.is_empty() { continue; }
+			let requester = *state.requesters.keys().next().unwrap();
+			let priority = state.requesters.values().copied().fold(f32::NEG_INFINITY, f32::max);
+			state.status = LodStatus::Loading;
+			channel.request(LodLoadRequest { grid, requester, key, priority, generation: state.revision });
 		}
 	}
 }
@@ -287,13 +339,12 @@ pub fn handle_dirty_chunks(
 	save_channel: Res<ChunkSaveChannel>,
 	mut grids: Query<(GridId, &mut GridStreaming, &Grid)>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
-	mut dirty_events: MessageWriter<ChunkBecameDirty>,
 ) {
 	for (grid, mut streaming, grid_data) in grids.iter_mut() {
 		if streaming.newly_dirty.is_empty() { continue; }
 		let dirty: HashSet<_> = std::mem::take(&mut streaming.newly_dirty).into_iter().collect();
 		for chunk in dirty {
-			dirty_events.write(ChunkBecameDirty { grid, chunk });
+			streaming.dirty_lods_covering(chunk);
 			if matches!(streaming.presence.state(chunk), Some(ChunkState::InternalDirty)) {
 				let voxels = grid_data.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
 				save_channel.save(ChunkSaveRequest { grid, chunk, voxels });

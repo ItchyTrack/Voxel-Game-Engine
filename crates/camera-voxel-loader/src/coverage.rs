@@ -26,11 +26,6 @@ pub(crate) fn request_source(loader: &mut CameraVoxelLoader, source: CoverageSou
     }
 }
 
-pub(crate) fn renew_source_request(loader: &mut CameraVoxelLoader, source: CoverageSource) {
-    loader.replacement_graph.remove_source(source);
-    loader.coverage_sources.insert(source, CoverageRecord { state: SourceState::Desired(SourceResolution::Requested) });
-}
-
 pub(crate) fn undesire_source(loader: &mut CameraVoxelLoader, source: CoverageSource) -> Vec<CoverageSource> {
     match loader.coverage_sources.get(&source).map(|record| record.state) {
         None | Some(SourceState::RetiringVisible(_)) => Vec::new(),

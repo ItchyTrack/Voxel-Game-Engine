@@ -125,13 +125,18 @@ impl ChunkLoaderChannel {
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LodKey {
+	pub min: IVec3,
+	pub size: IVec3,
+	pub lod: u8,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct LodLoadRequest {
 	pub grid: GridId,
 	pub requester: Entity,
-	pub min: IVec3,
-	pub size: IVec3,
-	pub lod: f32,
+	pub key: LodKey,
 	pub priority: f32,
 	pub generation: u64,
 }
@@ -174,9 +179,7 @@ impl LodRequestChannel {
 pub struct LodLoadResult {
 	pub grid: GridId,
 	pub requester: Entity,
-	pub min: IVec3,
-	pub size: IVec3,
-	pub lod: f32,
+	pub key: LodKey,
 	pub priority: f32,
 	pub generation: u64,
 	pub voxels: Option<Voxels>,
