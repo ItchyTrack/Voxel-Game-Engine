@@ -58,11 +58,17 @@ mod tests {
 	use bevy::prelude::*;
 
 	use super::*;
-	use crate::types::{ChunkKey, TileKey};
+	use crate::types::TileKey;
 
-	fn grid() -> Entity { Entity::from_bits(1) }
-	fn tile(lod: u8, min: IVec3) -> CoverageSource { CoverageSource::Tile(TileKey { grid: grid(), lod, min }) }
-	fn chunk(chunk: IVec3) -> CoverageSource { CoverageSource::Chunk(ChunkKey { grid: grid(), chunk }) }
+	fn grid() -> Entity {
+		Entity::from_bits(1)
+	}
+	fn tile(lod: u8, min: IVec3) -> CoverageSource {
+		TileKey { grid: grid(), lod, min }
+	}
+	fn chunk(chunk: IVec3) -> CoverageSource {
+		TileKey { grid: grid(), lod: 0, min: chunk }
+	}
 
 	#[test]
 	fn unresolved_replacements_block_removal_until_all_are_satisfied() {
@@ -107,7 +113,7 @@ mod tests {
 		graph.add_record(DependencyRecord::new(old_a, [replacement]));
 		graph.add_record(DependencyRecord::new(old_b, [replacement]));
 		let mut removed = graph.apply_satisfied(replacement);
-		removed.sort_by_key(|source| match source { CoverageSource::Chunk(chunk) => chunk.chunk.x, CoverageSource::Tile(tile) => tile.min.x });
+		removed.sort_by_key(|source| source.min.x);
 		assert_eq!(removed, vec![old_a, old_b]);
 	}
 

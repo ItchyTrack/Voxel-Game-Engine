@@ -3,6 +3,7 @@ mod coverage;
 mod replacement_graph;
 mod loading;
 mod lod_policy;
+mod subgrid_interface;
 mod types;
 
 use bevy::prelude::*;
@@ -26,12 +27,8 @@ impl Default for CameraVoxelLoaderDefaultSettings {
 }
 
 fn ensure_camera_voxel_loader_components(
-	mut commands: Commands,
-	default_settings: Res<CameraVoxelLoaderDefaultSettings>,
-	cameras: Query<
-		(Entity, Option<&CameraVoxelLoader>, Option<&CameraVoxelLoaderConsumer>, Option<&VoxelCamera>),
-		With<Camera3d>,
-	>,
+	mut commands: Commands, default_settings: Res<CameraVoxelLoaderDefaultSettings>,
+	cameras: Query<(Entity, Option<&CameraVoxelLoader>, Option<&CameraVoxelLoaderConsumer>, Option<&VoxelCamera>), With<Camera3d>>,
 ) {
 	for (entity, loader, consumer, voxel_camera) in &cameras {
 		let mut entity_commands = commands.entity(entity);
@@ -58,19 +55,12 @@ impl Plugin for CameraVoxelLoaderPlugin {
 			.add_systems(Update, ensure_camera_voxel_loader_components)
 			.add_systems(
 				Update,
-				loading::update_camera_voxel_loader_requests
-					.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0)
-					.in_set(StreamingPhase::Request),
+				loading::update_camera_voxel_loader_requests.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0).in_set(StreamingPhase::Request),
 			)
 			.add_systems(
 				StreamingSchedule,
-				loading::receive_camera_voxel_loader_results
-					.after(voxel_streaming::receive_lod_results)
-					.in_set(StreamingPhase::Receive),
+				loading::receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive),
 			)
-			.add_systems(
-				Update,
-				loading::refresh_camera_voxel_loader_visibility.after(gpu_voxel_data::GpuUploadSet::Upload),
-			);
+			.add_systems(Update, loading::refresh_camera_voxel_loader_visibility.after(gpu_voxel_data::GpuUploadSet::Upload));
 	}
 }

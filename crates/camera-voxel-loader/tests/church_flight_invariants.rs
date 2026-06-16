@@ -9,11 +9,16 @@ mod types {
 	use voxel_data::grid::GridId;
 
 	#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-	pub(crate) struct ChunkKey { pub(crate) grid: GridId, pub(crate) chunk: IVec3 }
-
-	#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-	pub(crate) struct TileKey { pub(crate) grid: GridId, pub(crate) lod: u8, pub(crate) min: IVec3 }
-	impl TileKey { pub(crate) fn size(self) -> IVec3 { IVec3::splat(1i32 << self.lod) } }
+	pub(crate) struct TileKey {
+		pub(crate) grid: GridId,
+		pub(crate) lod: u8,
+		pub(crate) min: IVec3,
+	}
+	impl TileKey {
+		pub(crate) fn size(self) -> IVec3 {
+			IVec3::splat(1i32 << self.lod)
+		}
+	}
 }
 
 #[allow(dead_code)]
@@ -24,18 +29,25 @@ mod camera_voxel_loader {
 	use super::*;
 	use crate::coverage::{CoverageRecord, CoverageSource};
 	use crate::replacement_graph::ReplacementGraph;
-	use crate::types::{ChunkKey, TileKey};
+	use crate::types::TileKey;
 
 	#[derive(Debug, Clone, PartialEq, Eq)]
-	pub struct CameraVoxelLoaderSettings { pub max_lod: u8, pub near_radius_chunks: i32, pub rings_per_lod: i32, pub requests_per_frame: usize, pub max_in_flight: usize }
+	pub struct CameraVoxelLoaderSettings {
+		pub max_lod: u8,
+		pub near_radius_chunks: i32,
+		pub rings_per_lod: i32,
+		pub requests_per_frame: usize,
+		pub max_in_flight: usize,
+	}
 	impl Default for CameraVoxelLoaderSettings {
-		fn default() -> Self { Self { max_lod: 2, near_radius_chunks: 3, rings_per_lod: 2, requests_per_frame: 16, max_in_flight: 128 } }
+		fn default() -> Self {
+			Self { max_lod: 2, near_radius_chunks: 3, rings_per_lod: 2, requests_per_frame: 16, max_in_flight: 128 }
+		}
 	}
 
 	#[derive(Default)]
 	pub(crate) struct CameraVoxelLoader {
 		pub(crate) settings: CameraVoxelLoaderSettings,
-		pub(crate) desired_chunks: HashSet<ChunkKey>,
 		pub(crate) desired_tiles: HashSet<TileKey>,
 		pub(crate) coverage_sources: HashMap<CoverageSource, CoverageRecord>,
 		pub(crate) replacement_graph: ReplacementGraph,
@@ -50,12 +62,15 @@ mod coverage;
 mod lod_policy;
 
 use camera_voxel_loader::CameraVoxelLoader;
-use coverage::{request_source, resolve_empty, resolve_visible, undesire_source, CoverageSource, SourceResolution, SourceState};
-use lod_policy::{add_lod_tiles, add_near_chunks};
-use types::{ChunkKey, TileKey};
+use coverage::{request_source, resolve_empty, resolve_visible, undesire_source, SourceResolution, SourceState};
+use lod_policy::{add_lod_tiles, add_near_tiles};
+use types::TileKey;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SimTileStatus { Loading(u8), Visible }
+enum SimTileStatus {
+	Loading(u8),
+	Visible,
+}
 
 #[test]
 fn desired_empty_lod_tile_stays_resolved_without_persistent_tile_record() {
@@ -64,55 +79,44 @@ fn desired_empty_lod_tile_stays_resolved_without_persistent_tile_record() {
 	let mut loader = CameraVoxelLoader::default();
 
 	let desired_tiles = HashSet::from([tile]);
-	sync_desired_coverage(&mut loader, &HashSet::new(), &desired_tiles);
-	resolve_empty(&mut loader, CoverageSource::Tile(tile));
-	sync_desired_coverage(&mut loader, &HashSet::new(), &desired_tiles);
+	sync_desired_coverage(&mut loader, &desired_tiles);
+	resolve_empty(&mut loader, tile);
+	sync_desired_coverage(&mut loader, &desired_tiles);
 
-	let state = loader.coverage_sources.get(&CoverageSource::Tile(tile)).map(|record| record.state);
-	assert!(
-		matches!(state, Some(SourceState::Desired(SourceResolution::Empty))),
-		"desired empty LOD tile {tile:?} should remain resolved by coverage without a persistent TileRecord, but coverage is {state:?}"
-	);
+	let state = loader.coverage_sources.get(&tile).map(|record| record.state);
+	assert!(matches!(state, Some(SourceState::Desired(SourceResolution::Empty))));
 
-	sync_desired_coverage(&mut loader, &HashSet::new(), &HashSet::new());
-	sync_desired_coverage(&mut loader, &HashSet::new(), &desired_tiles);
-	let state = loader.coverage_sources.get(&CoverageSource::Tile(tile)).map(|record| record.state);
-	assert!(
-		matches!(state, Some(SourceState::Desired(SourceResolution::Requested))),
-		"re-desired empty LOD tile {tile:?} should be requested again once its empty coverage was undesired, but coverage is {state:?}"
-	);
+	sync_desired_coverage(&mut loader, &HashSet::new());
+	sync_desired_coverage(&mut loader, &desired_tiles);
+	let state = loader.coverage_sources.get(&tile).map(|record| record.state);
+	assert!(matches!(state, Some(SourceState::Desired(SourceResolution::Requested))));
 }
 
 #[test]
 fn re_desired_ready_lod_tile_resolves_visible_without_new_gpu_event() {
 	let grid = Entity::PLACEHOLDER;
-	let old_tile = CoverageSource::Tile(TileKey { grid, lod: 2, min: IVec3::ZERO });
+	let old_tile = TileKey { grid, lod: 2, min: IVec3::ZERO };
 	let ready_replacement = TileKey { grid, lod: 1, min: IVec3::ZERO };
-	let ready_replacement_source = CoverageSource::Tile(ready_replacement);
 	let mut loader = CameraVoxelLoader::default();
 	loader.desired_tiles.insert(ready_replacement);
 
 	request_source(&mut loader, old_tile);
 	resolve_visible(&mut loader, old_tile, Entity::from_bits(1));
-	request_source(&mut loader, ready_replacement_source);
+	request_source(&mut loader, ready_replacement);
 	undesire_source(&mut loader, old_tile);
-	assert!(
-		matches!(loader.coverage_sources.get(&ready_replacement_source).map(|record| record.state), Some(SourceState::Desired(SourceResolution::Requested))),
-		"control setup should reproduce requested coverage before the ready TileRecord is reused"
-	);
+	assert!(matches!(
+		loader.coverage_sources.get(&ready_replacement).map(|record| record.state),
+		Some(SourceState::Desired(SourceResolution::Requested))
+	));
 
-	// Mirrors the loader fast/reuse path: the replacement tile is already Ready, so
-	// no new LOD result or GPU-upload event will fire. Coverage must be resolved from
-	// the existing entity instead of remaining Desired(Requested) forever.
 	let existing_ready_tile_entity = Entity::from_bits(2);
-	request_source(&mut loader, ready_replacement_source);
-	let ready = resolve_visible(&mut loader, ready_replacement_source, existing_ready_tile_entity);
+	request_source(&mut loader, ready_replacement);
+	let ready = resolve_visible(&mut loader, ready_replacement, existing_ready_tile_entity);
 
 	assert!(
-		matches!(loader.coverage_sources.get(&ready_replacement_source).map(|record| record.state), Some(SourceState::Desired(SourceResolution::Visible(entity))) if entity == existing_ready_tile_entity),
-		"a desired tile that is already Ready must resolve coverage visible without waiting for another event"
+		matches!(loader.coverage_sources.get(&ready_replacement).map(|record| record.state), Some(SourceState::Desired(SourceResolution::Visible(entity))) if entity == existing_ready_tile_entity)
 	);
-	assert_eq!(ready, vec![old_tile], "the old LOD can retire once the already-ready replacement is synced into coverage");
+	assert_eq!(ready, vec![old_tile]);
 }
 
 #[test]
@@ -134,74 +138,79 @@ fn church_flight_never_waits_on_empty_lod_tile_that_will_not_request_again() {
 	let centers = smooth_orbit_path(min, max);
 
 	for (frame, center) in centers.into_iter().enumerate() {
-		let mut desired_chunks = HashSet::new();
 		let mut desired_tiles = HashSet::new();
-		add_near_chunks(&mut desired_chunks, grid, center, &loader, &streaming);
+		add_near_tiles(&mut desired_tiles, grid, center, &loader, &streaming);
 		add_lod_tiles(&mut desired_tiles, grid, center, &loader, &streaming);
 
-		sync_desired_coverage(&mut loader, &desired_chunks, &desired_tiles);
-		loader.desired_chunks = desired_chunks;
+		sync_desired_coverage(&mut loader, &desired_tiles);
 		loader.desired_tiles = desired_tiles.clone();
 
-		for chunk in loader.desired_chunks.iter().copied().collect::<Vec<_>>() {
-			if church_chunks.contains(&chunk.chunk) { resolve_visible(&mut loader, CoverageSource::Chunk(chunk), Entity::from_bits(10)); }
-			else { resolve_empty(&mut loader, CoverageSource::Chunk(chunk)); }
+		for source in loader.desired_tiles.iter().copied().filter(|key| key.lod == 0).collect::<Vec<_>>() {
+			if church_chunks.contains(&source.min) {
+				resolve_visible(&mut loader, source, Entity::from_bits(10));
+			} else {
+				resolve_empty(&mut loader, source);
+			}
 		}
 
-		for tile in desired_tiles.iter().copied() {
+		for tile in desired_tiles.iter().copied().filter(|key| key.lod > 0) {
 			match tile_records.get(&tile).copied() {
-				Some(SimTileStatus::Visible) => { let _ = resolve_visible(&mut loader, CoverageSource::Tile(tile), Entity::from_bits(20)); }
+				Some(SimTileStatus::Visible) => {
+					let _ = resolve_visible(&mut loader, tile, Entity::from_bits(20));
+				}
 				Some(SimTileStatus::Loading(_)) => {}
 				None if tile_coverage_is_desired_empty(&loader, tile) => {}
-				None => { tile_records.insert(tile, SimTileStatus::Loading(2)); }
+				None => {
+					tile_records.insert(tile, SimTileStatus::Loading(2));
+				}
 			}
 		}
 
-		let loading: Vec<_> = tile_records.iter().filter_map(|(&tile, &status)| matches!(status, SimTileStatus::Loading(_)).then_some(tile)).collect();
+		let loading: Vec<_> =
+			tile_records.iter().filter_map(|(&tile, &status)| matches!(status, SimTileStatus::Loading(_)).then_some(tile)).collect();
 		for tile in loading {
 			let SimTileStatus::Loading(remaining) = tile_records[&tile] else { unreachable!() };
-			if remaining > 0 { tile_records.insert(tile, SimTileStatus::Loading(remaining - 1)); continue; }
+			if remaining > 0 {
+				tile_records.insert(tile, SimTileStatus::Loading(remaining - 1));
+				continue;
+			}
 			if tile_has_real_church_data(tile, &church_chunks, &mut tile_data_cache) {
 				tile_records.insert(tile, SimTileStatus::Visible);
-				resolve_visible(&mut loader, CoverageSource::Tile(tile), Entity::from_bits(20));
+				resolve_visible(&mut loader, tile, Entity::from_bits(20));
 			} else {
 				tile_records.remove(&tile);
-				resolve_empty(&mut loader, CoverageSource::Tile(tile));
+				resolve_empty(&mut loader, tile);
 			}
 		}
 
-		for tile in desired_tiles.iter().copied() {
+		for tile in desired_tiles.iter().copied().filter(|key| key.lod > 0) {
 			if !tile_records.contains_key(&tile) {
-				let state = loader.coverage_sources.get(&CoverageSource::Tile(tile)).map(|record| record.state);
+				let state = loader.coverage_sources.get(&tile).map(|record| record.state);
 				assert!(
 					matches!(state, Some(SourceState::Desired(SourceResolution::Empty))),
-					"frame {frame}: desired LOD tile {tile:?} has no TileRecord, so no request is in flight, but coverage is still {state:?}"
+					"frame {frame}: desired LOD tile {tile:?} has no TileRecord, but coverage is {state:?}"
 				);
 			}
 		}
 	}
 }
 
-fn sync_desired_coverage(loader: &mut CameraVoxelLoader, desired_chunks: &HashSet<ChunkKey>, desired_tiles: &HashSet<TileKey>) {
-	loader.desired_chunks = desired_chunks.clone();
+fn sync_desired_coverage(loader: &mut CameraVoxelLoader, desired_tiles: &HashSet<TileKey>) {
 	loader.desired_tiles = desired_tiles.clone();
-	let desired_sources: HashSet<_> = desired_chunks.iter().copied().map(CoverageSource::Chunk).chain(desired_tiles.iter().copied().map(CoverageSource::Tile)).collect();
-	for source in &desired_sources { request_source(loader, *source); }
-	let old_desired: Vec<_> = loader
-		.coverage_sources
-		.iter()
-		.filter_map(|(&source, record)| matches!(record.state, SourceState::Desired(_)).then_some(source))
-		.collect();
+	for source in desired_tiles {
+		request_source(loader, *source);
+	}
+	let old_desired: Vec<_> =
+		loader.coverage_sources.iter().filter_map(|(&source, record)| matches!(record.state, SourceState::Desired(_)).then_some(source)).collect();
 	for source in old_desired {
-		if !desired_sources.contains(&source) { undesire_source(loader, source); }
+		if !desired_tiles.contains(&source) {
+			undesire_source(loader, source);
+		}
 	}
 }
 
 fn tile_coverage_is_desired_empty(loader: &CameraVoxelLoader, tile: TileKey) -> bool {
-	matches!(
-		loader.coverage_sources.get(&CoverageSource::Tile(tile)).map(|record| record.state),
-		Some(SourceState::Desired(SourceResolution::Empty))
-	)
+	matches!(loader.coverage_sources.get(&tile).map(|record| record.state), Some(SourceState::Desired(SourceResolution::Empty)))
 }
 
 fn tile_has_real_church_data(tile: TileKey, chunks: &HashSet<IVec3>, cache: &mut HashMap<TileKey, bool>) -> bool {
@@ -230,7 +239,11 @@ fn load_church_chunks() -> HashSet<IVec3> {
 	let mut chunks = HashSet::new();
 
 	#[derive(Clone, Copy)]
-	struct Frame { translation: Vec3, rotation: Quat, flip: IVec3 }
+	struct Frame {
+		translation: Vec3,
+		rotation: Quat,
+		flip: IVec3,
+	}
 
 	let mut stack = vec![(0u32, Frame { translation: Vec3::ZERO, rotation: Quat::IDENTITY, flip: IVec3::new(1, 1, -1) })];
 	while let Some((scene_id, pose)) = stack.pop() {
@@ -247,14 +260,19 @@ fn load_church_chunks() -> HashSet<IVec3> {
 						(Quat::from_xyzw(q.x, q.z, -q.y, q.w), Vec3::from_array(varr).as_ivec3())
 					})
 					.unwrap_or((Quat::IDENTITY, IVec3::ONE));
-				stack.push((*child, Frame {
-					translation: pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32),
-					rotation: pose.rotation * rot,
-					flip: pose.flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y),
-				}));
+				stack.push((
+					*child,
+					Frame {
+						translation: pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32),
+						rotation: pose.rotation * rot,
+						flip: pose.flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y),
+					},
+				));
 			}
 			dot_vox::SceneNode::Group { children, .. } => {
-				for child in children { stack.push((*child, pose)); }
+				for child in children {
+					stack.push((*child, pose));
+				}
 			}
 			dot_vox::SceneNode::Shape { models, .. } => {
 				for shape_model in models {

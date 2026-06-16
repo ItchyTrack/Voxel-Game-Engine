@@ -1,15 +1,9 @@
-use bevy::prelude::*;
-use voxel_streaming::CHUNK_SIZE;
-
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::replacement_graph::DependencyRecord;
-use crate::types::{ChunkKey, TileKey};
+use crate::types::TileKey;
+use bevy::prelude::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum CoverageSource {
-	Chunk(ChunkKey),
-	Tile(TileKey),
-}
+pub(crate) type CoverageSource = TileKey;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SourceResolution {
@@ -27,20 +21,6 @@ pub(crate) enum SourceState {
 #[derive(Clone, Debug)]
 pub(crate) struct CoverageRecord {
 	pub(crate) state: SourceState,
-}
-
-pub(crate) fn chunks_in_bounds(grid: Entity, min: IVec3, max: IVec3) -> Vec<ChunkKey> {
-	let min = min.div_euclid(IVec3::splat(CHUNK_SIZE));
-	let max = max.div_euclid(IVec3::splat(CHUNK_SIZE));
-	let mut chunks = Vec::new();
-	for x in min.x..=max.x {
-		for y in min.y..=max.y {
-			for z in min.z..=max.z {
-				chunks.push(ChunkKey { grid, chunk: IVec3::new(x, y, z) });
-			}
-		}
-	}
-	chunks
 }
 
 pub(crate) fn request_source(loader: &mut CameraVoxelLoader, source: CoverageSource) {
@@ -119,12 +99,12 @@ pub(crate) fn resolve_visible(loader: &mut CameraVoxelLoader, source: CoverageSo
 	}
 }
 
-pub(crate) fn retiring_visible_chunks(loader: &CameraVoxelLoader) -> Vec<ChunkKey> {
+pub(crate) fn retiring_visible_chunks(loader: &CameraVoxelLoader) -> Vec<TileKey> {
 	loader
 		.coverage_sources
 		.iter()
-		.filter_map(|(&source, record)| match (source, record.state) {
-			(CoverageSource::Chunk(chunk), SourceState::RetiringVisible(_)) => Some(chunk),
+		.filter_map(|(&source, record)| match record.state {
+			SourceState::RetiringVisible(_) if source.lod == 0 => Some(source),
 			_ => None,
 		})
 		.collect()
@@ -148,14 +128,7 @@ fn unresolved_replacements_for(loader: &CameraVoxelLoader, source: CoverageSourc
 }
 
 fn replacement_sources_for(loader: &CameraVoxelLoader, source: CoverageSource) -> Vec<CoverageSource> {
-	loader
-		.desired_chunks
-		.iter()
-		.copied()
-		.map(CoverageSource::Chunk)
-		.chain(loader.desired_tiles.iter().copied().map(CoverageSource::Tile))
-		.filter(|candidate| *candidate != source && sources_overlap(source, *candidate))
-		.collect()
+	loader.desired_tiles.iter().copied().filter(|candidate| *candidate != source && sources_overlap(source, *candidate)).collect()
 }
 
 fn sources_overlap(a: CoverageSource, b: CoverageSource) -> bool {
@@ -165,8 +138,5 @@ fn sources_overlap(a: CoverageSource, b: CoverageSource) -> bool {
 }
 
 fn source_bounds(source: CoverageSource) -> (IVec3, IVec3) {
-	match source {
-		CoverageSource::Chunk(chunk) => (chunk.chunk, chunk.chunk + IVec3::ONE),
-		CoverageSource::Tile(tile) => (tile.min, tile.min + tile.size()),
-	}
+	(source.min, source.min + source.size())
 }
