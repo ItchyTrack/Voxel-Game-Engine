@@ -282,16 +282,24 @@ pub fn receive_lod_results(
 	}
 }
 
-pub fn handle_external_dirty(
-	channel: Res<ChunkRequestChannel>,
-	mut grids: Query<(GridId, &mut GridStreaming)>,
+pub fn handle_dirty_chunks(
+	load_channel: Res<ChunkRequestChannel>,
+	save_channel: Res<ChunkSaveChannel>,
+	mut grids: Query<(GridId, &mut GridStreaming, &Grid)>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 	mut dirty_events: MessageWriter<ChunkBecameDirty>,
 ) {
-	for (grid, mut streaming) in grids.iter_mut() {
+	for (grid, mut streaming, grid_data) in grids.iter_mut() {
 		if streaming.newly_dirty.is_empty() { continue; }
-		for chunk in std::mem::take(&mut streaming.newly_dirty) {
+		let dirty: HashSet<_> = std::mem::take(&mut streaming.newly_dirty).into_iter().collect();
+		for chunk in dirty {
 			dirty_events.write(ChunkBecameDirty { grid, chunk });
+			if matches!(streaming.presence.state(chunk), Some(ChunkState::InternalDirty)) {
+				let voxels = grid_data.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
+				save_channel.save(ChunkSaveRequest { grid, chunk, voxels });
+				streaming.presence.set_state(chunk, ChunkState::Loaded);
+				continue;
+			}
 			for mut entity_consumers in consumers.iter_mut() {
 				for mut consumer in &mut entity_consumers {
 					if consumer.needed().get(&grid).is_some_and(|set| set.contains(&chunk)) {
@@ -299,7 +307,7 @@ pub fn handle_external_dirty(
 					}
 				}
 			}
-			streaming.refetch(grid, &channel, chunk);
+			streaming.refetch(grid, &load_channel, chunk);
 		}
 	}
 }
@@ -317,25 +325,6 @@ pub fn request_stalled_chunks(
 			{
 				streaming.fetch(grid, &channel, chunk);
 			}
-		}
-	}
-}
-
-pub fn flush_dirty_chunks(
-	save_channel: Res<ChunkSaveChannel>,
-	mut grids: Query<(Entity, &mut GridStreaming, &Grid)>,
-) {
-	for (grid_entity, mut streaming, grid) in grids.iter_mut() {
-		let dirty: Vec<IVec3> = streaming
-			.presence()
-			.iter_states()
-			.filter(|(_, _, state)| matches!(state, ChunkState::InternalDirty))
-			.map(|(origin, _, _)| origin)
-			.collect();
-		for chunk in dirty {
-			let voxels = grid.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
-			save_channel.save(ChunkSaveRequest { grid: grid_entity, chunk, voxels });
-			streaming.presence.set_state(chunk, ChunkState::Loaded);
 		}
 	}
 }

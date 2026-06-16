@@ -12,7 +12,7 @@ pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use loader::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
 pub use presence::{ChunkPresence, ChunkState};
-pub use streaming::{apply_chunk_clears, flush_dirty_chunks, handle_external_dirty, receive_lod_results, receive_results, request_stalled_chunks, GridStreaming};
+pub use streaming::{apply_chunk_clears, handle_dirty_chunks, receive_lod_results, receive_results, request_stalled_chunks, GridStreaming};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -93,16 +93,13 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(streaming::handle_external_dirty, streaming::request_stalled_chunks)
+					(streaming::handle_dirty_chunks, streaming::request_stalled_chunks)
 						.in_set(StreamingPhase::Request),
 					(streaming::receive_results, streaming::receive_lod_results)
 						.in_set(StreamingPhase::Receive),
 				),
 			)
-			.add_systems(
-				StreamingMaintenance,
-				(streaming::flush_dirty_chunks, streaming::apply_chunk_clears).chain(),
-			)
+			.add_systems(StreamingMaintenance, streaming::apply_chunk_clears)
 			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain());
 	}
 }
