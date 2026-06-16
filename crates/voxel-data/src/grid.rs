@@ -127,20 +127,19 @@ impl Grid {
 	}
 
 	fn read_region_into(out: &mut Voxels, out_min: IVec3, sub_grid_pos: IVec3, slot: &SubGridSlot, cell_lo: IVec3, cell_hi: IVec3) {
+		let _span = span!();
 		let region_lo = Self::local_of(sub_grid_pos, cell_lo);
 		let region_hi = Self::local_of(sub_grid_pos, cell_hi);
-		let palette = slot.voxels.palette();
+		let mut areas = Vec::new();
 		slot.voxels.grid_tree().for_each_in_region(crate::grid_tree::GridRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_ivec3()).unwrap(), |pos, run, id| {
-			let Some(voxel) = palette.voxel(id) else { return };
 			let run_lo = pos.max(region_lo);
 			let run_hi = (pos + I16Vec3::splat(run as i16)).min(region_hi);
 			let out_extent = run_hi - run_lo;
-			if out_extent.cmple(I16Vec3::ZERO).any() {
-				return;
-			}
+			if out_extent.cmple(I16Vec3::ZERO).any() { return; }
 			let world = sub_grid_pos + run_lo.as_ivec3();
-			out.add_area((world - out_min).as_i16vec3(), out_extent, *voxel);
+			areas.push(((world - out_min).as_i16vec3(), out_extent, id));
 		});
+		out.add_palette_areas(&areas, slot.voxels.palette());
 	}
 
 	/// Write (`Some`) or remove (`None`) a single voxel. Returns the touched
@@ -207,6 +206,7 @@ impl Grid {
 	}
 
 	pub fn read_area(&self, min: IVec3, size: IVec3) -> Voxels {
+		let _span = span!();
 		let mut out = Voxels::new();
 		if size.cmple(IVec3::ZERO).any() {
 			return out;
