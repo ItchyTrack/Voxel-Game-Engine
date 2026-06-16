@@ -21,9 +21,7 @@ pub struct FreezeCameraVoxelLoader(pub bool);
 pub struct CameraVoxelLoaderDefaultSettings(pub CameraVoxelLoaderSettings);
 
 impl Default for CameraVoxelLoaderDefaultSettings {
-	fn default() -> Self {
-		Self(CameraVoxelLoaderSettings::default())
-	}
+	fn default() -> Self { Self(CameraVoxelLoaderSettings::default()) }
 }
 
 fn ensure_camera_voxel_loader_components(
@@ -32,15 +30,9 @@ fn ensure_camera_voxel_loader_components(
 ) {
 	for (entity, loader, consumer, voxel_camera) in &cameras {
 		let mut entity_commands = commands.entity(entity);
-		if loader.is_none() {
-			entity_commands.insert(CameraVoxelLoader::with_settings(default_settings.0.clone()));
-		}
-		if consumer.is_none() {
-			entity_commands.insert(CameraVoxelLoaderConsumer::default());
-		}
-		if voxel_camera.is_none() {
-			entity_commands.insert(VoxelCamera::default());
-		}
+		if loader.is_none() { entity_commands.insert(CameraVoxelLoader::with_settings(default_settings.0.clone())); }
+		if consumer.is_none() { entity_commands.insert(CameraVoxelLoaderConsumer::default()); }
+		if voxel_camera.is_none() { entity_commands.insert(VoxelCamera::default()); }
 	}
 }
 
@@ -53,14 +45,8 @@ impl Plugin for CameraVoxelLoaderPlugin {
 			.init_resource::<CameraVoxelLoaderDefaultSettings>()
 			.register_chunk_consumer::<CameraVoxelLoaderConsumer>()
 			.add_systems(Update, ensure_camera_voxel_loader_components)
-			.add_systems(
-				Update,
-				loading::update_camera_voxel_loader_requests.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0).in_set(StreamingPhase::Request),
-			)
-			.add_systems(
-				StreamingSchedule,
-				loading::receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive),
-			)
+			.add_systems(Update, loading::update_camera_voxel_loader_requests.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0).in_set(StreamingPhase::Request))
+			.add_systems(StreamingSchedule, loading::receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive))
 			.add_systems(Update, loading::refresh_camera_voxel_loader_visibility.after(gpu_voxel_data::GpuUploadSet::Upload));
 	}
 }

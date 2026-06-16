@@ -2,24 +2,12 @@ use bevy::{ecs::entity::Entity, math::IVec3};
 use voxel_data::grid::GridId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TileKey {
-	pub(crate) grid: GridId,
-	pub(crate) lod: u8,
-	pub(crate) min: IVec3,
-}
+pub(crate) struct TileKey { pub(crate) grid: GridId, pub(crate) lod: u8, pub(crate) min: IVec3 }
 
 impl TileKey {
-	pub(crate) fn chunk(grid: GridId, chunk: IVec3) -> Self {
-		Self { grid, lod: 0, min: chunk }
-	}
-
-	pub(crate) fn size(self) -> IVec3 {
-		IVec3::splat(1i32 << self.lod)
-	}
-
-	pub(crate) fn is_chunk(self) -> bool {
-		self.lod == 0
-	}
+	pub(crate) fn chunk(grid: GridId, chunk: IVec3) -> Self { Self { grid, lod: 0, min: chunk } }
+	pub(crate) fn size(self) -> IVec3 { IVec3::splat(1i32 << self.lod) }
+	pub(crate) fn is_chunk(self) -> bool { self.lod == 0 }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,16 +19,8 @@ pub(crate) struct TileRecord {
 }
 
 impl TileRecord {
-	pub(crate) fn queued() -> Self {
-		Self { status: TileStatus::Queued, entity: None, generation: 0, stale_entity: None }
-	}
+	pub(crate) fn queued() -> Self { Self { status: TileStatus::Queued, entity: None, generation: 0, stale_entity: None } }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TileStatus {
-	Queued,
-	Loading,
-	LoadedWaitingGpu,
-	Ready,
-	Retiring,
-}
+pub(crate) enum TileStatus { Queued, Loading, LoadedWaitingGpu, Ready, Retiring }
