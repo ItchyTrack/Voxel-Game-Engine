@@ -1,11 +1,10 @@
-use std::collections::HashSet;
-
 use bevy::prelude::*;
 use tracy_client::span;
 use voxel_data::grid::GridId;
 use voxel_streaming::{GridStreaming, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
+use crate::lod_bands::{run_over_diff, BandBounds, LodBand};
 use crate::types::TileKey;
 
 pub(crate) struct SetDelta<T> {
@@ -21,108 +20,57 @@ pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
     (local_voxels / CHUNK_SIZE as f32).round().as_ivec3()
 }
 
-#[allow(dead_code)]
-pub(crate) fn add_near_tiles(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, loader: &CameraVoxelLoader, streaming: &GridStreaming) {
-    let (min, max) = near_bounds(center, &loader.settings);
-    for_each_chunk(min, max, |chunk| {
-        if streaming.presence().is_present(chunk) {
-            out.insert(TileKey { grid, lod: 0, min: chunk });
+pub(crate) fn update_desired_sources_delta(
+    loader: &mut CameraVoxelLoader, grid: GridId, center: IVec3, settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming,
+) -> DesiredSourceDelta {
+    let _span = span!();
+    let new_bands = desired_lod_bands(center, settings);
+    let old_bands = std::mem::take(loader.bands.entry(grid).or_default());
+
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let desired_tiles = &mut loader.desired_tiles;
+    run_over_diff(&old_bands, &new_bands, |lod, min, is_added| {
+        let key = TileKey { grid, lod, min };
+        if is_added {
+            if tile_has_present_source(streaming, key) && desired_tiles.insert(key) {
+                added.push(key);
+            }
+        } else if desired_tiles.remove(&key) {
+            removed.push(key);
         }
     });
-}
 
-#[allow(dead_code)]
-pub(crate) fn add_lod_tiles(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, loader: &CameraVoxelLoader, streaming: &GridStreaming) {
-    add_lod_tiles_for_settings(out, grid, center, &loader.settings, streaming);
-}
-
-pub(crate) fn is_tile_wanted(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, key: TileKey) -> bool {
-    if key.lod == 0 {
-        let (min, max) = near_bounds(center, settings);
-        key.min.cmpge(min).all() && key.min.cmplt(max).all() && streaming.presence().is_present(key.min)
-    } else {
-        let size = 1i32 << key.lod;
-        let (inner_min, inner_max) = lod_inner_bounds(center, settings, key.lod);
-        let (outer_min, outer_max) = lod_outer_bounds(center, settings, key.lod);
-        let max = key.min + IVec3::splat(size);
-        key.min.cmpge(outer_min).all()
-            && max.cmple(outer_max).all()
-            && !(key.min.cmpge(inner_min).all() && max.cmple(inner_max).all())
-            && tile_has_present_chunk(streaming, key.min, size)
-    }
-}
-
-pub(crate) fn update_desired_sources_delta(
-    desired_tiles: &mut HashSet<TileKey>, grid: GridId, _previous_center: Option<IVec3>, center: IVec3, _settings_changed: bool,
-    settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming,
-) -> DesiredSourceDelta {
-	let _span = span!();
-    rebuild_desired_sources_delta(desired_tiles, grid, center, settings, streaming)
-}
-
-#[allow(dead_code)]
-pub(crate) fn update_tiles_delta(
-    out: &mut HashSet<TileKey>, grid: GridId, _old_center: IVec3, new_center: IVec3, settings: &CameraVoxelLoaderSettings,
-    streaming: &GridStreaming,
-) -> SetDelta<TileKey> {
-    rebuild_desired_sources_delta(out, grid, new_center, settings, streaming).tiles
-}
-
-fn rebuild_desired_sources_delta(
-    desired_tiles: &mut HashSet<TileKey>, grid: GridId, center: IVec3, settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming,
-) -> DesiredSourceDelta {
-    let old: HashSet<_> = desired_tiles.iter().copied().filter(|key| key.grid == grid).collect();
-    let mut new = HashSet::new();
-    add_near_tiles_for_settings(&mut new, grid, center, settings, streaming);
-    add_lod_tiles_for_settings(&mut new, grid, center, settings, streaming);
-
-    let added: Vec<_> = new.difference(&old).copied().collect();
-    let removed: Vec<_> = old.difference(&new).copied().collect();
-    for key in &removed { desired_tiles.remove(key); }
-    desired_tiles.extend(added.iter().copied());
+    loader.bands.insert(grid, new_bands);
     DesiredSourceDelta { tiles: SetDelta { added, removed } }
 }
 
-fn add_near_tiles_for_settings(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming) {
-    let (min, max) = near_bounds(center, settings);
-    for_each_chunk(min, max, |chunk| {
-        if streaming.presence().is_present(chunk) {
-            out.insert(TileKey { grid, lod: 0, min: chunk });
-        }
-    });
+fn tile_has_present_source(streaming: &GridStreaming, key: TileKey) -> bool {
+    if key.lod == 0 {
+        streaming.presence().is_present(key.min)
+    } else {
+        let size = 1i32 << key.lod;
+        streaming.presence().any_present_in_region(key.min, key.min + IVec3::splat(size) - IVec3::ONE)
+    }
 }
 
-fn add_lod_tiles_for_settings(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming) {
-    if streaming.presence().len() == 0 { return; }
+fn desired_lod_bands(center: IVec3, settings: &CameraVoxelLoaderSettings) -> Vec<LodBand> {
+    let mut bands = Vec::with_capacity(settings.max_lod as usize + 1);
+
+    let (near_min, near_max) = near_bounds(center, settings);
+    bands.push(LodBand { lod: 0, outer: BandBounds { min: near_min, max: near_max }, inner: None });
+
     for lod in 1..=settings.max_lod {
-        let size = 1i32 << lod;
+        let (inner_min, inner_max) = lod_inner_bounds(center, settings, lod);
         let (outer_min, outer_max) = lod_outer_bounds(center, settings, lod);
-        for x in (outer_min.x..outer_max.x).step_by(size as usize) {
-            for y in (outer_min.y..outer_max.y).step_by(size as usize) {
-                for z in (outer_min.z..outer_max.z).step_by(size as usize) {
-                    let key = TileKey { grid, lod, min: IVec3::new(x, y, z) };
-                    if is_tile_wanted(settings, streaming, center, key) { out.insert(key); }
-                }
-            }
-        }
+        bands.push(LodBand {
+            lod,
+            outer: BandBounds { min: outer_min, max: outer_max },
+            inner: Some(BandBounds { min: inner_min, max: inner_max }),
+        });
     }
-}
 
-fn for_each_chunk(min: IVec3, max: IVec3, mut f: impl FnMut(IVec3)) {
-    for x in min.x..max.x {
-        for y in min.y..max.y {
-            for z in min.z..max.z { f(IVec3::new(x, y, z)); }
-        }
-    }
-}
-
-fn tile_has_present_chunk(streaming: &GridStreaming, min: IVec3, size: i32) -> bool {
-    streaming.presence().any_present_in_region(min, min + IVec3::splat(size) - IVec3::ONE)
-}
-
-#[allow(dead_code)]
-pub(crate) fn align_chunk_to_tile(chunk: IVec3, size: i32) -> IVec3 {
-    chunk.div_euclid(IVec3::splat(size)) * size
+    bands
 }
 
 fn near_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings) -> (IVec3, IVec3) {

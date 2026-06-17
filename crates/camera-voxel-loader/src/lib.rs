@@ -2,6 +2,7 @@ mod camera_voxel_loader;
 mod coverage;
 mod replacement_graph;
 mod loading;
+mod lod_bands;
 mod lod_policy;
 mod subgrid_interface;
 mod types;
