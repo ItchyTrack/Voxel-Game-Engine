@@ -66,6 +66,10 @@ impl Default for ChunkPresence {
 }
 
 impl ChunkPresence {
+	pub fn len(&self) -> u64 {
+		self.tree.len()
+	}
+
 	pub fn mark_present(&mut self, chunk: IVec3) {
 		self.tree.insert(&chunk, encode(ChunkState::Available, 0));
 	}

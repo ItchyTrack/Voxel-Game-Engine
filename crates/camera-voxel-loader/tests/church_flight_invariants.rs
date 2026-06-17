@@ -16,6 +16,7 @@ mod types {
 	impl TileKey { pub(crate) fn size(self) -> IVec3 { IVec3::splat(1i32 << self.lod) } }
 }
 
+#[allow(dead_code)]
 #[path = "../src/replacement_graph.rs"]
 mod replacement_graph;
 
@@ -41,8 +42,10 @@ mod camera_voxel_loader {
 	}
 }
 
+#[allow(dead_code)]
 #[path = "../src/coverage.rs"]
 mod coverage;
+#[allow(dead_code)]
 #[path = "../src/lod_policy.rs"]
 mod lod_policy;
 

@@ -70,14 +70,7 @@ impl Plugin for CameraVoxelLoaderPlugin {
 			)
 			.add_systems(
 				Update,
-				(
-					loading::refresh_camera_voxel_loader_visibility,
-					loading::retire_replaced_tiles,
-					loading::retire_replaced_chunks,
-				)
-					.chain()
-					.after(gpu_voxel_data::GpuUploadSet::Upload),
-			)
-			;
+				loading::refresh_camera_voxel_loader_visibility.after(gpu_voxel_data::GpuUploadSet::Upload),
+			);
 	}
 }

@@ -7,10 +7,30 @@ use voxel_streaming::{GridStreaming, CHUNK_SIZE};
 use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
 use crate::types::{ChunkKey, TileKey};
 
+pub(crate) struct SetDelta<T> {
+	pub(crate) added: Vec<T>,
+	pub(crate) removed: Vec<T>,
+}
+
+pub(crate) struct DesiredSourceDelta {
+	pub(crate) chunks: SetDelta<ChunkKey>,
+	pub(crate) tiles: SetDelta<TileKey>,
+}
+
+impl DesiredSourceDelta {
+	fn empty() -> Self {
+		Self {
+			chunks: SetDelta { added: Vec::new(), removed: Vec::new() },
+			tiles: SetDelta { added: Vec::new(), removed: Vec::new() },
+		}
+	}
+}
+
 pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
 	(local_voxels / CHUNK_SIZE as f32).round().as_ivec3()
 }
 
+#[allow(dead_code)]
 pub(crate) fn add_near_chunks(out: &mut HashSet<ChunkKey>, grid: GridId, center: IVec3, camera_voxel_loader: &CameraVoxelLoader, streaming: &GridStreaming) {
 	add_near_chunks_for_settings(out, grid, center, &camera_voxel_loader.settings, streaming);
 }
@@ -29,12 +49,13 @@ fn add_near_chunks_for_settings(out: &mut HashSet<ChunkKey>, grid: GridId, cente
 	}
 }
 
+#[allow(dead_code)]
 pub(crate) fn add_lod_tiles(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, camera_voxel_loader: &CameraVoxelLoader, streaming: &GridStreaming) {
 	add_lod_tiles_for_settings(out, grid, center, &camera_voxel_loader.settings, streaming);
 }
 
 fn add_lod_tiles_for_settings(out: &mut HashSet<TileKey>, grid: GridId, center: IVec3, settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming) {
-	if presence_bounds(streaming).is_none() { return; }
+	if streaming.presence().len() == 0 { return; }
 
 	for lod in 1..=settings.max_lod {
 		let tile_size = 1i32 << lod;
@@ -53,18 +74,6 @@ fn add_lod_tiles_for_settings(out: &mut HashSet<TileKey>, grid: GridId, center: 
 			}
 		}
 	}
-}
-
-fn presence_bounds(streaming: &GridStreaming) -> Option<(IVec3, IVec3)> {
-	let mut min = IVec3::splat(i32::MAX);
-	let mut max = IVec3::splat(i32::MIN);
-	let mut any = false;
-	for (origin, size) in streaming.presence().iter_present() {
-		any = true;
-		min = min.min(origin);
-		max = max.max(origin + IVec3::splat(size as i32) - IVec3::ONE);
-	}
-	any.then_some((min, max))
 }
 
 fn tile_has_present_chunk(streaming: &GridStreaming, min: IVec3, tile_size: i32) -> bool {
@@ -86,6 +95,75 @@ pub(crate) fn is_near_chunk_wanted(settings: &CameraVoxelLoaderSettings, streami
 	chunk.cmpge(min).all() && chunk.cmplt(max).all() && streaming.presence().is_present(chunk)
 }
 
+pub(crate) fn update_desired_sources_delta(
+	desired_chunks: &mut HashSet<ChunkKey>,
+	desired_tiles: &mut HashSet<TileKey>,
+	grid: GridId,
+	previous_center: Option<IVec3>,
+	new_center: IVec3,
+	settings_changed: bool,
+	settings: &CameraVoxelLoaderSettings,
+	streaming: &GridStreaming,
+) -> DesiredSourceDelta {
+	let mut delta = if settings_changed || previous_center.map_or(true, |old| should_rebuild_policy(old, new_center)) {
+		rebuild_desired_sources_delta(desired_chunks, desired_tiles, grid, new_center, settings, streaming)
+	} else if let Some(old_center) = previous_center.filter(|old| *old != new_center) {
+		DesiredSourceDelta {
+			chunks: update_near_chunks_delta(desired_chunks, grid, old_center, new_center, settings, streaming),
+			tiles: update_lod_tiles_delta(desired_tiles, grid, old_center, new_center, settings, streaming),
+		}
+	} else {
+		DesiredSourceDelta::empty()
+	};
+
+	let removed_absent: Vec<_> = desired_chunks
+		.iter()
+		.copied()
+		.filter(|key| key.grid == grid && !streaming.presence().is_present(key.chunk))
+		.collect();
+	for key in removed_absent {
+		if desired_chunks.remove(&key) {
+			delta.chunks.removed.push(key);
+		}
+	}
+	delta
+}
+
+fn rebuild_desired_sources_delta(
+	desired_chunks: &mut HashSet<ChunkKey>,
+	desired_tiles: &mut HashSet<TileKey>,
+	grid: GridId,
+	center: IVec3,
+	settings: &CameraVoxelLoaderSettings,
+	streaming: &GridStreaming,
+) -> DesiredSourceDelta {
+	let old_chunks: HashSet<_> = desired_chunks.iter().copied().filter(|key| key.grid == grid).collect();
+	let mut new_chunks = HashSet::new();
+	add_near_chunks_for_settings(&mut new_chunks, grid, center, settings, streaming);
+	let old_tiles: HashSet<_> = desired_tiles.iter().copied().filter(|key| key.grid == grid).collect();
+	let mut new_tiles = HashSet::new();
+	add_lod_tiles_for_settings(&mut new_tiles, grid, center, settings, streaming);
+
+	let mut delta = DesiredSourceDelta::empty();
+	for key in old_chunks.difference(&new_chunks).copied() {
+		desired_chunks.remove(&key);
+		delta.chunks.removed.push(key);
+	}
+	for key in new_chunks.difference(&old_chunks).copied() {
+		desired_chunks.insert(key);
+		delta.chunks.added.push(key);
+	}
+	for key in old_tiles.difference(&new_tiles).copied() {
+		desired_tiles.remove(&key);
+		delta.tiles.removed.push(key);
+	}
+	for key in new_tiles.difference(&old_tiles).copied() {
+		desired_tiles.insert(key);
+		delta.tiles.added.push(key);
+	}
+	delta
+}
+
 pub(crate) fn update_near_chunks_delta(
 	out: &mut HashSet<ChunkKey>,
 	grid: GridId,
@@ -93,7 +171,8 @@ pub(crate) fn update_near_chunks_delta(
 	new_center: IVec3,
 	settings: &CameraVoxelLoaderSettings,
 	streaming: &GridStreaming,
-) {
+) -> SetDelta<ChunkKey> {
+	let mut delta = SetDelta { added: Vec::new(), removed: Vec::new() };
 	let (old_min, old_max) = near_bounds(old_center, settings);
 	let (new_min, new_max) = near_bounds(new_center, settings);
 	for_each_changed_slab(old_min, old_max - IVec3::ONE, new_min, new_max - IVec3::ONE, |min, max, entering| {
@@ -103,16 +182,17 @@ pub(crate) fn update_near_chunks_delta(
 					let chunk = IVec3::new(x, y, z);
 					let key = ChunkKey { grid, chunk };
 					if entering {
-						if streaming.presence().is_present(chunk) {
-							out.insert(key);
+						if streaming.presence().is_present(chunk) && out.insert(key) {
+							delta.added.push(key);
 						}
-					} else {
-						out.remove(&key);
+					} else if out.remove(&key) {
+						delta.removed.push(key);
 					}
 				}
 			}
 		}
 	});
+	delta
 }
 
 pub(crate) fn update_lod_tiles_delta(
@@ -122,7 +202,8 @@ pub(crate) fn update_lod_tiles_delta(
 	new_center: IVec3,
 	settings: &CameraVoxelLoaderSettings,
 	streaming: &GridStreaming,
-) {
+) -> SetDelta<TileKey> {
+	let mut delta = SetDelta { added: Vec::new(), removed: Vec::new() };
 	for lod in 1..=settings.max_lod {
 		let tile_size = 1i32 << lod;
 		let mut candidates = HashSet::new();
@@ -138,15 +219,20 @@ pub(crate) fn update_lod_tiles_delta(
 			let new_wanted = wants_lod_tile(settings, streaming, new_center, key);
 			match (old_wanted, new_wanted) {
 				(false, true) => {
-					out.insert(key);
+					if out.insert(key) {
+						delta.added.push(key);
+					}
 				}
 				(true, false) => {
-					out.remove(&key);
+					if out.remove(&key) {
+						delta.removed.push(key);
+					}
 				}
 				_ => {}
 			}
 		}
 	}
+	delta
 }
 
 pub(crate) fn is_lod_tile_wanted(settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming, center: IVec3, key: TileKey) -> bool {
@@ -224,6 +310,11 @@ fn add_tiles_intersecting_box(out: &mut HashSet<TileKey>, grid: GridId, lod: u8,
 	}
 }
 
+fn should_rebuild_policy(old_center: IVec3, new_center: IVec3) -> bool {
+	const MAX_INCREMENTAL_DELTA_CHUNKS: i32 = 8;
+	(new_center - old_center).abs().max_element() > MAX_INCREMENTAL_DELTA_CHUNKS
+}
+
 fn for_each_changed_slab(old_min: IVec3, old_max: IVec3, new_min: IVec3, new_max: IVec3, mut f: impl FnMut(IVec3, IVec3, bool)) {
 	for axis in 0..3 {
 		if new_min[axis] < old_min[axis] {
@@ -250,15 +341,4 @@ fn for_each_changed_slab(old_min: IVec3, old_max: IVec3, new_min: IVec3, new_max
 			f(min, max, false);
 		}
 	}
-}
-
-#[cfg(test)]
-fn lod_outer_radius_chunks(camera_voxel_loader: &CameraVoxelLoader) -> i32 {
-	let mut inner = camera_voxel_loader.settings.near_radius_chunks + 1;
-	let mut outer = inner;
-	for lod in 1..=camera_voxel_loader.settings.max_lod {
-		outer = inner + camera_voxel_loader.settings.rings_per_lod * (1i32 << lod);
-		inner = outer + 1;
-	}
-	outer
 }

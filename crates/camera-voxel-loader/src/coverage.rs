@@ -119,11 +119,6 @@ pub(crate) fn resolve_visible(loader: &mut CameraVoxelLoader, source: CoverageSo
 	}
 }
 
-#[allow(dead_code)]
-pub(crate) fn ready_retiring_sources(_loader: &CameraVoxelLoader) -> Vec<CoverageSource> {
-	Vec::new()
-}
-
 pub(crate) fn retiring_visible_chunks(loader: &CameraVoxelLoader) -> Vec<ChunkKey> {
 	loader
 		.coverage_sources

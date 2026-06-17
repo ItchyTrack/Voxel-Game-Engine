@@ -56,6 +56,7 @@ mod types {
 	}
 }
 
+#[allow(dead_code)]
 #[path = "../src/lod_policy.rs"]
 mod lod_policy;
 
