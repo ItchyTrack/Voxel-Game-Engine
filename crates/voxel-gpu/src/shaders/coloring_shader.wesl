@@ -1,3 +1,6 @@
+import package::bvh_raycast::{ BVHItem, bvh_items };
+import package::voxel_reader::{ voxel_reader_palette_color };
+
 // main_shader.wgsl
 // 0 : camera uniform
 // 1 : BVH (nodes + items)   - defined in bvh_raycast.wgsl

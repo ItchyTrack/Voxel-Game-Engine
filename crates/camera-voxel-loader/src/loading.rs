@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
-use gpu_voxel_data::{SubGridGpuState, VoxelGpuUploadFinished};
+use voxel_gpu::{SubGridGpuState, VoxelGpuUploadFinished};
 use tracy_client::span;
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::subgrid::SubGrid;

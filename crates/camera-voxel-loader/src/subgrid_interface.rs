@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
-use gpu_voxel_data::SubGridGpuState;
+use voxel_gpu::SubGridGpuState;
 use voxel_data::{grid::Grid, subgrid::SubGrid};
 use voxel_streaming::CHUNK_SIZE;
 

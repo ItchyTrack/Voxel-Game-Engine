@@ -8,10 +8,10 @@ use bevy::math::Vec3;
 use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
 
-use gpu_voxel_data::lod_voxels::LodVoxels;
-use gpu_voxel_data::residency::ResidencyBuffers;
-use gpu_voxel_data::sub_grid_gpu_state::SubGridGpuState;
-use gpu_voxel_data::world_gpu_data::WorldGpuData;
+use voxel_gpu::lod_voxels::LodVoxels;
+use voxel_gpu::residency::ResidencyBuffers;
+use voxel_gpu::sub_grid_gpu_state::SubGridGpuState;
+use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_data::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
 

@@ -14,7 +14,7 @@ tracy = [
 	"bevy/trace",
 	"voxel-data/tracy",
 	"voxel-physics/tracy",
-	"gpu-voxel-data/tracy",
+	"voxel-gpu/tracy",
 	"voxel-sources/tracy",
 	"tracy-client/enable",
 ]
@@ -33,7 +33,7 @@ tracy-client = { workspace = true }
 camera-voxel-loader = { version = "0.1.0", path = "../camera-voxel-loader" }
 voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
-gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
+voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 voxel-sources = { version = "0.1.0", path = "../voxel-sources" }

@@ -143,12 +143,9 @@ impl VoxelRenderer {
 		});
 		// bvh beam optimisation pipeline
 		let bvh_beam_pipeline = {
-			let bvh_beam_shader_src = concat!(
-				include_str!("shaders/beam_bvh_raycast.wgsl"),
-			);
 			let bvh_beam_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("BVH Beam Shader"),
-				source: wgpu::ShaderSource::Wgsl(bvh_beam_shader_src.into()),
+				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/beam_bvh_raycast.wgsl")).into()),
 			});
 			let bvh_beam_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("BVH Beam Pipeline Layout"),
@@ -245,15 +242,9 @@ impl VoxelRenderer {
 
 		// ray marching
 		let ray_marching_pipeline = {
-			let ray_marching_shader_src = concat!(
-				include_str!("shaders/bvh_raycast.wgsl"),
-				include_str!("shaders/dda_raycast.wgsl"),
-				include_str!("shaders/combined_raycast.wgsl"),
-				include_str!("shaders/raycasting_shader.wgsl"),
-			);
 			let ray_marching_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("Ray Casting Shader"),
-				source: wgpu::ShaderSource::Wgsl(ray_marching_shader_src.into()),
+				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/raycasting_shader.wgsl")).into()),
 			});
 			let ray_marching_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Ray Casting Pipeline Layout"),
@@ -278,14 +269,9 @@ impl VoxelRenderer {
 
 		// coloring
 		let coloring_pipeline = {
-			let coloring_shader_src = concat!(
-				include_str!("shaders/bvh_raycast.wgsl"),
-				include_str!("shaders/voxel_reader.wgsl"),
-				include_str!("shaders/coloring_shader.wgsl"),
-			);
 			let coloring_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("Coloring Shader"),
-				source: wgpu::ShaderSource::Wgsl(coloring_shader_src.into()),
+				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/coloring_shader.wgsl")).into()),
 			});
 			let coloring_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Coloring Pipeline Layout"),

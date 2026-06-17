@@ -15,7 +15,7 @@ bevy-trait-query = "0.18"
 tracy-client = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
-gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
+voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true }

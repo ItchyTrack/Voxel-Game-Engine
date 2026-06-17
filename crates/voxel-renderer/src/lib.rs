@@ -19,7 +19,7 @@ use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::render::render_graph::{RenderGraphExt, ViewNodeRunner};
 
 use voxel_data::VoxelDataPlugin;
-use gpu_voxel_data::{GpuVoxelDataPlugin};
+use voxel_gpu::{GpuVoxelDataPlugin};
 
 use graphics_settings::GraphicsSettings;
 use hit_count_feedback::{HitCountFeedback, LastGpuBvh, RenderStats};

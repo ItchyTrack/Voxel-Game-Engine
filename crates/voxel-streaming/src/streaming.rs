@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::math::IVec3;
 use bevy::prelude::*;
-use gpu_voxel_data::{LodVoxels, VoxelGpuUploadFinished};
+use voxel_gpu::{LodVoxels, VoxelGpuUploadFinished};
 
 use tracy_client::span;
 

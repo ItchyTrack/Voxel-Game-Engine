@@ -1,3 +1,6 @@
+import package::bvh_raycast::{ BVHItem, bvh_items };
+import package::combined_raycast::{ RaycastHit, full_raycast };
+
 // 0 : camera uniform
 // 1 : BVH (nodes + items)
 // 2 : grid tree buffer

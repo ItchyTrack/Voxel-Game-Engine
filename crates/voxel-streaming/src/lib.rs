@@ -93,7 +93,7 @@ impl Plugin for VoxelStreamingPlugin {
 						.in_set(StreamingPhase::Receive),
 				),
 			)
-			.add_systems(Update, streaming::refresh_lod_uploads.after(gpu_voxel_data::GpuUploadSet::Upload))
+			.add_systems(Update, streaming::refresh_lod_uploads.after(voxel_gpu::GpuUploadSet::Upload))
 			.add_systems(StreamingMaintenance, (streaming::cleanup_released_lods, streaming::apply_chunk_clears).chain())
 			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain());
 	}

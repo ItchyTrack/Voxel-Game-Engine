@@ -1,5 +1,5 @@
 [package]
-name = "gpu-voxel-data"
+name = "voxel-gpu"
 version = "0.1.0"
 edition = "2024"
 

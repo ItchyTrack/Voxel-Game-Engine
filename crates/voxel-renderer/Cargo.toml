@@ -14,7 +14,10 @@ wgpu = { workspace = true }
 bytemuck = { workspace = true }
 bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
-gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
+voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
+
+[build-dependencies]
+wesl = "0.3.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true }
