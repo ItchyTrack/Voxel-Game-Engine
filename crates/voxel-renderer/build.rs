@@ -1,9 +1,12 @@
-use wesl::Wesl;
+use wesl::{FileResolver, Router, Wesl};
 
 fn main() {
-	let compiler = Wesl::new("../voxel-gpu/src/shaders");
+	let mut router = Router::new();
+	router.mount_fallback_resolver(FileResolver::new("src/shaders"));
+	router.mount_resolver("shared".parse().unwrap(), FileResolver::new("../voxel-gpu/src/shaders"));
 
-	compiler.build_artifact(&"package::beam_bvh_raycast".parse().unwrap(), "beam_bvh_raycast");
-	compiler.build_artifact(&"package::raycasting_shader".parse().unwrap(), "raycasting_shader");
-	compiler.build_artifact(&"package::coloring_shader".parse().unwrap(), "coloring_shader");
+	let local_compiler = Wesl::new("").set_custom_resolver(router);
+	local_compiler.build_artifact(&"package::beam".parse().unwrap(), "beam");
+	local_compiler.build_artifact(&"package::raycasting".parse().unwrap(), "raycasting");
+	local_compiler.build_artifact(&"package::coloring_shader".parse().unwrap(), "coloring_shader");
 }

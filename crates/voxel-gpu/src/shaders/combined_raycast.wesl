@@ -1,5 +1,5 @@
-import package::bvh_raycast::{ BVHHit, BVHItem, BVHIter, bvh_items, bvh_iter_new, bvh_iter_next };
-import package::dda_raycast::{ DDAHit, dda_raycast };
+import package::bvh::bvh_raycast::{ BVHHit, BVHItem, BVHIter, bvh_items, bvh_iter_new, bvh_iter_next };
+import package::dda::dda_raycast::{ DDAHit, dda_raycast };
 
 fn quat_inv_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 	let t = 2.0 * cross(q.xyz, v);

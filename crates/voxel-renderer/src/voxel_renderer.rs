@@ -144,20 +144,21 @@ impl VoxelRenderer {
 		// bvh beam optimisation pipeline
 		let bvh_beam_pipeline = {
 			let bvh_beam_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-				label: Some("BVH Beam Shader"),
-				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/beam_bvh_raycast.wgsl")).into()),
+				label: Some("Beam Shader"),
+				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/beam.wgsl")).into()),
 			});
 			let bvh_beam_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-				label: Some("BVH Beam Pipeline Layout"),
+				label: Some("Beam Pipeline Layout"),
 				bind_group_layouts: &[
 					&camera_bind_group_layout,
 					&GpuBvh::<Entity>::bind_group_layout(&device),
+					&tree_bind_group_layout,
 					&bvh_beam_textured_storage_bind_group_layout,
 				],
 				push_constant_ranges: &[],
 			});
 			device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-				label: Some("BVH Beam Pipeline"),
+				label: Some("Beam Pipeline"),
 				layout: Some(&bvh_beam_pipeline_layout),
 				module: &bvh_beam_shader,
 				entry_point: Some("main"),
@@ -244,7 +245,7 @@ impl VoxelRenderer {
 		let ray_marching_pipeline = {
 			let ray_marching_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("Ray Casting Shader"),
-				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/raycasting_shader.wgsl")).into()),
+				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/raycasting.wgsl")).into()),
 			});
 			let ray_marching_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Ray Casting Pipeline Layout"),
@@ -461,6 +462,18 @@ impl VoxelRenderer {
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
 	) -> GpuBvh::<Entity> {
 		let gpu_bvh = GpuBvh::from_bvh(&device, bvh, gpu_grid_tree_id_to_id_transforms);
+		let tree_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+			layout: &self.tree_bind_group_layout,
+			entries: &[wgpu::BindGroupEntry {
+				binding: 0,
+				resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+					buffer: tree_buffer,
+					offset: 0,
+					size: None,
+				}),
+			}],
+			label: Some("tree_bind_group"),
+		});
 		{
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
 				label: Some("Render Pass"),
@@ -469,23 +482,12 @@ impl VoxelRenderer {
 
 			compute_pass.set_bind_group(0, camera_transform_bind_group, &[]);
 			compute_pass.set_bind_group(1, &gpu_bvh.bind_group, &[]);
-			compute_pass.set_bind_group(2, &self.bvh_beam_textured_storage_bind_group, &[]);
+			compute_pass.set_bind_group(2, &tree_bind_group, &[]);
+			compute_pass.set_bind_group(3, &self.bvh_beam_textured_storage_bind_group, &[]);
 			compute_pass.set_pipeline(&self.bvh_beam_pipeline);
 			compute_pass.dispatch_workgroups((view_width / BVH_BEAM_TEXTURE_FACTOR + 7) / 4, (view_height / BVH_BEAM_TEXTURE_FACTOR + 3) / 4, 1);
 		}
 		{
-			let tree_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-				layout: &self.tree_bind_group_layout,
-				entries: &[wgpu::BindGroupEntry {
-					binding: 0,
-					resource:  wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: tree_buffer,
-						offset: 0,
-						size: None,
-					}),
-				}],
-				label: Some("tree_bind_group"),
-			});
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
 				label: Some("Render Pass"),
 				timestamp_writes: None,
