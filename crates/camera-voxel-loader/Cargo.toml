@@ -3,8 +3,13 @@ name = "camera-voxel-loader"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+tracy = ["tracy-client/enable"]
+
 [dependencies]
 bevy = { workspace = true }
+tracy-client = { workspace = true }
 gpu-voxel-data = { version = "0.1.0", path = "../gpu-voxel-data" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }

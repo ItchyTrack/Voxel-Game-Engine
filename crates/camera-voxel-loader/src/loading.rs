@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
 use gpu_voxel_data::{SubGridGpuState, VoxelGpuUploadFinished};
+use tracy_client::span;
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::subgrid::SubGrid;
 use voxel_renderer::voxel_camera::VoxelCamera;
@@ -120,6 +121,7 @@ fn apply_desired_delta(
 }
 
 fn in_flight_count(camera_voxel_loader: &CameraVoxelLoader) -> usize {
+	let _span = span!("in_flight_count");
 	camera_voxel_loader.tiles.values().filter(|r| r.status == TileStatus::Loading).count()
 }
 
