@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use tracy_client::span;
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::replacement_graph::DependencyRecord;
@@ -16,6 +17,7 @@ pub(crate) enum SourceState { Desired(SourceResolution), RetiringVisible(Entity)
 pub(crate) struct CoverageRecord { pub(crate) state: SourceState }
 
 pub(crate) fn request_source(loader: &mut CameraVoxelLoader, source: CoverageSource) {
+	let _span = span!();
     match loader.coverage_sources.get(&source).map(|record| record.state) {
         None => { loader.coverage_sources.insert(source, CoverageRecord { state: SourceState::Desired(SourceResolution::Requested) }); }
         Some(SourceState::RetiringVisible(entity)) => {

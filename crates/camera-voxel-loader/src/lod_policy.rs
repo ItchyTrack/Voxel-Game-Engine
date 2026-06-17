@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
+use tracy_client::span;
 use voxel_data::grid::GridId;
 use voxel_streaming::{GridStreaming, CHUNK_SIZE};
 
@@ -55,6 +56,7 @@ pub(crate) fn update_desired_sources_delta(
     desired_tiles: &mut HashSet<TileKey>, grid: GridId, _previous_center: Option<IVec3>, center: IVec3, _settings_changed: bool,
     settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming,
 ) -> DesiredSourceDelta {
+	let _span = span!();
     rebuild_desired_sources_delta(desired_tiles, grid, center, settings, streaming)
 }
 
