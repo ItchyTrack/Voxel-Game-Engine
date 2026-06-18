@@ -1,4 +1,4 @@
-import shared::bvh::bvh_raycast::{ BVHItem, bvh_items };
+import shared::bvh::data::{ BVHItem, bvh_items };
 import shared::voxel_reader::{ voxel_reader_palette_color };
 
 // main_shader.wgsl

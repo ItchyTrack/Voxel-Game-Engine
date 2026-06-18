@@ -1,4 +1,4 @@
-import shared::bvh::bvh_raycast::{ BVHItem, bvh_items };
+import shared::bvh::data::{ BVHItem, bvh_items };
 import shared::combined_raycast::{ RaycastHit, full_raycast };
 
 // 0 : camera uniform

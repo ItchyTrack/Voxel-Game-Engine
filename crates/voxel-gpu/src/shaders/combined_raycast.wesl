@@ -1,5 +1,6 @@
-import package::bvh::bvh_raycast::{ BVHHit, BVHItem, BVHIter, bvh_items, bvh_iter_new, bvh_iter_next };
-import package::dda::dda_raycast::{ DDAHit, dda_raycast };
+import package::bvh::data::{ BVHItem, bvh_items };
+import package::bvh::raycast::{ bvh_iter_new, bvh_iter_next };
+import package::dda::raycast::{ dda_raycast };
 
 fn quat_inv_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 	let t = 2.0 * cross(q.xyz, v);
@@ -33,18 +34,19 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
 		let local_pos = quat_inv_rotate(transform_quat, entry_world - transform_pos) / item.scale;
 		let local_dir = quat_inv_rotate(transform_quat, ray_dir);
 		let remaining = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
-		let dda = dda_raycast(local_pos, local_dir, remaining / item.scale, item.item_index);
+		let dda_hit = dda_raycast(local_pos, local_dir, remaining / item.scale, item.item_index);
 
-		if dda.normal != 0 {
-			let total = candidate.dist + dda.dist * item.scale;
+		if dda_hit.normal != 0 {
+			let total = candidate.dist + dda_hit.dist * item.scale;
 			if total < best.total_dist {
-				best.normal = dda.normal;
+				best.normal = dda_hit.normal;
 				best.bvh_item_idx = candidate.bvh_item_idx;
-				best.voxel_data_index = dda.voxel_data_index;
-				best.voxel_index = dda.voxel_index;
+				best.voxel_data_index = dda_hit.voxel_data_index;
+				best.voxel_index = dda_hit.voxel_index;
 				best.total_dist = total;
 			}
 		}
 	}
+
 	return best;
 }

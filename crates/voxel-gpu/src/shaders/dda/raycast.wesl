@@ -1,71 +1,8 @@
-const DDA_LOG_SIZE:   u32 = 2u;
-const DDA_SIZE:       u32 = 4u;
-const DDA_SLOT_BYTES: u32 = 4u;
-
-@group(2) @binding(0) var<storage, read> grid_tree_buf: array<u32>;
-
-fn dda_u8(byte_off: u32) -> u32 {
-	return (grid_tree_buf[byte_off / 4u] >> ((byte_off % 4u) * 8u)) & 0xFFu;
-}
-fn dda_u16(byte_off: u32) -> u32 {
-	return (grid_tree_buf[byte_off / 4u] >> ((byte_off % 4u) * 8u)) & 0xFFFFu;
-}
-fn dda_u32(byte_off: u32) -> u32 {
-	return grid_tree_buf[byte_off / 4u];
-}
-fn dda_root_header(tree_base: u32) -> u32 {
-	return dda_u8(tree_base); // root_depth is stored in the first byte; 3 bytes of padding follow
-}
-fn dda_nodes_base(tree_base: u32) -> u32 {
-	return tree_base + 4u; // 4-byte aligned: 1 byte root_depth + 3 bytes pad
-}
-fn dda_node_byte_off(nodes_base: u32, slot_index: u32) -> u32 {
-	return nodes_base + slot_index * DDA_SLOT_BYTES;
-}
-fn dda_parent_offset(node_byte_off: u32) -> u32 {
-	return dda_u16(node_byte_off);
-}
-fn dda_voxel_data_offset(node_byte_off: u32) -> u32 {
-	return dda_u16(node_byte_off + 2u);
-}
-fn dda_bitmap_has(low: u32, high: u32, bitmap_status: u32, cell_index: u32) -> bool {
-	if cell_index < 32u {
-		if (bitmap_status & 1) == 0 { return false; }
-		return (low & (1u << cell_index)) != 0u;
-	} else {
-		if (bitmap_status & 2) == 0 { return false; }
-		return (high & (1u << (cell_index - 32u))) != 0u;
-	}
-}
-fn dda_data_index(low: u32, high: u32, bitmap_status: u32, cell_index: u32) -> u32 {
-	let mask = (1u << (cell_index & 31u)) - 1u;
-	if cell_index >= 32u {
-		return (bitmap_status & 1) * countOneBits(low) + (bitmap_status >> 1) * countOneBits(high & mask);
-	} else {
-		return (bitmap_status & 1) * countOneBits(low & mask);
-	}
-}
-// Non-leaf data entry: 0x0000 = DATA, 1..0xFFFF = NODE slot offset
-fn dda_node_entry(node_byte_off: u32, bitmap_status: u32, data_idx: u32, node_size: u32) -> u32 {
-	let byte_start = node_byte_off + 8u + 4u * u32(bitmap_status == 3);
-	if node_size == 16u {
-		return dda_u8(byte_start + data_idx);
-	}
-	return dda_u16(byte_start + data_idx * 2u);
-}
-
-fn dda_node_size(depth: u32) -> u32  { return 1u << (DDA_LOG_SIZE * (depth + 1u)); }
-
-fn dda_get_child_contents_index(contents_pos: vec3<u32>) -> u32 {
-	return contents_pos.x + contents_pos.y * DDA_SIZE + contents_pos.z * DDA_SIZE * DDA_SIZE;
-}
-
-struct DDAHit {
-	normal: u32, // if 0 then no hit
-	voxel_data_index: u32,      // slot index of the node containing the hit voxel
-	voxel_index: u32,      // cell index within that node (use popcount(bitmap & mask) for voxel_buf index)
-	dist: f32,
-}
+import package::dda::data::{
+	DDA_SIZE, DDAHit, DDA_LOG_SIZE, DDA_SLOT_BYTES, dda_bitmap_has, dda_data_index,
+	dda_get_child_contents_index, dda_node_byte_off, dda_node_entry, dda_node_size,
+	dda_nodes_base, dda_parent_offset, dda_u32, dda_voxel_data_offset,
+};
 
 fn dda_raycast(
 	origin:     vec3<f32>,
@@ -75,8 +12,6 @@ fn dda_raycast(
 ) -> DDAHit {
 	let tree_header = dda_u32(tree_base);
 	let root_size = dda_node_size(tree_header & 0xFFu);
-
-	// Origin is expected to be in root-relative space (no root_pos offset).
 	let root_min = vec3<f32>(0.0);
 	let root_max = vec3<f32>(f32(root_size));
 
@@ -87,21 +22,17 @@ fn dda_raycast(
 	let tmax    = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
 	if tmin > tmax || tmax < 0.0 {
 		var no_hit: DDAHit;
-		no_hit.normal = 0u;;
+		no_hit.normal = 0u;
 		return no_hit;
 	}
 	let distance_to_aabb = max(tmin, 0.0);
 	if distance_to_aabb > max_length {
 		var no_hit: DDAHit;
-		no_hit.normal = 0u;;
+		no_hit.normal = 0u;
 		return no_hit;
 	}
 
 	var starting_distance = distance_to_aabb;
-
-	// Check plane collision
-	// Points: https://www.desmos.com/3d/nw1iypcxdw
-	// Ray VS Plane: https://www.desmos.com/3d/ucg2d6tqbu
 	let plane_u32 = vec3<u32>(
 		(tree_header >> 8) & 0xF,
 		(tree_header >> 12) & 0xF,
@@ -133,22 +64,10 @@ fn dda_raycast(
 		}
 	}
 
-	// var hit_result: DDAHit;
-	// hit_result.normal = 1;
-	// hit_result.voxel_data_index = 0;
-	// hit_result.voxel_index = 0;
-	// hit_result.dist = starting_distance;
-	// return hit_result;
-
 	let delta = abs(inv_dir);
 	let step = u32(dir.x >= 0.0) + u32(dir.y >= 0.0) * 2 + u32(dir.z >= 0.0) * 4;
-
 	let post_aabb_origin_pre_shift = origin + dir * starting_distance;
-	let post_aabb_origin_clamped   = clamp(
-		post_aabb_origin_pre_shift,
-		root_min,
-		vec3<f32>(f32(root_size) - 0.00001),
-	);
+	let post_aabb_origin_clamped   = clamp(post_aabb_origin_pre_shift, root_min, vec3<f32>(f32(root_size) - 0.00001));
 	let move_towards_target = floor(post_aabb_origin_clamped) + vec3<f32>(0.5);
 	let move_towards_delta  = move_towards_target - post_aabb_origin_clamped;
 	let move_towards_length = length(move_towards_delta);
@@ -159,7 +78,6 @@ fn dda_raycast(
 	);
 
 	let root_relative_post_aabb_origin = post_aabb_origin;
-
 	let axis_distances_boundary = vec3<f32>(
 		select(floor(root_relative_post_aabb_origin.x), ceil(root_relative_post_aabb_origin.x), (step & 1) != 0),
 		select(floor(root_relative_post_aabb_origin.y), ceil(root_relative_post_aabb_origin.y), (step & 2) != 0),
@@ -167,7 +85,6 @@ fn dda_raycast(
 	);
 	var axis_distances = inv_dir * (axis_distances_boundary - root_relative_post_aabb_origin)
 		+ vec3<f32>(starting_distance, starting_distance, starting_distance);
-
 	var root_relative_grid_pos = vec3<u32>(vec3<i32>(root_relative_post_aabb_origin));
 
 	var last_step_axis: u32;
@@ -178,7 +95,7 @@ fn dda_raycast(
 
 	if max_length_reduced < starting_distance {
 		var no_hit: DDAHit;
-		no_hit.normal = 0u;;
+		no_hit.normal = 0u;
 		return no_hit;
 	}
 
@@ -188,12 +105,8 @@ fn dda_raycast(
 	var bitmap_status = dda_parent_offset(node_byte_off) >> 14;
 	var bitmap_low = 0u;
 	var bitmap_high = 0u;
-	if (bitmap_status & 1) != 0 {
-		bitmap_low = dda_u32(node_byte_off + 4);
-	}
-	if (bitmap_status & 2) != 0 {
-		bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u);
-	}
+	if (bitmap_status & 1) != 0 { bitmap_low = dda_u32(node_byte_off + 4); }
+	if (bitmap_status & 2) != 0 { bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
 
 	loop {
 		let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
@@ -201,7 +114,6 @@ fn dda_raycast(
 		let cell_index = dda_get_child_contents_index(contents_pos);
 
 		if !dda_bitmap_has(bitmap_low, bitmap_high, bitmap_status, cell_index) {
-			// EMPTY: step forward
 			if node_size != 4u {
 				let node_child_size = node_size >> DDA_LOG_SIZE;
 				let node_cell_relative_grid_pos = root_relative_grid_pos & vec3<u32>(node_child_size - 1u);
@@ -210,16 +122,12 @@ fn dda_raycast(
 					select(node_cell_relative_grid_pos.y, node_child_size - node_cell_relative_grid_pos.y - 1u, (step & 2) != 0),
 					select(node_cell_relative_grid_pos.z, node_child_size - node_cell_relative_grid_pos.z - 1u, (step & 4) != 0),
 				);
-
 				let axis_distances_at_cell_edge = axis_distances + delta * vec3<f32>(cell_step_amount);
 				var dis_to_edge = min(min(axis_distances_at_cell_edge.x, axis_distances_at_cell_edge.y), axis_distances_at_cell_edge.z);
 				var adjusted_step_amount = vec3<u32>(abs((vec3<f32>(dis_to_edge, dis_to_edge, dis_to_edge) - axis_distances + delta) / delta));
-
-				if      axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.y &&
-						axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.z { adjusted_step_amount.x = cell_step_amount.x; }
+				if      axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.y && axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.z { adjusted_step_amount.x = cell_step_amount.x; }
 				else if axis_distances_at_cell_edge.y <= axis_distances_at_cell_edge.z { adjusted_step_amount.y = cell_step_amount.y; }
 				else                                                                   { adjusted_step_amount.z = cell_step_amount.z; }
-
 				axis_distances += delta * vec3<f32>(adjusted_step_amount);
 				root_relative_grid_pos = vec3<u32>(vec3<i32>(root_relative_grid_pos) + vec3<i32>(adjusted_step_amount) * vec3<i32>(
 					i32(step & 1) * 2 - 1, i32(step & 2) - 1, i32(step & 4) / 2 - 1
@@ -229,7 +137,7 @@ fn dda_raycast(
 			last_step_axis = select(select(2u, 1u, axis_distances.y <= axis_distances.z), 0u, axis_distances.x <= axis_distances.y && axis_distances.x <= axis_distances.z);
 			if max_length_reduced < axis_distances[last_step_axis] {
 				var no_hit: DDAHit;
-				no_hit.normal = 0u;;
+				no_hit.normal = 0u;
 				return no_hit;
 			}
 			axis_distances[last_step_axis] += delta[last_step_axis];
@@ -237,7 +145,7 @@ fn dda_raycast(
 			let new_pos_signed = i32(root_relative_grid_pos[last_step_axis]) + (i32((step & (1u << last_step_axis)) != 0) * 2 - 1);
 			if new_pos_signed < 0 || u32(new_pos_signed) >= root_size {
 				var no_hit: DDAHit;
-				no_hit.normal = 0u;;
+				no_hit.normal = 0u;
 				return no_hit;
 			}
 
@@ -245,7 +153,7 @@ fn dda_raycast(
 				loop {
 					if node_size == root_size {
 						var no_hit: DDAHit;
-						no_hit.normal = 0u;;
+						no_hit.normal = 0u;
 						return no_hit;
 					}
 					node_byte_off -= (dda_parent_offset(node_byte_off) & 0x3FFF) * DDA_SLOT_BYTES;
@@ -255,20 +163,15 @@ fn dda_raycast(
 						break;
 					}
 				}
-				if (bitmap_status & 1) != 0 {
-					bitmap_low = dda_u32(node_byte_off + 4);
-				}
-				if (bitmap_status & 2) != 0 {
-					bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u);
-				}
+				if (bitmap_status & 1) != 0 { bitmap_low = dda_u32(node_byte_off + 4); }
+				if (bitmap_status & 2) != 0 { bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
 			}
 			root_relative_grid_pos[last_step_axis] = u32(new_pos_signed);
 		} else {
 			let data_idx = dda_data_index(bitmap_low, bitmap_high, bitmap_status, cell_index);
 			if node_size == 4u {
-				// Depth-0: every set bitmap bit is a voxel - immediate hit.
 				var hit_result: DDAHit;
-				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10); // make normal non 0 and encode the normal in it
+				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10);
 				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
 				hit_result.voxel_index = data_idx;
 				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
@@ -276,30 +179,23 @@ fn dda_raycast(
 			}
 
 			let entry_val = dda_node_entry(node_byte_off, bitmap_status, data_idx, node_size);
-
 			if entry_val == 0u {
-				// DATA: hit
 				var hit_result: DDAHit;
-				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10); // make normal non 0 and encode the normal in it
+				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10);
 				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
 				hit_result.voxel_index = data_idx;
 				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
 				return hit_result;
 			} else {
-				// NODE: descend
 				node_byte_off += entry_val * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;
 				bitmap_status = dda_parent_offset(node_byte_off) >> 14;
-				if (bitmap_status & 1) != 0 {
-					bitmap_low = dda_u32(node_byte_off + 4);
-				}
-				if (bitmap_status & 2) != 0 {
-					bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u);
-				}
+				if (bitmap_status & 1) != 0 { bitmap_low = dda_u32(node_byte_off + 4); }
+				if (bitmap_status & 2) != 0 { bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
 			}
 		}
 	}
 	var no_hit: DDAHit;
-	no_hit.normal = 0u;;
+	no_hit.normal = 0u;
 	return no_hit;
 }
