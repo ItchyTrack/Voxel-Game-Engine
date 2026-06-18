@@ -13,7 +13,7 @@ pub(crate) struct LodBand {
     pub(crate) inner: Option<BandBounds>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Box3 {
     min: IVec3,
     max: IVec3,
@@ -37,8 +37,8 @@ pub(crate) fn run_over_diff(old_bands: &[LodBand], new_bands: &[LodBand], mut f:
     for lod in 0..=max_lod {
         let (old_outer, old_inner) = band_boxes(old_bands, lod);
         let (new_outer, new_inner) = band_boxes(new_bands, lod);
+		if new_outer == old_outer && new_inner == old_inner { continue; }
         let size = 1i32 << lod;
-
         emit_minus_minus(new_outer, old_outer, new_inner, lod, size, true, &mut f);
         emit_minus(new_outer.intersect(old_inner), new_inner, lod, size, true, &mut f);
 
