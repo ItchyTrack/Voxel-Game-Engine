@@ -1,4 +1,14 @@
-use std::{pin::Pin, sync::Arc};
+use std::pin::Pin;
+use std::sync::Arc;
+#[cfg(target_arch = "wasm32")]
+use std::sync::OnceLock;
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use wasm_thread as thread;
+use thread::JoinHandle;
 
 use async_priority_queue::PriorityQueue;
 use bevy::ecs::{resource::Resource, system::Command, world::{CommandQueue, World}};
@@ -79,26 +89,49 @@ impl Ord for PriorityTask {
 
 type AsyncTaskPriorityQueue = Arc<PriorityQueue<PriorityTask>>;
 
+#[cfg(target_arch = "wasm32")]
+static GLOBAL_ASYNC_TASK_QUEUE: OnceLock<AsyncTaskPriorityQueue> = OnceLock::new();
+
 #[derive(Resource)]
 pub struct AsyncTaskPriorityQueueResource {
 	queue: AsyncTaskPriorityQueue,
-	_threads: Vec<tokio::task::JoinHandle<()>>,
+	#[cfg(not(target_arch = "wasm32"))]
+	_threads: Vec<JoinHandle<()>>,
 }
 
 impl AsyncTaskPriorityQueueResource {
 	pub fn new() -> Self {
-		let async_task_priority_queue = Arc::new(PriorityQueue::<PriorityTask>::new());
-		let async_task_priority_queue_threads = (0..8).map(|_| {
+		let async_task_priority_queue = {
+			#[cfg(target_arch = "wasm32")]
+			{
+				GLOBAL_ASYNC_TASK_QUEUE
+					.get_or_init(|| Arc::new(PriorityQueue::<PriorityTask>::new()))
+					.clone()
+			}
+			#[cfg(not(target_arch = "wasm32"))]
+			{
+				Arc::new(PriorityQueue::<PriorityTask>::new())
+			}
+		};
+
+		#[cfg(not(target_arch = "wasm32"))]
+		let async_task_priority_queue_threads = (0..8).map(|i| {
 			let async_task_priority_queue = async_task_priority_queue.clone();
-			tokio::spawn(async move {
-				loop {
-					let task = async_task_priority_queue.pop().await;
-					task.run().await;
-				}
-			})
+			thread::Builder::new()
+				.name(format!("async-task-priority-queue-{i}"))
+				.spawn(move || {
+					futures::executor::block_on(async move {
+						loop {
+							let task = async_task_priority_queue.pop().await;
+							task.run().await;
+						}
+					})
+				})
+				.unwrap()
 		}).collect();
 		Self {
 			queue: async_task_priority_queue,
+			#[cfg(not(target_arch = "wasm32"))]
 			_threads: async_task_priority_queue_threads,
 		}
 	}
@@ -124,6 +157,22 @@ impl AsyncTaskPusher {
 	pub fn push(&self, task: PriorityTask) {
 		self.queue.push(task);
 	}
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn voxel_data_async_worker_loop(_worker_id: u32) {
+	let queue = loop {
+		if let Some(queue) = GLOBAL_ASYNC_TASK_QUEUE.get() {
+			break queue.clone();
+		}
+	};
+	futures::executor::block_on(async move {
+		loop {
+			let task = queue.pop().await;
+			task.run().await;
+		}
+	});
 }
 
 impl Default for AsyncTaskPriorityQueueResource {

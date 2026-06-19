@@ -12,7 +12,10 @@ use voxel_physics::{
 };
 
 use crate::streaming_test::{spawn_grid, StreamingVoxels, WorldStore};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::vox_loader::load_vox;
+#[cfg(target_arch = "wasm32")]
+use crate::vox_loader::load_vox_bytes;
 
 pub struct ScenePlugin;
 
@@ -65,7 +68,7 @@ fn setup_scene(
 ) {
 	spawn_church(&mut commands, &mut store);
 	// spawn_ball_cluster(&mut commands, &mut constraints, &mut store);
-	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(0.0, 120.0, 0.0));
+	spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(0.0, 120.0, 0.0));
 	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(30.0, 120.0, 0.0));
 	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(-30.0, 120.0, 0.0));
 	// for x in 0..3 {
@@ -78,13 +81,8 @@ fn setup_scene(
 }
 
 fn spawn_church(commands: &mut Commands, store: &mut WorldStore) {
-	let candidate_paths = [
-		std::path::PathBuf::from("res/Church_Of_St_Sophia.vox"),
-		std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-			.join("../../res/Church_Of_St_Sophia.vox"),
-	];
 	let mut grid = StreamingVoxels::new();
-	if !candidate_paths.iter().any(|p| load_vox(&mut grid, p, Vec3::ZERO)) { return }
+	if !load_church(&mut grid) { return }
 
 	let parent = commands
 		.spawn((
@@ -94,6 +92,21 @@ fn spawn_church(commands: &mut Commands, store: &mut WorldStore) {
 		))
 		.id();
 	spawn_grid(commands, store, parent, Transform::IDENTITY, grid, VoxelCollider);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn load_church(grid: &mut StreamingVoxels) -> bool {
+	load_vox_bytes(grid, include_bytes!("../../../res/Church_Of_St_Sophia.vox"), Vec3::ZERO)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_church(grid: &mut StreamingVoxels) -> bool {
+	let candidate_paths = [
+		std::path::PathBuf::from("res/Church_Of_St_Sophia.vox"),
+		std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+			.join("../../res/Church_Of_St_Sophia.vox"),
+	];
+	candidate_paths.iter().any(|p| load_vox(grid, p, Vec3::ZERO))
 }
 
 fn spawn_ball_cluster(

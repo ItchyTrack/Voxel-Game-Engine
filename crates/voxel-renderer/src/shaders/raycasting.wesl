@@ -4,11 +4,10 @@ import shared::combined_raycast::{ RaycastHit, full_raycast };
 // 0 : camera uniform
 // 1 : BVH (nodes + items)
 // 2 : grid tree buffer
-// 3 : intermediate_textured (write)
-// 4 : bvh_beam_textured (read)
+// 3 : ray marching textures
 
 @group(3) @binding(0) var intermediate_textured: texture_storage_2d<rgba32uint, write>;
-@group(4) @binding(0) var bvh_beam_textured: texture_2d<f32>;
+@group(3) @binding(1) var bvh_beam_textured: texture_2d<f32>;
 
 struct CameraUniform {
 	camera_transform: mat4x4<f32>,

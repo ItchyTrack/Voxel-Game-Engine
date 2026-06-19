@@ -34,8 +34,8 @@ impl FromWorld for WorldGpuData {
 		.expect("Failed to create packed_voxel_data_dynamic_buffer");
 
 		Self {
-			packed_64_tree_dynamic_buffer: packed_64_tree_dynamic_buffer,
-			packed_voxel_data_dynamic_buffer: packed_voxel_data_dynamic_buffer,
+			packed_64_tree_dynamic_buffer,
+			packed_voxel_data_dynamic_buffer,
 		}
 	}
 }

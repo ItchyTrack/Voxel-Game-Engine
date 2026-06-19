@@ -11,6 +11,7 @@ members = [
 	"crates/voxel-renderer",
 	"crates/voxel-physics",
 	"crates/voxel-app",
+	"crates/bevy-web-worker",
 ]
 
 default-members = [
@@ -27,7 +28,7 @@ log = "0.4"
 num = "0.4.3"
 bytemuck = { version = "1.24", features = ["derive"] }
 tracy-client = { version = "0.18.4", default-features = false }
-tokio = { version = "1", features = ["full"] }
+tokio = "1"
 # wasm-only shims (dep of rand / dot_vox)
 getrandom = { version = "0.4", features = ["wasm_js"] }
 getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

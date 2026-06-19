@@ -46,7 +46,7 @@ fn voxel_place_break_system(
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	voxel_world: VoxelWorldQueryParam,
 	mut grids: Query<(&GlobalTransform, &mut GridEdits)>,
-	mut sfx: MessageWriter<PlaySfx>,
+	mut sfx: Option<MessageWriter<PlaySfx>>,
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
 	let place = keys.just_pressed(KeyCode::Space) || keys.pressed(KeyCode::KeyC);
@@ -61,10 +61,14 @@ fn voxel_place_break_system(
 	if place {
 		let pos = hit.voxel_pos + hit.normal;
 		edits.add_voxel(&pos, &PLACE_VOXEL);
-		sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
+		if let Some(sfx) = &mut sfx {
+			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
+		}
 	} else {
 		edits.remove_voxel(&hit.voxel_pos);
-		sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
+		if let Some(sfx) = &mut sfx {
+			sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
+		}
 	}
 }
 

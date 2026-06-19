@@ -18,3 +18,4 @@ Cargo.lock
 imgui.ini
 **/.DS_Store
 *.pyc
+/pkg

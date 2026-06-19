@@ -21,6 +21,7 @@ bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console"] }
 getrandom = { workspace = true }
 getrandom_0_3 = { workspace = true }
 wgpu = { workspace = true, features = ["webgpu"] }

@@ -3,15 +3,17 @@ use std::collections::HashMap;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::FromWorld;
-use bevy::render::renderer::{RenderDevice, RenderQueue};
-use wgpu::{CommandEncoderDescriptor, Device};
+use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+
+type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
+type GpuDevice = WgpuWrapper<wgpu::Device>;
+type GpuQueue = WgpuWrapper<wgpu::Queue>;
 
 use crate::world_gpu_data::{WorldGpuData, TREE_BUFFER_ALIGNMENT, VOXEL_BUFFER_ALIGNMENT};
 
 // Pipelined rendering is one frame behind, so two slots keep the main world's
 // build off the slot the render thread is reading.
 const SLOTS: usize = 2;
-
 const INITIAL_CAPACITY: u64 = 1 << 20;
 
 fn align_up(value: u32, alignment: u32) -> u32 {
@@ -23,13 +25,13 @@ fn align_up(value: u32, alignment: u32) -> u32 {
 /// mutates, which is what avoids the write-during-read race.
 #[derive(Resource)]
 pub struct ResidencyBuffers {
-	device: Device,
-	queue: RenderQueue,
+	device: GpuDevice,
+	queue: GpuQueue,
 	usage: wgpu::BufferUsages,
 	tree_alignment: u32,
 	voxel_alignment: u32,
-	tree_slots: Vec<wgpu::Buffer>,
-	voxel_slots: Vec<wgpu::Buffer>,
+	tree_slots: Vec<GpuBuffer>,
+	voxel_slots: Vec<GpuBuffer>,
 	tree_capacity: u64,
 	voxel_capacity: u64,
 	binding_limit: u64,
@@ -37,26 +39,29 @@ pub struct ResidencyBuffers {
 	offsets: HashMap<Entity, (u32, u32)>,
 }
 
-fn create_slots(device: &Device, capacity: u64, usage: wgpu::BufferUsages) -> Vec<wgpu::Buffer> {
+fn create_slots(device: &GpuDevice, capacity: u64, usage: wgpu::BufferUsages) -> Vec<GpuBuffer> {
 	(0..SLOTS)
 		.map(|_| {
-			device.create_buffer(&wgpu::BufferDescriptor {
+			WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 				label: Some("residency_slot"),
 				size: capacity,
 				usage,
 				mapped_at_creation: false,
-			})
+			}))
 		})
 		.collect()
 }
 
 impl FromWorld for ResidencyBuffers {
 	fn from_world(world: &mut bevy::ecs::world::World) -> Self {
-		let device = world.resource::<RenderDevice>().wgpu_device().clone();
-		let queue = world.resource::<RenderQueue>().clone();
+		let render_device = world.resource::<RenderDevice>();
+		let render_queue = world.resource::<RenderQueue>();
+		let raw_device = render_device.wgpu_device();
+		let device = WgpuWrapper::new(raw_device.clone());
+		let queue = WgpuWrapper::new(bevy::render::renderer::WgpuWrapper::clone(&**render_queue).into_inner());
 		let tree_alignment = align_up(TREE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
 		let voxel_alignment = align_up(VOXEL_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
-		let binding_limit = device.limits().max_storage_buffer_binding_size as u64;
+		let binding_limit = raw_device.limits().max_storage_buffer_binding_size as u64;
 
 		let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
 		Self {
@@ -108,9 +113,7 @@ impl ResidencyBuffers {
 		self.ensure_capacity(tree_bytes, voxel_bytes);
 
 		let mut offsets = HashMap::with_capacity(resident.len());
-		let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
-			label: Some("residency_pack"),
-		});
+		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("residency_pack") });
 
 		let src_tree = world_gpu.packed_64_tree_dynamic_buffer.buffer();
 		let src_voxel = world_gpu.packed_voxel_data_dynamic_buffer.buffer();
@@ -157,11 +160,11 @@ impl ResidencyBuffers {
 		&self.offsets
 	}
 
-	pub fn tree_buffer(&self) -> &wgpu::Buffer {
+	pub fn tree_buffer(&self) -> &GpuBuffer {
 		&self.tree_slots[self.current]
 	}
 
-	pub fn voxel_buffer(&self) -> &wgpu::Buffer {
+	pub fn voxel_buffer(&self) -> &GpuBuffer {
 		&self.voxel_slots[self.current]
 	}
 }

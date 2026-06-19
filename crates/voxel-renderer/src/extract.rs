@@ -17,6 +17,9 @@ use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
 
 use crate::hit_count_feedback::HitCountFeedback;
 use crate::voxel_camera::VoxelCamera;
+use bevy::render::renderer::WgpuWrapper;
+
+type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
 
 #[derive(Resource, Default)]
 pub struct ExtractedVoxelScene {
@@ -25,8 +28,8 @@ pub struct ExtractedVoxelScene {
 	pub bvh: Option<BVH<SubGridId>>,
 	pub id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)>,
 	pub has_camera: bool,
-	pub tree_buffer: Option<wgpu::Buffer>,
-	pub voxel_buffer: Option<wgpu::Buffer>,
+	pub tree_buffer: Option<GpuBuffer>,
+	pub voxel_buffer: Option<GpuBuffer>,
 }
 
 struct RenderItem {

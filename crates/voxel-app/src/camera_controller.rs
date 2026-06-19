@@ -1,5 +1,6 @@
 use bevy::input::ButtonInput;
 use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::InputSystems;
 use bevy::math::{Quat, Vec3};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -30,7 +31,8 @@ pub struct FlyCameraPlugin;
 
 impl Plugin for FlyCameraPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(Update, (toggle_cursor_grab, fly_camera_system).chain());
+		app.add_systems(PreUpdate, fly_camera_system.after(InputSystems))
+			.add_systems(Update, toggle_cursor_grab);
 	}
 }
 
@@ -45,11 +47,15 @@ fn fly_camera_system(
 ) {
 	let dt = time.delta_secs();
 
-	let mouse_captured = cursor_options
-		.single()
-		.map(|c| c.grab_mode != CursorGrabMode::None)
-		.unwrap_or(false);
-	let mouse_delta = if mouse_captured { mouse_motion.delta } else { Vec2::ZERO };
+	let mouse_delta = if cfg!(target_arch = "wasm32") {
+		mouse_motion.delta
+	} else {
+		let mouse_captured = cursor_options
+			.single()
+			.map(|c| c.grab_mode != CursorGrabMode::None)
+			.unwrap_or(false);
+		if mouse_captured { mouse_motion.delta } else { Vec2::ZERO }
+	};
 
 	for (mut transform, mut cam) in cams.iter_mut() {
 		cam.yaw   -= mouse_delta.x * cam.mouse_sensitivity;

@@ -2,8 +2,13 @@ use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
 use bevy::math::Vec3;
 use bevy::transform::components::Transform;
+use bevy::render::renderer::WgpuWrapper;
 use voxel_data::bvh;
 use wgpu::{util::DeviceExt, Device};
+
+type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
+type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
+type GpuBindGroupLayout = WgpuWrapper<wgpu::BindGroupLayout>;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -65,13 +70,13 @@ struct GpuBVHItem {
 }
 
 pub struct GpuBvh<Id> {
-	pub bvh_buffer: wgpu::Buffer,
-	pub items_buffer: wgpu::Buffer,
-	pub bind_group: wgpu::BindGroup,
-	pub item_hit_count_buffer: wgpu::Buffer,
-	pub item_hit_count_staging_buffer: wgpu::Buffer,
+	pub bvh_buffer: GpuBuffer,
+	pub items_buffer: GpuBuffer,
+	pub bind_group: GpuBindGroup,
+	pub item_hit_count_buffer: GpuBuffer,
+	pub item_hit_count_staging_buffer: GpuBuffer,
 	pub item_count: usize,
-	pub bind_group_layout: wgpu::BindGroupLayout,
+	pub bind_group_layout: GpuBindGroupLayout,
 	pub item_ids: Vec<Id>,
 }
 
@@ -98,11 +103,11 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 			gpu_nodes.push(gpu_node);
 		}
 
-		let bvh_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-			label:    Some("bvh_buffer"),
+		let bvh_buffer = WgpuWrapper::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: Some("bvh_buffer"),
 			contents: bytemuck::cast_slice(&gpu_nodes),
-			usage:    wgpu::BufferUsages::STORAGE,
-		});
+			usage: wgpu::BufferUsages::STORAGE,
+		}));
 
 		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
 		let mut item_ids: Vec<_> = Vec::with_capacity(items.len());
@@ -130,30 +135,30 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 			item_data.extend_from_slice(&[0; size_of::<GpuBVHItem>()]);
 		}
 
-		let items_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-			label:    Some("bvh_items_buffer"),
+		let items_buffer = WgpuWrapper::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: Some("bvh_items_buffer"),
 			contents: &item_data,
-			usage:    wgpu::BufferUsages::STORAGE,
-		});
+			usage: wgpu::BufferUsages::STORAGE,
+		}));
 
 		let item_count = items.len().max(1);
 		let hit_count_size = (item_count * std::mem::size_of::<u32>()) as u64;
 
-		let item_hit_count_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+		let item_hit_count_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 			label:              Some("bvh_item_hit_count_buffer"),
 			size:               hit_count_size,
 			usage:              wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
-		});
-		let item_hit_count_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+		}));
+		let item_hit_count_staging_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 			label:              Some("bvh_item_hit_count_staging_buffer"),
 			size:               hit_count_size,
 			usage:              wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
 			mapped_at_creation: false,
-		});
+		}));
 
 		let bind_group_layout = Self::bind_group_layout(device);
-		let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+		let bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &bind_group_layout,
 			entries: &[
 				wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &bvh_buffer, offset: 0, size: None }) },
@@ -161,13 +166,13 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 				wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &item_hit_count_buffer, offset: 0, size: None }) },
 			],
 			label: Some("bvh_bind_group"),
-		});
+		}));
 
 		Self { bvh_buffer, items_buffer, item_hit_count_buffer, item_hit_count_staging_buffer, item_count, bind_group, bind_group_layout, item_ids }
 	}
 
-	pub fn bind_group_layout(device: &Device) -> wgpu::BindGroupLayout {
-		device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+	pub fn bind_group_layout(device: &Device) -> GpuBindGroupLayout {
+		WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[
 				wgpu::BindGroupLayoutEntry {
 					binding:    0,
@@ -189,6 +194,6 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 				},
 			],
 			label: Some("bvh_bind_group_layout"),
-		})
+		}))
 	}
 }

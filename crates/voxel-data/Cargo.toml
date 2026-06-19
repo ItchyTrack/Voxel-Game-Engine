@@ -12,9 +12,9 @@ gpu_profiling = []
 bimap = "0.6.3"
 async-priority-queue = "0.1.1"
 crossbeam-channel = "0.5.15"
+futures = "0.3.32"
 bevy = { workspace = true }
 tracy-client = { workspace = true }
-tokio = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -28,6 +28,10 @@ name = "splat_voxels"
 harness = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.114"
+js-sys = "0.3"
+wasm_thread = { version = "0.3", features = ["es_modules"] }
+web-sys = { version = "0.3", features = ["console"] }
 getrandom = { workspace = true }
 getrandom_0_3 = { workspace = true }
 

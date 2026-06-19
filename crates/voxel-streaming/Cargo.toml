@@ -18,6 +18,7 @@ voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console"] }
 getrandom = { workspace = true }
 getrandom_0_3 = { workspace = true }
 

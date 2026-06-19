@@ -1,7 +1,12 @@
 use std::collections::BTreeMap;
 
+use bevy::render::renderer::WgpuWrapper;
 use clone_cell::clone::PureClone;
 use num::Integer;
+
+type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
+type GpuDevice = WgpuWrapper<wgpu::Device>;
+type GpuQueue = WgpuWrapper<wgpu::Queue>;
 
 pub struct HeldBuffer {
 	offset: u32,
@@ -14,7 +19,7 @@ impl HeldBuffer {
 }
 
 pub struct PackedBuffer {
-	buffer: wgpu::Buffer,
+	buffer: GpuBuffer,
 	held_bytes: u32,
 	held_bytes_alignment: u32,
 	alignment: u32,
@@ -22,26 +27,26 @@ pub struct PackedBuffer {
 }
 
 impl PackedBuffer {
-	pub fn new(device: &wgpu::Device, size: u32, alignment: u32, usage: wgpu::BufferUsages) -> Result<Self, &'static str> {
+	pub fn new(device: &GpuDevice, size: u32, alignment: u32, usage: wgpu::BufferUsages) -> Result<Self, &'static str> {
 		let alignment = alignment.lcm(&(wgpu::COPY_BUFFER_ALIGNMENT as u32));
-		let size = size.next_multiple_of(alignment as u32);
-		let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+		let size = size.next_multiple_of(alignment);
+		let buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("PackedBuffer"),
 			size: size as u64,
 			usage: usage | wgpu::BufferUsages::COPY_DST,
 			mapped_at_creation: false,
-		});
+		}));
 		Ok(Self {
 			buffer,
 			held_bytes: 0,
 			held_bytes_alignment: 0,
-			alignment: alignment,
+			alignment,
 			held_buffers: BTreeMap::new()
 		})
 	}
 
-	pub fn add_buffer(&mut self, queue: &wgpu::Queue, buffer: &[u8]) -> Result<u32, &'static str> {
-		if buffer.len() == 0 {
+	pub fn add_buffer(&mut self, queue: &GpuQueue, buffer: &[u8]) -> Result<u32, &'static str> {
+		if buffer.is_empty() {
 			return Err("Buffer size can't be 0.");
 		}
 		if buffer.len() as u32 > self.buffer.size() as u32 - self.held_bytes_alignment {
@@ -50,13 +55,13 @@ impl PackedBuffer {
 		let mut placement_location = 0;
 		loop {
 			let range = self.held_buffers.range(
-				(placement_location / self.alignment as u32) as u32..
-				(placement_location + buffer.len() as u32).div_ceil(self.alignment as u32) as u32
+				(placement_location / self.alignment) as u32..
+				(placement_location + buffer.len() as u32).div_ceil(self.alignment) as u32
 			);
 			if let Some((_, held_buffer)) = range.last() {
-				placement_location = held_buffer.offset + held_buffer.size.next_multiple_of(self.alignment as u32);
-				assert!(placement_location.is_multiple_of(self.alignment as u32));
-				if (placement_location + buffer.len() as u32) > (self.buffer.size() as u32) {
+				placement_location = held_buffer.offset + held_buffer.size.next_multiple_of(self.alignment);
+				assert!(placement_location.is_multiple_of(self.alignment));
+				if (placement_location + buffer.len() as u32) > self.buffer.size() as u32 {
 					return Err("Not enough free space in single allocation.");
 				}
 			} else {
@@ -65,8 +70,8 @@ impl PackedBuffer {
 		}
 		queue.write_buffer(&self.buffer, placement_location as u64, buffer);
 		self.held_bytes += buffer.len() as u32;
-		self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
-		let id = (placement_location / self.alignment as u32) as u32;
+		self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment);
+		let id = placement_location / self.alignment;
 		self.held_buffers.insert(id, HeldBuffer { offset: placement_location, size: buffer.len() as u32 });
 		Ok(id)
 	}
@@ -74,21 +79,20 @@ impl PackedBuffer {
 	pub fn remove_buffer(&mut self, id: u32) -> Result<(), &'static str> {
 		if let Some(held_buffer) = self.held_buffers.remove(&id) {
 			self.held_bytes -= held_buffer.size;
-			self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
+			self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment);
 			Ok(())
 		} else {
 			Err("Could not find id.")
 		}
 	}
 
-	/// If the new buffer does not fit the old buffer will still be removed
-	pub fn replace_buffer(&mut self, queue: &wgpu::Queue, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
+	pub fn replace_buffer(&mut self, queue: &GpuQueue, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
 			if held_buffer.size >= buffer.len() as u32 {
 				self.held_bytes -= held_buffer.size;
 				self.held_bytes += buffer.len() as u32;
-				self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment as u32);
-				self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment as u32);
+				self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment);
+				self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment);
 				held_buffer.size = buffer.len() as u32;
 				queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
 				Ok(id)
@@ -105,7 +109,7 @@ impl PackedBuffer {
 		self.held_buffers.get(&id)
 	}
 
-	pub fn buffer(&self) -> &wgpu::Buffer {
+	pub fn buffer(&self) -> &GpuBuffer {
 		&self.buffer
 	}
 }
@@ -145,7 +149,7 @@ impl PackedBufferGroup {
 		})
 	}
 
-	pub fn add_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, buffer: &[u8]) -> Result<PackedBufferGroupId, &'static str> {
+	pub fn add_buffer(&mut self, device: &GpuDevice, queue: &GpuQueue, buffer: &[u8]) -> Result<PackedBufferGroupId, &'static str> {
 		if buffer.len() as u32 > self.buffer_size {
 			return Err("Buffer is larger than buffer max size.");
 		}
@@ -155,21 +159,18 @@ impl PackedBufferGroup {
 			}
 		}
 		self.buffers.push(PackedBuffer::new(device, self.buffer_size, self.alignment, self.usage)?);
-		tracy_client::plot!(
-			"Packed Buffer Size",
-			self.buffers.len() as f64 * self.buffer_size as f64
-		);
-		return Ok(PackedBufferGroupId::new(self.buffers.last_mut().unwrap().add_buffer(queue, buffer)?, self.buffers.len() as u16 - 1));
+		tracy_client::plot!("Packed Buffer Size", self.buffers.len() as f64 * self.buffer_size as f64);
+		Ok(PackedBufferGroupId::new(self.buffers.last_mut().unwrap().add_buffer(queue, buffer)?, self.buffers.len() as u16 - 1))
 	}
 
 	pub fn remove_buffer(&mut self, id: PackedBufferGroupId) -> Result<(), &'static str> {
 		if let Some(packed_buffer) = self.buffers.get_mut(id.buffer_index as usize) {
 			return packed_buffer.remove_buffer(id.internal_id);
 		}
-		return Err("Could not find id.");
+		Err("Could not find id.")
 	}
 
-	pub fn replace_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: PackedBufferGroupId, buffer: &[u8]) -> Result<PackedBufferGroupId, &'static str> {
+	pub fn replace_buffer(&mut self, device: &GpuDevice, queue: &GpuQueue, id: PackedBufferGroupId, buffer: &[u8]) -> Result<PackedBufferGroupId, &'static str> {
 		if buffer.len() as u32 > self.buffer_size {
 			return Err("Buffer is larger than buffer max size.");
 		}
@@ -179,7 +180,7 @@ impl PackedBufferGroup {
 			}
 			return self.add_buffer(device, queue, buffer);
 		}
-		return Err("Could not find id.");
+		Err("Could not find id.")
 	}
 
 	pub fn get_packed_buffer(&self, buffer_index: u16) -> Option<&PackedBuffer> {
@@ -190,7 +191,7 @@ impl PackedBufferGroup {
 		self.buffers.get(id.buffer_index as usize)?.held_buffer(id.internal_id)
 	}
 
-	pub fn buffer(&self, buffer_index: u16) -> Option<&wgpu::Buffer> {
+	pub fn buffer(&self, buffer_index: u16) -> Option<&GpuBuffer> {
 		Some(self.buffers.get(buffer_index as usize)?.buffer())
 	}
 }

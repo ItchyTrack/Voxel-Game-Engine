@@ -7,11 +7,10 @@ use voxel_data::voxels::Voxel;
 
 use crate::streaming_test::StreamingVoxels;
 
-/// Reads a `.vox` file from `path` and adds its voxels into `grid`, offset by
-/// `offset` (in voxels). Returns `false` if the file can't be read or parsed.
-pub fn load_vox(grid: &mut StreamingVoxels, path: &Path, offset: Vec3) -> bool {
-	let Ok(bytes) = std::fs::read(path) else { return false };
-	let Ok(dot_vox_data) = dot_vox::load_bytes(&bytes) else { return false };
+/// Parses a `.vox` byte buffer and adds its voxels into `grid`, offset by
+/// `offset` (in voxels). Returns `false` if the file can't be parsed.
+pub fn load_vox_bytes(grid: &mut StreamingVoxels, bytes: &[u8], offset: Vec3) -> bool {
+	let Ok(dot_vox_data) = dot_vox::load_bytes(bytes) else { return false };
 
 	#[derive(Clone, Copy)]
 	struct Frame { translation: Vec3, rotation: Quat, flip: IVec3 }
@@ -62,4 +61,12 @@ pub fn load_vox(grid: &mut StreamingVoxels, path: &Path, offset: Vec3) -> bool {
 		}
 	}
 	true
+}
+
+/// Reads a `.vox` file from `path` and adds its voxels into `grid`, offset by
+/// `offset` (in voxels). Returns `false` if the file can't be read or parsed.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_vox(grid: &mut StreamingVoxels, path: &Path, offset: Vec3) -> bool {
+	let Ok(bytes) = std::fs::read(path) else { return false };
+	load_vox_bytes(grid, &bytes, offset)
 }

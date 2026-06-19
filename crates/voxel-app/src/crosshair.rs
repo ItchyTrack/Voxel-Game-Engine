@@ -4,9 +4,13 @@ use bevy::prelude::*;
 use bevy::render::render_graph::{
 	NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
 };
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, WgpuWrapper};
 use bevy::render::view::ViewTarget;
 use bevy::render::{Render, RenderApp, RenderSystems};
+
+type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
+type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
+type GpuRenderPipeline = WgpuWrapper<wgpu::RenderPipeline>;
 
 #[derive(Default)]
 pub struct CrosshairPlugin;
@@ -40,9 +44,9 @@ impl CrosshairResource {
 }
 
 struct CrosshairRenderer {
-	pipeline: wgpu::RenderPipeline,
-	buffer: wgpu::Buffer,
-	bind_group: wgpu::BindGroup,
+	pipeline: GpuRenderPipeline,
+	buffer: GpuBuffer,
+	bind_group: GpuBindGroup,
 }
 
 impl CrosshairRenderer {
@@ -51,12 +55,12 @@ impl CrosshairRenderer {
 			label: Some("Crosshair Shader"),
 			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/crosshair.wgsl").into()),
 		});
-		let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+		let buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("Crosshair Screen Size"),
 			size: 16,
 			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 			mapped_at_creation: false,
-		});
+		}));
 		let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			label: Some("Crosshair BGL"),
 			entries: &[wgpu::BindGroupLayoutEntry {
@@ -70,17 +74,20 @@ impl CrosshairRenderer {
 				count: None,
 			}],
 		});
-		let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-			label: Some("Crosshair BG"),
-			layout: &bgl,
-			entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
-		});
+		let bind_group = {
+			let buffer = &*buffer;
+			WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+				label: Some("Crosshair BG"),
+				layout: &bgl,
+				entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
+			}))
+		};
 		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Crosshair Pipeline Layout"),
 			bind_group_layouts: &[&bgl],
 			push_constant_ranges: &[],
 		});
-		let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+		let pipeline = WgpuWrapper::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: Some("Crosshair Pipeline"),
 			layout: Some(&pipeline_layout),
 			vertex: wgpu::VertexState {
@@ -111,7 +118,7 @@ impl CrosshairRenderer {
 			multisample: wgpu::MultisampleState::default(),
 			multiview: None,
 			cache: None,
-		});
+		}));
 
 		Self { pipeline, buffer, bind_group }
 	}
@@ -171,7 +178,7 @@ impl ViewNode for CrosshairNode {
 			timestamp_writes: None,
 		});
 		pass.set_pipeline(&renderer.pipeline);
-		pass.set_bind_group(0, &renderer.bind_group, &[]);
+		pass.set_bind_group(0, &*renderer.bind_group, &[]);
 		pass.draw(0..3, 0..1);
 
 		Ok(())

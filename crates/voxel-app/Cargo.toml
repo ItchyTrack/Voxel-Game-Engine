@@ -25,7 +25,6 @@ nalgebra = "0.34.1"
 rtrb = "0.3.2"
 bevy_egui = "0.39"
 log = { workspace = true }
-tokio = { workspace = true }
 bevy = { workspace = true }
 wgpu = { workspace = true }
 tracing-tracy = { version = "0.11", default-features = false, features = ["enable", "broadcast"], optional = true }
@@ -40,16 +39,21 @@ voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
 voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time"] }
 cpal = "0.16"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, features = ["rt", "sync"] }
 cpal = { version = "0.16", features = ["wasm-bindgen"] }
 getrandom = { workspace = true }
 getrandom_0_3 = { workspace = true }
 console_error_panic_hook = "0.1.7"
 console_log = "1.0"
 wasm-bindgen = "0.2.114"
-wasm-bindgen-futures = "0.4.64"
+wasm-bindgen-futures = "0.4"
+wasm_thread = { version = "0.3", features = ["es_modules"] }
+raw-window-handle = "0.6"
+web-sys = { version = "0.3", features = ["OffscreenCanvas", "Window", "XmlHttpRequest", "XmlHttpRequestResponseType"] }
 web-time = "1.1.0"
 
 [package.metadata.wasm-pack.profile.release]

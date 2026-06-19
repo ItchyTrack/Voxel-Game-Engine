@@ -41,6 +41,10 @@ impl AudioEngine {
 		engine
 	}
 
+	pub fn is_running(&self) -> bool {
+		self.stream.is_some()
+	}
+
 	pub fn resume(&mut self) {
 		if self.stream.is_some() {
 			return;
@@ -90,6 +94,11 @@ impl AudioEngine {
 	}
 
 	fn push_instruction(&mut self, instruction: AudioInstruction) {
+		#[cfg(target_arch = "wasm32")]
+		if self.stream.is_none() {
+			return;
+		}
+
 		if self.instruction_producer.push(instruction).is_err() {
 			log::warn!("Audio instruction queue is full; dropping instruction");
 		}

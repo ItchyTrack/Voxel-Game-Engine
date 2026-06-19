@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Learn WGPU</title>
+	<style>
+		* {
+			padding: 0;
+			margin: 0;
+		}
+		canvas {
+			background-color: black;
+			width: 100vw;
+			height: 100vh;
+		}
+	</style>
+</head>
+<body id="wasm-example">
+	<canvas id="canvas"></canvas>
+	<script type="module">
+		console.log("Running JS");
+		const canvas = document.getElementById("canvas");
+		const worker = new Worker("./worker.js", { type: "module" });
+
+		function sizeCanvas() {
+			const width = window.innerWidth;
+			const height = window.innerHeight;
+			const pixelRatio = window.devicePixelRatio || 1;
+			canvas.style.width = `${width}px`;
+			canvas.style.height = `${height}px`;
+			return { width: width * pixelRatio, height: height * pixelRatio };
+		}
+
+		const offscreen = canvas.transferControlToOffscreen();
+		const size = sizeCanvas();
+		worker.postMessage({ type: "init", canvas: offscreen, ...size }, [offscreen]);
+		worker.onmessage = (event) => {
+			if (event.data?.type === "ready") {
+				console.log("WASM Worker Loaded");
+			}
+		};
+
+		window.addEventListener("resize", () => {
+			worker.postMessage({ type: "resize", ...sizeCanvas() });
+		});
+
+		window.addEventListener("keydown", (event) => {
+			worker.postMessage({ type: "key", code: event.code, pressed: true });
+		});
+		window.addEventListener("keyup", (event) => {
+			worker.postMessage({ type: "key", code: event.code, pressed: false });
+		});
+		canvas.addEventListener("mousedown", (event) => {
+			if (event.button === 0 && document.pointerLockElement !== canvas) {
+				try {
+					const maybePromise = canvas.requestPointerLock?.();
+					maybePromise?.catch?.(() => {});
+				} catch (_) {}
+			}
+			worker.postMessage({ type: "mouse_button", button: event.button, pressed: true });
+		});
+		window.addEventListener("mouseup", (event) => {
+			worker.postMessage({ type: "mouse_button", button: event.button, pressed: false });
+		});
+		window.addEventListener("mousemove", (event) => {
+			if (document.pointerLockElement !== canvas) return;
+			if (event.movementX === 0 && event.movementY === 0) return;
+			worker.postMessage({ type: "mouse_motion", deltaX: event.movementX, deltaY: event.movementY });
+		});
+	</script>
+</body>
+</html>

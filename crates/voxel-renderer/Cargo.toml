@@ -20,6 +20,7 @@ voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 wesl = "0.4.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console"] }
 getrandom = { workspace = true }
 getrandom_0_3 = { workspace = true }
 wgpu = { workspace = true, features = ["webgpu"] }

@@ -40,9 +40,11 @@ pub fn read_back_hit_counts(
 		|mut slot| slot.take()
 	) else { return };
 
-	let staging = prev.item_hit_count_staging_buffer.slice(..);
 	let (tx, rx) = std::sync::mpsc::channel();
-	staging.map_async(wgpu::MapMode::Read, move |result| { let _ = tx.send(result); });
+	{
+		let staging = prev.item_hit_count_staging_buffer.slice(..);
+		staging.map_async(wgpu::MapMode::Read, move |result| { let _ = tx.send(result); });
+	}
 
 	let polled = render_device.wgpu_device().poll(wgpu::PollType::Wait {
 		submission_index: None,
@@ -53,14 +55,17 @@ pub fn read_back_hit_counts(
 		return;
 	}
 
-	let view = staging.get_mapped_range();
-	let counts: &[u32] = bytemuck::cast_slice(&view);
-	let n = counts.len().min(prev.item_count).min(prev.item_ids.len());
+	{
+		let staging = prev.item_hit_count_staging_buffer.slice(..);
+		let view = staging.get_mapped_range();
+		let counts: &[u32] = bytemuck::cast_slice(&view);
+		let n = counts.len().min(prev.item_count).min(prev.item_ids.len());
 
-	feedback.0.clear();
-	for (id, count) in prev.item_ids.iter().zip(&counts[..n]) {
-		feedback.0.insert(*id, *count);
+		feedback.0.clear();
+		for (id, count) in prev.item_ids.iter().zip(&counts[..n]) {
+			feedback.0.insert(*id, *count);
+		}
+		drop(view);
+		prev.item_hit_count_staging_buffer.unmap();
 	}
-	drop(view);
-	prev.item_hit_count_staging_buffer.unmap();
 }

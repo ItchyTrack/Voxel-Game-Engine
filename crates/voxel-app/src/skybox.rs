@@ -12,6 +12,11 @@ use bevy::transform::components::GlobalTransform;
 
 use voxel_renderer::camera::CameraUniform;
 use voxel_renderer::VoxelRenderLabel;
+use bevy::render::renderer::WgpuWrapper;
+
+type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
+type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
+type GpuRenderPipeline = WgpuWrapper<wgpu::RenderPipeline>;
 
 #[derive(Default)]
 pub struct SkyboxPlugin;
@@ -47,9 +52,9 @@ impl SkyboxResource {
 }
 
 struct SkyboxRenderer {
-	pipeline: wgpu::RenderPipeline,
-	buffer: wgpu::Buffer,
-	bind_group: wgpu::BindGroup,
+	pipeline: GpuRenderPipeline,
+	buffer: GpuBuffer,
+	bind_group: GpuBindGroup,
 }
 
 impl SkyboxRenderer {
@@ -64,7 +69,7 @@ impl SkyboxRenderer {
 			bind_group_layouts: &[&layout],
 			push_constant_ranges: &[],
 		});
-		let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+		let pipeline = WgpuWrapper::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: Some("Skybox Pipeline"),
 			layout: Some(&pipeline_layout),
 			vertex: wgpu::VertexState {
@@ -88,7 +93,7 @@ impl SkyboxRenderer {
 			multisample: wgpu::MultisampleState::default(),
 			multiview: None,
 			cache: None,
-		});
+		}));
 		Self { pipeline, buffer, bind_group }
 	}
 }
@@ -148,7 +153,7 @@ impl ViewNode for SkyboxNode {
 			timestamp_writes: None,
 		});
 		pass.set_pipeline(&renderer.pipeline);
-		pass.set_bind_group(0, &renderer.bind_group, &[]);
+		pass.set_bind_group(0, &*renderer.bind_group, &[]);
 		pass.draw(0..3, 0..1);
 
 		Ok(())
