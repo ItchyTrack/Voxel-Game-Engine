@@ -30,7 +30,7 @@ pub type PhysicsBodyId = Entity;
 pub struct Gravity(pub Vec3);
 
 impl Default for Gravity {
-	fn default() -> Self { Self(Vec3::new(0.0, -98.0, 0.0)) }
+	fn default() -> Self { Self(Vec3::new(0.0, -300.0, 0.0)) }
 }
 
 /// When set to `true`, the solver is skipped each tick.

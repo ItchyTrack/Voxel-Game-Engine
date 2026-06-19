@@ -11,7 +11,7 @@ use crate::ball_joint_constraint::BallJointConstraint;
 use crate::collision::Collisions;
 use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
 use crate::sparse_set::SparseSet;
-use crate::{FreezePhysics, PhysicsBodyId, PhysicsSet};
+use crate::{FreezePhysics, Gravity, PhysicsBodyId, PhysicsSet};
 
 pub(crate) use avbd::Solver;
 use avbd::Impulse;
@@ -84,6 +84,7 @@ fn solve_physics(
 	mut constraints: ResMut<BallJointConstraints>,
 	mut impulses: ResMut<Impulses>,
 	collisions: Res<Collisions>,
+	gravity: Res<Gravity>,
 	mut bodies: Query<(
 		Entity,
 		&mut Transform,
@@ -111,7 +112,7 @@ fn solve_physics(
 		solver_bodies.insert(entity, body);
 	}
 
-	solver.0.solve(&mut solver_bodies, &collisions.0, &mut constraints.map, &impulses.map, dt);
+	solver.0.solve(&mut solver_bodies, &collisions.0, &mut constraints.map, &impulses.map, gravity.0, dt);
 	impulses.map.clear();
 
 	for (entity, mut transform, mut velocity, mut angular_velocity, _, _, _, _) in bodies.iter_mut() {

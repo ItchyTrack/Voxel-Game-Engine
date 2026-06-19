@@ -54,6 +54,7 @@ impl Solver {
 		collisions: &[collision::Collision],
 		constraints: &mut HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
 		impulses: &SparseSet<PhysicsBodyId, Vec<Impulse>>,
+		gravity: Vec3,
 		dt: f32,
 	) {
 		let _zone = span!("Solve Collisions");
@@ -128,8 +129,7 @@ impl Solver {
 					}
 				}
 			}
-			let gravity = -300.0;
-			let pos = physics_body.transform.translation + velocity * dt + Vec3::new(0.0, gravity, 0.0) * (0.5 * dt * dt) + physics_body.global_rotated_center_of_mass();
+			let pos = physics_body.transform.translation + velocity * dt + gravity * (0.5 * dt * dt) + physics_body.global_rotated_center_of_mass();
 			let orientation = (Quat::from_scaled_axis(angular_velocity * dt) * physics_body.transform.rotation).normalize();
 			(*physics_body_id, Transform { translation: pos, rotation: orientation, scale: Vec3::ONE })
 		}));
