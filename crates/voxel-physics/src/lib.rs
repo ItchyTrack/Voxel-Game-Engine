@@ -17,7 +17,7 @@ use voxel_data::grid::Grid;
 pub use ball_joint_constraint::BallJointConstraint;
 pub use chunk_requests::PhysicsConsumer;
 pub use collision::Collisions;
-pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, PhysicsIntegratedCenterOfMassTransform, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
 pub use solver::{BallJointConstraints, Impulses};
 pub use voxel_data::grid::GridId;
@@ -30,7 +30,7 @@ pub type PhysicsBodyId = Entity;
 pub struct Gravity(pub Vec3);
 
 impl Default for Gravity {
-	fn default() -> Self { Self(Vec3::new(0.0, -98.0, 0.0)) }
+	fn default() -> Self { Self(Vec3::new(0.0, -300.0, 0.0)) }
 }
 
 /// When set to `true`, the solver is skipped each tick.
