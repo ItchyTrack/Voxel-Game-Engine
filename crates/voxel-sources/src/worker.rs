@@ -17,7 +17,8 @@ use crossbeam_channel::Receiver;
 
 use tracy_client::span;
 use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, AsyncTaskPusher, PriorityTask};
-use voxel_streaming::{ChunkRequestChannel, LodRequestChannel};
+
+use crate::loader::{ChunkLoadRequest, ChunkRequestChannel, LodLoadRequest, LodRequestChannel};
 
 use crate::handle::{SourceLodResult, SourceResult};
 use crate::registry::{
@@ -36,9 +37,9 @@ static WASM_RESULT_TX: OnceLock<Sender<SourceResult>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 static WASM_LOD_RESULT_TX: OnceLock<Sender<SourceLodResult>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
-static WASM_CHUNK_RX: OnceLock<Receiver<voxel_streaming::ChunkLoadRequest>> = OnceLock::new();
+static WASM_CHUNK_RX: OnceLock<Receiver<ChunkLoadRequest>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
-static WASM_LOD_RX: OnceLock<Receiver<voxel_streaming::LodLoadRequest>> = OnceLock::new();
+static WASM_LOD_RX: OnceLock<Receiver<LodLoadRequest>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 static WASM_PUSHER: OnceLock<AsyncTaskPusher> = OnceLock::new();
 
@@ -103,7 +104,7 @@ pub(crate) fn spawn_workers(
 }
 
 fn handle_chunk_request(
-	request: voxel_streaming::ChunkLoadRequest,
+	request: ChunkLoadRequest,
 	sources: &[SharedSource],
 	grid_keys: &GridKeyMap,
 	pusher: &AsyncTaskPusher,
@@ -122,7 +123,7 @@ fn handle_chunk_request(
 }
 
 fn serve_requests(
-	requests: crossbeam_channel::Receiver<voxel_streaming::ChunkLoadRequest>,
+	requests: crossbeam_channel::Receiver<ChunkLoadRequest>,
 	sources: Arc<[SharedSource]>,
 	grid_keys: GridKeyMap,
 	pusher: AsyncTaskPusher,
@@ -134,7 +135,7 @@ fn serve_requests(
 }
 
 fn handle_lod_request(
-	request: voxel_streaming::LodLoadRequest,
+	request: LodLoadRequest,
 	sources: &[SharedSource],
 	grid_keys: &GridKeyMap,
 	pending_lod: &PendingLod,
@@ -239,7 +240,7 @@ fn handle_lod_request(
 }
 
 fn serve_lod_requests(
-	requests: crossbeam_channel::Receiver<voxel_streaming::LodLoadRequest>,
+	requests: crossbeam_channel::Receiver<LodLoadRequest>,
 	sources: Arc<[SharedSource]>,
 	grid_keys: GridKeyMap,
 	pending_lod: PendingLod,

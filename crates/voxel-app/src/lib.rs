@@ -43,7 +43,7 @@ use streaming_test::StreamingTestPlugin;
 use voxel_edit::VoxelEditPlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use voxel_renderer::VoxelRendererPlugin;
-use voxel_sources::{VoxelSourcesAppExt, VoxelSourcesPlugin};
+use voxel_sources::VoxelSourcesAppExt;
 use voxel_streaming::VoxelStreamingPlugin;
 use world_interaction::WorldInteractionPlugin;
 
@@ -64,7 +64,6 @@ impl PluginGroup for GamePlugins {
 		let group = PluginGroupBuilder::start::<Self>()
 			.add(VoxelEditPlugin)
 			.add(VoxelStreamingPlugin)
-			.add(VoxelSourcesPlugin)
 			.add(VoxelLodGeneratorPlugin)
 			.add(MemoryStorePlugin)
 			// .add(SphereSourcePlugin)

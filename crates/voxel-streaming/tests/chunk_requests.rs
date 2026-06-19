@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use voxel_data::grid::GridId;
-use voxel_streaming::{ChunkConsumer, ChunkRequestChannel, GridStreaming, LodLoadResult};
+use voxel_sources::ChunkRequestChannel;
+use voxel_streaming::{ChunkConsumer, GridStreaming, LodLoadResult};
 
 #[derive(Default)]
 struct TestConsumer {

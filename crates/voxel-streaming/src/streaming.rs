@@ -4,6 +4,7 @@ use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use voxel_gpu::{LodVoxels, VoxelGpuUploadFinished};
+use voxel_sources::{SourceEvent, SourceRegistry};
 
 use tracy_client::span;
 
@@ -14,9 +15,9 @@ use voxel_edit::{EditGate, GridEdit, GridEdits};
 
 use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
-use crate::loader::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
 use crate::lod_index::LodIndex;
-use crate::ChunkLoadResolved;
+use crate::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
+use crate::{ChunkBecamePresent, ChunkLoadResolved, ChunkLoadResult};
 use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
@@ -195,6 +196,99 @@ fn valid_lod_key(key: LodKey) -> bool {
 	let factor = 1i32 << key.lod;
 	let coarse_extent = (key.size * CHUNK_SIZE) / factor;
 	!coarse_extent.cmplt(IVec3::ONE).any() && !coarse_extent.cmpgt(IVec3::splat(CHUNK_SIZE)).any()
+}
+
+pub fn sync_grid_keys(mut registry: ResMut<SourceRegistry>, grids: Query<(GridId, &voxel_sources::GridKey)>) {
+	registry.clear_grid_keys();
+	for (grid, key) in &grids {
+		registry.insert_grid_key(grid, *key);
+	}
+}
+
+pub fn apply_source_events(
+	registry: Res<SourceRegistry>,
+	mut grids: Query<&mut GridStreaming>,
+	mut present_events: MessageWriter<ChunkBecamePresent>,
+) {
+	while let Some(event) = registry.try_recv_event() {
+		match event {
+			SourceEvent::Available { grid, chunk } => {
+				let Some(entity) = registry.entity(grid) else { continue };
+				if let Ok(mut s) = grids.get_mut(entity) {
+					if s.presence().state(chunk).is_none() {
+						present_events.write(ChunkBecamePresent { grid: entity, chunk });
+						s.presence_mut().mark_present(chunk);
+					}
+				}
+			}
+			SourceEvent::AvailableArea { grid, min, size } => {
+				let Some(entity) = registry.entity(grid) else { continue };
+				if let Ok(mut s) = grids.get_mut(entity) {
+					for x in min.x..min.x + size.x {
+						for y in min.y..min.y + size.y {
+							for z in min.z..min.z + size.z {
+								let chunk = IVec3::new(x, y, z);
+								if s.presence().state(chunk).is_none() {
+									present_events.write(ChunkBecamePresent { grid: entity, chunk });
+								}
+							}
+						}
+					}
+					s.presence_mut().mark_present_area(min, size);
+				}
+			}
+			SourceEvent::Unavailable { grid, chunk } => {
+				let Some(entity) = registry.entity(grid) else { continue };
+				if let Ok(mut s) = grids.get_mut(entity) {
+					if matches!(s.presence().state(chunk), Some(ChunkState::Available)) {
+						s.presence_mut().clear_present(chunk);
+					}
+				}
+			}
+			SourceEvent::Edited { source, grid, chunk } => {
+				let entity = registry.entity(grid);
+				registry.forget_others(source, grid, chunk);
+				if let Some(entity) = entity {
+					if let Ok(mut s) = grids.get_mut(entity) {
+						s.mark_external_dirty(chunk);
+					}
+				}
+			}
+		}
+	}
+}
+
+pub fn drain_source_lod_results(registry: Res<SourceRegistry>, loader: Res<LodLoaderChannel>) {
+	while let Some(result) = registry.try_recv_lod_result() {
+		let Some(grid) = registry.entity(result.grid) else { continue };
+		let Some((requests, lod, voxels)) = registry.take_pending_lod_completion(result) else { continue };
+		for request in requests {
+			loader.report(LodLoadResult {
+				grid,
+				requester: request.requester,
+				key: LodKey { min: request.key.min, size: request.key.size, lod: lod.max(0.0).floor() as u8 },
+				priority: request.priority,
+				generation: request.generation,
+				voxels: voxels.clone(),
+				entity: None,
+			});
+		}
+	}
+}
+
+pub fn serve_saves(saves: Res<ChunkSaveChannel>, registry: Res<SourceRegistry>, grids: Query<&voxel_sources::GridKey>) {
+	while let Some(save) = saves.try_recv() {
+		let Ok(&key) = grids.get(save.grid) else { continue };
+		registry.route_save(key, save.chunk, &save.voxels);
+	}
+}
+
+pub fn drain_source_results(registry: Res<SourceRegistry>, loader: Res<ChunkLoaderChannel>) {
+	while let Some(result) = registry.try_recv_result() {
+		if let Some(grid) = registry.entity(result.grid) {
+			loader.report(ChunkLoadResult { grid, chunk: result.chunk, voxels: result.voxels });
+		}
+	}
 }
 
 impl EditGate for GridStreaming {

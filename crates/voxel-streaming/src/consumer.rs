@@ -5,7 +5,7 @@ use bevy::math::IVec3;
 
 use voxel_data::grid::GridId;
 
-use crate::loader::LodLoadResult;
+use crate::LodLoadResult;
 
 #[bevy_trait_query::queryable]
 pub trait ChunkConsumer {

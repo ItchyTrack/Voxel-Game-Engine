@@ -5,20 +5,20 @@ use voxel_data::voxels::Voxels;
 
 use crate::source::{GridKey, SourceId};
 
-pub(crate) enum SourceEvent {
+pub enum SourceEvent {
 	Available { grid: GridKey, chunk: IVec3 },
 	AvailableArea { grid: GridKey, min: IVec3, size: IVec3 },
 	Unavailable { grid: GridKey, chunk: IVec3 },
 	Edited { source: SourceId, grid: GridKey, chunk: IVec3 },
 }
 
-pub(crate) struct SourceResult {
+pub struct SourceResult {
 	pub grid: GridKey,
 	pub chunk: IVec3,
 	pub voxels: Option<Voxels>,
 }
 
-pub(crate) struct SourceLodResult {
+pub struct SourceLodResult {
 	pub source: SourceId,
 	pub grid: GridKey,
 	pub min: IVec3,

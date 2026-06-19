@@ -2,7 +2,8 @@ use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use voxel_data::grid::Grid;
 use voxel_edit::GridEdits;
-use voxel_streaming::{ChunkLoadResolved, ChunkLoadResult, ChunkLoaderChannel, ChunkState, GridStreaming};
+use voxel_sources::{ChunkLoadResult, ChunkLoaderChannel};
+use voxel_streaming::{ChunkLoadResolved, ChunkState, GridStreaming};
 
 #[test]
 fn present_chunk_that_loads_none_emits_not_visible_resolution() {

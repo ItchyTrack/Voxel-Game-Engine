@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::math::IVec3;
 
-use crate::loader::LodKey;
+use crate::LodKey;
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct LodIndex {
