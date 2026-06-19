@@ -17,7 +17,7 @@ use voxel_data::grid::Grid;
 pub use ball_joint_constraint::BallJointConstraint;
 pub use chunk_requests::PhysicsConsumer;
 pub use collision::Collisions;
-pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, PhysicsIntegratedCenterOfMassTransform, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
 pub use solver::{BallJointConstraints, Impulses};
 pub use voxel_data::grid::GridId;

@@ -1,5 +1,6 @@
 mod avbd;
 mod body;
+mod integrator;
 
 use std::collections::HashMap;
 
@@ -9,13 +10,13 @@ use voxel_data::grid::Grid;
 
 use crate::ball_joint_constraint::BallJointConstraint;
 use crate::collision::Collisions;
-use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, PhysicsIntegratedCenterOfMassTransform, RigidBody, RotationalInertia, Velocity};
 use crate::sparse_set::SparseSet;
-use crate::{FreezePhysics, Gravity, PhysicsBodyId, PhysicsSet};
+use crate::{FreezePhysics, PhysicsBodyId, PhysicsSet};
 
 pub(crate) use avbd::Solver;
-use avbd::Impulse;
 use body::SolverBody;
+use integrator::integrate_physics_center_of_mass_transforms;
 
 /// Cross-frame solver state (warm-started K/L values for collision constraints).
 #[derive(Resource)]
@@ -43,6 +44,19 @@ impl BallJointConstraints {
 	}
 }
 
+enum Impulse {
+	Impulse {
+		impulse: Vec3,
+		impulse_pos: Vec3,
+	},
+	CentralImpulse {
+		central_impulse: Vec3,
+	},
+	RotationalImpulse {
+		rotational_impulse: Vec3,
+	},
+}
+
 /// Queue of impulses to apply on the next physics step.
 #[derive(Resource, Default)]
 pub struct Impulses {
@@ -51,13 +65,13 @@ pub struct Impulses {
 
 impl Impulses {
 	pub fn apply_central_impulse(&mut self, body: PhysicsBodyId, impulse: Vec3) {
-		self.map.entry(body).or_default().push(Impulse::CentralImpulse { central_impluse: impulse });
+		self.map.entry(body).or_default().push(Impulse::CentralImpulse { central_impulse: impulse });
 	}
 	pub fn apply_rotational_impulse(&mut self, body: PhysicsBodyId, impulse: Vec3) {
-		self.map.entry(body).or_default().push(Impulse::RotationalImpulse { rotational_impluse: impulse });
+		self.map.entry(body).or_default().push(Impulse::RotationalImpulse { rotational_impulse: impulse });
 	}
 	pub fn apply_impulse(&mut self, body: PhysicsBodyId, pos: Vec3, impulse: Vec3) {
-		self.map.entry(body).or_default().push(Impulse::Impulse { impluse: impulse, impluse_pos: pos });
+		self.map.entry(body).or_default().push(Impulse::Impulse { impulse: impulse, impulse_pos: pos });
 	}
 }
 
@@ -71,7 +85,8 @@ impl Plugin for SolverPlugin {
 			.init_resource::<Impulses>()
 			.add_systems(
 				FixedUpdate,
-				solve_physics
+				(integrate_physics_center_of_mass_transforms, solve_physics)
+					.chain()
 					.in_set(PhysicsSet::Step)
 					.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
 			);
@@ -84,10 +99,10 @@ fn solve_physics(
 	mut constraints: ResMut<BallJointConstraints>,
 	mut impulses: ResMut<Impulses>,
 	collisions: Res<Collisions>,
-	gravity: Res<Gravity>,
 	mut bodies: Query<(
 		Entity,
 		&mut Transform,
+		&PhysicsIntegratedCenterOfMassTransform,
 		&mut Velocity,
 		&mut AngularVelocity,
 		&Mass,
@@ -100,9 +115,10 @@ fn solve_physics(
 	if dt <= 0.0 { return; }
 
 	let mut solver_bodies: SparseSet<PhysicsBodyId, SolverBody> = SparseSet::with_capacity(bodies.iter().count());
-	for (entity, transform, velocity, angular_velocity, mass, inertia, com, is_static) in bodies.iter() {
-		let mut body = SolverBody::new(entity);
+	for (entity, transform, integrated_center_of_mass_transform, velocity, angular_velocity, mass, inertia, com, is_static) in bodies.iter() {
+		let mut body = SolverBody::new();
 		body.transform = *transform;
+		body.integrated_center_of_mass_transform = integrated_center_of_mass_transform.0;
 		body.velocity = velocity.0;
 		body.angular_velocity = angular_velocity.0;
 		body.mass = mass.0;
@@ -112,10 +128,10 @@ fn solve_physics(
 		solver_bodies.insert(entity, body);
 	}
 
-	solver.0.solve(&mut solver_bodies, &collisions.0, &mut constraints.map, &impulses.map, gravity.0, dt);
+	solver.0.solve(&mut solver_bodies, &collisions.0, &mut constraints.map, dt);
 	impulses.map.clear();
 
-	for (entity, mut transform, mut velocity, mut angular_velocity, _, _, _, _) in bodies.iter_mut() {
+	for (entity, mut transform, _, mut velocity, mut angular_velocity, _, _, _, _) in bodies.iter_mut() {
 		let Some(body) = solver_bodies.get(&entity) else { continue };
 		*transform = body.transform;
 		velocity.0 = body.velocity;

@@ -13,8 +13,25 @@ pub struct VoxelMass;
 // ----------------- RigidBody -----------------
 
 #[derive(Component, Default, Debug, Clone, Copy)]
-#[require(Transform, Velocity, AngularVelocity, Mass, RotationalInertia, CenterOfMass)]
+#[require(Transform, PhysicsIntegratedCenterOfMassTransform, Velocity, AngularVelocity, Mass, RotationalInertia, CenterOfMass)]
 pub struct RigidBody;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PhysicsIntegratedCenterOfMassTransform(pub Transform);
+
+impl PhysicsIntegratedCenterOfMassTransform {
+	pub const IDENTITY: Self = Self(Transform::IDENTITY);
+
+	pub fn new(transform: Transform) -> Self { Self(transform) }
+}
+
+impl Default for PhysicsIntegratedCenterOfMassTransform {
+	fn default() -> Self { Self::IDENTITY }
+}
+
+impl From<Transform> for PhysicsIntegratedCenterOfMassTransform {
+	fn from(transform: Transform) -> Self { Self(transform) }
+}
 
 #[derive(Component, Default, Debug, Clone, Copy)]
 pub struct Velocity(pub Vec3);
