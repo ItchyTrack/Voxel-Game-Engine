@@ -4,12 +4,12 @@ use voxel_data::grid::Grid;
 use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, PhysicsIntegratedCenterOfMassTransform, RigidBody, RotationalInertia, Velocity};
 use crate::Gravity;
 
-use super::{Impulse, Impulses};
+use super::{Impulse, Impulses, Accelerations};
 
 pub(super) fn integrate_physics_center_of_mass_transforms(
 	time: Res<Time>,
 	impulses: Res<Impulses>,
-	gravity: Res<Gravity>,
+	accelerations: Res<Accelerations>,
 	mut bodies: Query<(
 		Entity,
 		&Transform,
@@ -35,7 +35,14 @@ pub(super) fn integrate_physics_center_of_mass_transforms(
 			continue;
 		}
 
-		let mut velocity = velocity.0;
+		let mut acceleration = Vec3::ZERO;
+		if let Some(body_accelerations) = accelerations.map.get(&entity) {
+			for acc in body_accelerations {
+				acceleration += *acc;
+			}
+		}
+
+		let mut velocity = velocity.0 + acceleration * dt;
 		let mut angular_velocity = angular_velocity.0;
 		let rotational_inertia_inverse = inertia.0.get_rotated(transform.rotation.as_dquat()).mat.as_mat3().inverse();
 		let global_center_of_mass = *transform * com.0;
@@ -56,9 +63,6 @@ pub(super) fn integrate_physics_center_of_mass_transforms(
 				}
 			}
 		}
-
-		let acceleration = gravity.0;
-		velocity += acceleration * dt;
 
 		let next_rotation = (Quat::from_scaled_axis(angular_velocity * dt) * transform.rotation).normalize();
 		integrated_center_of_mass_transform.0 = Transform {

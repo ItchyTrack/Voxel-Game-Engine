@@ -75,6 +75,17 @@ impl Impulses {
 	}
 }
 
+#[derive(Resource, Default)]
+pub struct Accelerations {
+	map: SparseSet<PhysicsBodyId, Vec<Vec3>>,
+}
+
+impl Accelerations {
+	pub fn apply_central_acceleration(&mut self, body: PhysicsBodyId, acceleration: Vec3) {
+		self.map.entry(body).or_default().push(acceleration);
+	}
+}
+
 #[derive(Default)]
 pub struct SolverPlugin;
 
@@ -83,9 +94,13 @@ impl Plugin for SolverPlugin {
 		app.init_resource::<PhysicsSolver>()
 			.init_resource::<BallJointConstraints>()
 			.init_resource::<Impulses>()
+			.init_resource::<Accelerations>()
 			.add_systems(
 				FixedUpdate,
-				(integrate_physics_center_of_mass_transforms, solve_physics)
+				(
+					integrate_physics_center_of_mass_transforms,
+					(solve_physics, clear_queued_impulses_and_accelerations),
+				)
 					.chain()
 					.in_set(PhysicsSet::Step)
 					.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
@@ -93,11 +108,18 @@ impl Plugin for SolverPlugin {
 	}
 }
 
+fn clear_queued_impulses_and_accelerations(
+	mut impulses: ResMut<Impulses>,
+	mut accelerations: ResMut<Accelerations>,
+) {
+	impulses.map.clear();
+	accelerations.map.clear();
+}
+
 fn solve_physics(
 	time: Res<Time>,
 	mut solver: ResMut<PhysicsSolver>,
 	mut constraints: ResMut<BallJointConstraints>,
-	mut impulses: ResMut<Impulses>,
 	collisions: Res<Collisions>,
 	mut bodies: Query<(
 		Entity,
@@ -129,7 +151,6 @@ fn solve_physics(
 	}
 
 	solver.0.solve(&mut solver_bodies, &collisions.0, &mut constraints.map, dt);
-	impulses.map.clear();
 
 	for (entity, mut transform, _, mut velocity, mut angular_velocity, _, _, _, _) in bodies.iter_mut() {
 		let Some(body) = solver_bodies.get(&entity) else { continue };
