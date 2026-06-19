@@ -4,6 +4,7 @@ mod camera_controller;
 mod crosshair;
 mod debug_toggles;
 mod debug_ui;
+mod gravity;
 mod lod_downsample;
 mod memory_store;
 mod scene;
@@ -33,6 +34,7 @@ use camera_voxel_loader::CameraVoxelLoaderPlugin;
 use crosshair::CrosshairPlugin;
 use debug_toggles::DebugTogglesPlugin;
 use debug_ui::DebugUiPlugin;
+use gravity::GravityPlugin;
 use memory_store::MemoryStorePlugin;
 use scene::ScenePlugin;
 use skybox::SkyboxPlugin;
@@ -71,6 +73,7 @@ impl PluginGroup for GamePlugins {
 			.add(SkyboxPlugin)
 			.add(CrosshairPlugin)
 			.add(VoxelPhysicsPlugin)
+			.add(GravityPlugin)
 			.add(ScenePlugin)
 			.add(StreamingTestPlugin)
 			.add(FlyCameraPlugin)

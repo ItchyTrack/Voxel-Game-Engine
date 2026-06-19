@@ -2,9 +2,7 @@ use bevy::prelude::*;
 use voxel_data::grid::Grid;
 
 use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, PhysicsIntegratedCenterOfMassTransform, RigidBody, RotationalInertia, Velocity};
-use crate::Gravity;
-
-use super::{Impulse, Impulses, Accelerations};
+use super::{Accelerations, Impulse, Impulses};
 
 pub(super) fn integrate_physics_center_of_mass_transforms(
 	time: Res<Time>,

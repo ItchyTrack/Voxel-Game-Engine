@@ -19,19 +19,12 @@ pub use chunk_requests::PhysicsConsumer;
 pub use collision::Collisions;
 pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, PhysicsIntegratedCenterOfMassTransform, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
-pub use solver::{BallJointConstraints, Impulses};
+pub use solver::{Accelerations, BallJointConstraints, Impulses};
 pub use voxel_data::grid::GridId;
 
 use crate::components::VoxelMass;
 
 pub type PhysicsBodyId = Entity;
-
-#[derive(Resource, Debug, Clone, Copy)]
-pub struct Gravity(pub Vec3);
-
-impl Default for Gravity {
-	fn default() -> Self { Self(Vec3::new(0.0, -300.0, 0.0)) }
-}
 
 /// When set to `true`, the solver is skipped each tick.
 #[derive(Resource, Debug, Clone, Copy)]
@@ -63,8 +56,7 @@ pub struct VoxelPhysicsPlugin;
 impl Plugin for VoxelPhysicsPlugin {
 	fn build(&self, app: &mut App) {
 		use voxel_streaming::VoxelStreamingAppExt;
-		app.init_resource::<Gravity>()
-			.init_resource::<FreezePhysics>()
+		app.init_resource::<FreezePhysics>()
 			.insert_resource(Time::<Fixed>::from_hz(120.0))
 			.configure_sets(
 				FixedUpdate,
