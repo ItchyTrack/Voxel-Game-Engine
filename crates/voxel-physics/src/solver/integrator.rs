@@ -58,12 +58,12 @@ pub(super) fn integrate_physics_center_of_mass_transforms(
 		}
 
 		let acceleration = gravity.0;
+		velocity += acceleration * dt;
 
 		let next_rotation = (Quat::from_scaled_axis(angular_velocity * dt) * transform.rotation).normalize();
 		integrated_center_of_mass_transform.0 = Transform {
 			translation: transform.translation
 				+ velocity * dt
-				+ acceleration * (0.5 * dt * dt)
 				+ transform.rotation * com.0,
 			rotation: next_rotation,
 			scale: Vec3::ONE,
