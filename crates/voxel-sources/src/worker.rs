@@ -18,7 +18,7 @@ use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, AsyncTaskPusher, Pr
 
 use crate::loader::{ChunkLoadRequest, LodLoadRequest, PresenceLoadRequest, SourceRequest};
 
-use crate::handle::{SourceLodResult, SourceResult};
+use crate::handle::{SourceLodResult, SourceMessage, SourceResult};
 use crate::registry::{
 	cheapest, lod_sources_with_any_chunks, LodRequestKey, PendingLod, PendingLodJob, SharedSource,
 	SourceRegistry,
@@ -29,9 +29,7 @@ static WASM_SOURCES: OnceLock<Arc<[SharedSource]>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 static WASM_PENDING_LOD: OnceLock<PendingLod> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
-static WASM_RESULT_TX: OnceLock<Sender<SourceResult>> = OnceLock::new();
-#[cfg(target_arch = "wasm32")]
-static WASM_LOD_RESULT_TX: OnceLock<Sender<SourceLodResult>> = OnceLock::new();
+static WASM_MESSAGE_TX: OnceLock<Sender<SourceMessage>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 static WASM_REQUEST_RX: OnceLock<Receiver<SourceRequest>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
@@ -53,8 +51,7 @@ pub(crate) fn spawn_workers(
 		let sources: Arc<[SharedSource]> = registry.sources.clone().into();
 		let _ = WASM_SOURCES.set(sources);
 		let _ = WASM_PENDING_LOD.set(registry.pending_lod.clone());
-		let _ = WASM_RESULT_TX.set(registry.result_tx.clone());
-		let _ = WASM_LOD_RESULT_TX.set(registry.lod_result_tx.clone());
+		let _ = WASM_MESSAGE_TX.set(registry.message_tx.clone());
 		let _ = WASM_REQUEST_RX.set(registry.requests.receiver());
 		let _ = WASM_PUSHER.set(async_queue.pusher());
 		commands.insert_resource(SourceWorkers::default());
@@ -69,12 +66,11 @@ pub(crate) fn spawn_workers(
 
 		let requests = registry.requests.receiver();
 
-		let result_tx = registry.result_tx.clone();
-		let lod_result_tx = registry.lod_result_tx.clone();
+		let message_tx = registry.message_tx.clone();
 
 		let worker = thread::Builder::new()
 			.name("serve-source-requests".into())
-			.spawn(move || serve_requests(requests, sources, pending_lod, pusher, result_tx, lod_result_tx))
+			.spawn(move || serve_requests(requests, sources, pending_lod, pusher, message_tx))
 			.unwrap();
 
 		commands.insert_resource(SourceWorkers { _threads: vec![worker] });
@@ -99,7 +95,7 @@ fn handle_chunk_request(
 	request: ChunkLoadRequest,
 	sources: &[SharedSource],
 	pusher: &AsyncTaskPusher,
-	result_tx: &Sender<SourceResult>,
+	message_tx: &Sender<SourceMessage>,
 ) {
 	if let Some(id) = cheapest(sources, request.grid, request.chunk) {
 		let source = sources[id.0].clone();
@@ -109,7 +105,7 @@ fn handle_chunk_request(
 			source.request_load(grid, request.chunk);
 		}));
 	} else {
-		let _ = result_tx.send(SourceResult { grid: request.grid, chunk: request.chunk, voxels: None });
+		let _ = message_tx.send(SourceMessage::Chunk(SourceResult { grid: request.grid, chunk: request.chunk, voxels: None }));
 	}
 }
 
@@ -118,15 +114,14 @@ fn serve_requests(
 	sources: Arc<[SharedSource]>,
 	pending_lod: PendingLod,
 	pusher: AsyncTaskPusher,
-	result_tx: Sender<SourceResult>,
-	lod_result_tx: Sender<SourceLodResult>,
+	message_tx: Sender<SourceMessage>,
 ) {
 	while let Ok(request) = requests.recv() {
 		match request {
 			SourceRequest::Presence(request) => handle_presence_request(request, &sources, &pusher),
-			SourceRequest::Chunk(request) => handle_chunk_request(request, &sources, &pusher, &result_tx),
+			SourceRequest::Chunk(request) => handle_chunk_request(request, &sources, &pusher, &message_tx),
 			SourceRequest::Lod(request) => {
-				handle_lod_request(request, &sources, &pending_lod, &pusher, &lod_result_tx)
+				handle_lod_request(request, &sources, &pending_lod, &pusher, &message_tx)
 			}
 		}
 	}
@@ -137,7 +132,7 @@ fn handle_lod_request(
 	sources: &[SharedSource],
 	pending_lod: &PendingLod,
 	pusher: &AsyncTaskPusher,
-	lod_result_tx: &Sender<SourceLodResult>,
+	message_tx: &Sender<SourceMessage>,
 ) {
 	let source_ids =
 		lod_sources_with_any_chunks(sources, request.grid, request.key.min, request.key.size, request.key.lod as f32);
@@ -147,14 +142,14 @@ fn handle_lod_request(
 				LodRequestKey::new(request.grid, request.key.min, request.key.size, request.key.lod as f32),
 				PendingLodJob::Direct { requests: vec![request] },
 			);
-			let _ = lod_result_tx.send(SourceLodResult {
+			let _ = message_tx.send(SourceMessage::Lod(SourceLodResult {
 				source: crate::source::SourceId(usize::MAX),
 				grid: request.grid,
 				min: request.key.min,
 				size: request.key.size,
 				lod: request.key.lod as f32,
 				voxels: None,
-			});
+			}));
 		}
 		[id] => {
 			let lod_key = LodRequestKey::new(request.grid, request.key.min, request.key.size, request.key.lod as f32);
@@ -252,11 +247,8 @@ pub fn voxel_sources_request_worker_loop(_worker_id: u32) {
 	let pusher = loop {
 		if let Some(v) = WASM_PUSHER.get() { break v.clone(); }
 	};
-	let result_tx = loop {
-		if let Some(v) = WASM_RESULT_TX.get() { break v.clone(); }
+	let message_tx = loop {
+		if let Some(v) = WASM_MESSAGE_TX.get() { break v.clone(); }
 	};
-	let lod_result_tx = loop {
-		if let Some(v) = WASM_LOD_RESULT_TX.get() { break v.clone(); }
-	};
-	serve_requests(requests, sources, pending_lod, pusher, result_tx, lod_result_tx);
+	serve_requests(requests, sources, pending_lod, pusher, message_tx);
 }

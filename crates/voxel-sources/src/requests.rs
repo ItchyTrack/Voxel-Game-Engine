@@ -30,11 +30,11 @@ impl VoxelSourceRequestApi for SourceRegistry {
 	}
 
 	fn chunk_requests_sent(&self) -> u64 {
-		self.chunk_requests_sent()
+		SourceRegistry::chunk_requests_sent(self)
 	}
 
 	fn lod_requests_sent(&self) -> u64 {
-		self.lod_requests_sent()
+		SourceRegistry::lod_requests_sent(self)
 	}
 }
 
@@ -49,10 +49,6 @@ pub struct VoxelSources<'w> {
 }
 
 impl VoxelSources<'_> {
-	pub fn try_recv_event(&self) -> Option<crate::SourceEvent> {
-		self.registry.try_recv_event()
-	}
-
 	pub fn route_save(&self, grid: GridId, chunk: IVec3, voxels: &Voxels) {
 		self.registry.route_save(grid, chunk, voxels);
 	}

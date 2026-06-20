@@ -1,4 +1,5 @@
 use bevy::math::{I16Vec3, IVec3};
+use bevy::prelude::Entity;
 use voxel_data::voxels::{Voxel, Voxels};
 use voxel_data::grid::GridId;
 use voxel_sources::{ChunkSource, SourceHandle, VoxelLodGenerator};

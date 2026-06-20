@@ -204,12 +204,13 @@ fn valid_lod_key(key: LodKey) -> bool {
 }
 
 pub fn apply_source_events(
-	sources: VoxelSources,
+	mut source_events: MessageReader<SourceEvent>,
 	mut commands: Commands,
 	mut grids: Query<&mut GridStreaming>,
 	mut present_events: MessageWriter<ChunkBecamePresent>,
+	sources: VoxelSources,
 ) {
-	while let Some(event) = sources.try_recv_event() {
+	for event in source_events.read().copied() {
 		match event {
 			SourceEvent::Available { grid, chunk } => {
 				if let Ok(mut s) = grids.get_mut(grid) {

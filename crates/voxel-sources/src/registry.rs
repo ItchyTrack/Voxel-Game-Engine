@@ -10,7 +10,7 @@ use voxel_data::voxels::Voxels;
 
 use crate::loader::{ChunkLoadRequest, LodLoadRequest, PresenceLoadRequest, SourceRequestChannel};
 
-use crate::handle::{SourceEvent, SourceLodResult, SourceResult};
+use crate::handle::{SourceLodResult, SourceMessage};
 use crate::source::{ChunkSource, SourceId, VoxelLodGenerator};
 
 /// [`ChunkSource`] takes `&self` and synchronizes internally.
@@ -51,30 +51,20 @@ pub(crate) struct SourceRegistry {
 	pub(crate) sources: Vec<SharedSource>,
 	pub(crate) lod_generator: Arc<dyn VoxelLodGenerator>,
 	
-	pub(crate) event_tx: Sender<SourceEvent>,
-	pub(crate) event_rx: Receiver<SourceEvent>,
-	pub(crate) result_tx: Sender<SourceResult>,
-	pub(crate) result_rx: Receiver<SourceResult>,
-	pub(crate) lod_result_tx: Sender<SourceLodResult>,
-	pub(crate) lod_result_rx: Receiver<SourceLodResult>,
+	pub(crate) message_tx: Sender<SourceMessage>,
+	pub(crate) message_rx: Receiver<SourceMessage>,
 	pub(crate) pending_lod: PendingLod,
 	pub(crate) requests: SourceRequestChannel,
 }
 
 impl Default for SourceRegistry {
 	fn default() -> Self {
-		let (event_tx, event_rx) = unbounded();
-		let (result_tx, result_rx) = unbounded();
-		let (lod_result_tx, lod_result_rx) = unbounded();
+		let (message_tx, message_rx) = unbounded();
 		Self {
 			sources: Vec::new(),
 			lod_generator: Arc::new(IdentityVoxelLodGenerator),
-			event_tx,
-			event_rx,
-			result_tx,
-			result_rx,
-			lod_result_tx,
-			lod_result_rx,
+			message_tx,
+			message_rx,
 			pending_lod: Arc::new(Mutex::new(HashMap::new())),
 			requests: SourceRequestChannel::default(),
 		}
@@ -91,16 +81,8 @@ impl SourceRegistry {
 	}
 
 
-	pub fn try_recv_event(&self) -> Option<SourceEvent> {
-		self.event_rx.try_recv().ok()
-	}
-
-	pub fn try_recv_result(&self) -> Option<SourceResult> {
-		self.result_rx.try_recv().ok()
-	}
-
-	pub fn try_recv_lod_result(&self) -> Option<SourceLodResult> {
-		self.lod_result_rx.try_recv().ok()
+	pub fn try_recv_message(&self) -> Option<SourceMessage> {
+		self.message_rx.try_recv().ok()
 	}
 
 	pub fn lod_generator(&self) -> &dyn VoxelLodGenerator {

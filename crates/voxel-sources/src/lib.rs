@@ -57,9 +57,10 @@ impl Plugin for VoxelSourcesPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<SourceRegistry>()
 			.init_resource::<ChunkSaveChannel>()
+			.add_message::<SourceEvent>()
 			.add_message::<ChunkLoaded>()
 			.add_message::<LodLoaded>()
 			.add_systems(Startup, (systems::init_sources, worker::spawn_workers).chain())
-			.add_systems(PreUpdate, (systems::publish_chunk_results, systems::publish_lod_results));
+			.add_systems(PreUpdate, systems::publish_source_messages);
 	}
 }

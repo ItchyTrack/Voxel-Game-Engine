@@ -79,8 +79,6 @@ fn debug_window(
 		.map(|s| (s.bvh_bytes / 1000, s.bvh_leaf_bytes / 1000))
 		.unwrap_or((0, 0));
 
-	let chunk_sent = requests.chunk_requests_sent();
-	let lod_sent = requests.lod_requests_sent();
 	let async_queue_len = async_task_priority_queue.len();
 
 	egui::Window::new("Debug")
@@ -95,8 +93,6 @@ fn debug_window(
 			ui.label(format!("BVH leaf bytes: {}KB", bvh_leaf_kb));
 			ui.separator();
 			ui.label("Streaming");
-			ui.label(format!("Chunk requests sent: {}", chunk_sent));
-			ui.label(format!("LOD requests sent: {}", lod_sent));
 			ui.label(format!("Async priority queue: {}", async_queue_len));
 			ui.separator();
 			ui.label("Graphics");
