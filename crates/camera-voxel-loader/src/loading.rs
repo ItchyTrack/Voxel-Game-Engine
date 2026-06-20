@@ -7,7 +7,7 @@ use tracy_client::span;
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::subgrid::SubGrid;
 use voxel_renderer::voxel_camera::VoxelCamera;
-use voxel_streaming::{ChunkConsumer, ChunkLoadResolved, ChunkRequestChannel, GridStreaming, LodKey, CHUNK_SIZE};
+use voxel_streaming::{ChunkConsumer, ChunkLoadResolved, GridStreaming, LodKey, VoxelSourceRequestApi, VoxelSourceRequests, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::coverage::{
@@ -20,7 +20,7 @@ use crate::types::{TileKey, TileRecord, TileStatus};
 use crate::CameraVoxelLoaderConsumer;
 
 pub(crate) fn update_camera_voxel_loader_requests(
-	chunk_channel: Res<ChunkRequestChannel>,
+	requests: VoxelSourceRequests,
 	mut cameras: Query<(Entity, &Camera, &GlobalTransform, &mut CameraVoxelLoader), With<Camera3d>>,
 	mut grids: Query<(GridId, &GlobalTransform, &mut GridStreaming)>, grid_transforms: Query<&GlobalTransform, With<GridStreaming>>,
 	grid_data: Query<&Grid>, subgrids: Query<&SubGrid>, subgrid_gpu: Query<&SubGridGpuState, With<SubGrid>>,
@@ -45,7 +45,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 		apply_desired_delta(
 			&mut camera_voxel_loader,
 			&mut grids.transmute_lens::<&mut GridStreaming>().query(),
-			&chunk_channel,
+			&requests,
 			&grid_data,
 			&subgrids,
 			&subgrid_gpu,
@@ -84,14 +84,14 @@ pub(crate) fn update_camera_voxel_loader_requests(
 
 fn apply_desired_delta(
 	camera_voxel_loader: &mut CameraVoxelLoader,
-	grids: &mut Query<&mut GridStreaming>, chunk_channel: &ChunkRequestChannel, grid_data: &Query<&Grid>,
+	grids: &mut Query<&mut GridStreaming>, requests: &impl VoxelSourceRequestApi, grid_data: &Query<&Grid>,
 	subgrids: &Query<&SubGrid>, subgrid_gpu: &Query<&SubGridGpuState, With<SubGrid>>, add_tiles: Vec<TileKey>, remove_tiles: Vec<TileKey>, camera_entity: Entity,
 ) {
 	for key in add_tiles {
 		if key.is_chunk() {
 			request_source(camera_voxel_loader, key);
 			if let Ok(mut streaming) = grids.get_mut(key.grid) {
-				streaming.fetch(key.grid, chunk_channel, key.min);
+				streaming.fetch(key.grid, requests, key.min);
 				if matches!(streaming.state(key.min), Some(voxel_streaming::ChunkState::Loaded | voxel_streaming::ChunkState::InternalDirty)) {
 					let ready = resolve_chunk_source_if_ready(camera_voxel_loader, grid_data, subgrids, subgrid_gpu, key);
 					retire_sources_from_request_query(camera_voxel_loader, grids, camera_entity, ready);

@@ -2,12 +2,12 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 use voxel_gpu::SubGridGpuState;
-use voxel_data::{grid::Grid, subgrid::SubGrid};
+use voxel_data::{grid::{Grid, GridId}, subgrid::SubGrid};
 use voxel_streaming::CHUNK_SIZE;
 
 use crate::{camera_voxel_loader::CameraVoxelLoader, coverage::{resolve_empty, resolve_visible, retiring_visible_chunks, CoverageSource}, types::TileKey};
 
-pub(crate) fn chunks_in_bounds(grid: Entity, min: IVec3, max: IVec3) -> Vec<TileKey> {
+pub(crate) fn chunks_in_bounds(grid: GridId, min: IVec3, max: IVec3) -> Vec<TileKey> {
 	let min = min.div_euclid(IVec3::splat(CHUNK_SIZE));
 	let max = max.div_euclid(IVec3::splat(CHUNK_SIZE));
 	let mut chunks = Vec::new();

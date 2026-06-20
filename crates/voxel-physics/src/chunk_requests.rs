@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 
-use voxel_streaming::{ChunkRequestChannel, GridStreaming, CHUNK_SIZE};
+use voxel_streaming::{GridStreaming, VoxelSourceRequests, CHUNK_SIZE};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
 
@@ -101,7 +101,7 @@ pub fn request_collision_chunks(
 	bodies: Query<(&Transform, Has<IsStatic>), With<RigidBody>>,
 	mut grids: Query<(Entity, &ChildOf, &Transform, &mut GridStreaming, &PresenceAabb, &mut WantedChunks), With<VoxelCollider>>,
 	mut consumers: Query<&mut PhysicsConsumer>,
-	channel: Res<ChunkRequestChannel>,
+	requests: VoxelSourceRequests,
 ) {
 	let Ok(mut consumer) = consumers.single_mut() else { return };
 
@@ -173,7 +173,7 @@ pub fn request_collision_chunks(
 	for (entity, _, _, mut streaming, _, mut wanted) in grids.iter_mut() {
 		let want = desired.remove(&entity).unwrap_or_default();
 		for &chunk in want.difference(&wanted.0) {
-			streaming.fetch_needed(entity, consumer.as_mut(), &channel, chunk);
+			streaming.fetch_needed(entity, consumer.as_mut(), &requests, chunk);
 		}
 		for &chunk in wanted.0.difference(&want) {
 			streaming.release_needed(entity, consumer.as_mut(), chunk);

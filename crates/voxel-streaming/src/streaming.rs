@@ -4,7 +4,7 @@ use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use voxel_gpu::{LodVoxels, VoxelGpuUploadFinished};
-use voxel_sources::{SourceEvent, SourceRegistry};
+use voxel_sources::{ChunkLoaded, LodLoaded, SourceEvent, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 
 use tracy_client::span;
 
@@ -16,8 +16,8 @@ use voxel_edit::{EditGate, GridEdit, GridEdits};
 use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
 use crate::lod_index::LodIndex;
-use crate::{ChunkLoadRequest, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
-use crate::{ChunkBecamePresent, ChunkLoadResolved, ChunkLoadResult};
+use crate::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, PresenceLoadRequest};
+use crate::{ChunkBecamePresent, ChunkLoadResolved, LodLoadResult};
 use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
@@ -47,6 +47,11 @@ pub struct GridStreaming {
 	lod_index: LodIndex,
 }
 
+#[derive(Component, Debug, Default)]
+pub struct RequestChunkPresence {
+	pub inflight: bool,
+}
+
 impl GridStreaming {
 	pub fn presence(&self) -> &ChunkPresence { &self.presence }
 	pub fn presence_mut(&mut self) -> &mut ChunkPresence { &mut self.presence }
@@ -59,16 +64,16 @@ impl GridStreaming {
 		matches!(self.presence.state(chunk), Some(ChunkState::Loaded))
 	}
 
-	fn start_request(&mut self, grid: GridId, channel: &ChunkRequestChannel, chunk: IVec3) -> bool {
+	fn start_request(&mut self, grid: GridId, requests: &impl VoxelSourceRequestApi, chunk: IVec3) -> bool {
 		match self.presence.state(chunk) {
 			None => return false,
 			Some(ChunkState::Available) => {
 				self.presence.set_state(chunk, ChunkState::InFlight);
-				channel.request(ChunkLoadRequest { grid, chunk });
+				requests.request_chunk(ChunkLoadRequest { grid, chunk });
 			}
 			Some(ChunkState::ExternalDirty) => {
 				self.presence.set_state(chunk, ChunkState::ExternalDirtyInFlight);
-				channel.request(ChunkLoadRequest { grid, chunk });
+				requests.request_chunk(ChunkLoadRequest { grid, chunk });
 			}
 			_ => {}
 		}
@@ -76,8 +81,8 @@ impl GridStreaming {
 		true
 	}
 
-	pub fn fetch(&mut self, grid: GridId, channel: &ChunkRequestChannel, chunk: IVec3) {
-		self.start_request(grid, channel, chunk);
+	pub fn fetch(&mut self, grid: GridId, requests: &impl VoxelSourceRequestApi, chunk: IVec3) {
+		self.start_request(grid, requests, chunk);
 	}
 
 	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {
@@ -102,10 +107,10 @@ impl GridStreaming {
 		&mut self,
 		grid: GridId,
 		consumer: &mut C,
-		channel: &ChunkRequestChannel,
+		requests: &impl VoxelSourceRequestApi,
 		chunk: IVec3,
 	) {
-		if !self.start_request(grid, channel, chunk) { return; }
+		if !self.start_request(grid, requests, chunk) { return; }
 		let resident = matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty));
 		if consumer.needed_mut().entry(grid).or_default().insert(chunk) && !resident {
 			*consumer.outstanding_mut() += 1;
@@ -172,11 +177,11 @@ impl GridStreaming {
 		}
 	}
 
-	fn refetch(&mut self, grid: GridId, channel: &ChunkRequestChannel, chunk: IVec3) {
+	fn refetch(&mut self, grid: GridId, requests: &impl VoxelSourceRequestApi, chunk: IVec3) {
 		if self.presence.request_count(chunk) == 0 { return; }
 		if matches!(self.presence.state(chunk), Some(ChunkState::ExternalDirty)) {
 			self.presence.set_state(chunk, ChunkState::ExternalDirtyInFlight);
-			channel.request(ChunkLoadRequest { grid, chunk });
+			requests.request_chunk(ChunkLoadRequest { grid, chunk });
 		}
 	}
 
@@ -198,38 +203,31 @@ fn valid_lod_key(key: LodKey) -> bool {
 	!coarse_extent.cmplt(IVec3::ONE).any() && !coarse_extent.cmpgt(IVec3::splat(CHUNK_SIZE)).any()
 }
 
-pub fn sync_grid_keys(mut registry: ResMut<SourceRegistry>, grids: Query<(GridId, &voxel_sources::GridKey)>) {
-	registry.clear_grid_keys();
-	for (grid, key) in &grids {
-		registry.insert_grid_key(grid, *key);
-	}
-}
-
 pub fn apply_source_events(
-	registry: Res<SourceRegistry>,
+	sources: VoxelSources,
+	mut commands: Commands,
 	mut grids: Query<&mut GridStreaming>,
 	mut present_events: MessageWriter<ChunkBecamePresent>,
 ) {
-	while let Some(event) = registry.try_recv_event() {
+	while let Some(event) = sources.try_recv_event() {
 		match event {
 			SourceEvent::Available { grid, chunk } => {
-				let Some(entity) = registry.entity(grid) else { continue };
-				if let Ok(mut s) = grids.get_mut(entity) {
+				if let Ok(mut s) = grids.get_mut(grid) {
 					if s.presence().state(chunk).is_none() {
-						present_events.write(ChunkBecamePresent { grid: entity, chunk });
+						present_events.write(ChunkBecamePresent { grid, chunk });
 						s.presence_mut().mark_present(chunk);
 					}
 				}
 			}
 			SourceEvent::AvailableArea { grid, min, size } => {
-				let Some(entity) = registry.entity(grid) else { continue };
-				if let Ok(mut s) = grids.get_mut(entity) {
+				commands.entity(grid).remove::<RequestChunkPresence>();
+				if let Ok(mut s) = grids.get_mut(grid) {
 					for x in min.x..min.x + size.x {
 						for y in min.y..min.y + size.y {
 							for z in min.z..min.z + size.z {
 								let chunk = IVec3::new(x, y, z);
 								if s.presence().state(chunk).is_none() {
-									present_events.write(ChunkBecamePresent { grid: entity, chunk });
+									present_events.write(ChunkBecamePresent { grid, chunk });
 								}
 							}
 						}
@@ -238,56 +236,36 @@ pub fn apply_source_events(
 				}
 			}
 			SourceEvent::Unavailable { grid, chunk } => {
-				let Some(entity) = registry.entity(grid) else { continue };
-				if let Ok(mut s) = grids.get_mut(entity) {
+				if let Ok(mut s) = grids.get_mut(grid) {
 					if matches!(s.presence().state(chunk), Some(ChunkState::Available)) {
 						s.presence_mut().clear_present(chunk);
 					}
 				}
 			}
 			SourceEvent::Edited { source, grid, chunk } => {
-				let entity = registry.entity(grid);
-				registry.forget_others(source, grid, chunk);
-				if let Some(entity) = entity {
-					if let Ok(mut s) = grids.get_mut(entity) {
-						s.mark_external_dirty(chunk);
-					}
+				sources.forget_others(source, grid, chunk);
+				if let Ok(mut s) = grids.get_mut(grid) {
+					s.mark_external_dirty(chunk);
 				}
 			}
 		}
 	}
 }
 
-pub fn drain_source_lod_results(registry: Res<SourceRegistry>, loader: Res<LodLoaderChannel>) {
-	while let Some(result) = registry.try_recv_lod_result() {
-		let Some(grid) = registry.entity(result.grid) else { continue };
-		let Some((requests, lod, voxels)) = registry.take_pending_lod_completion(result) else { continue };
-		for request in requests {
-			loader.report(LodLoadResult {
-				grid,
-				requester: request.requester,
-				key: LodKey { min: request.key.min, size: request.key.size, lod: lod.max(0.0).floor() as u8 },
-				priority: request.priority,
-				generation: request.generation,
-				voxels: voxels.clone(),
-				entity: None,
-			});
-		}
+pub fn request_presence_for_new_grids(
+	requests: VoxelSourceRequests,
+	mut grids: Query<(GridId, &mut RequestChunkPresence)>,
+) {
+	for (grid, mut request_presence) in &mut grids {
+		if request_presence.inflight { continue; }
+		request_presence.inflight = true;
+		requests.request_presence(PresenceLoadRequest { grid });
 	}
 }
 
-pub fn serve_saves(saves: Res<ChunkSaveChannel>, registry: Res<SourceRegistry>, grids: Query<&voxel_sources::GridKey>) {
+pub fn serve_saves(saves: Res<ChunkSaveChannel>, sources: VoxelSources) {
 	while let Some(save) = saves.try_recv() {
-		let Ok(&key) = grids.get(save.grid) else { continue };
-		registry.route_save(key, save.chunk, &save.voxels);
-	}
-}
-
-pub fn drain_source_results(registry: Res<SourceRegistry>, loader: Res<ChunkLoaderChannel>) {
-	while let Some(result) = registry.try_recv_result() {
-		if let Some(grid) = registry.entity(result.grid) {
-			loader.report(ChunkLoadResult { grid, chunk: result.chunk, voxels: result.voxels });
-		}
+		sources.route_save(save.grid, save.chunk, &save.voxels);
 	}
 }
 
@@ -317,21 +295,23 @@ impl EditGate for GridStreaming {
 
 pub fn receive_results(
 	mut commands: Commands,
-	channel: Res<ChunkLoaderChannel>,
+	mut channel: MessageReader<ChunkLoaded>,
 	mut grids: Query<(&mut GridStreaming, &mut Grid, Option<&mut GridEdits>)>,
 	mut sub_grids: Query<&mut SubGrid>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 	mut chunk_resolved: MessageWriter<ChunkLoadResolved>,
 ) {
+	let pending: Vec<_> = channel.read().cloned().collect();
 	let mut loaded_by_grid: HashMap<GridId, Vec<(IVec3, voxel_data::voxels::Voxels)>> = HashMap::new();
 
-	while let Some(result) = channel.try_recv() {
+	for result in pending {
 		let _zone = span!("receive result");
 		let result_grid = result.grid;
 		let result_chunk = result.chunk;
 		let was_empty = result.voxels.is_none();
 		if let Ok((mut streaming, _grid, mut edits)) = grids.get_mut(result.grid) {
-			match streaming.presence.state(result.chunk) {
+			let state = streaming.presence.state(result.chunk);
+			match state {
 				Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
 					match result.voxels {
 						Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
@@ -347,9 +327,7 @@ pub fn receive_results(
 						}
 					}
 				}
-				_ => {
-					bevy::log::warn!("receive_results received a chunk without anyone requesting it!");
-				}
+				_ => { /* chunk was not for voxel-streaming */ }
 			}
 		}
 		if was_empty {
@@ -396,12 +374,12 @@ pub fn receive_results(
 
 pub fn receive_lod_results(
 	mut commands: Commands,
-	channel: Res<LodLoaderChannel>,
+	mut channel: MessageReader<LodLoaded>,
 	mut grids: Query<&mut GridStreaming>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
 	let mut updates = Vec::new();
-	while let Some(mut result) = channel.try_recv() {
+	for mut result in channel.read().cloned() {
 		let Ok(mut streaming) = grids.get_mut(result.grid) else { continue };
 		let Some(state) = streaming.lods.get_mut(&result.key) else { continue };
 		if result.generation != state.revision { continue; }
@@ -472,7 +450,7 @@ pub fn cleanup_released_lods(mut commands: Commands, mut grids: Query<&mut GridS
 }
 
 pub fn request_lod_tiles(
-	channel: Res<LodRequestChannel>,
+	requests: VoxelSourceRequests,
 	mut grids: Query<(GridId, &mut GridStreaming)>,
 ) {
 	for (grid, mut streaming) in grids.iter_mut() {
@@ -483,13 +461,13 @@ pub fn request_lod_tiles(
 			let requester = *state.requesters.keys().next().unwrap();
 			let priority = state.requesters.values().copied().fold(f32::NEG_INFINITY, f32::max);
 			state.status = LodStatus::Loading;
-			channel.request(LodLoadRequest { grid, requester, key, priority, generation: state.revision });
+			requests.request_lod(LodLoadRequest { grid, requester, key, priority, generation: state.revision });
 		}
 	}
 }
 
 pub fn handle_dirty_chunks(
-	load_channel: Res<ChunkRequestChannel>,
+	requests: VoxelSourceRequests,
 	save_channel: Res<ChunkSaveChannel>,
 	mut grids: Query<(GridId, &mut GridStreaming, &Grid)>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
@@ -512,13 +490,13 @@ pub fn handle_dirty_chunks(
 					}
 				}
 			}
-			streaming.refetch(grid, &load_channel, chunk);
+			streaming.refetch(grid, &requests, chunk);
 		}
 	}
 }
 
 pub fn request_stalled_chunks(
-	channel: Res<ChunkRequestChannel>,
+	requests: VoxelSourceRequests,
 	mut grids: Query<(GridId, &mut GridStreaming)>,
 ) {
 	for (grid, mut streaming) in grids.iter_mut() {
@@ -528,7 +506,7 @@ pub fn request_stalled_chunks(
 			if matches!(streaming.presence.state(chunk), Some(ChunkState::Available))
 				&& streaming.stalled_pinned.insert(chunk)
 			{
-				streaming.fetch(grid, &channel, chunk);
+				streaming.fetch(grid, &requests, chunk);
 			}
 		}
 	}

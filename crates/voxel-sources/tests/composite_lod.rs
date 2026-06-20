@@ -1,6 +1,7 @@
 use bevy::math::{I16Vec3, IVec3};
 use voxel_data::voxels::{Voxel, Voxels};
-use voxel_sources::{ChunkSource, GridKey, SourceHandle, VoxelLodGenerator};
+use voxel_data::grid::GridId;
+use voxel_sources::{ChunkSource, SourceHandle, VoxelLodGenerator};
 
 #[derive(Default)]
 struct AreaSource {
@@ -9,15 +10,15 @@ struct AreaSource {
 
 impl ChunkSource for AreaSource {
 	fn init(&self, _handle: SourceHandle) {}
-	fn cost(&self, _grid: GridKey, chunk: IVec3) -> Option<u32> { self.chunks.contains(&chunk).then_some(0) }
-	fn request_load(&self, _grid: GridKey, _chunk: IVec3) {}
-	fn cost_lod(&self, _grid: GridKey, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost(&self, _grid: GridId, chunk: IVec3) -> Option<u32> { self.chunks.contains(&chunk).then_some(0) }
+	fn request_load(&self, _grid: GridId, _chunk: IVec3) {}
+	fn cost_lod(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
 		self.chunks
 			.iter()
 			.any(|chunk| chunk.cmpge(min).all() && chunk.cmplt(min + size).all())
 			.then_some(0)
 	}
-	fn request_load_lod(&self, _grid: GridKey, _min: IVec3, _size: IVec3, _lod: f32) {}
+	fn request_load_lod(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32) {}
 }
 
 struct MarkerGenerator;
@@ -33,7 +34,7 @@ impl VoxelLodGenerator for MarkerGenerator {
 #[test]
 fn chunk_source_lod_cost_detects_overlap() {
 	let source = AreaSource { chunks: vec![IVec3::new(4, 0, 0)] };
-	let grid = GridKey(1);
+	let grid = Entity::PLACEHOLDER;
 
 	assert_eq!(source.cost_lod(grid, IVec3::ZERO, IVec3::new(8, 1, 1), 1.0), Some(0));
 	assert_eq!(source.cost_lod(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1), 1.0), None);

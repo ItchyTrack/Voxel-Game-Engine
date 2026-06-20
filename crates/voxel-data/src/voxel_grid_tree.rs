@@ -1,8 +1,9 @@
 use crate::grid_tree::{CellKind, GridCell, GridTree, GridTreeNode, I16Coord};
+use serde::{Deserialize, Serialize};
 
 // If value == 1<<16-1: EMPTY, else if bit 15 is 0: DATA, else: NODE.
 // A NODE offset can't be 0x7FFF because that aliases EMPTY.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct PackedCell { value: u16 }
 
 impl GridCell for PackedCell {

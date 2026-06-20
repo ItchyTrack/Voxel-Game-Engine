@@ -36,7 +36,10 @@ voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
+voxel-lightyear = { version = "0.1.0", path = "../voxel-lightyear" }
 voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
+lightyear = { version = "0.26.4", features = ["udp", "netcode"] }
+serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time"] }

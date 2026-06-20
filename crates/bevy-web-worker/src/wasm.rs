@@ -25,11 +25,8 @@ export function install_async_worker_pool(module, memory, initial) {
 }
 
 export function install_source_request_workers(module, memory) {
-  const chunkWorker = new Worker('./source_request_worker.js', { type: 'module' });
-  chunkWorker.postMessage({ module, memory, kind: 'chunk', workerId: 0 });
-
-  const lodWorker = new Worker('./source_request_worker.js', { type: 'module' });
-  lodWorker.postMessage({ module, memory, kind: 'lod', workerId: 0 });
+  const worker = new Worker('./source_request_worker.js', { type: 'module' });
+  worker.postMessage({ module, memory, workerId: 0 });
 }
 "#)]
 extern "C" {

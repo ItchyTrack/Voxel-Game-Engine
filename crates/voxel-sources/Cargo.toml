@@ -10,6 +10,7 @@ tracy = ["tracy-client/enable"]
 [dependencies]
 crossbeam-channel = "0.5.15"
 bevy = { workspace = true }
+serde = { version = "1", features = ["derive"] }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tracy-client = { workspace = true }
 

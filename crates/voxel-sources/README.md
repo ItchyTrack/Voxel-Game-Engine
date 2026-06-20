@@ -1,6 +1,6 @@
 # Voxel Sources
 
-This crate manages the voxel sources to serve the requests of voxel voxel-streaming.
+This crate manages the voxel sources to serve the requests save and load requests of voxels.
 
 Deps:
 - voxel-data

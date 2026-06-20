@@ -68,7 +68,7 @@ fn setup_scene(
 ) {
 	spawn_church(&mut commands, &mut store);
 	// spawn_ball_cluster(&mut commands, &mut constraints, &mut store);
-	spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(0.0, 120.0, 0.0));
+	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(0.0, 120.0, 0.0));
 	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(30.0, 120.0, 0.0));
 	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(-30.0, 120.0, 0.0));
 	// for x in 0..3 {
@@ -84,14 +84,14 @@ fn spawn_church(commands: &mut Commands, store: &mut WorldStore) {
 	let mut grid = StreamingVoxels::new();
 	if !load_church(&mut grid) { return }
 
-	let parent = commands
-		.spawn((
-			RigidBody,
-			IsStatic,
-			Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
-		))
-		.id();
-	spawn_grid(commands, store, parent, Transform::IDENTITY, grid, VoxelCollider);
+	// let parent = commands
+	// 	.spawn((
+	// 		RigidBody,
+	// 		IsStatic,
+	// 		Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
+	// 	))
+	// 	.id();
+	spawn_grid(commands, store, None, Transform::IDENTITY, grid, VoxelCollider);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -157,7 +157,7 @@ fn spawn_bb8(
 		Orientation::default(),
 		Transform::from_translation(position),
 	)).id();
-	spawn_grid(commands, store, base, Transform::IDENTITY, base_grid, (VoxelCollider, VoxelMass));
+	spawn_grid(commands, store, Some(base), Transform::IDENTITY, base_grid, (VoxelCollider, VoxelMass));
 
 	let ball = spawn_ball(commands, store, position - Vec3::new(0.0, 12.0, 0.0), 10);
 
@@ -208,8 +208,8 @@ fn spawn_ball(commands: &mut Commands, store: &mut WorldStore, position: Vec3, r
 		RigidBody,
 		Transform::from_translation(position),
 	)).id();
-	spawn_grid(commands, store, body, Transform::from_translation(Vec3::new(-0.5, -0.5, -0.5)), top, (VoxelCollider, VoxelMass));
-	spawn_grid(commands, store, body, Transform {
+	spawn_grid(commands, store, Some(body), Transform::from_translation(Vec3::new(-0.5, -0.5, -0.5)), top, (VoxelCollider, VoxelMass));
+	spawn_grid(commands, store, Some(body), Transform {
 			translation: Vec3::new(-std::f32::consts::FRAC_1_SQRT_2, -0.5, 0.0),
 			rotation: Quat::from_rotation_y(PI / 4.0),
 			scale: Vec3::ONE,

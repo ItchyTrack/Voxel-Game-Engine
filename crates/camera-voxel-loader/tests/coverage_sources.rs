@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
+use voxel_data::grid::GridId;
 use voxel_streaming::CHUNK_SIZE;
 
 mod types {
@@ -48,14 +49,14 @@ use coverage::{
 };
 use types::TileKey;
 
-fn chunk(grid: Entity, min: IVec3) -> TileKey {
+fn chunk(grid: GridId, min: IVec3) -> TileKey {
 	TileKey { grid, lod: 0, min }
 }
-fn tile(grid: Entity, lod: u8, min: IVec3) -> TileKey {
+fn tile(grid: GridId, lod: u8, min: IVec3) -> TileKey {
 	TileKey { grid, lod, min }
 }
 
-fn chunks_in_bounds(grid: Entity, min: IVec3, max: IVec3) -> Vec<TileKey> {
+fn chunks_in_bounds(grid: GridId, min: IVec3, max: IVec3) -> Vec<TileKey> {
 	let min = min.div_euclid(IVec3::splat(CHUNK_SIZE));
 	let max = max.div_euclid(IVec3::splat(CHUNK_SIZE));
 	let mut chunks = Vec::new();

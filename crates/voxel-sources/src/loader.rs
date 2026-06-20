@@ -4,6 +4,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::math::IVec3;
 use crossbeam_channel::{Receiver, Sender, unbounded};
+use serde::{Deserialize, Serialize};
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
@@ -43,42 +44,90 @@ impl ChunkSaveChannel {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct PresenceLoadRequest {
+	pub grid: GridId,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct ChunkLoadRequest {
 	pub grid: GridId,
 	pub chunk: IVec3,
 }
 
-#[derive(Resource)]
-pub struct ChunkRequestChannel {
-	sender: Sender<ChunkLoadRequest>,
-	receiver: Receiver<ChunkLoadRequest>,
-	sent: AtomicU64,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct LodKey {
+	pub min: IVec3,
+	pub size: IVec3,
+	pub lod: u8,
 }
 
-impl Default for ChunkRequestChannel {
+#[derive(Debug, Clone, Copy)]
+pub struct LodLoadRequest {
+	pub grid: GridId,
+	pub requester: Entity,
+	pub key: LodKey,
+	pub priority: f32,
+	pub generation: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SourceRequest {
+	Presence(PresenceLoadRequest),
+	Chunk(ChunkLoadRequest),
+	Lod(LodLoadRequest),
+}
+
+#[derive(Resource)]
+pub(crate) struct SourceRequestChannel {
+	sender: Sender<SourceRequest>,
+	receiver: Receiver<SourceRequest>,
+	presence_sent: AtomicU64,
+	chunk_sent: AtomicU64,
+	lod_sent: AtomicU64,
+}
+
+impl Default for SourceRequestChannel {
 	fn default() -> Self {
 		let (sender, receiver) = unbounded();
-		Self { sender, receiver, sent: AtomicU64::new(0) }
+		Self {
+			sender,
+			receiver,
+			presence_sent: AtomicU64::new(0),
+			chunk_sent: AtomicU64::new(0),
+			lod_sent: AtomicU64::new(0),
+		}
 	}
 }
 
-impl ChunkRequestChannel {
-	pub fn request(&self, request: ChunkLoadRequest) {
-		if self.sender.send(request).is_ok() {
-			self.sent.fetch_add(1, Ordering::Relaxed);
+impl SourceRequestChannel {
+	pub(crate) fn request_presence(&self, request: PresenceLoadRequest) {
+		if self.sender.send(SourceRequest::Presence(request)).is_ok() {
+			self.presence_sent.fetch_add(1, Ordering::Relaxed);
 		}
 	}
 
-	pub fn receiver(&self) -> Receiver<ChunkLoadRequest> {
+	pub(crate) fn request_chunk(&self, request: ChunkLoadRequest) {
+		if self.sender.send(SourceRequest::Chunk(request)).is_ok() {
+			self.chunk_sent.fetch_add(1, Ordering::Relaxed);
+		}
+	}
+
+	pub(crate) fn request_lod(&self, request: LodLoadRequest) {
+		if self.sender.send(SourceRequest::Lod(request)).is_ok() {
+			self.lod_sent.fetch_add(1, Ordering::Relaxed);
+		}
+	}
+
+	pub(crate) fn receiver(&self) -> Receiver<SourceRequest> {
 		self.receiver.clone()
 	}
 
-	pub fn try_recv(&self) -> Option<ChunkLoadRequest> {
-		self.receiver.try_recv().ok()
+	pub(crate) fn chunk_sent_count(&self) -> u64 {
+		self.chunk_sent.load(Ordering::Relaxed)
 	}
 
-	pub fn sent_count(&self) -> u64 {
-		self.sent.load(Ordering::Relaxed)
+	pub(crate) fn lod_sent_count(&self) -> u64 {
+		self.lod_sent.load(Ordering::Relaxed)
 	}
 }
 
@@ -125,55 +174,6 @@ impl ChunkLoaderChannel {
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LodKey {
-	pub min: IVec3,
-	pub size: IVec3,
-	pub lod: u8,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct LodLoadRequest {
-	pub grid: GridId,
-	pub requester: Entity,
-	pub key: LodKey,
-	pub priority: f32,
-	pub generation: u64,
-}
-
-#[derive(Resource)]
-pub struct LodRequestChannel {
-	sender: Sender<LodLoadRequest>,
-	receiver: Receiver<LodLoadRequest>,
-	sent: AtomicU64,
-}
-
-impl Default for LodRequestChannel {
-	fn default() -> Self {
-		let (sender, receiver) = unbounded();
-		Self { sender, receiver, sent: AtomicU64::new(0) }
-	}
-}
-
-impl LodRequestChannel {
-	pub fn request(&self, request: LodLoadRequest) {
-		if self.sender.send(request).is_ok() {
-			self.sent.fetch_add(1, Ordering::Relaxed);
-		}
-	}
-
-	pub fn receiver(&self) -> Receiver<LodLoadRequest> {
-		self.receiver.clone()
-	}
-
-	pub fn try_recv(&self) -> Option<LodLoadRequest> {
-		self.receiver.try_recv().ok()
-	}
-
-	pub fn sent_count(&self) -> u64 {
-		self.sent.load(Ordering::Relaxed)
-	}
-}
 
 #[derive(Debug, Clone)]
 pub struct LodLoadResult {

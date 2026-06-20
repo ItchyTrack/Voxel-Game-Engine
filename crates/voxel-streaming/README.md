@@ -6,3 +6,4 @@ Deps:
 - voxel-data
 - voxel-edit // should be removed
 - voxel-gpu
+- voxel-sources

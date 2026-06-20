@@ -1,17 +1,18 @@
 use bevy::math::I16Vec3;
+use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{collections::HashMap, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
 
 use super::{grid_tree::{GridRegion, size as grid_tree_size}, voxel_grid_tree::VoxelGridTree};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Voxel {
 	pub color: [u8; 4],
 	pub mass: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VoxelPalette {
 	pub palette: BiHashMap<u16, Voxel>,
 	next_id: u16,
@@ -39,12 +40,22 @@ impl VoxelPalette {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Voxels {
 	voxels: VoxelGridTree,
 	voxel_palette: VoxelPalette,
+	#[serde(skip, default = "default_bounding_box")]
 	bounding_box: Mutex<Option<(I16Vec3, I16Vec3)>>,
+	#[serde(skip, default = "default_bounding_box_dirty")]
 	bounding_box_dirty: AtomicBool,
+}
+
+fn default_bounding_box() -> Mutex<Option<(I16Vec3, I16Vec3)>> {
+	Mutex::new(None)
+}
+
+fn default_bounding_box_dirty() -> AtomicBool {
+	AtomicBool::new(true)
 }
 
 impl Clone for Voxels {

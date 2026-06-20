@@ -9,11 +9,13 @@ tracy = ["tracy-client/enable"]
 gpu_profiling = []
 
 [dependencies]
-bimap = "0.6.3"
+bimap = { version = "0.6.3", features = ["serde"] }
 async-priority-queue = "0.1.1"
 crossbeam-channel = "0.5.15"
 futures = "0.3.32"
 bevy = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde-big-array = "0.5"
 tracy-client = { workspace = true }
 
 [dev-dependencies]

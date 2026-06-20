@@ -1,34 +1,31 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
-use bevy::math::IVec3;
 use bevy::ecs::resource::Resource;
+use bevy::math::IVec3;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
 
-use crate::loader::LodLoadRequest;
+use crate::loader::{ChunkLoadRequest, LodLoadRequest, PresenceLoadRequest, SourceRequestChannel};
 
 use crate::handle::{SourceEvent, SourceLodResult, SourceResult};
-use crate::source::{ChunkSource, GridKey, SourceId, VoxelLodGenerator};
+use crate::source::{ChunkSource, SourceId, VoxelLodGenerator};
 
 /// [`ChunkSource`] takes `&self` and synchronizes internally.
 pub(crate) type SharedSource = Arc<dyn ChunkSource>;
 
-/// Reverse of `keys`, shared with the serve worker threads.
-pub(crate) type GridKeyMap = Arc<RwLock<HashMap<GridId, GridKey>>>;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LodRequestKey {
-	pub grid: GridKey,
+	pub grid: GridId,
 	pub min: IVec3,
 	pub size: IVec3,
 	pub lod_bits: u32,
 }
 
 impl LodRequestKey {
-	pub fn new(grid: GridKey, min: IVec3, size: IVec3, lod: f32) -> Self {
+	pub fn new(grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Self {
 		Self { grid, min, size, lod_bits: lod.to_bits() }
 	}
 }
@@ -50,11 +47,10 @@ pub(crate) enum PendingLodJob {
 pub(crate) type PendingLod = Arc<Mutex<HashMap<LodRequestKey, PendingLodJob>>>;
 
 #[derive(Resource)]
-pub struct SourceRegistry {
+pub(crate) struct SourceRegistry {
 	pub(crate) sources: Vec<SharedSource>,
 	pub(crate) lod_generator: Arc<dyn VoxelLodGenerator>,
-	pub(crate) keys: HashMap<GridKey, GridId>,
-	pub(crate) grid_keys: GridKeyMap,
+	
 	pub(crate) event_tx: Sender<SourceEvent>,
 	pub(crate) event_rx: Receiver<SourceEvent>,
 	pub(crate) result_tx: Sender<SourceResult>,
@@ -62,6 +58,7 @@ pub struct SourceRegistry {
 	pub(crate) lod_result_tx: Sender<SourceLodResult>,
 	pub(crate) lod_result_rx: Receiver<SourceLodResult>,
 	pub(crate) pending_lod: PendingLod,
+	pub(crate) requests: SourceRequestChannel,
 }
 
 impl Default for SourceRegistry {
@@ -72,8 +69,6 @@ impl Default for SourceRegistry {
 		Self {
 			sources: Vec::new(),
 			lod_generator: Arc::new(IdentityVoxelLodGenerator),
-			keys: HashMap::new(),
-			grid_keys: Arc::new(RwLock::new(HashMap::new())),
 			event_tx,
 			event_rx,
 			result_tx,
@@ -81,6 +76,7 @@ impl Default for SourceRegistry {
 			lod_result_tx,
 			lod_result_rx,
 			pending_lod: Arc::new(Mutex::new(HashMap::new())),
+			requests: SourceRequestChannel::default(),
 		}
 	}
 }
@@ -94,19 +90,6 @@ impl SourceRegistry {
 		self.lod_generator = generator;
 	}
 
-	pub fn clear_grid_keys(&mut self) {
-		self.keys.clear();
-		self.grid_keys.write().unwrap().clear();
-	}
-
-	pub fn insert_grid_key(&mut self, grid: GridId, key: GridKey) {
-		self.keys.insert(key, grid);
-		self.grid_keys.write().unwrap().insert(grid, key);
-	}
-
-	pub fn entity(&self, grid: GridKey) -> Option<GridId> {
-		self.keys.get(&grid).copied()
-	}
 
 	pub fn try_recv_event(&self) -> Option<SourceEvent> {
 		self.event_rx.try_recv().ok()
@@ -122,6 +105,26 @@ impl SourceRegistry {
 
 	pub fn lod_generator(&self) -> &dyn VoxelLodGenerator {
 		self.lod_generator.as_ref()
+	}
+
+	pub fn request_presence(&self, request: PresenceLoadRequest) {
+		self.requests.request_presence(request);
+	}
+
+	pub fn request_chunk(&self, request: ChunkLoadRequest) {
+		self.requests.request_chunk(request);
+	}
+
+	pub fn request_lod(&self, request: LodLoadRequest) {
+		self.requests.request_lod(request);
+	}
+
+	pub fn chunk_requests_sent(&self) -> u64 {
+		self.requests.chunk_sent_count()
+	}
+
+	pub fn lod_requests_sent(&self) -> u64 {
+		self.requests.lod_sent_count()
 	}
 
 	pub fn take_pending_lod_completion(
@@ -159,7 +162,7 @@ impl SourceRegistry {
 		}
 	}
 
-	pub fn route_save(&self, grid: GridKey, chunk: IVec3, voxels: &Voxels) {
+	pub fn route_save(&self, grid: GridId, chunk: IVec3, voxels: &Voxels) {
 		for source in &self.sources {
 			if source.can_save() {
 				source.save(grid, chunk, voxels);
@@ -169,7 +172,7 @@ impl SourceRegistry {
 		}
 	}
 
-	pub fn forget_others(&self, keep: SourceId, grid: GridKey, chunk: IVec3) {
+	pub fn forget_others(&self, keep: SourceId, grid: GridId, chunk: IVec3) {
 		for (i, source) in self.sources.iter().enumerate() {
 			if i != keep.0 {
 				source.forget(grid, chunk);
@@ -178,7 +181,7 @@ impl SourceRegistry {
 	}
 }
 
-pub(crate) fn cheapest(sources: &[SharedSource], grid: GridKey, chunk: IVec3) -> Option<SourceId> {
+pub(crate) fn cheapest(sources: &[SharedSource], grid: GridId, chunk: IVec3) -> Option<SourceId> {
 	sources
 		.iter()
 		.enumerate()
@@ -187,7 +190,7 @@ pub(crate) fn cheapest(sources: &[SharedSource], grid: GridKey, chunk: IVec3) ->
 		.map(|(_, id)| id)
 }
 
-pub(crate) fn lod_sources_with_any_chunks(sources: &[SharedSource], grid: GridKey, min: IVec3, size: IVec3, lod: f32) -> Vec<SourceId> {
+pub(crate) fn lod_sources_with_any_chunks(sources: &[SharedSource], grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Vec<SourceId> {
 	sources
 		.iter()
 		.enumerate()

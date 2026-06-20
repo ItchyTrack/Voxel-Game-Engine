@@ -8,7 +8,8 @@ use voxel_data::voxels::{Voxel, Voxels};
 use voxel_edit::GridEdits;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
-use voxel_sources::{ChunkSource, GridKey, SourceHandle, VoxelSourcesAppExt};
+use voxel_data::grid::GridId;
+use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
 
 use crate::streaming_test::WorldStore;
@@ -161,12 +162,12 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {
 }
 
 struct SphereSource {
-	grid: Arc<OnceLock<GridKey>>,
+	grid: Arc<OnceLock<GridId>>,
 	handle: OnceLock<SourceHandle>,
 }
 
 impl SphereSource {
-	fn is_mine(&self, grid: GridKey) -> bool {
+	fn is_mine(&self, grid: GridId) -> bool {
 		self.grid.get() == Some(&grid)
 	}
 }
@@ -176,7 +177,7 @@ impl ChunkSource for SphereSource {
 		let _ = self.handle.set(handle);
 	}
 
-	fn cost(&self, grid: GridKey, chunk: IVec3) -> Option<u32> {
+	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
 		if !self.is_mine(grid) {
 			return None;
 		}
@@ -184,14 +185,14 @@ impl ChunkSource for SphereSource {
 		region_intersects(min, min + Vec3::splat(CHUNK_SIZE as f32)).then_some(COST)
 	}
 
-	fn request_load(&self, grid: GridKey, chunk: IVec3) {
+	fn request_load(&self, grid: GridId, chunk: IVec3) {
 		let voxels = build_chunk(chunk);
 		if let Some(handle) = self.handle.get() {
 			handle.loaded(grid, chunk, voxels);
 		}
 	}
 
-	fn cost_lod(&self, grid: GridKey, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
 		if !self.is_mine(grid) {
 			return None;
 		}
@@ -200,7 +201,7 @@ impl ChunkSource for SphereSource {
 		region_intersects(lo, hi).then_some(COST)
 	}
 
-	fn request_load_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32) {
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) {
 		let voxels = build_lod_region(min, size, lod);
 		if let Some(handle) = self.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, voxels);
@@ -209,7 +210,7 @@ impl ChunkSource for SphereSource {
 }
 
 #[derive(Resource, Clone)]
-struct SphereGrid(Arc<OnceLock<GridKey>>);
+struct SphereGrid(Arc<OnceLock<GridId>>);
 
 pub struct SphereSourcePlugin;
 
@@ -222,9 +223,7 @@ impl Plugin for SphereSourcePlugin {
 	}
 }
 
-fn spawn_sphere_grid(mut commands: Commands, store: Res<WorldStore>, grid: Res<SphereGrid>) {
-	let key = store.alloc_key();
-	let _ = grid.0.set(key);
+fn spawn_sphere_grid(mut commands: Commands, _store: Res<WorldStore>, grid: Res<SphereGrid>) {
 
 	let radius_chunks = RADIUS.div_euclid(CHUNK_SIZE) + 1;
 	let min = IVec3::splat(-radius_chunks);
@@ -247,10 +246,10 @@ fn spawn_sphere_grid(mut commands: Commands, store: Res<WorldStore>, grid: Res<S
 			Grid::new(),
 			VoxelCollider,
 			GridEdits::default(),
-			key,
 			streaming,
 		))
 		.id();
+	let _ = grid.0.set(grid_entity);
 
 	commands.entity(body).add_child(grid_entity);
 }

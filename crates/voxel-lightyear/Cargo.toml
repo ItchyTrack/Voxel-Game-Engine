@@ -1,0 +1,17 @@
+[package]
+name = "voxel-lightyear"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+tracy = ["tracy-client/enable"]
+
+[dependencies]
+bevy = { workspace = true }
+lightyear = "0.26.4"
+serde = { version = "1", features = ["derive"] }
+tracy-client = { workspace = true }
+voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
+voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }

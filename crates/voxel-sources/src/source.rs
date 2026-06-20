@@ -1,11 +1,9 @@
 use bevy::prelude::*;
 
+use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
 
 use crate::handle::SourceHandle;
-
-#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct GridKey(pub u64);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct SourceId(pub usize);
@@ -23,23 +21,27 @@ pub trait ChunkSource: Send + Sync {
 	}
 
 	/// Cost of serving `chunk`, or `None` if this source can't. Lowest wins.
-	fn cost(&self, grid: GridKey, chunk: IVec3) -> Option<u32>;
+	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32>;
 
-	fn request_load(&self, grid: GridKey, chunk: IVec3);
+	fn request_load(&self, grid: GridId, chunk: IVec3);
 
-	fn cost_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32) -> Option<u32>;
+	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Option<u32>;
 
-	fn request_load_lod(&self, grid: GridKey, min: IVec3, size: IVec3, lod: f32);
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32);
+
+	fn request_available_area(&self, grid: GridId) {
+		let _ = grid;
+	}
 
 	fn can_save(&self) -> bool {
 		false
 	}
 
-	fn save(&self, grid: GridKey, chunk: IVec3, voxels: &Voxels) {
+	fn save(&self, grid: GridId, chunk: IVec3, voxels: &Voxels) {
 		let _ = (grid, chunk, voxels);
 	}
 
-	fn forget(&self, grid: GridKey, chunk: IVec3) {
+	fn forget(&self, grid: GridId, chunk: IVec3) {
 		let _ = (grid, chunk);
 	}
 }

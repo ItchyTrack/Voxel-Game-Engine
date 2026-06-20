@@ -7,6 +7,12 @@ mod debug_ui;
 mod gravity;
 mod lod_downsample;
 mod memory_store;
+#[cfg(not(target_arch = "wasm32"))]
+mod network_client;
+#[cfg(not(target_arch = "wasm32"))]
+mod network_common;
+#[cfg(not(target_arch = "wasm32"))]
+mod network_server;
 mod scene;
 mod skybox;
 mod sphere_source;
@@ -36,11 +42,17 @@ use debug_toggles::DebugTogglesPlugin;
 use debug_ui::DebugUiPlugin;
 use gravity::GravityPlugin;
 use memory_store::MemoryStorePlugin;
+#[cfg(not(target_arch = "wasm32"))]
+use network_client::NetworkClientPlugin;
+#[cfg(not(target_arch = "wasm32"))]
+use network_server::NetworkServerPlugin;
 use scene::ScenePlugin;
 use skybox::SkyboxPlugin;
-use sphere_source::SphereSourcePlugin;
 use streaming_test::StreamingTestPlugin;
+use voxel_data::VoxelDataPlugin;
 use voxel_edit::VoxelEditPlugin;
+use voxel_gpu::GpuVoxelDataPlugin;
+use voxel_lightyear::VoxelLightyearPlugins;
 use voxel_physics::VoxelPhysicsPlugin;
 use voxel_renderer::VoxelRendererPlugin;
 use voxel_sources::VoxelSourcesAppExt;
@@ -57,36 +69,75 @@ impl Plugin for VoxelLodGeneratorPlugin {
 	}
 }
 
-struct GamePlugins;
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NetworkMode {
+	#[default]
+	Server,
+	Client,
+}
 
-impl PluginGroup for GamePlugins {
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectedClientId(pub u64);
+
+struct SharedPlugins;
+struct ServerPlugins;
+struct ClientPlugins;
+
+impl PluginGroup for SharedPlugins {
 	fn build(self) -> PluginGroupBuilder {
-		let group = PluginGroupBuilder::start::<Self>()
+		PluginGroupBuilder::start::<Self>()
+			.add(VoxelDataPlugin)
 			.add(VoxelEditPlugin)
 			.add(VoxelStreamingPlugin)
 			.add(VoxelLodGeneratorPlugin)
+			.add(VoxelPhysicsPlugin)
+			.add(GravityPlugin)
+	}
+}
+
+impl PluginGroup for ServerPlugins {
+	fn build(self) -> PluginGroupBuilder {
+		let group = PluginGroupBuilder::start::<Self>()
+			.add_group(VoxelLightyearPlugins {
+				enable_client_chunk_source: false,
+				enable_server_chunk_source: true,
+			})
 			.add(MemoryStorePlugin)
 			// .add(SphereSourcePlugin)
+			.add(ScenePlugin)
+			.add(StreamingTestPlugin);
+		#[cfg(not(target_arch = "wasm32"))]
+		let group = group.add(NetworkServerPlugin);
+		group
+	}
+}
+
+impl PluginGroup for ClientPlugins {
+	fn build(self) -> PluginGroupBuilder {
+		let group = PluginGroupBuilder::start::<Self>()
+			.add_group(VoxelLightyearPlugins {
+				enable_client_chunk_source: true,
+				enable_server_chunk_source: false,
+			})
 			.add(CameraVoxelLoaderPlugin)
 			.add(VoxelRendererPlugin)
 			.add(SkyboxPlugin)
 			.add(CrosshairPlugin)
-			.add(VoxelPhysicsPlugin)
-			.add(GravityPlugin)
-			.add(ScenePlugin)
-			.add(StreamingTestPlugin)
 			.add(FlyCameraPlugin)
 			.add(DebugTogglesPlugin)
 			.add(WorldInteractionPlugin);
 		#[cfg(not(target_arch = "wasm32"))]
-		let group = group.add(DebugUiPlugin);
-		#[cfg(not(target_arch = "wasm32"))]
-		let group = group.add(VoxelAudioPlugin);
+		let group = group.add(NetworkClientPlugin).add(DebugUiPlugin).add(VoxelAudioPlugin);
 		group
 	}
 }
 
 pub fn build_app(window: Window) -> App {
+	build_app_with_mode(window, selected_network_mode())
+}
+
+pub fn build_app_with_mode(window: Window, network_mode: NetworkMode) -> App {
 	let mut app = App::new();
 	#[cfg(not(target_arch = "wasm32"))]
 	let default_plugins = DefaultPlugins.build()
@@ -122,8 +173,21 @@ pub fn build_app(window: Window) -> App {
 		});
 	app.add_plugins(default_plugins)
 		.insert_resource(Time::<Virtual>::from_max_delta(Duration::from_millis(16)))
-		.add_plugins(GamePlugins)
-		.add_systems(Startup, setup);
+		.add_plugins(GpuVoxelDataPlugin)
+		.add_plugins(SharedPlugins);
+
+	#[cfg(not(target_arch = "wasm32"))]
+	app.insert_resource(SelectedClientId(selected_client_id()));
+
+	match network_mode {
+		NetworkMode::Server => {
+			app.add_plugins(ServerPlugins);
+		}
+		NetworkMode::Client => {
+			app.add_plugins(ClientPlugins)
+				.add_systems(Startup, setup);
+		}
+	}
 
 	#[cfg(feature = "tracy")]
 	app.add_systems(Last, || tracing_tracy::client::frame_mark());
@@ -138,6 +202,39 @@ fn run_app() {
 		..Default::default()
 	});
 	app.run();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn selected_network_mode() -> NetworkMode {
+	let mut mode = NetworkMode::Server;
+	for arg in std::env::args().skip(1) {
+		match arg.as_str() {
+			"--server" => mode = NetworkMode::Server,
+			"--client" => mode = NetworkMode::Client,
+			_ => {}
+		}
+	}
+	mode
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn selected_client_id() -> u64 {
+	let mut args = std::env::args().skip(1);
+	while let Some(arg) = args.next() {
+		if arg == "--client" {
+			if let Some(id) = args.next()
+				&& let Ok(id) = id.parse::<u64>() {
+				return id;
+			}
+			break;
+		}
+	}
+	1
+}
+
+#[cfg(target_arch = "wasm32")]
+fn selected_network_mode() -> NetworkMode {
+	NetworkMode::Server
 }
 
 #[cfg(not(target_arch = "wasm32"))]

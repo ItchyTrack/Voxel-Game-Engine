@@ -11,8 +11,10 @@ mod streaming;
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use presence::{ChunkPresence, ChunkState};
-pub use voxel_sources::{ChunkLoadRequest, ChunkLoadResult, ChunkLoaderChannel, ChunkRequestChannel, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoadResult, LodLoaderChannel, LodRequestChannel};
-pub use streaming::{apply_chunk_clears, cleanup_released_lods, handle_dirty_chunks, receive_lod_results, receive_results, refresh_lod_uploads, request_lod_tiles, request_stalled_chunks, GridStreaming};
+pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaded, PresenceLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
+pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
+pub type LodLoadResult = voxel_sources::LodLoaded;
+pub use streaming::{apply_chunk_clears, cleanup_released_lods, handle_dirty_chunks, receive_lod_results, receive_results, refresh_lod_uploads, request_lod_tiles, request_stalled_chunks, request_presence_for_new_grids, GridStreaming, RequestChunkPresence};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -72,13 +74,10 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(streaming::sync_grid_keys, streaming::apply_source_events)
-						.chain()
+					streaming::apply_source_events
 						.in_set(StreamingPhase::Ingest),
 					(
 						streaming::serve_saves,
-						streaming::drain_source_results,
-						streaming::drain_source_lod_results,
 					)
 						.chain()
 						.in_set(StreamingPhase::Serve),
@@ -99,7 +98,7 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(streaming::handle_dirty_chunks, streaming::request_stalled_chunks, streaming::request_lod_tiles)
+					(streaming::request_presence_for_new_grids, streaming::handle_dirty_chunks, streaming::request_stalled_chunks, streaming::request_lod_tiles)
 						.in_set(StreamingPhase::Request),
 					(streaming::receive_results, streaming::receive_lod_results)
 						.in_set(StreamingPhase::Receive),

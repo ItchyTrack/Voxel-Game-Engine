@@ -8,6 +8,7 @@ members = [
 	"crates/voxel-streaming",
 	"crates/camera-voxel-loader",
 	"crates/voxel-sources",
+	"crates/voxel-lightyear",
 	"crates/voxel-renderer",
 	"crates/voxel-physics",
 	"crates/voxel-app",
