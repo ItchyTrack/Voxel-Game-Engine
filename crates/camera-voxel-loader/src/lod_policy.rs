@@ -45,7 +45,7 @@ pub(crate) fn update_desired_sources_delta(
 	DesiredSourceDelta { tiles: SetDelta { added, removed } }
 }
 
-fn tile_has_present_source(streaming: &GridStreaming, key: TileKey) -> bool {
+pub(crate) fn tile_has_present_source(streaming: &GridStreaming, key: TileKey) -> bool {
 	if key.lod == 0 {
 		streaming.presence().is_present(key.min)
 	} else {

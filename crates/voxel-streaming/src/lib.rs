@@ -36,6 +36,20 @@ pub struct ChunkBecamePresent {
 	pub chunk: IVec3,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChunkAvailabilityChangeKind {
+	BecamePresent,
+	BecameEmpty,
+}
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChunkAvailabilityChanged {
+	pub grid: voxel_data::grid::GridId,
+	pub min: IVec3,
+	pub size: IVec3,
+	pub kind: ChunkAvailabilityChangeKind,
+}
+
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChunkLoadResolved {
 	pub grid: voxel_data::grid::GridId,
@@ -69,6 +83,7 @@ impl Plugin for VoxelStreamingPlugin {
 			app.add_plugins(voxel_sources::VoxelSourcesPlugin);
 		}
 		app.add_message::<ChunkBecamePresent>()
+			.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkLoadResolved>()
 			.register_edit_gate::<GridStreaming>()
 			.add_systems(

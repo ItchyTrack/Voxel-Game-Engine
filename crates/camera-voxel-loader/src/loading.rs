@@ -7,14 +7,14 @@ use tracy_client::span;
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::subgrid::SubGrid;
 use voxel_renderer::voxel_camera::VoxelCamera;
-use voxel_streaming::{ChunkConsumer, ChunkLoadResolved, GridStreaming, LodKey, VoxelSourceRequestApi, VoxelSourceRequests, CHUNK_SIZE};
+use voxel_streaming::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkConsumer, ChunkLoadResolved, GridStreaming, LodKey, VoxelSourceRequestApi, VoxelSourceRequests, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::coverage::{
 	remove_source, request_source, resolve_empty, resolve_visible, undesire_source, CoverageSource, SourceResolution,
 	SourceState,
 };
-use crate::lod_policy::{nearest_chunk_center, update_desired_sources_delta};
+use crate::lod_policy::{nearest_chunk_center, tile_has_present_source, update_desired_sources_delta};
 use crate::subgrid_interface::{chunks_in_bounds, collect_subgrids_to_render, resolve_chunk_source_if_ready};
 use crate::types::{TileKey, TileRecord, TileStatus};
 use crate::CameraVoxelLoaderConsumer;
@@ -250,8 +250,10 @@ pub(crate) fn receive_camera_voxel_loader_results(
 }
 
 pub(crate) fn refresh_camera_voxel_loader_visibility(
+	requests: VoxelSourceRequests,
 	mut gpu_events: MessageReader<VoxelGpuUploadFinished>,
 	mut chunk_events: MessageReader<ChunkLoadResolved>,
+	mut availability_events: MessageReader<ChunkAvailabilityChanged>,
 	mut cameras: Query<(Entity, &mut CameraVoxelLoader, &mut VoxelCamera)>,
 	grids: Query<&Grid>,
 	mut streaming_grids: Query<&mut GridStreaming>,
@@ -260,7 +262,11 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 ) {
 	let gpu_events: Vec<_> = gpu_events.read().copied().collect();
 	let chunk_events: Vec<_> = chunk_events.read().copied().collect();
+	let availability_events: Vec<_> = availability_events.read().copied().collect();
 	for (camera_entity, mut camera_voxel_loader, mut request_map) in &mut cameras {
+		for event in &availability_events {
+			handle_chunk_availability_changed(camera_entity, &mut camera_voxel_loader, &mut streaming_grids, &requests, *event);
+		}
 		for event in &chunk_events {
 			let source = TileKey::chunk(event.grid, event.chunk);
 			if !event.visible {
@@ -299,6 +305,108 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 		request_map.subgrids_to_render = subgrids_to_render;
 		request_map.lods_to_render = lods_to_render;
 	}
+}
+
+fn handle_chunk_availability_changed(
+	camera_entity: Entity,
+	camera_voxel_loader: &mut CameraVoxelLoader,
+	streaming_grids: &mut Query<&mut GridStreaming>,
+	requests: &impl VoxelSourceRequestApi,
+	event: ChunkAvailabilityChanged,
+) {
+	match event.kind {
+		ChunkAvailabilityChangeKind::BecamePresent => {
+			let candidates = newly_desired_tiles_in_area(camera_voxel_loader, event.grid, event.min, event.size);
+			for key in candidates {
+				let Ok(mut streaming) = streaming_grids.get_mut(key.grid) else { continue; };
+				if !tile_has_present_source(streaming.as_ref(), key) {
+					continue;
+				}
+				if !camera_voxel_loader.desired_tiles.insert(key) {
+					continue;
+				}
+				if key.is_chunk() {
+					request_source(camera_voxel_loader, key);
+					streaming.fetch(key.grid, requests, key.min);
+				} else {
+					queue_tile_if_missing(camera_voxel_loader, key);
+				}
+			}
+		}
+		ChunkAvailabilityChangeKind::BecameEmpty => {
+			let affected: Vec<_> = camera_voxel_loader
+				.desired_tiles
+				.iter()
+				.copied()
+				.filter(|key| key.grid == event.grid && tiles_overlap_area(*key, event.min, event.size))
+				.collect();
+			for key in affected {
+				let Ok(streaming) = streaming_grids.get_mut(key.grid) else { continue; };
+				if tile_has_present_source(streaming.as_ref(), key) {
+					continue;
+				}
+				if key.is_chunk() {
+					let ready = resolve_empty(camera_voxel_loader, key);
+					retire_sources_from_request_query(camera_voxel_loader, streaming_grids, camera_entity, ready);
+					if let Ok(mut streaming) = streaming_grids.get_mut(key.grid) { streaming.release(key.min); }
+				} else {
+					camera_voxel_loader.tiles.remove(&key);
+					let ready = resolve_empty(camera_voxel_loader, key);
+					retire_sources_from_request_query(camera_voxel_loader, streaming_grids, camera_entity, ready);
+					if let Ok(mut streaming) = streaming_grids.get_mut(key.grid) { streaming.release_lod(camera_entity, lod_key(key)); }
+				}
+			}
+		}
+	}
+}
+
+fn newly_desired_tiles_in_area(camera_voxel_loader: &CameraVoxelLoader, grid: GridId, min: IVec3, size: IVec3) -> Vec<TileKey> {
+	let Some(bands) = camera_voxel_loader.bands.get(&grid) else { return Vec::new(); };
+	let mut candidates = Vec::new();
+	for band in bands {
+		let tile_size = 1i32 << band.lod;
+		let event_box_min = min;
+		let event_box_max = min + size;
+		let band_min = band.outer.min;
+		let band_max = band.outer.max;
+		let overlap_min = event_box_min.max(band_min);
+		let overlap_max = event_box_max.min(band_max);
+		if overlap_min.cmpge(overlap_max).any() {
+			continue;
+		}
+		let mut x = overlap_min.x.div_euclid(tile_size) * tile_size;
+		while x < overlap_max.x {
+			let mut y = overlap_min.y.div_euclid(tile_size) * tile_size;
+			while y < overlap_max.y {
+				let mut z = overlap_min.z.div_euclid(tile_size) * tile_size;
+				while z < overlap_max.z {
+					let key = TileKey { grid, lod: band.lod, min: IVec3::new(x, y, z) };
+					if !camera_voxel_loader.desired_tiles.contains(&key) && is_tile_in_band(*band, key.min) {
+						candidates.push(key);
+					}
+					z += tile_size;
+				}
+				y += tile_size;
+			}
+			x += tile_size;
+		}
+	}
+	candidates
+}
+
+fn is_tile_in_band(band: crate::lod_bands::LodBand, min: IVec3) -> bool {
+	let tile_size = 1i32 << band.lod;
+	let tile_max = min + IVec3::splat(tile_size);
+	let in_outer = min.cmpge(band.outer.min).all() && tile_max.cmple(band.outer.max).all();
+	let outside_inner = band.inner.is_none_or(|inner| !(min.cmpge(inner.min).all() && tile_max.cmple(inner.max).all()));
+	in_outer && outside_inner
+}
+
+fn tiles_overlap_area(key: TileKey, min: IVec3, size: IVec3) -> bool {
+	let key_min = key.min;
+	let key_max = key.min + key.size();
+	let area_max = min + size;
+	key_min.cmplt(area_max).all() && min.cmplt(key_max).all()
 }
 
 #[cfg(test)]

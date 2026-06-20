@@ -17,7 +17,7 @@ use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
 use crate::lod_index::LodIndex;
 use crate::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, PresenceLoadRequest};
-use crate::{ChunkBecamePresent, ChunkLoadResolved, LodLoadResult};
+use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkBecamePresent, ChunkLoadResolved, LodLoadResult};
 use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
@@ -208,6 +208,7 @@ pub fn apply_source_events(
 	mut commands: Commands,
 	mut grids: Query<&mut GridStreaming>,
 	mut present_events: MessageWriter<ChunkBecamePresent>,
+	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
 	sources: VoxelSources,
 ) {
 	for event in source_events.read().copied() {
@@ -216,6 +217,12 @@ pub fn apply_source_events(
 				if let Ok(mut s) = grids.get_mut(grid) {
 					if s.presence().state(chunk).is_none() {
 						present_events.write(ChunkBecamePresent { grid, chunk });
+						availability_events.write(ChunkAvailabilityChanged {
+							grid,
+							min: chunk,
+							size: IVec3::ONE,
+							kind: ChunkAvailabilityChangeKind::BecamePresent,
+						});
 						s.presence_mut().mark_present(chunk);
 					}
 				}
@@ -223,15 +230,25 @@ pub fn apply_source_events(
 			SourceEvent::AvailableArea { grid, min, size } => {
 				commands.entity(grid).remove::<RequestChunkPresence>();
 				if let Ok(mut s) = grids.get_mut(grid) {
+					let mut any_new = false;
 					for x in min.x..min.x + size.x {
 						for y in min.y..min.y + size.y {
 							for z in min.z..min.z + size.z {
 								let chunk = IVec3::new(x, y, z);
 								if s.presence().state(chunk).is_none() {
 									present_events.write(ChunkBecamePresent { grid, chunk });
+									any_new = true;
 								}
 							}
 						}
+					}
+					if any_new {
+						availability_events.write(ChunkAvailabilityChanged {
+							grid,
+							min,
+							size,
+							kind: ChunkAvailabilityChangeKind::BecamePresent,
+						});
 					}
 					s.presence_mut().mark_present_area(min, size);
 				}
@@ -239,6 +256,12 @@ pub fn apply_source_events(
 			SourceEvent::Unavailable { grid, chunk } => {
 				if let Ok(mut s) = grids.get_mut(grid) {
 					if matches!(s.presence().state(chunk), Some(ChunkState::Available)) {
+						availability_events.write(ChunkAvailabilityChanged {
+							grid,
+							min: chunk,
+							size: IVec3::ONE,
+							kind: ChunkAvailabilityChangeKind::BecameEmpty,
+						});
 						s.presence_mut().clear_present(chunk);
 					}
 				}

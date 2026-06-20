@@ -13,7 +13,6 @@ use crate::loader::{ChunkLoadRequest, LodLoadRequest, PresenceLoadRequest, Sourc
 use crate::handle::{SourceLodResult, SourceMessage};
 use crate::source::{ChunkSource, SourceId, VoxelLodGenerator};
 
-/// [`ChunkSource`] takes `&self` and synchronizes internally.
 pub(crate) type SharedSource = Arc<dyn ChunkSource>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -80,11 +79,11 @@ impl SourceRegistry {
 		self.lod_generator = generator;
 	}
 
-
 	pub fn try_recv_message(&self) -> Option<SourceMessage> {
 		self.message_rx.try_recv().ok()
 	}
 
+	#[allow(unused)]
 	pub fn lod_generator(&self) -> &dyn VoxelLodGenerator {
 		self.lod_generator.as_ref()
 	}
