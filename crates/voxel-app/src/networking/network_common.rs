@@ -5,6 +5,9 @@ use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NetworkBody;
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NetworkGrid;
 
 pub const PROTOCOL_ID: u64 = 0x564F_5845_4C47_414D;
@@ -36,6 +39,7 @@ pub struct NetworkProtocolPlugin;
 
 impl Plugin for NetworkProtocolPlugin {
 	fn build(&self, app: &mut App) {
+		app.register_component::<NetworkBody>();
 		app.register_component::<NetworkGrid>();
 		app.register_component::<NetworkTransform>();
 	}

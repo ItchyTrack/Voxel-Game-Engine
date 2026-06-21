@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use lightyear::prelude::server::{NetcodeServer, ServerPlugins, ServerUdpIo, Start};
+use voxel_physics::{IsStatic, RigidBody};
 
-use crate::networking::network_common::{NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, REPLICATION_INTERVAL, SERVER_ADDR, replicate_grid_bundle};
+use crate::networking::network_common::{NetworkBody, NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, REPLICATION_INTERVAL, SERVER_ADDR, replicate_grid_bundle};
 
 pub struct NetworkServerPlugin;
 
@@ -12,7 +13,8 @@ impl Plugin for NetworkServerPlugin {
 			.add_plugins(NetworkProtocolPlugin)
 			.add_observer(configure_connected_client)
 			.add_systems(Startup, start_server)
-			.add_systems(Update, (replicate_new_grids, sync_grid_transforms));
+			.add_systems(Update, (replicate_new_bodies, replicate_new_grids, sync_network_transforms))
+			.add_systems(PostUpdate, disable_subgrid_hierarchy_replication.before(ReplicationBufferSystems::BeforeBuffer));
 	}
 }
 
@@ -38,20 +40,50 @@ fn configure_connected_client(trigger: On<Add, LinkOf>, mut commands: Commands) 
 	));
 }
 
+fn replicate_new_bodies(
+	mut commands: Commands,
+	bodies: Query<(Entity, &Transform, Has<IsStatic>), (With<RigidBody>, Without<NetworkBody>)>,
+) {
+	for (entity, transform, is_static) in &bodies {
+		let mut entity_commands = commands.entity(entity);
+		entity_commands.insert((NetworkBody, replicate_grid_bundle(), NetworkTransform::from(*transform)));
+		if is_static {
+			entity_commands.insert(IsStatic);
+		}
+	}
+}
+
+fn disable_subgrid_hierarchy_replication(
+	mut commands: Commands,
+	entities: Query<
+		(Entity, Option<&ChildOf>, Has<voxel_data::subgrid::SubGrid>),
+		(
+			Or<(With<voxel_data::subgrid::SubGrid>, With<voxel_gpu::lod_voxels::LodVoxels>)>,
+			Without<DisableReplicateHierarchy>,
+		),
+	>,
+) {
+	for (entity, parent, is_subgrid) in &entities {
+		let kind = if is_subgrid { "subgrid" } else { "lod voxels" };
+		info!(?entity, parent = ?parent.map(|p| p.parent()), kind, "adding DisableReplicateHierarchy");
+		commands.entity(entity).insert(DisableReplicateHierarchy);
+	}
+}
+
 fn replicate_new_grids(
 	mut commands: Commands,
 	grids: Query<(Entity, &Transform), (With<voxel_data::grid::Grid>, Without<NetworkGrid>)>,
 ) {
 	for (entity, transform) in &grids {
-		commands.entity(entity).insert((NetworkGrid, replicate_grid_bundle(), NetworkTransform::from(*transform)));
+		commands.entity(entity).insert((NetworkGrid, NetworkTransform::from(*transform)));
 	}
 }
 
-fn sync_grid_transforms(
+fn sync_network_transforms(
 	mut commands: Commands,
-	grids: Query<(Entity, &Transform, &NetworkTransform), (With<NetworkGrid>, With<Replicate>)>,
+	entities: Query<(Entity, &Transform, &NetworkTransform), Or<(With<NetworkBody>, With<NetworkGrid>)>>,
 ) {
-	for (entity, transform, network_transform) in &grids {
+	for (entity, transform, network_transform) in &entities {
 		let latest = NetworkTransform::from(*transform);
 		if latest.translation != network_transform.translation || latest.rotation != network_transform.rotation || latest.scale != network_transform.scale {
 			commands.entity(entity).insert(latest);

@@ -3,9 +3,10 @@ use lightyear::prelude::*;
 use lightyear::prelude::client::{ClientPlugins, Connect, NetcodeClient};
 use voxel_data::grid::Grid;
 use voxel_edit::GridEdits;
+use voxel_physics::{IsStatic, RigidBody};
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
-use crate::networking::network_common::{CLIENT_ADDR, NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, SERVER_ADDR};
+use crate::networking::network_common::{CLIENT_ADDR, NetworkBody, NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, SERVER_ADDR};
 use crate::SelectedClientId;
 
 pub struct NetworkClientPlugin;
@@ -15,7 +16,7 @@ impl Plugin for NetworkClientPlugin {
 		app.add_plugins(ClientPlugins::default())
 			.add_plugins(NetworkProtocolPlugin)
 			.add_systems(Startup, start_client)
-			.add_systems(Update, (init_replicated_grids, apply_network_transforms));
+			.add_systems(Update, (init_replicated_bodies, init_replicated_grids, apply_network_transforms, log_client_network_entities));
 	}
 }
 
@@ -44,6 +45,19 @@ fn start_client(mut commands: Commands, client_id: Res<SelectedClientId>) {
 	commands.trigger(Connect { entity: client });
 }
 
+fn init_replicated_bodies(
+	mut commands: Commands,
+	bodies: Query<(Entity, Option<&NetworkTransform>, Has<IsStatic>), (With<NetworkBody>, With<Replicated>, Without<RigidBody>)>,
+) {
+	for (entity, network_transform, is_static) in &bodies {
+		let mut entity_commands = commands.entity(entity);
+		entity_commands.insert((RigidBody, network_transform.copied().map(Transform::from).unwrap_or_default()));
+		if is_static {
+			entity_commands.insert(IsStatic);
+		}
+	}
+}
+
 fn init_replicated_grids(
 	mut commands: Commands,
 	grids: Query<(Entity, Option<&NetworkTransform>), (With<NetworkGrid>, With<Replicated>, Without<Grid>)>,
@@ -60,9 +74,21 @@ fn init_replicated_grids(
 }
 
 fn apply_network_transforms(
-	mut grids: Query<(&NetworkTransform, &mut Transform), (With<NetworkGrid>, With<Replicated>)>,
+	mut entities: Query<(&NetworkTransform, &mut Transform), (Or<(With<NetworkBody>, With<NetworkGrid>)>, With<Replicated>)>,
 ) {
-	for (network_transform, mut transform) in &mut grids {
+	for (network_transform, mut transform) in &mut entities {
 		*transform = Transform::from(*network_transform);
+	}
+}
+
+fn log_client_network_entities(
+	bodies: Query<(Entity, Option<&ChildOf>), Added<NetworkBody>>,
+	grids: Query<(Entity, Option<&ChildOf>), Added<NetworkGrid>>,
+) {
+	for (entity, parent) in &bodies {
+		info!(?entity, parent = ?parent.map(|p| p.parent()), "client added network body");
+	}
+	for (entity, parent) in &grids {
+		info!(?entity, parent = ?parent.map(|p| p.parent()), "client added network grid");
 	}
 }

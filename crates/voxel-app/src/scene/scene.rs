@@ -6,9 +6,7 @@ use bevy::prelude::*;
 use voxel_data::voxels::Voxel;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_physics::{
-	AngularVelocity, BallJointConstraint, BallJointConstraints,
-	FreezePhysics, Impulses, PhysicsSet,
-	RigidBody, RotationalInertia,
+	AngularVelocity, BallJointConstraint, BallJointConstraints, FreezePhysics, Impulses, IsStatic, PhysicsSet, RigidBody, RotationalInertia
 };
 
 use crate::voxel::streaming_test::{spawn_grid, StreamingVoxels, WorldStore};
@@ -63,12 +61,12 @@ fn drive_orientation(
 
 fn setup_scene(
 	mut commands: Commands,
-	_constraints: ResMut<BallJointConstraints>,
+	mut constraints: ResMut<BallJointConstraints>,
 	mut store: ResMut<WorldStore>,
 ) {
 	spawn_church(&mut commands, &mut store);
 	// spawn_ball_cluster(&mut commands, &mut constraints, &mut store);
-	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(0.0, 120.0, 0.0));
+	spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(0.0, 120.0, 0.0));
 	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(30.0, 120.0, 0.0));
 	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(-30.0, 120.0, 0.0));
 	// for x in 0..3 {
@@ -84,14 +82,14 @@ fn spawn_church(commands: &mut Commands, store: &mut WorldStore) {
 	let mut grid = StreamingVoxels::new();
 	if !load_church(&mut grid) { return }
 
-	// let parent = commands
-	// 	.spawn((
-	// 		RigidBody,
-	// 		IsStatic,
-	// 		Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
-	// 	))
-	// 	.id();
-	spawn_grid(commands, store, None, Transform::IDENTITY, grid, VoxelCollider);
+	let parent = commands
+		.spawn((
+			RigidBody,
+			IsStatic,
+			Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
+		))
+		.id();
+	spawn_grid(commands, store, Some(parent), Transform::IDENTITY, grid, VoxelCollider);
 }
 
 #[cfg(target_arch = "wasm32")]

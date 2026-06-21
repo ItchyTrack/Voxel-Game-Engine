@@ -65,6 +65,7 @@ pub enum NetworkMode {
 pub struct SelectedClientId(pub u64);
 
 struct SharedPlugins;
+struct LocalPlayerPlugins;
 struct ServerPlugins;
 struct ClientPlugins;
 
@@ -80,6 +81,22 @@ impl PluginGroup for SharedPlugins {
 	}
 }
 
+impl PluginGroup for LocalPlayerPlugins {
+	fn build(self) -> PluginGroupBuilder {
+		let group = PluginGroupBuilder::start::<Self>()
+			.add(CameraVoxelLoaderPlugin)
+			.add(VoxelRendererPlugin)
+			.add(SkyboxPlugin)
+			.add(CrosshairPlugin)
+			.add(FlyCameraPlugin)
+			.add(DebugTogglesPlugin)
+			.add(WorldInteractionPlugin);
+		#[cfg(not(target_arch = "wasm32"))]
+		let group = group.add(DebugUiPlugin).add(VoxelAudioPlugin);
+		group
+	}
+}
+
 impl PluginGroup for ServerPlugins {
 	fn build(self) -> PluginGroupBuilder {
 		let group = PluginGroupBuilder::start::<Self>()
@@ -90,7 +107,8 @@ impl PluginGroup for ServerPlugins {
 			.add(MemoryStorePlugin)
 			// .add(SphereSourcePlugin)
 			.add(ScenePlugin)
-			.add(StreamingTestPlugin);
+			.add(StreamingTestPlugin)
+			.add_group(LocalPlayerPlugins);
 		#[cfg(not(target_arch = "wasm32"))]
 		let group = group.add(NetworkServerPlugin);
 		group
@@ -104,15 +122,9 @@ impl PluginGroup for ClientPlugins {
 				enable_client_chunk_source: true,
 				enable_server_chunk_source: false,
 			})
-			.add(CameraVoxelLoaderPlugin)
-			.add(VoxelRendererPlugin)
-			.add(SkyboxPlugin)
-			.add(CrosshairPlugin)
-			.add(FlyCameraPlugin)
-			.add(DebugTogglesPlugin)
-			.add(WorldInteractionPlugin);
+			.add_group(LocalPlayerPlugins);
 		#[cfg(not(target_arch = "wasm32"))]
-		let group = group.add(NetworkClientPlugin).add(DebugUiPlugin).add(VoxelAudioPlugin);
+		let group = group.add(NetworkClientPlugin);
 		group
 	}
 }
@@ -165,7 +177,8 @@ pub fn build_app_with_mode(window: Window, network_mode: NetworkMode) -> App {
 
 	match network_mode {
 		NetworkMode::Server => {
-			app.add_plugins(ServerPlugins);
+			app.add_plugins(ServerPlugins)
+				.add_systems(Startup, setup);
 		}
 		NetworkMode::Client => {
 			app.add_plugins(ClientPlugins)
