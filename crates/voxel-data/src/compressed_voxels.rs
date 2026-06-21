@@ -1,22 +1,27 @@
+use std::io::Cursor;
 use std::ops::Deref;
 
 use crate::voxels::Voxels;
+
+const ZSTD_LEVEL: i32 = 6;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CompressedVoxels(Vec<u8>);
 
 impl CompressedVoxels {
-	pub fn new(voxels: &Voxels) -> Result<Self, bincode::Error> {
-		let raw = bincode::serialize(voxels)?;
-		Ok(Self(lz4_flex::compress_prepend_size(&raw)))
+	pub fn new(voxels: &Voxels) -> Result<Self, CompressVoxelsError> {
+		let raw = bincode::serialize(voxels).map_err(CompressVoxelsError::Serialize)?;
+		zstd::stream::encode_all(Cursor::new(raw), ZSTD_LEVEL)
+			.map(Self)
+			.map_err(CompressVoxelsError::Compress)
 	}
 
-	pub fn from_voxels(voxels: Voxels) -> Result<Self, bincode::Error> {
+	pub fn from_voxels(voxels: Voxels) -> Result<Self, CompressVoxelsError> {
 		Self::new(&voxels)
 	}
 
 	pub fn decompress(&self) -> Result<Voxels, DecompressVoxelsError> {
-		let raw = lz4_flex::decompress_size_prepended(&self.0)
+		let raw = zstd::stream::decode_all(Cursor::new(&self.0))
 			.map_err(DecompressVoxelsError::Decompress)?;
 		bincode::deserialize(&raw).map_err(DecompressVoxelsError::Deserialize)
 	}
@@ -47,7 +52,7 @@ impl Deref for CompressedVoxels {
 }
 
 impl TryFrom<&Voxels> for CompressedVoxels {
-	type Error = bincode::Error;
+	type Error = CompressVoxelsError;
 
 	fn try_from(value: &Voxels) -> Result<Self, Self::Error> {
 		Self::new(value)
@@ -55,7 +60,7 @@ impl TryFrom<&Voxels> for CompressedVoxels {
 }
 
 impl TryFrom<Voxels> for CompressedVoxels {
-	type Error = bincode::Error;
+	type Error = CompressVoxelsError;
 
 	fn try_from(value: Voxels) -> Result<Self, Self::Error> {
 		Self::from_voxels(value)
@@ -63,8 +68,25 @@ impl TryFrom<Voxels> for CompressedVoxels {
 }
 
 #[derive(Debug)]
+pub enum CompressVoxelsError {
+	Serialize(bincode::Error),
+	Compress(std::io::Error),
+}
+
+impl std::fmt::Display for CompressVoxelsError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Serialize(err) => write!(f, "failed to serialize voxels for compression: {err}"),
+			Self::Compress(err) => write!(f, "failed to compress voxels: {err}"),
+		}
+	}
+}
+
+impl std::error::Error for CompressVoxelsError {}
+
+#[derive(Debug)]
 pub enum DecompressVoxelsError {
-	Decompress(lz4_flex::block::DecompressError),
+	Decompress(std::io::Error),
 	Deserialize(bincode::Error),
 }
 

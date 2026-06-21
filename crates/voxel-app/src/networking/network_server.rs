@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 use lightyear::prelude::server::{NetcodeServer, ServerPlugins, ServerUdpIo, Start};
 
-use crate::network_common::{NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, REPLICATION_INTERVAL, SERVER_ADDR, replicate_grid_bundle};
+use crate::networking::network_common::{NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, REPLICATION_INTERVAL, SERVER_ADDR, replicate_grid_bundle};
 
 pub struct NetworkServerPlugin;
 

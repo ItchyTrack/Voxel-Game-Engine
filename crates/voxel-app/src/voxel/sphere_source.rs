@@ -12,7 +12,7 @@ use voxel_data::grid::GridId;
 use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
 
-use crate::streaming_test::WorldStore;
+use crate::voxel::streaming_test::WorldStore;
 
 const RADIUS: i32 = 2_000;
 const COST: u32 = 5;

@@ -53,7 +53,7 @@ impl CrosshairRenderer {
 	fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
 		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: Some("Crosshair Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/crosshair.wgsl").into()),
+			source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/crosshair.wgsl").into()),
 		});
 		let buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("Crosshair Screen Size"),

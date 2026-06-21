@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use voxel_data::voxels::Voxel;
 
-use crate::streaming_test::StreamingVoxels;
+use crate::voxel::streaming_test::StreamingVoxels;
 
 /// Parses a `.vox` byte buffer and adds its voxels into `grid`, offset by
 /// `offset` (in voxels). Returns `false` if the file can't be parsed.

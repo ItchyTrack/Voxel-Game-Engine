@@ -7,15 +7,15 @@ use voxel_data::voxels::Voxel;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_physics::{
 	AngularVelocity, BallJointConstraint, BallJointConstraints,
-	FreezePhysics, Impulses, IsStatic, PhysicsSet,
+	FreezePhysics, Impulses, PhysicsSet,
 	RigidBody, RotationalInertia,
 };
 
-use crate::streaming_test::{spawn_grid, StreamingVoxels, WorldStore};
+use crate::voxel::streaming_test::{spawn_grid, StreamingVoxels, WorldStore};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::vox_loader::load_vox;
+use crate::voxel::vox_loader::load_vox;
 #[cfg(target_arch = "wasm32")]
-use crate::vox_loader::load_vox_bytes;
+use crate::voxel::vox_loader::load_vox_bytes;
 
 pub struct ScenePlugin;
 
@@ -63,7 +63,7 @@ fn drive_orientation(
 
 fn setup_scene(
 	mut commands: Commands,
-	mut constraints: ResMut<BallJointConstraints>,
+	_constraints: ResMut<BallJointConstraints>,
 	mut store: ResMut<WorldStore>,
 ) {
 	spawn_church(&mut commands, &mut store);

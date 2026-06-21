@@ -5,7 +5,7 @@ use voxel_data::grid::Grid;
 use voxel_edit::GridEdits;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
-use crate::network_common::{CLIENT_ADDR, NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, SERVER_ADDR};
+use crate::networking::network_common::{CLIENT_ADDR, NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, SERVER_ADDR};
 use crate::SelectedClientId;
 
 pub struct NetworkClientPlugin;

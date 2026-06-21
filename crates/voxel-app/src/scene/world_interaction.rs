@@ -10,7 +10,7 @@ use voxel_data::world_query::VoxelWorldQueryParam;
 use voxel_edit::GridEdits;
 use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, PhysicsSet, Velocity};
 
-use crate::audio_plugin::PlaySfx;
+use crate::audio::plugin::PlaySfx;
 
 pub struct WorldInteractionPlugin;
 

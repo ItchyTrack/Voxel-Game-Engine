@@ -61,7 +61,7 @@ impl SkyboxRenderer {
 	fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
 		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: Some("Skybox Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/skybox.wgsl").into()),
+			source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/skybox.wgsl").into()),
 		});
 		let (buffer, bind_group, layout) = CameraUniform::get_buffer(device, 0);
 		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

@@ -11,7 +11,7 @@ use voxel_edit::GridEdits;
 use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_of, GridStreaming, CHUNK_SIZE};
 
-use crate::lod_downsample::downsample_region;
+use crate::voxel::lod_downsample::downsample_region;
 
 const ORIGINAL_COST: u32 = 10;
 

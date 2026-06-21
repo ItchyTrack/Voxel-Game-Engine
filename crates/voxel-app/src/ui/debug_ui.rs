@@ -10,7 +10,7 @@ use voxel_physics::{
 };
 use voxel_renderer::graphics_settings::GraphicsSettings;
 use voxel_renderer::hit_count_feedback::RenderStats;
-use voxel_streaming::{ChunkState, GridStreaming, VoxelSourceRequestApi, VoxelSourceRequests, CHUNK_SIZE};
+use voxel_streaming::{ChunkState, GridStreaming, VoxelSourceRequests, CHUNK_SIZE};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
@@ -55,7 +55,7 @@ fn debug_window(
 	mut freeze_physics: ResMut<FreezePhysics>,
 	mut inertia_boxes: ResMut<InertiaBoxes>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
-	requests: VoxelSourceRequests,
+	_requests: VoxelSourceRequests,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) -> Result {
 	let ctx = contexts.ctx_mut()?;

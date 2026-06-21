@@ -1,24 +1,8 @@
 mod audio;
-mod audio_plugin;
-mod camera_controller;
-mod crosshair;
-mod debug_toggles;
-mod debug_ui;
-mod gravity;
-mod lod_downsample;
-mod memory_store;
-#[cfg(not(target_arch = "wasm32"))]
-mod network_client;
-#[cfg(not(target_arch = "wasm32"))]
-mod network_common;
-#[cfg(not(target_arch = "wasm32"))]
-mod network_server;
+mod networking;
 mod scene;
-mod skybox;
-mod sphere_source;
-mod streaming_test;
-mod vox_loader;
-mod world_interaction;
+mod ui;
+mod voxel;
 
 use std::time::Duration;
 
@@ -34,21 +18,21 @@ use bevy::window::WindowResolution;
 #[cfg(target_arch = "wasm32")]
 use bevy::window::ExitCondition;
 
-use audio_plugin::VoxelAudioPlugin;
-use camera_controller::{FlyCamera, FlyCameraPlugin};
+use audio::plugin::VoxelAudioPlugin;
+use scene::camera_controller::{FlyCamera, FlyCameraPlugin};
 use camera_voxel_loader::CameraVoxelLoaderPlugin;
-use crosshair::CrosshairPlugin;
-use debug_toggles::DebugTogglesPlugin;
-use debug_ui::DebugUiPlugin;
-use gravity::GravityPlugin;
-use memory_store::MemoryStorePlugin;
+use ui::crosshair::CrosshairPlugin;
+use ui::debug_toggles::DebugTogglesPlugin;
+use ui::debug_ui::DebugUiPlugin;
+use scene::gravity::GravityPlugin;
+use voxel::memory_store::MemoryStorePlugin;
 #[cfg(not(target_arch = "wasm32"))]
-use network_client::NetworkClientPlugin;
+use networking::network_client::NetworkClientPlugin;
 #[cfg(not(target_arch = "wasm32"))]
-use network_server::NetworkServerPlugin;
-use scene::ScenePlugin;
-use skybox::SkyboxPlugin;
-use streaming_test::StreamingTestPlugin;
+use networking::network_server::NetworkServerPlugin;
+use scene::scene::ScenePlugin;
+use scene::skybox::SkyboxPlugin;
+use voxel::streaming_test::StreamingTestPlugin;
 use voxel_data::VoxelDataPlugin;
 use voxel_edit::VoxelEditPlugin;
 use voxel_gpu::GpuVoxelDataPlugin;
@@ -57,9 +41,9 @@ use voxel_physics::VoxelPhysicsPlugin;
 use voxel_renderer::VoxelRendererPlugin;
 use voxel_sources::VoxelSourcesAppExt;
 use voxel_streaming::VoxelStreamingPlugin;
-use world_interaction::WorldInteractionPlugin;
+use scene::world_interaction::WorldInteractionPlugin;
 
-use crate::lod_downsample::AverageVoxelLodGenerator;
+use crate::voxel::lod_downsample::AverageVoxelLodGenerator;
 
 struct VoxelLodGeneratorPlugin;
 
