@@ -30,17 +30,17 @@ impl Plugin for ChunkSourcePlugin {
 			let client_chunk_source = ClientChunkSource::default();
 			app.insert_resource(client_chunk_source.clone()).register_source(client_chunk_source);
 		}
-		app.add_channel::<PresenceRequestChannel>(reliable_channel())
+		app.add_channel::<PresenceRequestChannel>(unordered_reliable_channel())
 			.add_direction(NetworkDirection::ClientToServer);
-		app.add_channel::<ChunkRequestChannel>(reliable_channel())
+		app.add_channel::<ChunkRequestChannel>(unordered_reliable_channel())
 			.add_direction(NetworkDirection::ClientToServer);
-		app.add_channel::<ChunkResponseChannel>(reliable_channel())
+		app.add_channel::<ChunkResponseChannel>(unordered_reliable_channel())
 			.add_direction(NetworkDirection::ServerToClient);
-		app.add_channel::<LodRequestChannel>(reliable_channel())
+		app.add_channel::<LodRequestChannel>(unordered_reliable_channel())
 			.add_direction(NetworkDirection::ClientToServer);
-		app.add_channel::<LodResponseChannel>(reliable_channel())
+		app.add_channel::<LodResponseChannel>(unordered_reliable_channel())
 			.add_direction(NetworkDirection::ServerToClient);
-		app.add_channel::<ChunkPresenceAabbChannel>(reliable_channel())
+		app.add_channel::<ChunkPresenceAabbChannel>(unordered_reliable_channel())
 			.add_direction(NetworkDirection::ServerToClient);
 		app.register_event::<PresenceRequest>()
 			.add_map_entities()
@@ -85,10 +85,18 @@ impl Plugin for ChunkSourcePlugin {
 	}
 }
 
-fn reliable_channel() -> ChannelSettings {
-	ChannelSettings {
-		mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-		send_frequency: Duration::default(),
-		priority: 1.0,
-	}
-}
+// fn reliable_channel() -> ChannelSettings {
+// 	ChannelSettings {
+// 		mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+// 		send_frequency: Duration::from_millis(100),
+// 		priority: 1.0,
+// 	}
+// }
+
+fn unordered_reliable_channel() -> ChannelSettings {      
+	ChannelSettings {                                      
+		mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+		send_frequency: Duration::default(),                
+		priority: 1.0,                                      
+	}                                                      
+}  

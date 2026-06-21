@@ -4,8 +4,8 @@ use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
 use voxel_sources::LodKey;
 
+use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
-use voxel_data::voxels::Voxels;
 
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ChunkRequest {
@@ -23,7 +23,7 @@ impl MapEntities for ChunkRequest {
 pub(crate) struct ChunkResponse {
 	pub grid: GridId,
 	pub chunk: IVec3,
-	pub voxels: Option<Voxels>,
+	pub voxels: Option<CompressedVoxels>,
 }
 
 impl MapEntities for ChunkResponse {
@@ -49,7 +49,7 @@ impl MapEntities for LodRequest {
 pub(crate) struct LodResponse {
 	pub grid: GridId,
 	pub key: LodKey,
-	pub voxels: Option<Voxels>,
+	pub voxels: Option<CompressedVoxels>,
 }
 
 impl MapEntities for LodResponse {

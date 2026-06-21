@@ -114,7 +114,17 @@ pub(crate) fn receive_remote_chunk_response(
 		warn!(grid=?response.grid, chunk=?response.chunk, ?from, "ignoring unexpected remote chunk response");
 		return;
 	}
-	handle.loaded(response.grid, response.chunk, response.voxels.take());
+	let voxels = match response.voxels.take() {
+		Some(voxels) => match voxels.decompress() {
+			Ok(voxels) => Some(voxels),
+			Err(err) => {
+				warn!(grid=?response.grid, chunk=?response.chunk, ?from, error=%err, "failed to decompress remote chunk response");
+				return;
+			}
+		},
+		None => None,
+	};
+	handle.loaded(response.grid, response.chunk, voxels);
 }
 
 pub(crate) fn receive_remote_lod_response(
@@ -129,7 +139,17 @@ pub(crate) fn receive_remote_lod_response(
 		warn!(grid=?response.grid, min=?response.key.min, size=?response.key.size, lod=response.key.lod, ?from, "ignoring unexpected remote lod response");
 		return;
 	}
-	handle.loaded_lod(response.grid, response.key.min, response.key.size, response.key.lod as f32, response.voxels.take());
+	let voxels = match response.voxels.take() {
+		Some(voxels) => match voxels.decompress() {
+			Ok(voxels) => Some(voxels),
+			Err(err) => {
+				warn!(grid=?response.grid, min=?response.key.min, size=?response.key.size, lod=response.key.lod, ?from, error=%err, "failed to decompress remote lod response");
+				return;
+			}
+		},
+		None => None,
+	};
+	handle.loaded_lod(response.grid, response.key.min, response.key.size, response.key.lod as f32, voxels);
 }
 
 pub(crate) fn receive_chunk_presence_aabb(

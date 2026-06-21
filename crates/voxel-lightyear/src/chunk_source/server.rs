@@ -4,6 +4,7 @@ use bevy::ecs::message::MessageReader;
 use bevy::log::warn;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerId, PeerMetadata, RemoteEvent};
+use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_sources::{ChunkLoaded, LodLoaded, LodLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests};
 use voxel_streaming::GridStreaming;
@@ -117,6 +118,16 @@ pub(crate) fn flush_chunk_results(
 			warn!(?pending_key, "dropping chunk load result with no pending remote requests");
 			continue
 		};
+		let voxels = match voxels.as_ref() {
+			Some(voxels) => match CompressedVoxels::new(voxels) {
+				Ok(voxels) => Some(voxels),
+				Err(err) => {
+					warn!(grid=?grid, chunk=?chunk, error=%err, "failed to compress chunk response voxels");
+					continue
+				}
+			},
+			None => None,
+		};
 		for request in requests {
 			let Some(&entity) = peer_metadata.mapping.get(&request.peer) else {
 				warn!(grid=?grid, chunk=?chunk, peer=?request.peer, "missing peer mapping for chunk response");
@@ -146,6 +157,16 @@ pub(crate) fn flush_lod_results(
 		let Some(requests) = pending.0.remove(&PendingLodKey { grid: *grid, key: *key }) else {
 			warn!(grid=?grid, min=?key.min, size=?key.size, lod=key.lod, "dropping lod load result with no pending remote requests");
 			continue
+		};
+		let voxels = match voxels.as_ref() {
+			Some(voxels) => match CompressedVoxels::new(voxels) {
+				Ok(voxels) => Some(voxels),
+				Err(err) => {
+					warn!(grid=?grid, min=?key.min, size=?key.size, lod=key.lod, error=%err, "failed to compress lod response voxels");
+					continue
+				}
+			},
+			None => None,
 		};
 		for request in requests {
 			let Some(&entity) = peer_metadata.mapping.get(&request.peer) else {
