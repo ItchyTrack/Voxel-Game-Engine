@@ -1,34 +1,53 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use bevy::ecs::change_detection::Mut;
-use bevy::math::IVec3;
+use bevy::math::{IVec2, IVec3, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::{reconcile_subgrids, Grid, GridId};
+use voxel_data::sdf::Sdf;
 use voxel_data::subgrid::SubGrid;
 use voxel_data::voxels::Voxel;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub enum GridEdit {
 	Add { voxel_pos: IVec3, voxel: Voxel },
 	Remove { voxel_pos: IVec3 },
+	ApplySdf {
+		bounds_min: Vec3,
+		bounds_max: Vec3,
+		face_resolution: IVec2,
+		iterations: usize,
+		voxel: Voxel,
+		sdf: Arc<dyn Sdf>,
+	},
+	ClearSdf {
+		bounds_min: Vec3,
+		bounds_max: Vec3,
+		face_resolution: IVec2,
+		iterations: usize,
+		sdf: Arc<dyn Sdf>,
+	},
 }
 
 impl GridEdit {
-	pub fn voxel_pos(&self) -> IVec3 {
+	pub fn voxel_bounds(&self) -> (IVec3, IVec3) {
 		match self {
-			GridEdit::Add { voxel_pos, .. } | GridEdit::Remove { voxel_pos } => *voxel_pos,
+			GridEdit::Add { voxel_pos, .. } | GridEdit::Remove { voxel_pos } => (*voxel_pos, *voxel_pos + IVec3::ONE),
+			GridEdit::ApplySdf { bounds_min, bounds_max, .. } | GridEdit::ClearSdf { bounds_min, bounds_max, .. } => {
+				(bounds_min.floor().as_ivec3(), bounds_max.ceil().as_ivec3())
+			}
 		}
 	}
 	pub fn voxel(&self) -> Option<Voxel> {
 		match self {
 			GridEdit::Add { voxel, .. } => Some(*voxel),
-			GridEdit::Remove { .. } => None,
+			GridEdit::Remove { .. } | GridEdit::ApplySdf { .. } | GridEdit::ClearSdf { .. } => None,
 		}
 	}
 }
 
-#[derive(Component, Default, Debug)]
+#[derive(Component, Default)]
 pub struct GridEdits {
 	pending: Vec<GridEdit>,
 }
@@ -40,6 +59,14 @@ impl GridEdits {
 
 	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) {
 		self.pending.push(GridEdit::Remove { voxel_pos: *voxel_pos });
+	}
+
+	pub fn apply_sdf(&mut self, bounds_min: Vec3, bounds_max: Vec3, voxel: Voxel, sdf: Arc<dyn Sdf>) {
+		self.pending.push(GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution: IVec2::splat(9), iterations: 6, voxel, sdf });
+	}
+
+	pub fn clear_sdf(&mut self, bounds_min: Vec3, bounds_max: Vec3, sdf: Arc<dyn Sdf>) {
+		self.pending.push(GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution: IVec2::splat(9), iterations: 6, sdf });
 	}
 
 	/// Re-enqueue an edit a gate previously stalled, so it is reconsidered.
@@ -56,9 +83,9 @@ pub trait EditGate {
 		let _ = edit;
 		true
 	}
-	/// Called after a voxel was written.
-	fn touched(&mut self, voxel_pos: IVec3) {
-		let _ = voxel_pos;
+	/// Called after an edit was written.
+	fn touched(&mut self, edit: &GridEdit) {
+		let _ = edit;
 	}
 }
 
@@ -101,12 +128,24 @@ pub fn apply_grid_edits(
 
 		let mut touched: HashSet<IVec3> = HashSet::new();
 		for edit in std::mem::take(&mut edits.pending) {
-			let pos = edit.voxel_pos();
 			if !gate_list.iter_mut().all(|gate| gate.admit(&edit)) { continue; }
 
-			touched.insert(grid.set_voxel(pos, edit.voxel()));
+			match &edit {
+				GridEdit::Add { voxel_pos, voxel } => {
+					touched.insert(grid.set_voxel(*voxel_pos, Some(*voxel)));
+				}
+				GridEdit::Remove { voxel_pos } => {
+					touched.insert(grid.set_voxel(*voxel_pos, None));
+				}
+				GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
+					touched.extend(grid.apply_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations, *voxel));
+				}
+				GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution, iterations, sdf } => {
+					touched.extend(grid.clear_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations));
+				}
+			}
 			for gate in gate_list.iter_mut() {
-				gate.touched(pos);
+				gate.touched(&edit);
 			}
 		}
 

@@ -1,6 +1,153 @@
+use bevy::math::{IVec2, Vec3};
+
+use crate::sdf::{shrink_aabb_with_sdf, voxel_center, voxel_region_from_bounds, Sdf};
+
 use super::*;
 
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
+	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, data: C::Data) {
+		let (min, max) = shrink_aabb_with_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
+		let Some(region) = voxel_region_from_bounds(min, max) else { return };
+		self.fill_sdf_region(region, sdf, data);
+	}
+
+	pub fn clear_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize) {
+		let (min, max) = shrink_aabb_with_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
+		let Some(region) = voxel_region_from_bounds(min, max) else { return };
+		self.clear_sdf_region(region, sdf);
+	}
+
+	fn fill_sdf_region(&mut self, region: GridRegion, sdf: &(impl Sdf + ?Sized), data: C::Data) {
+		let Some(region) = GridRegion::new(region.min, region.end) else { return };
+		if !self.make_sure_root_covers_area(region.min, region.max_inclusive()) || !self.has_node_budget() {
+			return;
+		}
+
+		for attempt in 0..3 {
+			if self.fill_sdf_recurse(0, self.root_depth, self.root_pos, region, sdf, data) {
+				return;
+			}
+			if attempt < 2 {
+				self.compact();
+			}
+		}
+		bevy::log::warn!("GridTree could not finish apply_sdf after compaction retries");
+	}
+
+	fn clear_sdf_region(&mut self, region: GridRegion, sdf: &(impl Sdf + ?Sized)) {
+		if self.is_empty() {
+			return;
+		}
+		let Some(region) = self.root_region().intersection(region) else { return };
+		if !self.has_node_budget() {
+			return;
+		}
+
+		for attempt in 0..3 {
+			if self.clear_sdf_recurse(0, self.root_depth, self.root_pos, region, sdf) {
+				return;
+			}
+			if attempt < 2 {
+				self.compact();
+			}
+		}
+		bevy::log::warn!("GridTree could not finish clear_sdf after compaction retries");
+	}
+
+	fn fill_sdf_recurse(
+		&mut self,
+		node_index: u32,
+		node_depth: u8,
+		node_origin: IVec3,
+		region: GridRegion,
+		sdf: &(impl Sdf + ?Sized),
+		data: C::Data,
+	) -> bool {
+		let node_region = GridRegion { min: node_origin, end: node_origin + IVec3::splat(size(node_depth) as i32) };
+		let Some(overlap) = node_region.intersection(region) else { return true };
+		let cell_size = child_size(node_depth) as i32;
+		let child_min = (overlap.min - node_origin).div_euclid(IVec3::splat(cell_size));
+		let child_max = (overlap.end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+
+		for z in child_min.z..=child_max.z {
+			for y in child_min.y..=child_max.y {
+				for x in child_min.x..=child_max.x {
+					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
+					if node_depth == 0 {
+						if sdf.sample(voxel_center(child_origin)) <= 0.0 {
+							self.set_voxel_child_to_data(node_index, child_index, data);
+						}
+						continue;
+					}
+
+					let child_node_index = match self.child_node_for_partial_area(node_index, child_index) {
+						Some(index) => index,
+						None => return false,
+					};
+					if !self.fill_sdf_recurse(child_node_index, node_depth - 1, child_origin, region, sdf, data) {
+						return false;
+					}
+					self.collapse_child_node_if_possible(node_index, child_index);
+				}
+			}
+		}
+		true
+	}
+
+	fn clear_sdf_recurse(
+		&mut self,
+		node_index: u32,
+		node_depth: u8,
+		node_origin: IVec3,
+		region: GridRegion,
+		sdf: &(impl Sdf + ?Sized),
+	) -> bool {
+		let node_region = GridRegion { min: node_origin, end: node_origin + IVec3::splat(size(node_depth) as i32) };
+		let Some(overlap) = node_region.intersection(region) else { return true };
+		let cell_size = child_size(node_depth) as i32;
+		let child_min = (overlap.min - node_origin).div_euclid(IVec3::splat(cell_size));
+		let child_max = (overlap.end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+
+		for z in child_min.z..=child_max.z {
+			for y in child_min.y..=child_max.y {
+				for x in child_min.x..=child_max.x {
+					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
+					let cell = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
+					if cell.kind() == CellKind::Empty {
+						continue;
+					}
+					if node_depth == 0 {
+						if sdf.sample(voxel_center(child_origin)) <= 0.0 {
+							self.set_child_area_to_empty(node_index, node_depth, child_index);
+						}
+						continue;
+					}
+
+					if cell.kind() != CellKind::Node {
+						let child_region = GridRegion { min: child_origin, end: child_origin + IVec3::splat(cell_size) };
+						if !region.intersects(child_region) {
+							continue;
+						}
+					}
+
+					let child_node_index = match cell.kind() {
+						CellKind::Node => node_index + cell.node_offset(),
+						_ => match self.child_node_for_partial_area(node_index, child_index) {
+							Some(index) => index,
+							None => return false,
+						},
+					};
+					if !self.clear_sdf_recurse(child_node_index, node_depth - 1, child_origin, region, sdf) {
+						return false;
+					}
+					self.collapse_child_node_if_possible(node_index, child_index);
+				}
+			}
+		}
+		true
+	}
 	pub fn split_region(&mut self, region: GridRegion) -> Self {
 		let mut out = Self::new();
 		if self.is_empty() {

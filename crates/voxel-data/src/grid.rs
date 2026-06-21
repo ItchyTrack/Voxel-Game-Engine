@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy::math::{I8Vec3, I16Vec3, IVec3, Quat, Vec3};
+use bevy::math::{I8Vec3, I16Vec3, IVec2, IVec3, Quat, Vec3};
 use bevy::prelude::*;
 
 use tracy_client::span;
 
+use crate::sdf::Sdf;
 use crate::subgrid::{SubGrid, SubGridId, SubGridRef};
 use crate::voxels::{Voxel, Voxels};
 
@@ -236,6 +237,36 @@ impl Grid {
 			let Some(source_region) = crate::grid_tree::GridRegion::from_min_size(source_min, source_size) else { continue };
 			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos));
 			slot.voxels.merge_region_from(src, Some(source_region), base - sub_grid_pos);
+			touched.insert(sub_grid_pos);
+		}
+		touched
+	}
+
+	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, voxel: Voxel) -> HashSet<IVec3> {
+		let mut touched = HashSet::new();
+		let min = initial_min.floor().as_ivec3();
+		let hi = initial_max.ceil().as_ivec3();
+		for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(min, hi) {
+			let local_min = (cell_lo - sub_grid_pos).as_vec3();
+			let local_max = (cell_hi - sub_grid_pos).as_vec3();
+			let local_sdf = |p: Vec3| sdf.sample(p + sub_grid_pos.as_vec3());
+			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos));
+			slot.voxels.apply_sdf(local_min, local_max, &local_sdf, face_resolution, iterations, voxel);
+			touched.insert(sub_grid_pos);
+		}
+		touched
+	}
+
+	pub fn clear_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize) -> HashSet<IVec3> {
+		let mut touched = HashSet::new();
+		let min = initial_min.floor().as_ivec3();
+		let hi = initial_max.ceil().as_ivec3();
+		for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(min, hi) {
+			let Some(slot) = self.subgrids.get_mut(&sub_grid_pos) else { continue };
+			let local_min = (cell_lo - sub_grid_pos).as_vec3();
+			let local_max = (cell_hi - sub_grid_pos).as_vec3();
+			let local_sdf = |p: Vec3| sdf.sample(p + sub_grid_pos.as_vec3());
+			slot.voxels.clear_sdf(local_min, local_max, &local_sdf, face_resolution, iterations);
 			touched.insert(sub_grid_pos);
 		}
 		touched

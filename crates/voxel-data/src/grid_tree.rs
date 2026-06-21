@@ -207,7 +207,7 @@ impl<'a, C: GridCell, Co: GridCoord> Iterator for GridTreeIterator<'a, C, Co> {
 mod tests {
 	use super::*;
 	use crate::voxel_grid_tree::PackedCell;
-	use bevy::math::I16Vec3;
+	use bevy::math::{I16Vec3, Vec3};
 
 	#[test]
 	fn add_area_preserves_large_runs() {
@@ -247,5 +247,49 @@ mod tests {
 		assert_eq!(tree.len(), 0);
 		assert!(tree.is_empty());
 		assert_eq!(tree.get(&I16Vec3::ZERO), None);
+	}
+
+	#[test]
+	fn apply_sdf_restricts_then_fills_expected_voxels() {
+		let mut tree = GridTree::<PackedCell, I16Coord>::new();
+		let center = Vec3::splat(8.0);
+		let radius = 5.0f32;
+		let sdf = |p: Vec3| (p - center).length() - radius;
+		tree.apply_sdf(Vec3::splat(-100.0), Vec3::splat(100.0), &sdf, bevy::math::IVec2::splat(9), 8, 7);
+
+		let mut expected_count = 0u64;
+		for z in -16..32 {
+			for y in -16..32 {
+				for x in -16..32 {
+					let pos = I16Vec3::new(x, y, z);
+					let inside = (pos.as_vec3() + Vec3::splat(0.5) - center).length_squared() <= radius * radius;
+					assert_eq!(tree.get(&pos), inside.then_some(7), "mismatch at {pos:?}");
+					if inside {
+						expected_count += 1;
+					}
+				}
+			}
+		}
+		assert_eq!(tree.len(), expected_count);
+	}
+
+	#[test]
+	fn clear_sdf_only_removes_inside_shape() {
+		let mut tree = GridTree::<PackedCell, I16Coord>::new();
+		tree.add_area(&I16Vec3::ZERO, IVec3::splat(16), 3);
+		let center = Vec3::splat(8.0);
+		let radius = 5.0f32;
+		let sdf = |p: Vec3| (p - center).length() - radius;
+		tree.clear_sdf(Vec3::ZERO, Vec3::splat(16.0), &sdf, bevy::math::IVec2::splat(9), 6);
+
+		for z in 0..16 {
+			for y in 0..16 {
+				for x in 0..16 {
+					let pos = I16Vec3::new(x, y, z);
+					let inside = (pos.as_vec3() + Vec3::splat(0.5) - center).length_squared() <= radius * radius;
+					assert_eq!(tree.get(&pos), if inside { None } else { Some(3) }, "mismatch at {pos:?}");
+				}
+			}
+		}
 	}
 }

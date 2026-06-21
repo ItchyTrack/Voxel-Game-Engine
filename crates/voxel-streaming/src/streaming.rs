@@ -42,6 +42,7 @@ pub struct GridStreaming {
 	stalled_edits: HashMap<IVec3, Vec<GridEdit>>,
 	stalled_pinned: HashSet<IVec3>,
 	newly_dirty: Vec<IVec3>,
+	newly_present_dirty: Vec<IVec3>,
 	lods: HashMap<LodKey, LodTileState>,
 	pending_lod_requests: HashSet<LodKey>,
 	lod_index: LodIndex,
@@ -295,24 +296,50 @@ pub fn serve_saves(saves: Res<ChunkSaveChannel>, sources: VoxelSources) {
 
 impl EditGate for GridStreaming {
 	fn admit(&mut self, edit: &GridEdit) -> bool {
-		let chunk = chunk_of(edit.voxel_pos());
-		match self.presence.state(chunk) {
-			Some(ChunkState::Available) => {
-				self.stalled_edits.entry(chunk).or_default().push(*edit);
-				false
+		let (min, max) = edit.voxel_bounds();
+		let chunk_min = chunk_of(min);
+		let chunk_max = chunk_of(max - IVec3::ONE);
+		let mut blocked_chunks = Vec::new();
+		for z in chunk_min.z..=chunk_max.z {
+			for y in chunk_min.y..=chunk_max.y {
+				for x in chunk_min.x..=chunk_max.x {
+					let chunk = IVec3::new(x, y, z);
+					if matches!(
+						self.presence.state(chunk),
+						Some(ChunkState::Available | ChunkState::ExternalDirty | ChunkState::ExternalDirtyInFlight)
+					) {
+						blocked_chunks.push(chunk);
+					}
+				}
 			}
-			Some(ChunkState::ExternalDirty) | Some(ChunkState::ExternalDirtyInFlight) => false,
-			_ => true,
 		}
+		if blocked_chunks.is_empty() {
+			return true;
+		}
+		for chunk in blocked_chunks {
+			self.stalled_edits.entry(chunk).or_default().push(edit.clone());
+		}
+		false
 	}
 
-	fn touched(&mut self, voxel_pos: IVec3) {
-		let chunk = chunk_of(voxel_pos);
-		// `None` means the chunk had no presence entry: editing creates it, so
-		// mark it present and dirty so it is tracked and saved on unload.
-		if let None | Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) = self.presence.state(chunk) {
-			self.presence.set_state(chunk, ChunkState::InternalDirty);
-			self.newly_dirty.push(chunk);
+	fn touched(&mut self, edit: &GridEdit) {
+		let (min, max) = edit.voxel_bounds();
+		let chunk_min = chunk_of(min);
+		let chunk_max = chunk_of(max - IVec3::ONE);
+		for z in chunk_min.z..=chunk_max.z {
+			for y in chunk_min.y..=chunk_max.y {
+				for x in chunk_min.x..=chunk_max.x {
+					let chunk = IVec3::new(x, y, z);
+					let was_absent = self.presence.state(chunk).is_none();
+					if let None | Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) = self.presence.state(chunk) {
+						self.presence.set_state(chunk, ChunkState::InternalDirty);
+						self.newly_dirty.push(chunk);
+						if was_absent {
+							self.newly_present_dirty.push(chunk);
+						}
+					}
+				}
+			}
 		}
 	}
 }
@@ -495,8 +522,20 @@ pub fn handle_dirty_chunks(
 	save_channel: Res<ChunkSaveChannel>,
 	mut grids: Query<(GridId, &mut GridStreaming, &Grid)>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
+	mut present_events: MessageWriter<ChunkBecamePresent>,
+	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
 ) {
 	for (grid, mut streaming, grid_data) in grids.iter_mut() {
+		let newly_present_dirty: HashSet<_> = std::mem::take(&mut streaming.newly_present_dirty).into_iter().collect();
+		for chunk in newly_present_dirty {
+			present_events.write(ChunkBecamePresent { grid, chunk });
+			availability_events.write(ChunkAvailabilityChanged {
+				grid,
+				min: chunk,
+				size: IVec3::ONE,
+				kind: ChunkAvailabilityChangeKind::BecamePresent,
+			});
+		}
 		if streaming.newly_dirty.is_empty() { continue; }
 		let dirty: HashSet<_> = std::mem::take(&mut streaming.newly_dirty).into_iter().collect();
 		for chunk in dirty {

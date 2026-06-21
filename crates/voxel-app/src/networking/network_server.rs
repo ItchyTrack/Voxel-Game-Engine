@@ -65,7 +65,6 @@ fn disable_subgrid_hierarchy_replication(
 ) {
 	for (entity, parent, is_subgrid) in &entities {
 		let kind = if is_subgrid { "subgrid" } else { "lod voxels" };
-		info!(?entity, parent = ?parent.map(|p| p.parent()), kind, "adding DisableReplicateHierarchy");
 		commands.entity(entity).insert(DisableReplicateHierarchy);
 	}
 }

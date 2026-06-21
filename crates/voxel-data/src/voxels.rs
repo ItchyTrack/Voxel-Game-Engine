@@ -1,10 +1,10 @@
-use bevy::math::I16Vec3;
+use bevy::math::{I16Vec3, IVec2, Vec3};
 use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{collections::HashMap, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
 
-use super::{grid_tree::{GridRegion, size as grid_tree_size}, voxel_grid_tree::VoxelGridTree};
+use super::{grid_tree::{GridRegion, size as grid_tree_size}, sdf::Sdf, voxel_grid_tree::VoxelGridTree};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Voxel {
@@ -222,6 +222,17 @@ impl Voxels {
 	pub fn remove_area(&mut self, pos: I16Vec3, size: I16Vec3) {
 		let Some(region) = GridRegion::from_min_size(pos.as_ivec3(), size.as_ivec3()) else { return };
 		self.voxels.clear_region(region);
+		self.bounding_box_dirty.store(true, Ordering::Release);
+	}
+
+	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, voxel: Voxel) {
+		let id = self.voxel_palette.palette_id(&voxel);
+		self.voxels.apply_sdf(initial_min, initial_max, sdf, face_resolution, iterations, id);
+		self.bounding_box_dirty.store(true, Ordering::Release);
+	}
+
+	pub fn clear_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize) {
+		self.voxels.clear_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
