@@ -7,7 +7,9 @@ use lightyear::prelude::{Client, EventSender, RemoteEvent};
 use voxel_data::grid::GridId;
 use voxel_sources::{ChunkSource, LodKey, SourceHandle};
 
-use crate::chunk_source::{ChunkPresenceAabb, ChunkRequest, ChunkResponse, LodRequest, LodResponse, PresenceRequest};
+use crate::chunk_source::{ChunkRequest, ChunkResponse, LodRequest, LodResponse, PresenceLoad, PresenceRequest, RemoteChunkChanged};
+use crate::chunk_source::messages::RemoteChunkChangeKind;
+use crate::ReplicateVoxels;
 
 const REMOTE_COST: u32 = 100;
 
@@ -31,6 +33,7 @@ struct ClientChunkSourceState {
 	lod_requests: Mutex<VecDeque<LodRequest>>,
 	pending_chunks: Mutex<HashSet<PendingChunk>>,
 	pending_lods: Mutex<HashSet<PendingLod>>,
+	remote_grids: Mutex<HashSet<GridId>>,
 }
 
 #[derive(Clone, Default, Resource)]
@@ -47,8 +50,8 @@ impl ChunkSource for ClientChunkSource {
 		self.state.presence_requests.lock().unwrap().push_back(PresenceRequest { grid });
 	}
 
-	fn cost(&self, _grid: GridId, _chunk: IVec3) -> Option<u32> {
-		Some(REMOTE_COST)
+	fn cost(&self, grid: GridId, _chunk: IVec3) -> Option<u32> {
+		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
 	}
 
 	fn request_load(&self, grid: GridId, chunk: IVec3) {
@@ -57,8 +60,8 @@ impl ChunkSource for ClientChunkSource {
 		self.state.chunk_requests.lock().unwrap().push_back(ChunkRequest { grid, chunk });
 	}
 
-	fn cost_lod(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32) -> Option<u32> {
-		Some(REMOTE_COST)
+	fn cost_lod(&self, grid: GridId, _min: IVec3, _size: IVec3, _lod: f32) -> Option<u32> {
+		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
 	}
 
 	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) {
@@ -69,6 +72,16 @@ impl ChunkSource for ClientChunkSource {
 	}
 }
 
+pub(crate) fn register_remote_voxel_grids(
+	source: Res<ClientChunkSource>,
+	grids: Query<GridId, With<ReplicateVoxels>>,
+) {
+	let mut remote_grids = source.state.remote_grids.lock().unwrap();
+	for grid in &grids {
+		remote_grids.insert(grid);
+	}
+}
+
 pub(crate) fn flush_remote_presence_requests(
 	source: Res<ClientChunkSource>,
 	mut senders: Query<&mut EventSender<PresenceRequest>, With<Client>>,
@@ -76,7 +89,7 @@ pub(crate) fn flush_remote_presence_requests(
 	let Ok(mut sender) = senders.single_mut() else { return };
 	let mut requests = source.state.presence_requests.lock().unwrap();
 	while let Some(request) = requests.pop_front() {
-		sender.trigger::<super::PresenceRequestChannel>(request);
+		sender.trigger::<super::ClientToServerChannel>(request);
 	}
 }
 
@@ -87,7 +100,10 @@ pub(crate) fn flush_remote_chunk_requests(
 	let Ok(mut sender) = senders.single_mut() else { return };
 	let mut requests = source.state.chunk_requests.lock().unwrap();
 	while let Some(request) = requests.pop_front() {
-		sender.trigger::<super::ChunkRequestChannel>(request);
+		if request.chunk == IVec3::new(0, 5, -3) {
+			info!(grid=?request.grid, chunk=?request.chunk, "client sending chunk request");
+		}
+		sender.trigger::<super::ClientToServerChannel>(request);
 	}
 }
 
@@ -98,7 +114,7 @@ pub(crate) fn flush_remote_lod_requests(
 	let Ok(mut sender) = senders.single_mut() else { return };
 	let mut requests = source.state.lod_requests.lock().unwrap();
 	while let Some(request) = requests.pop_front() {
-		sender.trigger::<super::LodRequestChannel>(request);
+		sender.trigger::<super::ClientToServerChannel>(request);
 	}
 }
 
@@ -113,6 +129,9 @@ pub(crate) fn receive_remote_chunk_response(
 	if !source.state.pending_chunks.lock().unwrap().remove(&pending) {
 		warn!(grid=?response.grid, chunk=?response.chunk, ?from, "ignoring unexpected remote chunk response");
 		return;
+	}
+	if response.chunk == IVec3::new(0, 5, -3) {
+		info!(grid=?response.grid, chunk=?response.chunk, has_voxels=response.voxels.is_some(), ?from, "client received remote chunk response");
 	}
 	let voxels = match response.voxels.take() {
 		Some(voxels) => match voxels.decompress() {
@@ -152,11 +171,28 @@ pub(crate) fn receive_remote_lod_response(
 	handle.loaded_lod(response.grid, response.key.min, response.key.size, response.key.lod as f32, voxels);
 }
 
-pub(crate) fn receive_chunk_presence_aabb(
-	trigger: On<RemoteEvent<ChunkPresenceAabb>>,
+pub(crate) fn receive_presence_load(
+	trigger: On<RemoteEvent<PresenceLoad>>,
 	source: Res<ClientChunkSource>,
 ) {
 	let Some(handle) = source.state.handle.get() else { return };
 	let event = trigger.event().trigger;
-	handle.available_area(event.grid, event.min, event.size);
+	if let Some((min, size)) = event.area {
+		handle.claim(event.grid, min, size);
+	}
+	handle.presence_loaded(event.grid);
+}
+
+pub(crate) fn receive_remote_chunk_changed(
+	trigger: On<RemoteEvent<RemoteChunkChanged>>,
+	source: Res<ClientChunkSource>,
+) {
+	let Some(handle) = source.state.handle.get() else { return };
+	let event = trigger.event().trigger;
+	info!(grid=?event.grid, min=?event.min, size=?event.size, kind=?event.kind, "client handling remote chunk changed");
+	match event.kind {
+		RemoteChunkChangeKind::Changed => handle.claim(event.grid, event.min, event.size),
+		RemoteChunkChangeKind::Removed => handle.unavailable(event.grid, event.min, event.size),
+		
+	}
 }

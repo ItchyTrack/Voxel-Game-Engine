@@ -71,7 +71,7 @@ impl ChunkPresence {
 	}
 
 	pub fn mark_present(&mut self, chunk: IVec3) {
-		self.tree.insert(&chunk, encode(ChunkState::Available, 0));
+		self.mark_present_area(chunk, IVec3::ONE);
 	}
 
 	pub fn mark_present_area(&mut self, min: IVec3, size: IVec3) {
@@ -112,7 +112,7 @@ impl ChunkPresence {
 	}
 
 	pub fn clear_present(&mut self, chunk: IVec3) {
-		self.tree.remove(&chunk);
+		self.clear_present_area(chunk, IVec3::ONE);
 	}
 
 	pub fn is_present(&self, chunk: IVec3) -> bool {

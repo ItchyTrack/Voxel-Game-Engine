@@ -10,6 +10,7 @@ use voxel_data::voxels::{Voxel, Voxels};
 use voxel_edit::GridEdits;
 use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_of, GridStreaming, CHUNK_SIZE};
+use voxel_lightyear::ReplicateVoxels;
 
 use crate::voxel::lod_downsample::downsample_region;
 
@@ -93,8 +94,9 @@ impl ChunkSource for WorldSource {
 	fn request_available_area(&self, grid: GridId) {
 		let Some(handle) = self.handle.get() else { return };
 		if let Some((min, size)) = self.available_area(grid) {
-			handle.available_area(grid, min, size);
+			handle.claim(grid, min, size);
 		}
+		handle.presence_loaded(grid);
 	}
 
 	fn forget(&self, grid: GridId, chunk: IVec3) {
@@ -135,7 +137,7 @@ pub fn spawn_grid(
 	extra: impl Bundle,
 ) {
 	let child = commands
-		.spawn((transform, Grid::new(), GridEdits::default(), extra))
+		.spawn((transform, Grid::new(), GridEdits::default(), ReplicateVoxels, extra))
 		.id();
 	if parent.is_some() { commands.entity(parent.unwrap()).add_child(child); }
 

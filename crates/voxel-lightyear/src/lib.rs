@@ -1,6 +1,10 @@
 use bevy::app::{PluginGroup, PluginGroupBuilder};
 
 mod chunk_source;
+mod replicate_voxels;
+mod replication;
+
+pub use replicate_voxels::{ReplicateVoxels, ReplicateVoxelsRestriction};
 
 pub struct VoxelLightyearPlugins {
 	pub enable_client_chunk_source: bool,
@@ -18,9 +22,14 @@ impl Default for VoxelLightyearPlugins {
 
 impl PluginGroup for VoxelLightyearPlugins {
 	fn build(self) -> PluginGroupBuilder {
-		PluginGroupBuilder::start::<Self>().add(chunk_source::ChunkSourcePlugin {
+		let group = PluginGroupBuilder::start::<Self>().add(chunk_source::ChunkSourcePlugin {
 			enable_client_chunk_source: self.enable_client_chunk_source,
 			enable_server_chunk_source: self.enable_server_chunk_source,
-		})
+		});
+		if self.enable_server_chunk_source {
+			group.add(replication::ReplicationPlugin)
+		} else {
+			group
+		}
 	}
 }

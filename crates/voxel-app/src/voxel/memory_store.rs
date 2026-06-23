@@ -68,8 +68,9 @@ impl ChunkSource for MemoryStore {
 	fn request_available_area(&self, grid: GridId) {
 		let Some(handle) = self.handle.get() else { return };
 		if let Some((min, size)) = self.available_area(grid) {
-			handle.available_area(grid, min, size);
+			handle.claim(grid, min, size);
 		}
+		handle.presence_loaded(grid);
 	}
 
 	fn can_save(&self) -> bool {

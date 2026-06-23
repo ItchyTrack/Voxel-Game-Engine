@@ -11,10 +11,10 @@ mod streaming;
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use presence::{ChunkPresence, ChunkState};
-pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaded, PresenceLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
+pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaded, PresenceLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
 pub type LodLoadResult = voxel_sources::LodLoaded;
-pub use streaming::{apply_chunk_clears, cleanup_released_lods, handle_dirty_chunks, receive_lod_results, receive_results, refresh_lod_uploads, request_lod_tiles, request_stalled_chunks, request_presence_for_new_grids, GridStreaming, RequestChunkPresence};
+pub use streaming::{InflightChunkPresence, apply_chunk_clears, cleanup_released_lods, handle_dirty_chunks, receive_lod_results, receive_results, receive_chunk_presence_loaded, refresh_lod_uploads, request_lod_tiles, request_stalled_chunks, request_presence_for_new_grids, GridStreaming, RequestChunkPresence};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -29,12 +29,6 @@ pub struct StreamingSchedule;
 /// Frame-counted upkeep. Run exactly once a frame via [`run_streaming_maintenance`].
 #[derive(ScheduleLabel, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StreamingMaintenance;
-
-#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ChunkBecamePresent {
-	pub grid: voxel_data::grid::GridId,
-	pub chunk: IVec3,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChunkAvailabilityChangeKind {
@@ -82,14 +76,13 @@ impl Plugin for VoxelStreamingPlugin {
 		if !app.is_plugin_added::<voxel_sources::VoxelSourcesPlugin>() {
 			app.add_plugins(voxel_sources::VoxelSourcesPlugin);
 		}
-		app.add_message::<ChunkBecamePresent>()
-			.add_message::<ChunkAvailabilityChanged>()
+		app.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkLoadResolved>()
 			.register_edit_gate::<GridStreaming>()
 			.add_systems(
 				StreamingSchedule,
 				(
-					streaming::apply_source_events
+					(streaming::receive_chunk_presence_loaded, streaming::apply_source_events)
 						.in_set(StreamingPhase::Ingest),
 					(
 						streaming::serve_saves,

@@ -62,6 +62,7 @@ pub(crate) fn spawn_workers(
 	{
 		let sources: Arc<[SharedSource]> = registry.sources.clone().into();
 		let pending_lod = registry.pending_lod.clone();
+		let active_presence_loads = registry.active_presence_loads.clone();
 		let pusher = async_queue.pusher();
 
 		let requests = registry.requests.receiver();
@@ -70,7 +71,7 @@ pub(crate) fn spawn_workers(
 
 		let worker = thread::Builder::new()
 			.name("serve-source-requests".into())
-			.spawn(move || serve_requests(requests, sources, pending_lod, pusher, message_tx))
+			.spawn(move || serve_requests(requests, sources, pending_lod, active_presence_loads, pusher, message_tx))
 			.unwrap();
 
 		commands.insert_resource(SourceWorkers { _threads: vec![worker] });
@@ -80,8 +81,12 @@ pub(crate) fn spawn_workers(
 fn handle_presence_request(
 	request: PresenceLoadRequest,
 	sources: &[SharedSource],
+	active_presence_loads: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<voxel_data::grid::GridId, u32>>>,
 	pusher: &AsyncTaskPusher,
 ) {
+	let count = sources.len() as u32;
+	if count == 0 { return; }
+	*active_presence_loads.lock().unwrap().entry(request.grid).or_default() += count;
 	for source in sources {
 		let source = source.clone();
 		let grid = request.grid;
@@ -113,12 +118,13 @@ fn serve_requests(
 	requests: Receiver<SourceRequest>,
 	sources: Arc<[SharedSource]>,
 	pending_lod: PendingLod,
+	active_presence_loads: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<voxel_data::grid::GridId, u32>>>,
 	pusher: AsyncTaskPusher,
 	message_tx: Sender<SourceMessage>,
 ) {
 	while let Ok(request) = requests.recv() {
 		match request {
-			SourceRequest::Presence(request) => handle_presence_request(request, &sources, &pusher),
+			SourceRequest::Presence(request) => handle_presence_request(request, &sources, &active_presence_loads, &pusher),
 			SourceRequest::Chunk(request) => handle_chunk_request(request, &sources, &pusher, &message_tx),
 			SourceRequest::Lod(request) => {
 				handle_lod_request(request, &sources, &pending_lod, &pusher, &message_tx)

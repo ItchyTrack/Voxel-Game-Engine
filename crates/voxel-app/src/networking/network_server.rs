@@ -13,8 +13,7 @@ impl Plugin for NetworkServerPlugin {
 			.add_plugins(NetworkProtocolPlugin)
 			.add_observer(configure_connected_client)
 			.add_systems(Startup, start_server)
-			.add_systems(Update, (replicate_new_bodies, replicate_new_grids, sync_network_transforms))
-			.add_systems(PostUpdate, disable_subgrid_hierarchy_replication.before(ReplicationBufferSystems::BeforeBuffer));
+			.add_systems(Update, (replicate_new_bodies, replicate_new_grids, sync_network_transforms));
 	}
 }
 
@@ -50,22 +49,6 @@ fn replicate_new_bodies(
 		if is_static {
 			entity_commands.insert(IsStatic);
 		}
-	}
-}
-
-fn disable_subgrid_hierarchy_replication(
-	mut commands: Commands,
-	entities: Query<
-		(Entity, Option<&ChildOf>, Has<voxel_data::subgrid::SubGrid>),
-		(
-			Or<(With<voxel_data::subgrid::SubGrid>, With<voxel_gpu::lod_voxels::LodVoxels>)>,
-			Without<DisableReplicateHierarchy>,
-		),
-	>,
-) {
-	for (entity, parent, is_subgrid) in &entities {
-		let kind = if is_subgrid { "subgrid" } else { "lod voxels" };
-		commands.entity(entity).insert(DisableReplicateHierarchy);
 	}
 }
 

@@ -3,6 +3,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
+use voxel_lightyear::ReplicateVoxels;
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NetworkBody;
@@ -42,6 +43,7 @@ impl Plugin for NetworkProtocolPlugin {
 		app.register_component::<NetworkBody>();
 		app.register_component::<NetworkGrid>();
 		app.register_component::<NetworkTransform>();
+		app.register_component::<ReplicateVoxels>();
 	}
 }
 

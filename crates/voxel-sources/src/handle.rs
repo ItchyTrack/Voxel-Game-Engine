@@ -5,13 +5,12 @@ use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
 
 use crate::source::SourceId;
+use crate::ChunkPresenceLoaded;
 
 #[derive(bevy::ecs::message::Message, Debug, Clone, Copy)]
 pub enum SourceEvent {
-	Available { grid: GridId, chunk: IVec3 },
-	AvailableArea { grid: GridId, min: IVec3, size: IVec3 },
-	Unavailable { grid: GridId, chunk: IVec3 },
-	Edited { source: SourceId, grid: GridId, chunk: IVec3 },
+	Claim { source: SourceId, grid: GridId, min: IVec3, size: IVec3 },
+	Unavailable { grid: GridId, min: IVec3, size: IVec3 },
 }
 
 pub struct SourceResult {
@@ -31,6 +30,7 @@ pub struct SourceLodResult {
 
 pub enum SourceMessage {
 	Event(SourceEvent),
+	PresenceLoaded(ChunkPresenceLoaded),
 	Chunk(SourceResult),
 	Lod(SourceLodResult),
 }
@@ -55,19 +55,15 @@ impl SourceHandle {
 		let _ = self.messages.send(SourceMessage::Lod(SourceLodResult { source: self.id, grid, min, size, lod, voxels }));
 	}
 
-	pub fn available(&self, grid: GridId, chunk: IVec3) {
-		let _ = self.messages.send(SourceMessage::Event(SourceEvent::Available { grid, chunk }));
+	pub fn claim(&self, grid: GridId, min: IVec3, size: IVec3) {
+		let _ = self.messages.send(SourceMessage::Event(SourceEvent::Claim { source: self.id, grid, min, size }));
 	}
 
-	pub fn available_area(&self, grid: GridId, min: IVec3, size: IVec3) {
-		let _ = self.messages.send(SourceMessage::Event(SourceEvent::AvailableArea { grid, min, size }));
+	pub fn unavailable(&self, grid: GridId, min: IVec3, size: IVec3) {
+		let _ = self.messages.send(SourceMessage::Event(SourceEvent::Unavailable { grid, min, size }));
 	}
 
-	pub fn unavailable(&self, grid: GridId, chunk: IVec3) {
-		let _ = self.messages.send(SourceMessage::Event(SourceEvent::Unavailable { grid, chunk }));
-	}
-
-	pub fn edited(&self, grid: GridId, chunk: IVec3) {
-		let _ = self.messages.send(SourceMessage::Event(SourceEvent::Edited { source: self.id, grid, chunk }));
+	pub fn presence_loaded(&self, grid: GridId) {
+		let _ = self.messages.send(SourceMessage::PresenceLoaded(ChunkPresenceLoaded { grid }));
 	}
 }

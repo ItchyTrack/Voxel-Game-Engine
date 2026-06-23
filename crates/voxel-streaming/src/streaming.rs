@@ -4,7 +4,7 @@ use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use voxel_gpu::{LodVoxels, VoxelGpuUploadFinished};
-use voxel_sources::{ChunkLoaded, LodLoaded, SourceEvent, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
+use voxel_sources::{ChunkChangeKind, ChunkChanged, ChunkLoaded, LodLoaded, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 
 use tracy_client::span;
 
@@ -17,7 +17,7 @@ use crate::chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
 use crate::lod_index::LodIndex;
 use crate::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, PresenceLoadRequest};
-use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkBecamePresent, ChunkLoadResolved, LodLoadResult};
+use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkLoadResolved, LodLoadResult};
 use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
@@ -49,9 +49,10 @@ pub struct GridStreaming {
 }
 
 #[derive(Component, Debug, Default)]
-pub struct RequestChunkPresence {
-	pub inflight: bool,
-}
+pub struct RequestChunkPresence;
+
+#[derive(Component, Debug, Default)]
+pub struct InflightChunkPresence;
 
 impl GridStreaming {
 	pub fn presence(&self) -> &ChunkPresence { &self.presence }
@@ -160,21 +161,28 @@ impl GridStreaming {
 		}
 	}
 
-	fn mark_empty(&mut self, chunk: IVec3) {
-		self.presence.clear_present(chunk);
+	fn mark_empty(&mut self, min: IVec3, size: IVec3) {
+		self.presence.clear_present_area(min, size);
 	}
 
-	pub fn mark_external_dirty(&mut self, chunk: IVec3) {
-		match self.presence.state(chunk) {
-			// Resident: consumers had it loaded, so queue them to be re-counted.
-			Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) => {
-				self.presence.set_state(chunk, ChunkState::ExternalDirty);
-				self.newly_dirty.push(chunk);
+	pub fn mark_external_changed(&mut self, min: IVec3, size: IVec3) {
+		for x in min.x..min.x + size.x {
+			for y in min.y..min.y + size.y {
+				for z in min.z..min.z + size.z {
+					let chunk = IVec3::new(x, y, z);
+					match self.presence.state(chunk) {
+						Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) => {
+							self.presence.set_state(chunk, ChunkState::ExternalDirty);
+							self.newly_dirty.push(chunk);
+						}
+						Some(ChunkState::Available) => {}
+						None => {
+							self.presence.mark_present(chunk);
+						}
+						_ => {}
+					}
+				}
 			}
-			Some(ChunkState::Available) => {
-				self.presence.set_state(chunk, ChunkState::ExternalDirty);
-			}
-			_ => {}
 		}
 	}
 
@@ -205,92 +213,109 @@ fn valid_lod_key(key: LodKey) -> bool {
 }
 
 pub fn apply_source_events(
-	mut source_events: MessageReader<SourceEvent>,
-	mut commands: Commands,
+	mut changed_events: MessageReader<ChunkChanged>,
 	mut grids: Query<&mut GridStreaming>,
-	mut present_events: MessageWriter<ChunkBecamePresent>,
 	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
-	sources: VoxelSources,
 ) {
-	for event in source_events.read().copied() {
-		match event {
-			SourceEvent::Available { grid, chunk } => {
-				if let Ok(mut s) = grids.get_mut(grid) {
-					if s.presence().state(chunk).is_none() {
-						present_events.write(ChunkBecamePresent { grid, chunk });
-						availability_events.write(ChunkAvailabilityChanged {
-							grid,
-							min: chunk,
-							size: IVec3::ONE,
-							kind: ChunkAvailabilityChangeKind::BecamePresent,
-						});
-						s.presence_mut().mark_present(chunk);
-					}
-				}
+	for event in changed_events.read().copied() {
+		if event.from_save { continue; }
+		info!(grid=?event.grid, min=?event.min, size=?event.size, kind=?event.kind, from_save=event.from_save, "apply_source_events handling chunk changed");
+		match event.kind {
+			ChunkChangeKind::Changed => {
+				let Ok(mut s) = grids.get_mut(event.grid) else {
+					warn!(grid=?event.grid, min=?event.min, size=?event.size, "apply_source_events missing GridStreaming for changed event");
+					continue;
+				};
+				info!("ChunkAvailabilityChanged sent");
+				availability_events.write(ChunkAvailabilityChanged {
+					grid: event.grid,
+					min: event.min,
+					size: event.size,
+					kind: ChunkAvailabilityChangeKind::BecamePresent,
+				});
+				s.mark_external_changed(event.min, event.size);
 			}
-			SourceEvent::AvailableArea { grid, min, size } => {
-				commands.entity(grid).remove::<RequestChunkPresence>();
-				if let Ok(mut s) = grids.get_mut(grid) {
-					let mut any_new = false;
-					for x in min.x..min.x + size.x {
-						for y in min.y..min.y + size.y {
-							for z in min.z..min.z + size.z {
-								let chunk = IVec3::new(x, y, z);
-								if s.presence().state(chunk).is_none() {
-									present_events.write(ChunkBecamePresent { grid, chunk });
-									any_new = true;
+			ChunkChangeKind::Removed => {
+				let Ok(mut s) = grids.get_mut(event.grid) else {
+					warn!(grid=?event.grid, min=?event.min, size=?event.size, "apply_source_events missing GridStreaming for removed event");
+					continue;
+				};
+				let debug_chunk = IVec3::new(0, 5, -3);
+				let mut any_removed = false;
+				for x in event.min.x..event.min.x + event.size.x {
+					for y in event.min.y..event.min.y + event.size.y {
+						for z in event.min.z..event.min.z + event.size.z {
+							let chunk = IVec3::new(x, y, z);
+							let was_present = s.presence().is_present(chunk);
+							if chunk == debug_chunk {
+								info!(grid=?event.grid, ?chunk, was_present, state=?s.presence().state(chunk), "apply_source_events removed chunk check");
+							}
+							if was_present {
+								// TODO: this should also clear the grid data
+								s.mark_empty(chunk, IVec3::ONE);
+								any_removed = true;
+								if chunk == debug_chunk {
+									info!(grid=?event.grid, ?chunk, now_present=s.presence().is_present(chunk), state=?s.presence().state(chunk), "apply_source_events removed chunk after clear");
 								}
 							}
 						}
 					}
-					if any_new {
-						availability_events.write(ChunkAvailabilityChanged {
-							grid,
-							min,
-							size,
-							kind: ChunkAvailabilityChangeKind::BecamePresent,
-						});
-					}
-					s.presence_mut().mark_present_area(min, size);
+				}
+				if any_removed {
+					availability_events.write(ChunkAvailabilityChanged {
+						grid: event.grid,
+						min: event.min,
+						size: event.size,
+						kind: ChunkAvailabilityChangeKind::BecameEmpty,
+					});
 				}
 			}
-			SourceEvent::Unavailable { grid, chunk } => {
-				if let Ok(mut s) = grids.get_mut(grid) {
-					if matches!(s.presence().state(chunk), Some(ChunkState::Available)) {
-						availability_events.write(ChunkAvailabilityChanged {
-							grid,
-							min: chunk,
-							size: IVec3::ONE,
-							kind: ChunkAvailabilityChangeKind::BecameEmpty,
-						});
-						s.presence_mut().clear_present(chunk);
-					}
-				}
-			}
-			SourceEvent::Edited { source, grid, chunk } => {
-				sources.forget_others(source, grid, chunk);
-				if let Ok(mut s) = grids.get_mut(grid) {
-					s.mark_external_dirty(chunk);
-				}
-			}
+			
 		}
 	}
 }
 
 pub fn request_presence_for_new_grids(
 	requests: VoxelSourceRequests,
-	mut grids: Query<(GridId, &mut RequestChunkPresence)>,
+	mut commands: Commands,
+	grids: Query<(Entity, GridId), (With<RequestChunkPresence>, Without<InflightChunkPresence>)>,
 ) {
-	for (grid, mut request_presence) in &mut grids {
-		if request_presence.inflight { continue; }
-		request_presence.inflight = true;
+	for (entity, grid) in &grids {
+		commands.entity(entity).insert(InflightChunkPresence);
 		requests.request_presence(PresenceLoadRequest { grid });
 	}
 }
 
-pub fn serve_saves(saves: Res<ChunkSaveChannel>, sources: VoxelSources) {
+pub fn receive_chunk_presence_loaded(
+	mut commands: Commands,
+	mut loaded: MessageReader<voxel_sources::ChunkPresenceLoaded>,
+) {
+	for event in loaded.read() {
+		let mut entity = commands.entity(event.grid);
+		entity.remove::<InflightChunkPresence>();
+		entity.remove::<RequestChunkPresence>();
+	}
+}
+
+pub fn serve_saves(
+	saves: Res<ChunkSaveChannel>,
+	sources: VoxelSources,
+	mut changed: bevy::ecs::message::MessageWriter<voxel_sources::ChunkChanged>,
+) {
 	while let Some(save) = saves.try_recv() {
+		let kind = if save.voxels.is_empty() {
+			voxel_sources::ChunkChangeKind::Removed
+		} else {
+			voxel_sources::ChunkChangeKind::Changed
+		};
 		sources.route_save(save.grid, save.chunk, &save.voxels);
+		changed.write(voxel_sources::ChunkChanged {
+			grid: save.grid,
+			min: save.chunk,
+			size: IVec3::ONE,
+			kind,
+			from_save: true,
+		});
 	}
 }
 
@@ -350,6 +375,7 @@ pub fn receive_results(
 	mut grids: Query<(&mut GridStreaming, &mut Grid, Option<&mut GridEdits>)>,
 	mut sub_grids: Query<&mut SubGrid>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
+	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
 	mut chunk_resolved: MessageWriter<ChunkLoadResolved>,
 ) {
 	let pending: Vec<_> = channel.read().cloned().collect();
@@ -360,8 +386,15 @@ pub fn receive_results(
 		let result_grid = result.grid;
 		let result_chunk = result.chunk;
 		let was_empty = result.voxels.is_none();
+		let mut became_empty = false;
+		if result.chunk == IVec3::new(0, 5, -3) {
+			info!(grid=?result.grid, chunk=?result.chunk, has_voxels=result.voxels.is_some(), "streaming receive_results got chunk result");
+		}
 		if let Ok((mut streaming, _grid, mut edits)) = grids.get_mut(result.grid) {
 			let state = streaming.presence.state(result.chunk);
+			if result.chunk == IVec3::new(0, 5, -3) {
+				info!(grid=?result.grid, chunk=?result.chunk, ?state, request_count=streaming.presence.request_count(result.chunk), "streaming receive_results chunk state before apply");
+			}
 			match state {
 				Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
 					match result.voxels {
@@ -373,13 +406,22 @@ pub fn receive_results(
 							loaded_by_grid.entry(result.grid).or_default().push((result.chunk, voxels));
 						}
 						None => {
-							streaming.mark_empty(result.chunk);
+							streaming.mark_empty(result.chunk, IVec3::ONE);
 							streaming.replay_stalled(result.chunk, &mut edits);
+							became_empty = true;
 						}
 					}
 				}
 				_ => { /* chunk was not for voxel-streaming */ }
 			}
+		}
+		if became_empty {
+			availability_events.write(ChunkAvailabilityChanged {
+				grid: result_grid,
+				min: result_chunk,
+				size: IVec3::ONE,
+				kind: ChunkAvailabilityChangeKind::BecameEmpty,
+			});
 		}
 		if was_empty {
 			chunk_resolved.write(ChunkLoadResolved { grid: result_grid, chunk: result_chunk, visible: false });
@@ -522,13 +564,11 @@ pub fn handle_dirty_chunks(
 	save_channel: Res<ChunkSaveChannel>,
 	mut grids: Query<(GridId, &mut GridStreaming, &Grid)>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
-	mut present_events: MessageWriter<ChunkBecamePresent>,
 	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
 ) {
 	for (grid, mut streaming, grid_data) in grids.iter_mut() {
 		let newly_present_dirty: HashSet<_> = std::mem::take(&mut streaming.newly_present_dirty).into_iter().collect();
 		for chunk in newly_present_dirty {
-			present_events.write(ChunkBecamePresent { grid, chunk });
 			availability_events.write(ChunkAvailabilityChanged {
 				grid,
 				min: chunk,

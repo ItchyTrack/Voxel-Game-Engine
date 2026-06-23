@@ -19,8 +19,8 @@ use web_sys::OffscreenCanvas;
 #[wasm_bindgen(inline_js = r#"
 export function install_async_worker_pool(module, memory, initial) {
   for (let i = 0; i < initial; i++) {
-    const worker = new Worker('./async_worker.js', { type: 'module' });
-    worker.postMessage({ module, memory, workerId: i });
+	const worker = new Worker('./async_worker.js', { type: 'module' });
+	worker.postMessage({ module, memory, workerId: i });
   }
 }
 

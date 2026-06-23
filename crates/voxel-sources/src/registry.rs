@@ -53,6 +53,7 @@ pub(crate) struct SourceRegistry {
 	pub(crate) message_tx: Sender<SourceMessage>,
 	pub(crate) message_rx: Receiver<SourceMessage>,
 	pub(crate) pending_lod: PendingLod,
+	pub(crate) active_presence_loads: Arc<Mutex<HashMap<GridId, u32>>>,
 	pub(crate) requests: SourceRequestChannel,
 }
 
@@ -65,6 +66,7 @@ impl Default for SourceRegistry {
 			message_tx,
 			message_rx,
 			pending_lod: Arc::new(Mutex::new(HashMap::new())),
+			active_presence_loads: Arc::new(Mutex::new(HashMap::new())),
 			requests: SourceRequestChannel::default(),
 		}
 	}
@@ -153,10 +155,28 @@ impl SourceRegistry {
 		}
 	}
 
-	pub fn forget_others(&self, keep: SourceId, grid: GridId, chunk: IVec3) {
+	pub(crate) fn finish_presence_load(&self, grid: GridId) -> bool {
+		let mut loads = self.active_presence_loads.lock().unwrap();
+		let Some(count) = loads.get_mut(&grid) else { return false };
+		*count = count.saturating_sub(1);
+		if *count == 0 {
+			loads.remove(&grid);
+			true
+		} else {
+			false
+		}
+	}
+
+	pub fn forget_others(&self, keep: SourceId, grid: GridId, min: IVec3, size: IVec3) {
 		for (i, source) in self.sources.iter().enumerate() {
 			if i != keep.0 {
-				source.forget(grid, chunk);
+				for x in min.x..min.x + size.x {
+					for y in min.y..min.y + size.y {
+						for z in min.z..min.z + size.z {
+							source.forget(grid, IVec3::new(x, y, z));
+						}
+					}
+				}
 			}
 		}
 	}

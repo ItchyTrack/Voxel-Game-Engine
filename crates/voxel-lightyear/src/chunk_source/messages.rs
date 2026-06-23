@@ -70,13 +70,32 @@ impl MapEntities for PresenceRequest {
 }
 
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ChunkPresenceAabb {
+pub(crate) struct PresenceLoad {
+	pub grid: GridId,
+	pub area: Option<(IVec3, IVec3)>,
+}
+
+impl MapEntities for PresenceLoad {
+	fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+		self.grid = entity_mapper.get_mapped(self.grid);
+	}
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RemoteChunkChangeKind {
+	Changed,
+	Removed,
+}
+
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RemoteChunkChanged {
 	pub grid: GridId,
 	pub min: IVec3,
 	pub size: IVec3,
+	pub kind: RemoteChunkChangeKind,
 }
 
-impl MapEntities for ChunkPresenceAabb {
+impl MapEntities for RemoteChunkChanged {
 	fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
 		self.grid = entity_mapper.get_mapped(self.grid);
 	}

@@ -15,6 +15,26 @@ pub use loader::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodKey, L
 pub use requests::{VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub use source::{ChunkSource, SourceId, VoxelLodGenerator};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkChangeKind {
+	Changed,
+	Removed,
+}
+
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkChanged {
+	pub grid: voxel_data::grid::GridId,
+	pub min: bevy::math::IVec3,
+	pub size: bevy::math::IVec3,
+	pub kind: ChunkChangeKind,
+	pub from_save: bool,
+}
+
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkPresenceLoaded {
+	pub grid: voxel_data::grid::GridId,
+}
+
 #[derive(Message, Debug, Clone)]
 pub struct ChunkLoaded {
 	pub grid: voxel_data::grid::GridId,
@@ -58,6 +78,8 @@ impl Plugin for VoxelSourcesPlugin {
 		app.init_resource::<SourceRegistry>()
 			.init_resource::<ChunkSaveChannel>()
 			.add_message::<SourceEvent>()
+			.add_message::<ChunkChanged>()
+			.add_message::<ChunkPresenceLoaded>()
 			.add_message::<ChunkLoaded>()
 			.add_message::<LodLoaded>()
 			.add_systems(Startup, (systems::init_sources, worker::spawn_workers).chain())

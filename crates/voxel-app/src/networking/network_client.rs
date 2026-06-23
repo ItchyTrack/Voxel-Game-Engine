@@ -67,7 +67,7 @@ fn init_replicated_grids(
 			Grid::new(),
 			GridStreaming::default(),
 			GridEdits::default(),
-			RequestChunkPresence::default(),
+			RequestChunkPresence,
 			network_transform.copied().map(Transform::from).unwrap_or_default(),
 		));
 	}

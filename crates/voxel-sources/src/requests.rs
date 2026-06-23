@@ -53,8 +53,8 @@ impl VoxelSources<'_> {
 		self.registry.route_save(grid, chunk, voxels);
 	}
 
-	pub fn forget_others(&self, keep: crate::SourceId, grid: GridId, chunk: IVec3) {
-		self.registry.forget_others(keep, grid, chunk);
+	pub fn forget_others(&self, keep: crate::SourceId, grid: GridId, min: IVec3, size: IVec3) {
+		self.registry.forget_others(keep, grid, min, size);
 	}
 }
 

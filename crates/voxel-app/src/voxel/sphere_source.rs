@@ -11,6 +11,7 @@ use voxel_physics::components::VoxelCollider;
 use voxel_data::grid::GridId;
 use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
+use voxel_lightyear::ReplicateVoxels;
 
 use crate::voxel::streaming_test::WorldStore;
 
@@ -244,6 +245,7 @@ fn spawn_sphere_grid(mut commands: Commands, _store: Res<WorldStore>, grid: Res<
 		.spawn((
 			Transform::IDENTITY,
 			Grid::new(),
+			ReplicateVoxels,
 			VoxelCollider,
 			GridEdits::default(),
 			streaming,
