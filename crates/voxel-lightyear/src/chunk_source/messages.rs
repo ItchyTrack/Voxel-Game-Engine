@@ -23,6 +23,7 @@ impl MapEntities for ChunkRequest {
 pub(crate) struct ChunkResponse {
 	pub grid: GridId,
 	pub chunk: IVec3,
+	pub generation: u64,
 	pub voxels: Option<CompressedVoxels>,
 }
 
@@ -49,6 +50,7 @@ impl MapEntities for LodRequest {
 pub(crate) struct LodResponse {
 	pub grid: GridId,
 	pub key: LodKey,
+	pub generation: u64,
 	pub voxels: Option<CompressedVoxels>,
 }
 
@@ -83,8 +85,8 @@ impl MapEntities for PresenceLoad {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteChunkChangeKind {
-	Changed,
-	Removed,
+	Changed { generation: u64 },
+	Removed { generation: u64 },
 }
 
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

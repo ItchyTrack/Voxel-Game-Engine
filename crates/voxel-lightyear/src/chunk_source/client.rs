@@ -54,7 +54,7 @@ impl ChunkSource for ClientChunkSource {
 		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3) {
+	fn request_load(&self, grid: GridId, chunk: IVec3, _generation: u64) {
 		let pending = PendingChunk { grid, chunk };
 		self.state.pending_chunks.lock().unwrap().insert(pending);
 		self.state.chunk_requests.lock().unwrap().push_back(ChunkRequest { grid, chunk });
@@ -64,7 +64,7 @@ impl ChunkSource for ClientChunkSource {
 		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) {
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, _generation: u64) {
 		let key = LodKey { min, size, lod: lod.max(0.0).floor() as u8 };
 		let pending = PendingLod { grid, key };
 		self.state.pending_lods.lock().unwrap().insert(pending);
@@ -143,7 +143,7 @@ pub(crate) fn receive_remote_chunk_response(
 		},
 		None => None,
 	};
-	handle.loaded(response.grid, response.chunk, voxels);
+	handle.loaded(response.grid, response.chunk, response.generation, voxels);
 }
 
 pub(crate) fn receive_remote_lod_response(
@@ -168,7 +168,7 @@ pub(crate) fn receive_remote_lod_response(
 		},
 		None => None,
 	};
-	handle.loaded_lod(response.grid, response.key.min, response.key.size, response.key.lod as f32, voxels);
+	handle.loaded_lod(response.grid, response.key.min, response.key.size, response.key.lod as f32, response.generation, voxels);
 }
 
 pub(crate) fn receive_presence_load(
@@ -191,8 +191,8 @@ pub(crate) fn receive_remote_chunk_changed(
 	let event = trigger.event().trigger;
 	info!(grid=?event.grid, min=?event.min, size=?event.size, kind=?event.kind, "client handling remote chunk changed");
 	match event.kind {
-		RemoteChunkChangeKind::Changed => handle.claim(event.grid, event.min, event.size),
-		RemoteChunkChangeKind::Removed => handle.unavailable(event.grid, event.min, event.size),
+		RemoteChunkChangeKind::Changed { .. } => handle.claim(event.grid, event.min, event.size),
+		RemoteChunkChangeKind::Removed { .. } => handle.unavailable(event.grid, event.min, event.size),
 		
 	}
 }

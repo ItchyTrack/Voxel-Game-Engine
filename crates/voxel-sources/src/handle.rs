@@ -16,6 +16,7 @@ pub enum SourceEvent {
 pub struct SourceResult {
 	pub grid: GridId,
 	pub chunk: IVec3,
+	pub generation: u64,
 	pub voxels: Option<Voxels>,
 }
 
@@ -25,11 +26,13 @@ pub struct SourceLodResult {
 	pub min: IVec3,
 	pub size: IVec3,
 	pub lod: f32,
+	pub generation: u64,
 	pub voxels: Option<Voxels>,
 }
 
 pub enum SourceMessage {
 	Event(SourceEvent),
+	ChunkChanged(crate::ChunkChanged),
 	PresenceLoaded(ChunkPresenceLoaded),
 	Chunk(SourceResult),
 	Lod(SourceLodResult),
@@ -47,12 +50,12 @@ impl SourceHandle {
 	}
 
 	/// Finished a load. `None` voxels = confirmed empty.
-	pub fn loaded(&self, grid: GridId, chunk: IVec3, voxels: Option<Voxels>) {
-		let _ = self.messages.send(SourceMessage::Chunk(SourceResult { grid, chunk, voxels }));
+	pub fn loaded(&self, grid: GridId, chunk: IVec3, generation: u64, voxels: Option<Voxels>) {
+		let _ = self.messages.send(SourceMessage::Chunk(SourceResult { grid, chunk, generation, voxels }));
 	}
 
-	pub fn loaded_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxels: Option<Voxels>) {
-		let _ = self.messages.send(SourceMessage::Lod(SourceLodResult { source: self.id, grid, min, size, lod, voxels }));
+	pub fn loaded_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, voxels: Option<Voxels>) {
+		let _ = self.messages.send(SourceMessage::Lod(SourceLodResult { source: self.id, grid, min, size, lod, generation, voxels }));
 	}
 
 	pub fn claim(&self, grid: GridId, min: IVec3, size: IVec3) {

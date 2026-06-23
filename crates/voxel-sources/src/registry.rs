@@ -8,7 +8,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
 
-use crate::loader::{ChunkLoadRequest, LodLoadRequest, PresenceLoadRequest, SourceRequestChannel};
+use crate::loader::{ChunkLoadRequest, GeneratedLodLoadRequest, LodLoadRequest, PresenceLoadRequest, SourceRequestChannel};
 
 use crate::handle::{SourceLodResult, SourceMessage};
 use crate::source::{ChunkSource, SourceId, VoxelLodGenerator};
@@ -31,10 +31,10 @@ impl LodRequestKey {
 
 pub(crate) enum PendingLodJob {
 	Direct {
-		requests: Vec<LodLoadRequest>,
+		requests: Vec<GeneratedLodLoadRequest>,
 	},
 	Composite {
-		requests: Vec<LodLoadRequest>,
+		requests: Vec<GeneratedLodLoadRequest>,
 		expected: HashSet<SourceId>,
 		received: HashMap<SourceId, Option<Voxels>>,
 		final_lod: f32,
@@ -54,6 +54,7 @@ pub(crate) struct SourceRegistry {
 	pub(crate) message_rx: Receiver<SourceMessage>,
 	pub(crate) pending_lod: PendingLod,
 	pub(crate) active_presence_loads: Arc<Mutex<HashMap<GridId, u32>>>,
+	pub(crate) generations: Arc<Mutex<HashMap<GridId, u64>>>,
 	pub(crate) requests: SourceRequestChannel,
 }
 
@@ -67,6 +68,7 @@ impl Default for SourceRegistry {
 			message_rx,
 			pending_lod: Arc::new(Mutex::new(HashMap::new())),
 			active_presence_loads: Arc::new(Mutex::new(HashMap::new())),
+			generations: Arc::new(Mutex::new(HashMap::new())),
 			requests: SourceRequestChannel::default(),
 		}
 	}
@@ -95,11 +97,13 @@ impl SourceRegistry {
 	}
 
 	pub fn request_chunk(&self, request: ChunkLoadRequest) {
-		self.requests.request_chunk(request);
+		let generation = self.next_generation(request.grid);
+		self.requests.request_chunk(request, generation);
 	}
 
 	pub fn request_lod(&self, request: LodLoadRequest) {
-		self.requests.request_lod(request);
+		let generation = self.next_generation(request.grid);
+		self.requests.request_lod(request, generation);
 	}
 
 	pub fn chunk_requests_sent(&self) -> u64 {
@@ -113,7 +117,7 @@ impl SourceRegistry {
 	pub fn take_pending_lod_completion(
 		&self,
 		result: SourceLodResult,
-	) -> Option<(Vec<LodLoadRequest>, f32, Option<Voxels>)> {
+	) -> Option<(Vec<GeneratedLodLoadRequest>, f32, Option<Voxels>)> {
 		let key = LodRequestKey::new(result.grid, result.min, result.size, result.lod);
 		let mut pending_lod = self.pending_lod.lock().unwrap();
 		let job = pending_lod.get_mut(&key)?;
@@ -145,12 +149,41 @@ impl SourceRegistry {
 		}
 	}
 
+	pub(crate) fn next_generation(&self, grid: GridId) -> u64 {
+		let mut generations = self.generations.lock().unwrap();
+		let generation = generations.entry(grid).or_default();
+		*generation += 1;
+		*generation
+	}
+
 	pub fn route_save(&self, grid: GridId, chunk: IVec3, voxels: &Voxels) {
-		for source in &self.sources {
+		if voxels.is_empty() {
+			for source in &self.sources {
+				source.forget(grid, chunk);
+			}
+			let generation = self.next_generation(grid);
+			let _ = self.message_tx.send(SourceMessage::ChunkChanged(crate::ChunkChanged {
+				grid,
+				min: chunk,
+				size: IVec3::ONE,
+				kind: crate::ChunkChangeKind::Removed { generation },
+				from_save: true,
+			}));
+			return;
+		}
+		for (i, source) in self.sources.iter().enumerate() {
 			if source.can_save() {
 				source.save(grid, chunk, voxels);
-			} else {
-				source.forget(grid, chunk);
+				self.forget_others(SourceId(i), grid, chunk, IVec3::ONE);
+				let generation = self.next_generation(grid);
+				let _ = self.message_tx.send(SourceMessage::ChunkChanged(crate::ChunkChanged {
+					grid,
+					min: chunk,
+					size: IVec3::ONE,
+					kind: crate::ChunkChangeKind::Changed { generation },
+					from_save: true,
+				}));
+				break;
 			}
 		}
 	}

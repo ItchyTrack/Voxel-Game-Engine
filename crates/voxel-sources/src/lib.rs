@@ -17,8 +17,8 @@ pub use source::{ChunkSource, SourceId, VoxelLodGenerator};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChunkChangeKind {
-	Changed,
-	Removed,
+	Changed { generation: u64 },
+	Removed { generation: u64 },
 }
 
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +39,7 @@ pub struct ChunkPresenceLoaded {
 pub struct ChunkLoaded {
 	pub grid: voxel_data::grid::GridId,
 	pub chunk: bevy::math::IVec3,
+	pub generation: u64,
 	pub voxels: Option<voxel_data::voxels::Voxels>,
 }
 

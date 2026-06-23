@@ -26,18 +26,31 @@ const CLEAR_DELAY_FRAMES: u8 = 20;
 struct LodTileState {
 	requesters: HashMap<Entity, f32>,
 	status: LodStatus,
-	revision: u64,
-	entity: Option<Entity>,
-	waiting_entity: Option<Entity>,
+	upload: LodUploadState,
 	stale_entities: Vec<Entity>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LodStatus { Requested, Loading, Loaded, Empty }
+enum LodStatus {
+	Requested,
+	InFlight,
+	Loaded,
+	ExternalDirty,
+	ExternalDirtyInFlight { generation: u64 },
+	Empty,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LodUploadState {
+	None,
+	Uploading { entity: Entity, generation: u64, active: Option<Entity> },
+	Active { entity: Entity, generation: u64 },
+}
 
 #[derive(Component, Default)]
 pub struct GridStreaming {
 	presence: ChunkPresence,
+	dirty_generations: HashMap<IVec3, u64>,
 	pending_clears: Vec<(IVec3, u8)>,
 	stalled_edits: HashMap<IVec3, Vec<GridEdit>>,
 	stalled_pinned: HashSet<IVec3>,
@@ -90,10 +103,19 @@ impl GridStreaming {
 	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {
 		if !valid_lod_key(key) { return false; }
 		if !self.lods.contains_key(&key) { self.lod_index.insert(key); }
-		let state = self.lods.entry(key).or_insert_with(|| LodTileState { requesters: HashMap::new(), status: LodStatus::Requested, revision: 0, entity: None, waiting_entity: None, stale_entities: Vec::new() });
+		let state = self.lods.entry(key).or_insert_with(|| LodTileState {
+			requesters: HashMap::new(),
+			status: LodStatus::Requested,
+			upload: LodUploadState::None,
+			stale_entities: Vec::new(),
+		});
 		state.requesters.insert(requester, priority);
-		if matches!(state.status, LodStatus::Requested) { self.pending_lod_requests.insert(key); }
+		if matches!(state.status, LodStatus::Requested | LodStatus::ExternalDirty) { self.pending_lod_requests.insert(key); }
 		true
+	}
+
+	fn current_chunk_generation(&self, chunk: IVec3) -> u64 {
+		self.dirty_generations.get(&chunk).copied().unwrap_or(0)
 	}
 
 	pub fn release_lod(&mut self, requester: Entity, key: LodKey) {
@@ -146,6 +168,7 @@ impl GridStreaming {
 
 	fn mark_loaded(&mut self, chunk: IVec3) {
 		self.presence.set_state(chunk, ChunkState::Loaded);
+		self.dirty_generations.remove(&chunk);
 	}
 
 	fn replay_stalled(&mut self, chunk: IVec3, edits: &mut Option<Mut<GridEdits>>) {
@@ -162,24 +185,41 @@ impl GridStreaming {
 	}
 
 	fn mark_empty(&mut self, min: IVec3, size: IVec3) {
+		for x in min.x..min.x + size.x {
+			for y in min.y..min.y + size.y {
+				for z in min.z..min.z + size.z {
+					self.dirty_generations.remove(&IVec3::new(x, y, z));
+				}
+			}
+		}
 		self.presence.clear_present_area(min, size);
 	}
 
-	pub fn mark_external_changed(&mut self, min: IVec3, size: IVec3) {
+	pub fn mark_external_changed(&mut self, min: IVec3, size: IVec3, generation: u64) {
 		for x in min.x..min.x + size.x {
 			for y in min.y..min.y + size.y {
 				for z in min.z..min.z + size.z {
 					let chunk = IVec3::new(x, y, z);
 					match self.presence.state(chunk) {
-						Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) => {
+						Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) | Some(ChunkState::Available) => {
 							self.presence.set_state(chunk, ChunkState::ExternalDirty);
 							self.newly_dirty.push(chunk);
 						}
-						Some(ChunkState::Available) => {}
+						Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
+							self.presence.set_state(chunk, ChunkState::ExternalDirtyInFlight);
+							self.dirty_generations
+								.entry(chunk)
+								.and_modify(|current| *current = (*current).max(generation))
+								.or_insert(generation);
+						}
+						Some(ChunkState::ExternalDirty) => {
+							self.newly_dirty.push(chunk);
+						}
 						None => {
 							self.presence.mark_present(chunk);
+							self.presence.set_state(chunk, ChunkState::ExternalDirty);
+							self.newly_dirty.push(chunk);
 						}
-						_ => {}
 					}
 				}
 			}
@@ -194,13 +234,20 @@ impl GridStreaming {
 		}
 	}
 
-	fn dirty_lods_covering(&mut self, chunk: IVec3) {
+	fn dirty_lods_covering(&mut self, chunk: IVec3, generation: Option<u64>) {
 		for key in self.lod_index.lods_covering_chunk(chunk) {
 			let Some(state) = self.lods.get_mut(&key) else { continue };
 			if state.requesters.is_empty() { continue; }
-			state.revision += 1;
-			state.status = LodStatus::Requested;
-			self.pending_lod_requests.insert(key);
+			state.status = match (state.status, generation) {
+				(LodStatus::InFlight, Some(generation)) => LodStatus::ExternalDirtyInFlight { generation },
+				(LodStatus::ExternalDirtyInFlight { generation: current }, Some(generation)) => LodStatus::ExternalDirtyInFlight { generation: current.max(generation) },
+				(LodStatus::Loaded, _) | (LodStatus::Empty, _) | (LodStatus::ExternalDirty, _) => LodStatus::ExternalDirty,
+				(LodStatus::Requested, _) => LodStatus::Requested,
+				(other, None) => other,
+			};
+			if matches!(state.status, LodStatus::ExternalDirty) {
+				self.pending_lod_requests.insert(key);
+			}
 		}
 	}
 }
@@ -218,10 +265,22 @@ pub fn apply_source_events(
 	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
 ) {
 	for event in changed_events.read().copied() {
-		if event.from_save { continue; }
 		info!(grid=?event.grid, min=?event.min, size=?event.size, kind=?event.kind, from_save=event.from_save, "apply_source_events handling chunk changed");
+		if let Ok(mut s) = grids.get_mut(event.grid) {
+			let generation = match event.kind {
+				ChunkChangeKind::Changed { generation } | ChunkChangeKind::Removed { generation } => generation,
+			};
+			for x in event.min.x..event.min.x + event.size.x {
+				for y in event.min.y..event.min.y + event.size.y {
+					for z in event.min.z..event.min.z + event.size.z {
+						s.dirty_lods_covering(IVec3::new(x, y, z), Some(generation));
+					}
+				}
+			}
+		}
+		if event.from_save { continue; }
 		match event.kind {
-			ChunkChangeKind::Changed => {
+			ChunkChangeKind::Changed { generation } => {
 				let Ok(mut s) = grids.get_mut(event.grid) else {
 					warn!(grid=?event.grid, min=?event.min, size=?event.size, "apply_source_events missing GridStreaming for changed event");
 					continue;
@@ -233,9 +292,9 @@ pub fn apply_source_events(
 					size: event.size,
 					kind: ChunkAvailabilityChangeKind::BecamePresent,
 				});
-				s.mark_external_changed(event.min, event.size);
+				s.mark_external_changed(event.min, event.size, generation);
 			}
-			ChunkChangeKind::Removed => {
+			ChunkChangeKind::Removed { .. } => {
 				let Ok(mut s) = grids.get_mut(event.grid) else {
 					warn!(grid=?event.grid, min=?event.min, size=?event.size, "apply_source_events missing GridStreaming for removed event");
 					continue;
@@ -300,22 +359,9 @@ pub fn receive_chunk_presence_loaded(
 pub fn serve_saves(
 	saves: Res<ChunkSaveChannel>,
 	sources: VoxelSources,
-	mut changed: bevy::ecs::message::MessageWriter<voxel_sources::ChunkChanged>,
 ) {
 	while let Some(save) = saves.try_recv() {
-		let kind = if save.voxels.is_empty() {
-			voxel_sources::ChunkChangeKind::Removed
-		} else {
-			voxel_sources::ChunkChangeKind::Changed
-		};
 		sources.route_save(save.grid, save.chunk, &save.voxels);
-		changed.write(voxel_sources::ChunkChanged {
-			grid: save.grid,
-			min: save.chunk,
-			size: IVec3::ONE,
-			kind,
-			from_save: true,
-		});
 	}
 }
 
@@ -387,6 +433,7 @@ pub fn receive_results(
 		let result_chunk = result.chunk;
 		let was_empty = result.voxels.is_none();
 		let mut became_empty = false;
+		let mut accepted = false;
 		if result.chunk == IVec3::new(0, 5, -3) {
 			info!(grid=?result.grid, chunk=?result.chunk, has_voxels=result.voxels.is_some(), "streaming receive_results got chunk result");
 		}
@@ -397,18 +444,26 @@ pub fn receive_results(
 			}
 			match state {
 				Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
-					match result.voxels {
-						Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
-							streaming.presence.set_state(result.chunk, ChunkState::Available);
-						}
-						Some(voxels) => {
-							streaming.mark_loaded(result.chunk);
-							loaded_by_grid.entry(result.grid).or_default().push((result.chunk, voxels));
-						}
-						None => {
-							streaming.mark_empty(result.chunk, IVec3::ONE);
-							streaming.replay_stalled(result.chunk, &mut edits);
-							became_empty = true;
+					let stale = result.generation < streaming.current_chunk_generation(result.chunk);
+					if stale {
+						streaming.presence.set_state(result.chunk, ChunkState::ExternalDirty);
+						streaming.newly_dirty.push(result.chunk);
+					} else {
+						accepted = true;
+						match result.voxels {
+							Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
+								streaming.presence.set_state(result.chunk, ChunkState::Available);
+								streaming.dirty_generations.remove(&result.chunk);
+							}
+							Some(voxels) => {
+								streaming.mark_loaded(result.chunk);
+								loaded_by_grid.entry(result.grid).or_default().push((result.chunk, voxels));
+							}
+							None => {
+								streaming.mark_empty(result.chunk, IVec3::ONE);
+								streaming.replay_stalled(result.chunk, &mut edits);
+								became_empty = true;
+							}
 						}
 					}
 				}
@@ -423,9 +478,11 @@ pub fn receive_results(
 				kind: ChunkAvailabilityChangeKind::BecameEmpty,
 			});
 		}
-		if was_empty {
+		if accepted && was_empty {
 			chunk_resolved.write(ChunkLoadResolved { grid: result_grid, chunk: result_chunk, visible: false });
 		}
+
+		if !accepted { continue; }
 
 		let _zone = span!("update consumers");
 		for mut entity_consumers in consumers.iter_mut() {
@@ -475,7 +532,13 @@ pub fn receive_lod_results(
 	for mut result in channel.read().cloned() {
 		let Ok(mut streaming) = grids.get_mut(result.grid) else { continue };
 		let Some(state) = streaming.lods.get_mut(&result.key) else { continue };
-		if result.generation != state.revision { continue; }
+		if let LodStatus::ExternalDirtyInFlight { generation } = state.status {
+			if result.generation < generation {
+				state.status = LodStatus::ExternalDirty;
+				streaming.pending_lod_requests.insert(result.key);
+				continue;
+			}
+		}
 		match result.voxels.take() {
 			Some(voxels) if !voxels.is_empty() => {
 				let entity = commands.spawn((
@@ -483,12 +546,23 @@ pub fn receive_lod_results(
 					Transform::from_translation((result.key.min * CHUNK_SIZE).as_vec3()),
 					ChildOf(result.grid),
 				)).id();
-				if let Some(waiting) = state.waiting_entity.replace(entity) { commands.entity(waiting).despawn(); }
-				state.status = LodStatus::Loading;
+				let active = match state.upload {
+					LodUploadState::Uploading { entity, active, .. } => {
+						commands.entity(entity).despawn();
+						active
+					}
+					LodUploadState::Active { entity, .. } => Some(entity),
+					LodUploadState::None => None,
+				};
+				state.upload = LodUploadState::Uploading { entity, generation: result.generation, active };
+				state.status = LodStatus::Loaded;
 			}
 			_ => {
-				if let Some(entity) = state.entity.take() { commands.entity(entity).despawn(); }
-				if let Some(entity) = state.waiting_entity.take() { commands.entity(entity).despawn(); }
+				match state.upload {
+					LodUploadState::Active { entity, .. } | LodUploadState::Uploading { entity, .. } => commands.entity(entity).despawn(),
+					LodUploadState::None => {}
+				}
+				state.upload = LodUploadState::None;
 				state.status = LodStatus::Empty;
 				for &requester in state.requesters.keys() {
 					let mut update = result.clone();
@@ -513,12 +587,20 @@ pub fn refresh_lod_uploads(
 	let mut updates = Vec::new();
 	for event in gpu_events.read().copied() {
 		for (grid, mut streaming) in &mut grids {
-			let Some((&key, state)) = streaming.lods.iter_mut().find(|(_, state)| state.waiting_entity == Some(event.entity)) else { continue };
-			if let Some(old) = state.entity.replace(event.entity) { state.stale_entities.push(old); }
-			state.waiting_entity = None;
+			let Some((&key, state)) = streaming.lods.iter_mut().find(|(_, state)| matches!(state.upload, LodUploadState::Uploading { entity, .. } if entity == event.entity)) else { continue };
+			let generation = match state.upload {
+				LodUploadState::Uploading { entity, generation, active } => {
+					if let Some(old) = active {
+						state.stale_entities.push(old);
+					}
+					state.upload = LodUploadState::Active { entity, generation };
+					generation
+				}
+				_ => continue,
+			};
 			state.status = LodStatus::Loaded;
 			for &requester in state.requesters.keys() {
-				updates.push(LodLoadResult { grid, requester, key, priority: state.requesters[&requester], generation: state.revision, voxels: None, entity: Some(event.entity) });
+				updates.push(LodLoadResult { grid, requester, key, priority: state.requesters[&requester], generation, voxels: None, entity: Some(event.entity) });
 			}
 		}
 	}
@@ -536,8 +618,10 @@ pub fn cleanup_released_lods(mut commands: Commands, mut grids: Query<&mut GridS
 		let released: Vec<_> = streaming.lods.iter().filter_map(|(&key, state)| state.requesters.is_empty().then_some(key)).collect();
 		for key in released {
 			let Some(state) = streaming.lods.remove(&key) else { continue };
-			if let Some(entity) = state.entity { commands.entity(entity).despawn(); }
-			if let Some(entity) = state.waiting_entity { commands.entity(entity).despawn(); }
+			match state.upload {
+				LodUploadState::Active { entity, .. } | LodUploadState::Uploading { entity, .. } => commands.entity(entity).despawn(),
+				LodUploadState::None => {}
+			}
 		}
 	}
 }
@@ -551,10 +635,11 @@ pub fn request_lod_tiles(
 		for key in pending {
 			let Some(state) = streaming.lods.get_mut(&key) else { continue };
 			if state.requesters.is_empty() { continue; }
+			if !matches!(state.status, LodStatus::Requested | LodStatus::ExternalDirty) { continue; }
 			let requester = *state.requesters.keys().next().unwrap();
 			let priority = state.requesters.values().copied().fold(f32::NEG_INFINITY, f32::max);
-			state.status = LodStatus::Loading;
-			requests.request_lod(LodLoadRequest { grid, requester, key, priority, generation: state.revision });
+			state.status = LodStatus::InFlight;
+			requests.request_lod(LodLoadRequest { grid, requester, key, priority });
 		}
 	}
 }
@@ -579,7 +664,6 @@ pub fn handle_dirty_chunks(
 		if streaming.newly_dirty.is_empty() { continue; }
 		let dirty: HashSet<_> = std::mem::take(&mut streaming.newly_dirty).into_iter().collect();
 		for chunk in dirty {
-			streaming.dirty_lods_covering(chunk);
 			if matches!(streaming.presence.state(chunk), Some(ChunkState::InternalDirty)) {
 				let voxels = grid_data.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
 				save_channel.save(ChunkSaveRequest { grid, chunk, voxels });

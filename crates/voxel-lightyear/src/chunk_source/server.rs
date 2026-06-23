@@ -67,7 +67,6 @@ pub(crate) fn receive_lod_request(
 		requester: Entity::PLACEHOLDER,
 		key: request.key,
 		priority: request.priority,
-		generation: 0,
 	});
 	pending.0.entry(PendingLodKey { grid: request.grid, key: request.key }).or_default().push(PendingLodRequest {
 		peer: trigger.event().from,
@@ -137,8 +136,8 @@ pub(crate) fn flush_chunk_changed(
 	for event in changed.read().copied() {
 		info!(grid=?event.grid, min=?event.min, size=?event.size, kind=?event.kind, from_save=event.from_save, "server saw chunk changed");
 		let kind = match event.kind {
-			voxel_sources::ChunkChangeKind::Changed => RemoteChunkChangeKind::Changed,
-			voxel_sources::ChunkChangeKind::Removed => RemoteChunkChangeKind::Removed,
+			voxel_sources::ChunkChangeKind::Changed { generation } => RemoteChunkChangeKind::Changed { generation },
+			voxel_sources::ChunkChangeKind::Removed { generation } => RemoteChunkChangeKind::Removed { generation },
 		};
 		for (&peer, &entity) in &peer_metadata.mapping {
 			if peer == PeerId::Server { continue; }
@@ -166,7 +165,7 @@ pub(crate) fn flush_chunk_results(
 	mut pending: ResMut<PendingChunkRequests>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
-	for ChunkLoaded { grid, chunk, voxels } in loader.read() {
+	for ChunkLoaded { grid, chunk, generation, voxels } in loader.read() {
 		if *chunk == IVec3::new(0, 5, -3) {
 			info!(grid=?grid, chunk=?chunk, has_voxels=voxels.is_some(), "server flushing chunk result");
 		}
@@ -197,6 +196,7 @@ pub(crate) fn flush_chunk_results(
 			sender.trigger::<super::ServerToClientChannel>(ChunkResponse {
 				grid: *grid,
 				chunk: *chunk,
+				generation: *generation,
 				voxels: voxels.clone(),
 			});
 		}
@@ -210,7 +210,7 @@ pub(crate) fn flush_lod_results(
 	mut pending: ResMut<PendingLodRequests>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
-	for LodLoaded { grid, key, voxels, .. } in loader.read() {
+	for LodLoaded { grid, key, generation, voxels, .. } in loader.read() {
 		let Some(requests) = pending.0.remove(&PendingLodKey { grid: *grid, key: *key }) else {
 			// warn!(grid=?grid, min=?key.min, size=?key.size, lod=key.lod, "dropping lod load result with no pending remote requests");
 			continue
@@ -237,6 +237,7 @@ pub(crate) fn flush_lod_results(
 			sender.trigger::<super::ServerToClientChannel>(LodResponse {
 				grid: *grid,
 				key: *key,
+				generation: *generation,
 				voxels: voxels.clone(),
 			});
 		}

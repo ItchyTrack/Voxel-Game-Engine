@@ -12,14 +12,14 @@ struct AreaSource {
 impl ChunkSource for AreaSource {
 	fn init(&self, _handle: SourceHandle) {}
 	fn cost(&self, _grid: GridId, chunk: IVec3) -> Option<u32> { self.chunks.contains(&chunk).then_some(0) }
-	fn request_load(&self, _grid: GridId, _chunk: IVec3) {}
+	fn request_load(&self, _grid: GridId, _chunk: IVec3, _generation: u64) {}
 	fn cost_lod(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
 		self.chunks
 			.iter()
 			.any(|chunk| chunk.cmpge(min).all() && chunk.cmplt(min + size).all())
 			.then_some(0)
 	}
-	fn request_load_lod(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32) {}
+	fn request_load_lod(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _generation: u64) {}
 }
 
 struct MarkerGenerator;

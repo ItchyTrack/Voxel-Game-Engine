@@ -67,14 +67,25 @@ pub struct LodLoadRequest {
 	pub requester: Entity,
 	pub key: LodKey,
 	pub priority: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GeneratedChunkLoadRequest {
+	pub request: ChunkLoadRequest,
+	pub generation: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GeneratedLodLoadRequest {
+	pub request: LodLoadRequest,
 	pub generation: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum SourceRequest {
 	Presence(PresenceLoadRequest),
-	Chunk(ChunkLoadRequest),
-	Lod(LodLoadRequest),
+	Chunk(GeneratedChunkLoadRequest),
+	Lod(GeneratedLodLoadRequest),
 }
 
 #[derive(Resource)]
@@ -106,14 +117,14 @@ impl SourceRequestChannel {
 		}
 	}
 
-	pub(crate) fn request_chunk(&self, request: ChunkLoadRequest) {
-		if self.sender.send(SourceRequest::Chunk(request)).is_ok() {
+	pub(crate) fn request_chunk(&self, request: ChunkLoadRequest, generation: u64) {
+		if self.sender.send(SourceRequest::Chunk(GeneratedChunkLoadRequest { request, generation })).is_ok() {
 			self.chunk_sent.fetch_add(1, Ordering::Relaxed);
 		}
 	}
 
-	pub(crate) fn request_lod(&self, request: LodLoadRequest) {
-		if self.sender.send(SourceRequest::Lod(request)).is_ok() {
+	pub(crate) fn request_lod(&self, request: LodLoadRequest, generation: u64) {
+		if self.sender.send(SourceRequest::Lod(GeneratedLodLoadRequest { request, generation })).is_ok() {
 			self.lod_sent.fetch_add(1, Ordering::Relaxed);
 		}
 	}

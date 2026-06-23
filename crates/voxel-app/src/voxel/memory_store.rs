@@ -40,10 +40,10 @@ impl ChunkSource for MemoryStore {
 		self.chunks.lock().unwrap().contains_key(&(grid, chunk)).then_some(LOAD_COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3) {
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64) {
 		let voxels = self.chunks.lock().unwrap().get(&(grid, chunk)).cloned();
 		if let Some(handle) = self.handle.get() {
-			handle.loaded(grid, chunk, voxels);
+			handle.loaded(grid, chunk, generation, voxels);
 		}
 	}
 
@@ -55,13 +55,13 @@ impl ChunkSource for MemoryStore {
 		region_has_data.then_some(LOAD_COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) {
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64) {
 		let region = downsample_region(min, size, lod, |chunk| {
 			self.chunks.lock().unwrap().get(&(grid, chunk)).cloned()
 		});
 		let voxels = (!region.is_empty()).then_some(region);
 		if let Some(handle) = self.handle.get() {
-			handle.loaded_lod(grid, min, size, lod, voxels);
+			handle.loaded_lod(grid, min, size, lod, generation, voxels);
 		}
 	}
 

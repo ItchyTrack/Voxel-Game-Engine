@@ -186,10 +186,10 @@ impl ChunkSource for SphereSource {
 		region_intersects(min, min + Vec3::splat(CHUNK_SIZE as f32)).then_some(COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3) {
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64) {
 		let voxels = build_chunk(chunk);
 		if let Some(handle) = self.handle.get() {
-			handle.loaded(grid, chunk, voxels);
+			handle.loaded(grid, chunk, generation, voxels);
 		}
 	}
 
@@ -202,10 +202,10 @@ impl ChunkSource for SphereSource {
 		region_intersects(lo, hi).then_some(COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) {
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64) {
 		let voxels = build_lod_region(min, size, lod);
 		if let Some(handle) = self.handle.get() {
-			handle.loaded_lod(grid, min, size, lod, voxels);
+			handle.loaded_lod(grid, min, size, lod, generation, voxels);
 		}
 	}
 }

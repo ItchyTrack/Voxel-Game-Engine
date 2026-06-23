@@ -14,7 +14,7 @@ pub use presence::{ChunkPresence, ChunkState};
 pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaded, PresenceLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
 pub type LodLoadResult = voxel_sources::LodLoaded;
-pub use streaming::{InflightChunkPresence, apply_chunk_clears, cleanup_released_lods, handle_dirty_chunks, receive_lod_results, receive_results, receive_chunk_presence_loaded, refresh_lod_uploads, request_lod_tiles, request_stalled_chunks, request_presence_for_new_grids, GridStreaming, RequestChunkPresence};
+pub use streaming::{InflightChunkPresence, apply_chunk_clears, apply_source_events, cleanup_released_lods, handle_dirty_chunks, receive_lod_results, receive_results, receive_chunk_presence_loaded, refresh_lod_uploads, request_lod_tiles, request_stalled_chunks, request_presence_for_new_grids, GridStreaming, RequestChunkPresence};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]

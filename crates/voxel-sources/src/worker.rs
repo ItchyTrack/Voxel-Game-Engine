@@ -16,7 +16,7 @@ use crossbeam_channel::{Receiver, Sender};
 use tracy_client::span;
 use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, AsyncTaskPusher, PriorityTask};
 
-use crate::loader::{ChunkLoadRequest, LodLoadRequest, PresenceLoadRequest, SourceRequest};
+use crate::loader::{GeneratedChunkLoadRequest, GeneratedLodLoadRequest, PresenceLoadRequest, SourceRequest};
 
 use crate::handle::{SourceLodResult, SourceMessage, SourceResult};
 use crate::registry::{
@@ -97,20 +97,27 @@ fn handle_presence_request(
 }
 
 fn handle_chunk_request(
-	request: ChunkLoadRequest,
+	request: GeneratedChunkLoadRequest,
 	sources: &[SharedSource],
 	pusher: &AsyncTaskPusher,
 	message_tx: &Sender<SourceMessage>,
 ) {
-	if let Some(id) = cheapest(sources, request.grid, request.chunk) {
+	if let Some(id) = cheapest(sources, request.request.grid, request.request.chunk) {
 		let source = sources[id.0].clone();
-		let grid = request.grid;
+		let grid = request.request.grid;
+		let chunk = request.request.chunk;
+		let generation = request.generation;
 		pusher.push(PriorityTask::new(0.0, async move {
 			let _zone = span!("source request_load chunk");
-			source.request_load(grid, request.chunk);
+			source.request_load(grid, chunk, generation);
 		}));
 	} else {
-		let _ = message_tx.send(SourceMessage::Chunk(SourceResult { grid: request.grid, chunk: request.chunk, voxels: None }));
+		let _ = message_tx.send(SourceMessage::Chunk(SourceResult {
+			grid: request.request.grid,
+			chunk: request.request.chunk,
+			generation: request.generation,
+			voxels: None,
+		}));
 	}
 }
 
@@ -134,31 +141,32 @@ fn serve_requests(
 }
 
 fn handle_lod_request(
-	request: LodLoadRequest,
+	request: GeneratedLodLoadRequest,
 	sources: &[SharedSource],
 	pending_lod: &PendingLod,
 	pusher: &AsyncTaskPusher,
 	message_tx: &Sender<SourceMessage>,
 ) {
 	let source_ids =
-		lod_sources_with_any_chunks(sources, request.grid, request.key.min, request.key.size, request.key.lod as f32);
+		lod_sources_with_any_chunks(sources, request.request.grid, request.request.key.min, request.request.key.size, request.request.key.lod as f32);
 	match source_ids.as_slice() {
 		[] => {
 			pending_lod.lock().unwrap().insert(
-				LodRequestKey::new(request.grid, request.key.min, request.key.size, request.key.lod as f32),
+				LodRequestKey::new(request.request.grid, request.request.key.min, request.request.key.size, request.request.key.lod as f32),
 				PendingLodJob::Direct { requests: vec![request] },
 			);
 			let _ = message_tx.send(SourceMessage::Lod(SourceLodResult {
 				source: crate::source::SourceId(usize::MAX),
-				grid: request.grid,
-				min: request.key.min,
-				size: request.key.size,
-				lod: request.key.lod as f32,
+				grid: request.request.grid,
+				min: request.request.key.min,
+				size: request.request.key.size,
+				lod: request.request.key.lod as f32,
+				generation: request.generation,
 				voxels: None,
 			}));
 		}
 		[id] => {
-			let lod_key = LodRequestKey::new(request.grid, request.key.min, request.key.size, request.key.lod as f32);
+			let lod_key = LodRequestKey::new(request.request.grid, request.request.key.min, request.request.key.size, request.request.key.lod as f32);
 			let should_request = {
 				let mut pending = pending_lod.lock().unwrap();
 				match pending.get_mut(&lod_key) {
@@ -179,20 +187,21 @@ fn handle_lod_request(
 			if should_request {
 				let source = sources[id.0].clone();
 				let request = request.clone();
-				let grid = request.grid;
-				pusher.push(PriorityTask::new(request.priority, async move {
+				let grid = request.request.grid;
+				let generation = request.generation;
+				pusher.push(PriorityTask::new(request.request.priority, async move {
 					let _zone = span!("source request_load_lod direct");
 					tracy_client::plot!(
 						"source lod request volume chunks",
-						(request.key.size.x * request.key.size.y * request.key.size.z) as f64
+						(request.request.key.size.x * request.request.key.size.y * request.request.key.size.z) as f64
 					);
-					source.request_load_lod(grid, request.key.min, request.key.size, request.key.lod as f32);
+					source.request_load_lod(grid, request.request.key.min, request.request.key.size, request.request.key.lod as f32, generation);
 				}));
 			}
 		}
 		_ => {
-			let intermediate_lod = (request.key.lod as f32).min(6.0);
-			let lod_key = LodRequestKey::new(request.grid, request.key.min, request.key.size, intermediate_lod);
+			let intermediate_lod = (request.request.key.lod as f32).min(6.0);
+			let lod_key = LodRequestKey::new(request.request.grid, request.request.key.min, request.request.key.size, intermediate_lod);
 			let should_request = {
 				let mut pending = pending_lod.lock().unwrap();
 				match pending.get_mut(&lod_key) {
@@ -211,7 +220,7 @@ fn handle_lod_request(
 								requests: vec![request.clone()],
 								expected: source_ids.iter().copied().collect(),
 								received: Default::default(),
-								final_lod: request.key.lod as f32,
+								final_lod: request.request.key.lod as f32,
 								intermediate_lod,
 							},
 						);
@@ -223,14 +232,15 @@ fn handle_lod_request(
 				for id in source_ids {
 					let source = sources[id.0].clone();
 					let request = request.clone();
-					let grid = request.grid;
-					pusher.push(PriorityTask::new(request.priority, async move {
+					let grid = request.request.grid;
+					let generation = request.generation;
+					pusher.push(PriorityTask::new(request.request.priority, async move {
 						let _zone = span!("source request_load_lod composite part");
 						tracy_client::plot!(
 							"source lod request volume chunks",
-							(request.key.size.x * request.key.size.y * request.key.size.z) as f64
+							(request.request.key.size.x * request.request.key.size.y * request.request.key.size.z) as f64
 						);
-						source.request_load_lod(grid, request.key.min, request.key.size, intermediate_lod);
+						source.request_load_lod(grid, request.request.key.min, request.request.key.size, intermediate_lod, generation);
 					}));
 				}
 			}
