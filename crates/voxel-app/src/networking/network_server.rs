@@ -9,7 +9,9 @@ pub struct NetworkServerPlugin;
 
 impl Plugin for NetworkServerPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_plugins(ServerPlugins::default())
+		app.add_plugins(ServerPlugins {
+			tick_duration: std::time::Duration::from_secs_f64(1.0 / 120.0),
+		})
 			.add_plugins(NetworkProtocolPlugin)
 			.add_observer(configure_connected_client)
 			.add_systems(Startup, start_server)

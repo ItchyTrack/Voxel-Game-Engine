@@ -13,7 +13,9 @@ pub struct NetworkClientPlugin;
 
 impl Plugin for NetworkClientPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_plugins(ClientPlugins::default())
+		app.add_plugins(ClientPlugins {
+			tick_duration: std::time::Duration::from_secs_f64(1.0 / 120.0),
+		})
 			.add_plugins(NetworkProtocolPlugin)
 			.add_systems(Startup, start_client)
 			.add_systems(Update, (init_replicated_bodies, init_replicated_grids, apply_network_transforms, log_client_network_entities));
