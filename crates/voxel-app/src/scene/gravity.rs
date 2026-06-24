@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use voxel_physics::{Accelerations, FreezePhysics, IsStatic, PhysicsSet, RigidBody};
+use voxel_physics::{Accelerations, IsStatic, RigidBody, VoxelPhysicsAppExt};
 
 pub struct GravityPlugin;
 
@@ -8,12 +8,7 @@ const GRAVITY_ACCELERATION: Vec3 = Vec3::new(0.0, -150.0, 0.0);
 
 impl Plugin for GravityPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(
-			FixedUpdate,
-			apply_gravity
-				.in_set(PhysicsSet::Apply)
-				.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
-		);
+		app.add_physics_apply_systems(apply_gravity);
 	}
 }
 

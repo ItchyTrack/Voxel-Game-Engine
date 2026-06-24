@@ -10,9 +10,9 @@ use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
 
 use super::narrowphase::get_collisions_between_subgrids;
-use super::{BodyView, Collision, GridCollider, HalfCollision};
+use crate::collision::{BodyView, Collision, GridCollider, HalfCollision};
 
-pub fn get_collisions(
+pub(super) fn get_collisions(
 	bodies: &SparseSet<PhysicsBodyId, BodyView>,
 	grids: &SparseSet<GridId, GridCollider>,
 	bvh: &BVH<(PhysicsBodyId, GridId, SubGridId)>,

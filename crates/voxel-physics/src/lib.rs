@@ -1,12 +1,10 @@
-pub mod ball_joint_constraint;
-pub mod chunk_requests;
+pub mod constraints;
 pub mod collision;
-pub mod collision_constraint;
 pub mod components;
 pub mod inertia_tensor;
+pub mod integration;
 pub mod math;
-pub mod physics_constraint;
-pub mod solver;
+pub mod solving;
 pub mod sparse_set;
 
 use bevy::math::DVec3;
@@ -14,12 +12,12 @@ use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
 
-pub use ball_joint_constraint::BallJointConstraint;
-pub use chunk_requests::PhysicsConsumer;
-pub use collision::Collisions;
-pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, PhysicsIntegratedCenterOfMassTransform, RigidBody, RotationalInertia, Velocity};
+pub use constraints::BallJoint;
+pub use collision::{Collisions, PhysicsConsumer};
+pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
 pub use inertia_tensor::InertiaTensor;
-pub use solver::{Accelerations, BallJointConstraints, Impulses};
+pub use integration::PhysicsIntegratedCenterOfMassTransform;
+pub use solving::{Accelerations, Impulses};
 pub use voxel_data::grid::GridId;
 
 use crate::components::VoxelMass;
@@ -42,12 +40,71 @@ impl Default for FreezePhysics {
 /// [`PhysicsSet::Apply`] so their effects are picked up the same step.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PhysicsSet {
-	/// Queue impulses, hold-targets, and constraint edits before collision/solve.
+	/// Queue impulses, hold-targets, and constraint edits before physics stages.
 	Apply,
 	/// Broadphase + narrowphase; fills the [`Collisions`] resource.
-	Detect,
-	/// The solver runs in this set.
-	Step,
+	Collision,
+	/// Integrates body state into [`PhysicsIntegratedCenterOfMassTransform`].
+	Integration,
+	/// Consumes collisions and integrated transforms to solve body motion.
+	Solving,
+}
+
+pub trait VoxelPhysicsAppExt {
+	fn add_physics_apply_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self;
+	fn add_physics_collision_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self;
+	fn add_physics_integration_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self;
+	fn add_physics_solving_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self;
+}
+
+pub fn physics_not_frozen(freeze: Res<FreezePhysics>) -> bool {
+	!freeze.0
+}
+
+impl VoxelPhysicsAppExt for App {
+	fn add_physics_apply_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self {
+		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Apply));
+		self
+	}
+
+	fn add_physics_collision_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self {
+		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Collision));
+		self
+	}
+
+	fn add_physics_integration_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self {
+		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Integration));
+		self
+	}
+
+	fn add_physics_solving_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self {
+		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Solving));
+		self
+	}
 }
 
 #[derive(Default)]
@@ -60,27 +117,38 @@ impl Plugin for VoxelPhysicsPlugin {
 			.insert_resource(Time::<Fixed>::from_hz(120.0))
 			.configure_sets(
 				FixedUpdate,
-				(PhysicsSet::Apply, PhysicsSet::Detect, PhysicsSet::Step)
+				(
+					PhysicsSet::Apply,
+					PhysicsSet::Collision,
+					PhysicsSet::Integration,
+					PhysicsSet::Solving,
+				)
 					.chain()
-					.run_if(voxel_streaming::chunks_ready::<PhysicsConsumer>),
+					.run_if(voxel_streaming::chunks_ready::<PhysicsConsumer>)
+					.run_if(physics_not_frozen),
 			)
-			.add_plugins((collision::CollisionPlugin, solver::SolverPlugin))
+			.add_plugins((
+				collision::exact::ExactPlugin,
+				integration::semi_implicit_euler::SemiImplicitEulerPlugin,
+				solving::avbd::AvbdPlugin,
+			))
 			.register_chunk_consumer::<PhysicsConsumer>()
 			.add_systems(Startup, |mut commands: Commands| { commands.spawn(PhysicsConsumer::default()); })
 			.add_systems(
 				FixedUpdate,
 				(
-					chunk_requests::cache_presence_aabb,
-					chunk_requests::request_collision_chunks,
+					collision::chunk_requests::cache_presence_aabb,
+					collision::chunk_requests::request_collision_chunks,
 				)
 					.chain()
-					.before(PhysicsSet::Detect),
+					.before(PhysicsSet::Collision),
 			)
-			.add_systems(FixedUpdate, compute_mass_properties.before(PhysicsSet::Detect))
+			.add_systems(FixedUpdate, constraints::sync_ball_joint_constraints.before(PhysicsSet::Solving))
+			.add_systems(FixedUpdate, compute_mass_properties.before(PhysicsSet::Collision))
 			.add_systems(
 				FixedUpdate,
 				voxel_streaming::run_streaming
-					.after(chunk_requests::request_collision_chunks)
+					.after(collision::chunk_requests::request_collision_chunks)
 					.before(PhysicsSet::Apply),
 			);
 	}

@@ -1,10 +1,10 @@
-use bevy::transform::components::Transform;
 use bevy::math::Vec3;
+use bevy::transform::components::Transform;
 
 use crate::inertia_tensor::InertiaTensor;
 
 /// Per-step solver scratch for one rigid body, gathered from its ECS components
-/// at the start of [`crate::solver::Solver::solve`] and written back at the end.
+/// at the start of [`crate::solving::Solver::solve`] and written back at the end.
 pub struct SolverBody {
 	pub transform: Transform,
 	pub integrated_center_of_mass_transform: Transform,

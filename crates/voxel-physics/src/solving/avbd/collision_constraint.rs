@@ -4,9 +4,10 @@ use bevy::transform::components::Transform;
 
 
 use crate::math::{Mat6, Vec6};
-use crate::physics_constraint::{PhysicsConstraint, GAMMA};
-use crate::solver::Solver;
 use crate::collision;
+
+use super::physics_constraint::{PhysicsConstraint, GAMMA};
+use super::Solver;
 
 pub struct CollisionConstraint {
 	pub collision: collision::Collision,

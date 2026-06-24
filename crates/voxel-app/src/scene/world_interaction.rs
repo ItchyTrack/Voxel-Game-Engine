@@ -10,7 +10,7 @@ use std::sync::Arc;
 use voxel_data::voxels::Voxel;
 use voxel_data::world_query::VoxelWorldQueryParam;
 use voxel_edit::GridEdits;
-use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, PhysicsSet, Velocity};
+use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, Velocity, VoxelPhysicsAppExt};
 
 use crate::audio::plugin::PlaySfx;
 
@@ -25,12 +25,7 @@ impl Plugin for WorldInteractionPlugin {
 				pickup_toggle_system,
 				push_system.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
 			))
-			.add_systems(
-				FixedUpdate,
-				hold_held_body_system
-					.in_set(PhysicsSet::Apply)
-					.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
-			);
+			.add_physics_apply_systems(hold_held_body_system);
 	}
 }
 

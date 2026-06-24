@@ -1,10 +1,22 @@
 use bevy::prelude::*;
 use voxel_data::grid::Grid;
 
-use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, PhysicsIntegratedCenterOfMassTransform, RigidBody, RotationalInertia, Velocity};
-use super::{Accelerations, Impulse, Impulses};
+use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+use crate::solving::{Accelerations, Impulse, Impulses};
+use crate::VoxelPhysicsAppExt;
 
-pub(super) fn integrate_physics_center_of_mass_transforms(
+use super::PhysicsIntegratedCenterOfMassTransform;
+
+#[derive(Default)]
+pub struct SemiImplicitEulerPlugin;
+
+impl bevy::app::Plugin for SemiImplicitEulerPlugin {
+	fn build(&self, app: &mut App) {
+		app.add_physics_integration_systems(integrate_physics_center_of_mass_transforms);
+	}
+}
+
+pub fn integrate_physics_center_of_mass_transforms(
 	time: Res<Time>,
 	impulses: Res<Impulses>,
 	accelerations: Res<Accelerations>,
@@ -49,8 +61,8 @@ pub(super) fn integrate_physics_center_of_mass_transforms(
 			for impulse in body_impulses {
 				match impulse {
 					Impulse::Impulse { impulse, impulse_pos } => {
-						velocity += impulse / mass.0;
-						angular_velocity += rotational_inertia_inverse * (impulse_pos - global_center_of_mass).cross(*impulse);
+						velocity += *impulse / mass.0;
+						angular_velocity += rotational_inertia_inverse * (*impulse_pos - global_center_of_mass).cross(*impulse);
 					},
 					Impulse::CentralImpulse { central_impulse } => {
 						velocity += central_impulse / mass.0;
@@ -64,9 +76,7 @@ pub(super) fn integrate_physics_center_of_mass_transforms(
 
 		let next_rotation = (Quat::from_scaled_axis(angular_velocity * dt) * transform.rotation).normalize();
 		integrated_center_of_mass_transform.0 = Transform {
-			translation: transform.translation
-				+ velocity * dt
-				+ transform.rotation * com.0,
+			translation: transform.translation + velocity * dt + transform.rotation * com.0,
 			rotation: next_rotation,
 			scale: Vec3::ONE,
 		};

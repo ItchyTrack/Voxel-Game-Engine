@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use voxel_data::voxels::Voxel;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_physics::{
-	AngularVelocity, BallJointConstraint, BallJointConstraints, FreezePhysics, Impulses, IsStatic, PhysicsSet, RigidBody, RotationalInertia
+	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, RotationalInertia, VoxelPhysicsAppExt
 };
 
 use crate::voxel::streaming_test::{spawn_grid, StreamingVoxels, WorldStore};
@@ -20,12 +20,7 @@ pub struct ScenePlugin;
 impl Plugin for ScenePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_systems(Startup, setup_scene)
-			.add_systems(
-				FixedUpdate,
-				drive_orientation
-					.in_set(PhysicsSet::Apply)
-					.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
-			);
+			.add_physics_apply_systems(drive_orientation);
 	}
 }
 
@@ -61,18 +56,17 @@ fn drive_orientation(
 
 fn setup_scene(
 	mut commands: Commands,
-	mut constraints: ResMut<BallJointConstraints>,
 	mut store: ResMut<WorldStore>,
 ) {
 	spawn_church(&mut commands, &mut store);
-	// spawn_ball_cluster(&mut commands, &mut constraints, &mut store);
-	spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(0.0, 120.0, 0.0));
-	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(30.0, 120.0, 0.0));
-	// spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(-30.0, 120.0, 0.0));
+	// spawn_ball_cluster(&mut commands, &mut store);
+	spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
+	// spawn_bb8(&mut commands, &mut store, Vec3::new(30.0, 120.0, 0.0));
+	// spawn_bb8(&mut commands, &mut store, Vec3::new(-30.0, 120.0, 0.0));
 	// for x in 0..3 {
 	// 	for y in 0..2 {
 	// 		for z in 0..3 {
-	// 			spawn_bb8(&mut commands, &mut constraints, &mut store, Vec3::new(30.0 * x as f32, 30.0 * y as f32 + 200.0, 30.0 * z as f32));
+	// 			spawn_bb8(&mut commands, &mut store, Vec3::new(30.0 * x as f32, 30.0 * y as f32 + 200.0, 30.0 * z as f32));
 	// 		}
 	// 	}
 	// }
@@ -109,7 +103,6 @@ fn load_church(grid: &mut StreamingVoxels) -> bool {
 
 fn spawn_ball_cluster(
 	commands: &mut Commands,
-	constraints: &mut BallJointConstraints,
 	store: &mut WorldStore,
 ) {
 	let r = 5;
@@ -125,22 +118,19 @@ fn spawn_ball_cluster(
 	];
 
 	for (satellite, attachment) in satellites {
-		constraints.insert(
+		commands.spawn(BallJoint::new(
 			main,
 			satellite,
-			BallJointConstraint::new(
-				&Transform::IDENTITY,
-				&Transform::from_translation(attachment),
-				f32::INFINITY,
-				0.0,
-			),
-		);
+			&Transform::IDENTITY,
+			&Transform::from_translation(attachment),
+			f32::INFINITY,
+			0.0,
+		));
 	}
 }
 
 fn spawn_bb8(
 	commands: &mut Commands,
-	constraints: &mut BallJointConstraints,
 	store: &mut WorldStore,
 	position: Vec3,
 ) {
@@ -159,16 +149,14 @@ fn spawn_bb8(
 
 	let ball = spawn_ball(commands, store, position - Vec3::new(0.0, 12.0, 0.0), 10);
 
-	constraints.insert(
+	commands.spawn(BallJoint::new(
 		base,
 		ball,
-		BallJointConstraint::new(
-			&Transform::IDENTITY,
-			&Transform::from_translation(Vec3::new(0.0, -12.0, 0.0)),
-			f32::INFINITY,
-			0.0,
-		),
-	);
+		&Transform::IDENTITY,
+		&Transform::from_translation(Vec3::new(0.0, -12.0, 0.0)),
+		f32::INFINITY,
+		0.0,
+	));
 }
 
 fn spawn_ball(commands: &mut Commands, store: &mut WorldStore, position: Vec3, radius: i32) -> Entity {

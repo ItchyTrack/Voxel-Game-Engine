@@ -6,7 +6,7 @@ use voxel_data::voxel_grid_tree::PackedCell;
 use voxel_data::transform_ext::TransformExt;
 use voxel_data::voxels;
 
-use super::CubeFeature;
+use crate::collision::CubeFeature;
 
 /// ((min_a, max_a), (min_b, max_b), axis, index)
 type SeparatingAxes = Vec<((f32, f32), (f32, f32), Vec3, u8)>;

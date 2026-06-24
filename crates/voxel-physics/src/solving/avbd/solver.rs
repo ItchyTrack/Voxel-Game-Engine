@@ -1,7 +1,9 @@
 use core::f32;
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
+use bevy::ecs::change_detection::Mut;
 use bevy::math::{IVec3, Mat3, Quat, Vec3};
+use bevy::prelude::{Entity, Query};
 use bevy::tasks::{ComputeTaskPool, ParallelSliceMut};
 use tracy_client::span;
 
@@ -10,7 +12,10 @@ use crate::math::{Mat6, Vec6};
 use super::body::SolverBody;
 use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
-use crate::{ball_joint_constraint::BallJointConstraint, collision, collision_constraint::CollisionConstraint, physics_constraint::PhysicsConstraint};
+use crate::{constraints::{ordered_pair, AvbdBallJointConstraint, BallJoint, BallJointConstraint}, collision};
+
+use super::collision_constraint::CollisionConstraint;
+use super::physics_constraint::PhysicsConstraint;
 
 type CollisionKlMapKey = (PhysicsBodyId, GridId, IVec3, collision::CubeFeature, PhysicsBodyId, GridId, IVec3, collision::CubeFeature);
 
@@ -39,17 +44,21 @@ impl Solver {
 		&mut self,
 		physics_bodies: &mut SparseSet<PhysicsBodyId, SolverBody>,
 		collisions: &[collision::Collision],
-		constraints: &mut HashMap<(PhysicsBodyId, PhysicsBodyId), BallJointConstraint>,
+		constraints: &mut Query<(Entity, &BallJoint, &BallJointConstraint, &mut AvbdBallJointConstraint)>,
 		dt: f32,
 	) {
 		let _zone = span!("Solve Collisions");
-		constraints.iter_mut().for_each(|((physics_body_id_1, physics_body_id_2), constraint)| {
-			if let Some(physics_body_1) = physics_bodies.get(physics_body_id_1) {
-				if let Some(physics_body_2) = physics_bodies.get(physics_body_id_2) {
-					constraint.update_attachment_com(&physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
+		let mut constraint_map: HashMap<(PhysicsBodyId, PhysicsBodyId), (BallJointConstraint, Mut<'_, AvbdBallJointConstraint>)> = HashMap::new();
+		for (_entity, joint, constraint, avbd_constraint) in constraints.iter_mut() {
+			let key = ordered_pair(joint.body_1, joint.body_2);
+			if let Some(physics_body_1) = physics_bodies.get(&key.0) {
+				if let Some(physics_body_2) = physics_bodies.get(&key.1) {
+					let mut avbd_constraint = avbd_constraint;
+					avbd_constraint.update_attachment_com(constraint, &physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
+					constraint_map.insert(key, (constraint.clone(), avbd_constraint));
 				}
 			}
-		});
+		}
 		let initial_all: SparseSet<PhysicsBodyId, Transform> = SparseSet::from_iter(
 			physics_bodies.iter().map(|(physics_body_id, physics_body)| (
 				*physics_body_id,
@@ -99,7 +108,7 @@ impl Solver {
 			body_collisions.entry(collision_constraint.collision.part2.body_id).or_default().push((index, false));
 		}
 		let mut body_joints: HashMap<PhysicsBodyId, Vec<((PhysicsBodyId, PhysicsBodyId), bool)>> = HashMap::new();
-		for key in constraints.keys() {
+		for key in constraint_map.keys() {
 			body_joints.entry(key.0).or_default().push((*key, true));
 			body_joints.entry(key.1).or_default().push((*key, false));
 		}
@@ -108,11 +117,11 @@ impl Solver {
 		// bodies sharing a constraint never share a color. Bodies of one color touch
 		// disjoint constraints, so their per-body solves can run in parallel.
 		let mut adjacency: HashMap<PhysicsBodyId, Vec<PhysicsBodyId>> = HashMap::new();
-		let mut edges: Vec<(PhysicsBodyId, PhysicsBodyId)> = Vec::with_capacity(collision_constraints.len() + constraints.len());
+		let mut edges: Vec<(PhysicsBodyId, PhysicsBodyId)> = Vec::with_capacity(collision_constraints.len() + constraint_map.len());
 		for collision_constraint in &collision_constraints {
 			edges.push((collision_constraint.collision.part1.body_id, collision_constraint.collision.part2.body_id));
 		}
-		edges.extend(constraints.keys().copied());
+		edges.extend(constraint_map.keys().copied());
 		for (a, b) in edges {
 			let both_dynamic = a != b
 				&& physics_bodies.get(&a).is_some_and(|body| !body.is_static)
@@ -190,7 +199,7 @@ impl Solver {
 				let _zone = span!("Primal");
 				let bodies = &*physics_bodies;
 				let collision_constraints = &collision_constraints;
-				let constraints = &*constraints;
+				let constraints = &constraint_map;
 				let body_collisions = &body_collisions;
 				let body_joints = &body_joints;
 				let y_all = &y_all;
@@ -224,8 +233,8 @@ impl Solver {
 							}
 							if let Some(touching) = body_joints.get(physics_body_id) {
 								for (key, is_first) in touching {
-									let constraint = &constraints[key];
-									let result = constraint.get_updated(
+									let (_constraint, avbd_constraint) = &constraints[key];
+									let result = avbd_constraint.get_updated(
 										&x_guess_ref[&key.0], &initial_all[&key.0],
 										&x_guess_ref[&key.1], &initial_all[&key.1],
 										alpha,
@@ -274,8 +283,8 @@ impl Solver {
 						}
 					});
 				}
-				for ((physics_body_id_1, physics_body_id_2), constraint) in constraints.iter_mut() {
-					constraint.update_dual(
+				for ((physics_body_id_1, physics_body_id_2), (_constraint, avbd_constraint)) in constraint_map.iter_mut() {
+					avbd_constraint.update_dual(
 						&x_guess[physics_body_id_1], &initial_all[physics_body_id_1],
 						&x_guess[physics_body_id_2], &initial_all[physics_body_id_2],
 						alpha
