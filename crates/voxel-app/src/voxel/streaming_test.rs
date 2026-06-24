@@ -25,8 +25,11 @@ pub struct WorldStore {
 }
 
 impl WorldStore {
-	fn insert(&self, key: GridId, chunk: IVec3, local: I16Vec3, voxel: Voxel) {
-		self.chunks.lock().unwrap().entry((key, chunk)).or_default().push((local, voxel));
+	fn insert_chunk_data(&self, key: GridId, chunk_data: HashMap<IVec3, ChunkData>) {
+		let mut chunks = self.chunks.lock().unwrap();
+		for (chunk, data) in chunk_data {
+			chunks.entry((key, chunk)).or_default().extend(data);
+		}
 	}
 }
 
@@ -116,15 +119,21 @@ impl Plugin for StreamingTestPlugin {
 
 /// Collects voxels destined for the streaming store before a grid is spawned.
 #[derive(Default)]
-pub struct StreamingVoxels(Vec<(IVec3, Voxel)>);
+pub struct StreamingVoxels {
+	chunks: HashMap<IVec3, ChunkData>,
+}
 
 impl StreamingVoxels {
 	pub fn new() -> Self {
 		Self::default()
 	}
 
+	pub fn reserve(&mut self, _additional: usize) {}
+
 	pub fn add_voxel(&mut self, pos: &IVec3, voxel: &Voxel) {
-		self.0.push((*pos, *voxel));
+		let chunk = chunk_of(*pos);
+		let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_i16vec3();
+		self.chunks.entry(chunk).or_default().push((local, *voxel));
 	}
 }
 
@@ -142,11 +151,9 @@ pub fn spawn_grid(
 	if parent.is_some() { commands.entity(parent.unwrap()).add_child(child); }
 
 	let mut streaming = GridStreaming::default();
-	for (voxel_pos, voxel) in voxels.0 {
-		let chunk = chunk_of(voxel_pos);
-		let local = voxel_pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_i16vec3();
-		streaming.presence_mut().mark_present(chunk);
-		store.insert(child, chunk, local, voxel);
+	for chunk in voxels.chunks.keys() {
+		streaming.presence_mut().mark_present(*chunk);
 	}
+	store.insert_chunk_data(child, voxels.chunks);
 	commands.entity(child).insert(streaming);
 }

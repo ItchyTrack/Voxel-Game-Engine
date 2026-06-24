@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use bevy::math::{IVec3, Quat, Vec3};
-use bevy::prelude::*;
 
 use voxel_data::voxels::Voxel;
 
@@ -11,9 +10,15 @@ use crate::voxel::streaming_test::StreamingVoxels;
 /// `offset` (in voxels). Returns `false` if the file can't be parsed.
 pub fn load_vox_bytes(grid: &mut StreamingVoxels, bytes: &[u8], offset: Vec3) -> bool {
 	let Ok(dot_vox_data) = dot_vox::load_bytes(bytes) else { return false };
+	grid.reserve(dot_vox_data.models.iter().map(|model| model.voxels.len()).sum());
 
 	#[derive(Clone, Copy)]
-	struct Frame { translation: Vec3, rotation: Quat, flip: IVec3 }
+	struct Frame {
+		translation: Vec3,
+		rotation: Quat,
+		flip: IVec3,
+	}
+
 	let mut stack: Vec<(u32, Frame)> = vec![(0, Frame {
 		translation: offset,
 		rotation: Quat::IDENTITY,
@@ -38,18 +43,23 @@ pub fn load_vox_bytes(grid: &mut StreamingVoxels, bytes: &[u8], offset: Vec3) ->
 				}));
 			}
 			dot_vox::SceneNode::Group { children, .. } => {
-				for child in children { stack.push((*child, pose)); }
+				for child in children {
+					stack.push((*child, pose));
+				}
 			}
 			dot_vox::SceneNode::Shape { models, .. } => {
 				for shape_model in models {
 					let Some(model) = dot_vox_data.models.get(shape_model.model_id as usize) else { continue };
-					let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
-					let half = (size / 2.0).floor();
-					let pose_transform = Transform { translation: pose.translation, rotation: pose.rotation, scale: Vec3::ONE };
-					let half_offset = Transform::from_translation(-half * pose.flip.as_vec3());
+					let half = Vec3::new(
+						model.size.x as f32 / 2.0,
+						model.size.z as f32 / 2.0,
+						model.size.y as f32 / 2.0,
+					).floor();
+					let base = pose.translation - pose.rotation * (half * pose.flip.as_vec3());
+					let flip_min = pose.flip.min(IVec3::ZERO);
 					for voxel in &model.voxels {
-						let local = IVec3::new(voxel.x as i32, voxel.z as i32, voxel.y as i32) * pose.flip + pose.flip.min(IVec3::ZERO);
-						let world_pos = (pose_transform * half_offset).transform_point(local.as_vec3()).as_ivec3();
+						let local = IVec3::new(voxel.x as i32, voxel.z as i32, voxel.y as i32) * pose.flip + flip_min;
+						let world_pos = (base + pose.rotation * local.as_vec3()).as_ivec3();
 						let palette_entry = dot_vox_data.palette[voxel.i as usize];
 						grid.add_voxel(&world_pos, &Voxel {
 							color: [palette_entry.r, palette_entry.g, palette_entry.b, palette_entry.a],
