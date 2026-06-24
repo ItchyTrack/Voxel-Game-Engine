@@ -314,40 +314,22 @@ fn handle_chunk_availability_changed(
 	requests: &impl VoxelSourceRequestApi,
 	event: ChunkAvailabilityChanged,
 ) {
-	let debug_chunk = IVec3::new(0, 5, -3);
 	match event.kind {
 		ChunkAvailabilityChangeKind::BecamePresent => {
-			if event.min == debug_chunk {
-				if let Ok(streaming) = streaming_grids.get_mut(event.grid) {
-					info!(camera=?camera_entity, grid=?event.grid, event_min=?event.min, event_size=?event.size, desired_tile_count=camera_voxel_loader.desired_tiles.len(), present_at_event=streaming.presence().is_present(event.min), "became present context");
-				}
-			}
 			let candidates = newly_desired_tiles_in_area(camera_voxel_loader, event.grid, event.min, event.size);
-			if event.min == debug_chunk {
-				info!(grid=?event.grid, min=?event.min, size=?event.size, candidate_count=candidates.len(), "became present candidates computed");
-			}
 			for key in candidates {
 				let Ok(mut streaming) = streaming_grids.get_mut(key.grid) else { continue; };
 				let has_present = tile_has_present_source(streaming.as_ref(), key);
-				if event.min == debug_chunk || key.min == debug_chunk {
-					info!(grid=?key.grid, min=?key.min, lod=key.lod, has_present, "became present candidate present-source check");
-				}
 				if !has_present {
 					continue;
 				}
 				let inserted = camera_voxel_loader.desired_tiles.insert(key);
-				if event.min == debug_chunk || key.min == debug_chunk {
-					info!(grid=?key.grid, min=?key.min, lod=key.lod, inserted, "became present candidate desired_tiles insert");
-				}
 				if !inserted {
 					continue;
 				}
 				if key.is_chunk() {
 					request_source(camera_voxel_loader, key);
 					streaming.fetch(key.grid, requests, key.min);
-					if event.min == debug_chunk || key.min == debug_chunk {
-						info!(grid=?key.grid, min=?key.min, "became present candidate chunk fetch");
-					}
 				} else {
 					queue_tile_if_missing(camera_voxel_loader, key);
 				}
@@ -360,22 +342,13 @@ fn handle_chunk_availability_changed(
 				.copied()
 				.filter(|key| key.grid == event.grid && tiles_overlap_area(*key, event.min, event.size))
 				.collect();
-			if event.min == debug_chunk {
-				info!(grid=?event.grid, event_min=?event.min, event_size=?event.size, affected_count=affected.len(), desired_tile_count=camera_voxel_loader.desired_tiles.len(), "became empty affected tiles");
-			}
 			for key in affected {
 				let Ok(streaming) = streaming_grids.get_mut(key.grid) else { continue; };
 				let still_present = tile_has_present_source(streaming.as_ref(), key);
-				if event.min == debug_chunk || key.min == debug_chunk {
-					info!(grid=?key.grid, event_min=?event.min, key_min=?key.min, lod=key.lod, still_present, "became empty candidate check");
-				}
 				if still_present {
 					continue;
 				}
-				let removed = camera_voxel_loader.desired_tiles.remove(&key);
-				if event.min == debug_chunk || key.min == debug_chunk {
-					info!(grid=?key.grid, key_min=?key.min, lod=key.lod, removed, "became empty removed from desired_tiles");
-				}
+				camera_voxel_loader.desired_tiles.remove(&key);
 				if key.is_chunk() {
 					let ready = resolve_empty(camera_voxel_loader, key);
 					retire_sources_from_request_query(camera_voxel_loader, streaming_grids, camera_entity, ready);
@@ -392,11 +365,7 @@ fn handle_chunk_availability_changed(
 }
 
 fn newly_desired_tiles_in_area(camera_voxel_loader: &CameraVoxelLoader, grid: GridId, min: IVec3, size: IVec3) -> Vec<TileKey> {
-	let debug_chunk = IVec3::new(0, 5, -3);
 	let Some(bands) = camera_voxel_loader.bands.get(&grid) else {
-		if min == debug_chunk {
-			warn!(?grid, ?min, ?size, "newly_desired_tiles_in_area missing bands for grid");
-		}
 		return Vec::new();
 	};
 	let mut candidates = Vec::new();
@@ -408,13 +377,7 @@ fn newly_desired_tiles_in_area(camera_voxel_loader: &CameraVoxelLoader, grid: Gr
 		let band_max = band.outer.max;
 		let overlap_min = event_box_min.max(band_min);
 		let overlap_max = event_box_max.min(band_max);
-		if min == debug_chunk {
-			info!(?grid, lod=band.lod, ?event_box_min, ?event_box_max, ?band_min, ?band_max, ?overlap_min, ?overlap_max, "newly_desired_tiles_in_area band overlap");
-		}
 		if overlap_min.cmpge(overlap_max).any() {
-			if min == debug_chunk {
-				info!(?grid, lod=band.lod, "newly_desired_tiles_in_area no overlap for band");
-			}
 			continue;
 		}
 		let mut x = overlap_min.x.div_euclid(tile_size) * tile_size;
@@ -426,9 +389,6 @@ fn newly_desired_tiles_in_area(camera_voxel_loader: &CameraVoxelLoader, grid: Gr
 					let key = TileKey { grid, lod: band.lod, min: IVec3::new(x, y, z) };
 					let already_desired = camera_voxel_loader.desired_tiles.contains(&key);
 					let in_band = is_tile_in_band(*band, key.min);
-					if min == debug_chunk {
-						info!(?grid, lod=band.lod, min=?key.min, already_desired, in_band, "newly_desired_tiles_in_area candidate check");
-					}
 					if !already_desired && in_band {
 						candidates.push(key);
 					}

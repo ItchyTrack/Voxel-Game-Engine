@@ -9,8 +9,8 @@ use voxel_data::grid::GridId;
 use voxel_sources::{ChunkChanged, ChunkLoaded, LodLoaded, LodLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests};
 use voxel_streaming::GridStreaming;
 
-use crate::chunk_source::{ChunkRequest, ChunkResponse, LodRequest, LodResponse, PresenceLoad, PresenceRequest, RemoteChunkChanged};
-use crate::chunk_source::messages::RemoteChunkChangeKind;
+use crate::chunks::{ChunkRequest, ChunkResponse, LodRequest, LodResponse, PresenceLoad, PresenceRequest, RemoteChunkChanged};
+use crate::chunks::messages::RemoteChunkChangeKind;
 use crate::ReplicateVoxelsRestriction;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -47,9 +47,6 @@ pub(crate) fn receive_chunk_request(
 	mut pending: ResMut<PendingChunkRequests>,
 ) {
 	let request = trigger.event().trigger;
-	if request.chunk == IVec3::new(0, 5, -3) {
-		info!(grid=?request.grid, chunk=?request.chunk, peer=?trigger.event().from, "server received chunk request");
-	}
 	requests.request_chunk(voxel_sources::ChunkLoadRequest { grid: request.grid, chunk: request.chunk });
 	pending.0.entry(PendingChunkKey { grid: request.grid, chunk: request.chunk }).or_default().push(PendingChunkRequest {
 		peer: trigger.event().from,
@@ -134,7 +131,6 @@ pub(crate) fn flush_chunk_changed(
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
 	for event in changed.read().copied() {
-		info!(grid=?event.grid, min=?event.min, size=?event.size, kind=?event.kind, from_save=event.from_save, "server saw chunk changed");
 		let kind = match event.kind {
 			voxel_sources::ChunkChangeKind::Changed { generation } => RemoteChunkChangeKind::Changed { generation },
 			voxel_sources::ChunkChangeKind::Removed { generation } => RemoteChunkChangeKind::Removed { generation },
@@ -166,9 +162,6 @@ pub(crate) fn flush_chunk_results(
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
 	for ChunkLoaded { grid, chunk, generation, voxels } in loader.read() {
-		if *chunk == IVec3::new(0, 5, -3) {
-			info!(grid=?grid, chunk=?chunk, has_voxels=voxels.is_some(), "server flushing chunk result");
-		}
 		let pending_key = PendingChunkKey { grid: *grid, chunk: *chunk };
 		let Some(requests) = pending.0.remove(&pending_key) else {
 			warn!(?pending_key, "dropping chunk load result with no pending remote requests");

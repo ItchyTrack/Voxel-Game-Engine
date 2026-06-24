@@ -78,14 +78,6 @@ impl Plugin for ChunkSourcePlugin {
 	}
 }
 
-// fn reliable_channel() -> ChannelSettings {
-// 	ChannelSettings {
-// 		mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-// 		send_frequency: Duration::from_millis(100),
-// 		priority: 1.0,
-// 	}
-// }
-
 fn unordered_reliable_channel() -> ChannelSettings {      
 	ChannelSettings {                                      
 		mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
