@@ -58,9 +58,9 @@ fn setup_scene(
 	mut commands: Commands,
 	mut store: ResMut<WorldStore>,
 ) {
-	spawn_church(&mut commands, &mut store);
+	// spawn_church(&mut commands, &mut store);
 	// spawn_ball_cluster(&mut commands, &mut store);
-	spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
+	// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
 	// spawn_bb8(&mut commands, &mut store, Vec3::new(30.0, 120.0, 0.0));
 	// spawn_bb8(&mut commands, &mut store, Vec3::new(-30.0, 120.0, 0.0));
 	// for x in 0..3 {

@@ -1,0 +1,120 @@
+use std::sync::{Arc, OnceLock};
+
+use bevy::math::Vec3;
+use bevy::prelude::*;
+
+use voxel_data::grid::{Grid, GridId};
+use voxel_data::voxels::Voxel;
+use voxel_edit::GridEdits;
+use voxel_lightyear::ReplicateVoxels;
+use voxel_sources::{LazySdfSource, LazySdfSourceOptions, LazyVoxelSdf, VoxelSourcesAppExt};
+use voxel_streaming::{GridStreaming, RequestChunkPresence};
+
+const POWER: f32 = 8.0;
+const ITERATIONS: u32 = 16;
+const BAILOUT: f32 = 8.0;
+const SCALE: f32 = 4200.0;
+/// Grid-local presence radius in voxels. Keep this tied to SCALE so making the
+/// Mandelbulb larger also expands the claimed chunk-presence area.
+const BOUNDS_RADIUS: f32 = SCALE * 1.75;
+const COST: u32 = 20;
+
+#[derive(Clone, Copy, Debug)]
+struct MandelbulbSdf;
+
+impl MandelbulbSdf {
+	fn local(pos: Vec3) -> Vec3 {
+		pos / SCALE
+	}
+
+	fn estimate(pos: Vec3) -> (f32, u32) {
+		let c = Self::local(pos);
+		let mut z = c;
+		let mut dr = 1.0f32;
+		let mut r = 0.0f32;
+		let mut escaped_at = ITERATIONS;
+
+		for i in 0..ITERATIONS {
+			r = z.length();
+			if r > BAILOUT {
+				escaped_at = i;
+				break;
+			}
+
+			let safe_r = r.max(1.0e-6);
+			let theta = (z.z / safe_r).clamp(-1.0, 1.0).acos() * POWER;
+			let phi = z.y.atan2(z.x) * POWER;
+			let zr = safe_r.powf(POWER);
+			dr = POWER * safe_r.powf(POWER - 1.0) * dr + 1.0;
+
+			let sin_theta = theta.sin();
+			z = zr * Vec3::new(sin_theta * phi.cos(), sin_theta * phi.sin(), theta.cos()) + c;
+		}
+
+		if escaped_at == ITERATIONS {
+			// The classic Mandelbulb distance estimator is unsigned for interior
+			// points. Return a small negative distance so the lazy voxel source's
+			// `sample <= 0` rule treats non-escaped samples as solid.
+			(-0.5, escaped_at)
+		} else {
+			let distance = 0.5 * r.ln() * r / dr;
+			(distance * SCALE, escaped_at)
+		}
+	}
+}
+
+impl LazyVoxelSdf for MandelbulbSdf {
+	fn sample(&self, pos: Vec3) -> f32 {
+		Self::estimate(pos).0
+	}
+
+	fn voxel(&self, _pos: Vec3) -> Voxel {
+		Voxel { color: [220, 128, 128, 255], mass: 0 }
+	}
+
+	fn bounds(&self) -> Option<(Vec3, Vec3)> {
+		Some((Vec3::splat(-BOUNDS_RADIUS), Vec3::splat(BOUNDS_RADIUS)))
+	}
+}
+
+#[derive(Resource, Clone)]
+pub struct MandelbulbGrid(Arc<OnceLock<GridId>>);
+
+pub struct MandelbulbSourcePlugin;
+
+impl Plugin for MandelbulbSourcePlugin {
+	fn build(&self, app: &mut App) {
+		let grid = Arc::new(OnceLock::new());
+		app.register_source(LazySdfSource::with_options(
+			grid.clone(),
+			MandelbulbSdf,
+			LazySdfSourceOptions {
+				cost: COST,
+				chunk_size: 64,
+				cache_capacity: 256,
+				// Include cells whose centers are just outside the DE surface so thin
+				// fractal features survive at coarse LODs instead of popping away.
+				sample_radius_scale: 1.0,
+				// The Mandelbulb DE is expensive; recursively reject definitely-empty
+				// blocks before sampling every voxel in them.
+				empty_pruning: true,
+			},
+		));
+		app.insert_resource(MandelbulbGrid(grid));
+		app.add_systems(Startup, spawn_mandelbulb_grid);
+	}
+}
+
+fn spawn_mandelbulb_grid(mut commands: Commands, grid: Res<MandelbulbGrid>) {
+	let entity = commands
+		.spawn((
+			Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+			Grid::new(),
+			GridEdits::default(),
+			GridStreaming::default(),
+			RequestChunkPresence,
+			ReplicateVoxels,
+		))
+		.id();
+	let _ = grid.0.set(entity);
+}
