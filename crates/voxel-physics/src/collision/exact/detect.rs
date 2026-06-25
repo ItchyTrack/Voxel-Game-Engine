@@ -6,12 +6,12 @@ use voxel_data::bvh::BVH;
 use voxel_data::grid::Grid;
 use voxel_data::subgrid::{SubGrid, SubGridId};
 
-use crate::collision::{BodyView, Collisions, GridCollider};
+use crate::collision::{Collisions};
 use crate::components::{IsStatic, Mass, RigidBody, VoxelCollider};
 use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
 
-use super::broadphase::get_collisions;
+use super::broadphase::{BodyView, GridCollider, get_collisions};
 
 pub fn detect_collisions(
 	mut collisions: ResMut<Collisions>,

@@ -36,6 +36,7 @@ impl BallJoint {
 	}
 }
 
+// TODO: remove as this is just a subset of BallJoint
 #[derive(Component, Clone)]
 pub struct BallJointConstraint {
 	body_1_attachment: Transform,
@@ -107,6 +108,7 @@ pub fn sync_ball_joint_constraints(
 	}
 }
 
+// TODO: make AvbdBallJointConstraint private to solving/avbd
 impl AvbdBallJointConstraint {
 	pub fn from_constraint(constraint: &BallJointConstraint) -> Self {
 		Self {

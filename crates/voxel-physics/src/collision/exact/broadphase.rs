@@ -10,7 +10,20 @@ use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
 
 use super::narrowphase::get_collisions_between_subgrids;
-use crate::collision::{BodyView, Collision, GridCollider, HalfCollision};
+use crate::collision::{Collision, HalfCollision};
+
+pub(super) struct GridCollider<'a> {
+	pub body: PhysicsBodyId,
+	pub local_transform: &'a Transform,
+	pub sub_grids: Vec<(SubGridId, SubGridRef<'a>)>,
+}
+
+/// Minimal per-body view the collision pass needs (no mass/inertia).
+pub(super) struct BodyView {
+	pub transform: Transform,
+	pub is_static: bool,
+}
+
 
 pub(super) fn get_collisions(
 	bodies: &SparseSet<PhysicsBodyId, BodyView>,

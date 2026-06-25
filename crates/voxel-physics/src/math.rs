@@ -407,56 +407,6 @@ impl Mat6 {
 		]
 	}
 
-	// #[inline(always)]
-	// #[must_use]
-	// pub fn inverse_checked<const CHECKED: bool>(&self) -> (Self, bool) {
-	// 	let mut a = *self; // copy of self
-	// 	let mut inv = Mat6::IDENTITY;
-	// 	for i in 0..6 {
-	// 		// Find pivot
-	// 		let mut pivot_val = a.matrix[i].get(i);
-	// 		let mut pivot_row = i;
-	// 		for j in i + 1..6 {
-	// 			if a.matrix[j].get(i).abs() > pivot_val.abs() {
-	// 				pivot_val = a.matrix[j].get(i);
-	// 				pivot_row = j;
-	// 			}
-	// 		}
-	// 		if CHECKED && pivot_val.abs() < 1e-6 {
-	// 			return (Mat6::ZERO, false);
-	// 		} else if !CHECKED {
-	// 			assert!(pivot_val.abs() > 1e-6);
-	// 		}
-	// 		// Swap rows if needed
-	// 		if pivot_row != i {
-	// 			a.matrix.swap(i, pivot_row);
-	// 			inv.matrix.swap(i, pivot_row);
-	// 		}
-	// 		// Normalize pivot row
-	// 		let inv_pivot = 1.0 / a.matrix[i].get(i);
-	// 		for k in 0..6 {
-	// 			*a.matrix[i].get_mut(k) *= inv_pivot;
-	// 			*inv.matrix[i].get_mut(k) *= inv_pivot;
-	// 		}
-	// 		// Eliminate other rows
-	// 		for j in 0..6 {
-	// 			if j == i { continue; }
-	// 			let factor = a.matrix[j].get(i);
-	// 			for k in 0..6 {
-	// 				*a.matrix[j].get_mut(k) -= factor * a.matrix[i].get(k);
-	// 				*inv.matrix[j].get_mut(k) -= factor * inv.matrix[i].get(k);
-	// 			}
-	// 		}
-	// 	}
-	// 	(inv, true)
-	// }
-
-	// #[inline]
-	// #[must_use]
-	// pub fn inverse(&self) -> Self {
-	// 	self.inverse_checked::<false>().0
-	// }
-
 	#[inline]
 	#[must_use]
 	pub fn col(&self, index: usize) -> &Vec6 {
