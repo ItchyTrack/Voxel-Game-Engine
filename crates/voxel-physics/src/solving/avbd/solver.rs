@@ -12,8 +12,9 @@ use crate::math::{Mat6, Vec6};
 use super::body::SolverBody;
 use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
-use crate::{constraints::{ordered_pair, AvbdBallJointConstraint, BallJoint, BallJointConstraint}, collision};
+use crate::{constraints::{ordered_pair, BallJoint}, collision};
 
+use super::ball_joint_constraint::AvbdBallJointConstraint;
 use super::collision_constraint::CollisionConstraint;
 use super::physics_constraint::PhysicsConstraint;
 
@@ -44,18 +45,18 @@ impl Solver {
 		&mut self,
 		physics_bodies: &mut SparseSet<PhysicsBodyId, SolverBody>,
 		collisions: &[collision::Collision],
-		constraints: &mut Query<(Entity, &BallJoint, &BallJointConstraint, &mut AvbdBallJointConstraint)>,
+		constraints: &mut Query<(Entity, &BallJoint, &mut AvbdBallJointConstraint)>,
 		dt: f32,
 	) {
 		let _zone = span!("Solve Collisions");
-		let mut constraint_map: HashMap<Entity, ((PhysicsBodyId, PhysicsBodyId), (BallJointConstraint, Mut<'_, AvbdBallJointConstraint>))> = HashMap::new();
-		for (entity, joint, constraint, avbd_constraint) in constraints.iter_mut() {
+		let mut constraint_map: HashMap<Entity, ((PhysicsBodyId, PhysicsBodyId), Mut<'_, AvbdBallJointConstraint>)> = HashMap::new();
+		for (entity, joint, avbd_constraint) in constraints.iter_mut() {
 			let key = ordered_pair(joint.body_1, joint.body_2);
 			if let Some(physics_body_1) = physics_bodies.get(&key.0) {
 				if let Some(physics_body_2) = physics_bodies.get(&key.1) {
 					let mut avbd_constraint = avbd_constraint;
-					avbd_constraint.update_attachment_com(constraint, &physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
-					constraint_map.insert(entity, (key, (constraint.clone(), avbd_constraint)));
+					avbd_constraint.update_attachment_com(joint, &physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
+					constraint_map.insert(entity, (key, avbd_constraint));
 				}
 			}
 		}
@@ -108,7 +109,7 @@ impl Solver {
 			body_collisions.entry(collision_constraint.collision.part2.body_id).or_default().push((index, false));
 		}
 		let mut body_joints: HashMap<PhysicsBodyId, Vec<(Entity, bool)>> = HashMap::new();
-		for (joint_entity, ((body_1, body_2), _)) in constraint_map.iter() {
+		for (joint_entity, ((body_1, body_2), _avbd_constraint)) in constraint_map.iter() {
 			body_joints.entry(*body_1).or_default().push((*joint_entity, true));
 			body_joints.entry(*body_2).or_default().push((*joint_entity, false));
 		}
@@ -121,7 +122,7 @@ impl Solver {
 		for collision_constraint in &collision_constraints {
 			edges.push((collision_constraint.collision.part1.body_id, collision_constraint.collision.part2.body_id));
 		}
-		edges.extend(constraint_map.values().map(|((body_1, body_2), _)| (*body_1, *body_2)));
+		edges.extend(constraint_map.values().map(|((body_1, body_2), _avbd_constraint)| (*body_1, *body_2)));
 		for (a, b) in edges {
 			let both_dynamic = a != b
 				&& physics_bodies.get(&a).is_some_and(|body| !body.is_static)
@@ -233,7 +234,7 @@ impl Solver {
 							}
 							if let Some(touching) = body_joints.get(physics_body_id) {
 								for (joint_entity, is_first) in touching {
-									let ((body_1, body_2), (_constraint, avbd_constraint)) = &constraints[joint_entity];
+									let ((body_1, body_2), avbd_constraint) = &constraints[joint_entity];
 									let result = avbd_constraint.get_updated(
 										&x_guess_ref[body_1], &initial_all[body_1],
 										&x_guess_ref[body_2], &initial_all[body_2],
@@ -283,7 +284,7 @@ impl Solver {
 						}
 					});
 				}
-				for (_joint_entity, ((physics_body_id_1, physics_body_id_2), (_constraint, avbd_constraint))) in constraint_map.iter_mut() {
+				for (_joint_entity, ((physics_body_id_1, physics_body_id_2), avbd_constraint)) in constraint_map.iter_mut() {
 					avbd_constraint.update_dual(
 						&x_guess[physics_body_id_1], &initial_all[physics_body_id_1],
 						&x_guess[physics_body_id_2], &initial_all[physics_body_id_2],

@@ -143,7 +143,6 @@ impl Plugin for VoxelPhysicsPlugin {
 					.chain()
 					.before(PhysicsSet::Collision),
 			)
-			.add_systems(FixedUpdate, constraints::sync_ball_joint_constraints.before(PhysicsSet::Solving))
 			.add_systems(FixedUpdate, compute_mass_properties.before(PhysicsSet::Collision))
 			.add_systems(
 				FixedUpdate,

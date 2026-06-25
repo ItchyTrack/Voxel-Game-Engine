@@ -4,12 +4,14 @@ use voxel_data::grid::Grid;
 
 use crate::collision::Collisions;
 use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
-use crate::constraints::{AvbdBallJointConstraint, BallJoint, BallJointConstraint};
+use crate::constraints::BallJoint;
 use crate::integration::PhysicsIntegratedCenterOfMassTransform;
 use crate::sparse_set::SparseSet;
 use crate::{PhysicsBodyId, VoxelPhysicsAppExt};
 
+pub(crate) use ball_joint_constraint::AvbdBallJointConstraint;
 pub(crate) use solver::Solver;
+mod ball_joint_constraint;
 mod body;
 mod collision_constraint;
 pub(crate) mod physics_constraint;
@@ -33,7 +35,17 @@ impl bevy::app::Plugin for AvbdPlugin {
 		app.init_resource::<PhysicsSolver>()
 			.init_resource::<super::Impulses>()
 			.init_resource::<super::Accelerations>()
+			.add_systems(FixedUpdate, sync_ball_joint_constraints.before(crate::PhysicsSet::Solving))
 			.add_physics_solving_systems((solve_physics, clear_queued_impulses_and_accelerations).chain());
+	}
+}
+
+fn sync_ball_joint_constraints(
+	mut commands: Commands,
+	joints: Query<(Entity, &BallJoint), Without<AvbdBallJointConstraint>>,
+) {
+	for (entity, joint) in joints.iter() {
+		commands.entity(entity).insert(AvbdBallJointConstraint::from_ball_joint(joint));
 	}
 }
 
@@ -60,7 +72,7 @@ fn solve_physics(
 		&CenterOfMass,
 		Has<IsStatic>,
 	), (With<RigidBody>, Without<Grid>)>,
-	mut constraints: Query<(Entity, &BallJoint, &BallJointConstraint, &mut AvbdBallJointConstraint)>,
+	mut constraints: Query<(Entity, &BallJoint, &mut AvbdBallJointConstraint)>,
 ) {
 	let dt = time.delta_secs();
 	if dt <= 0.0 { return; }
