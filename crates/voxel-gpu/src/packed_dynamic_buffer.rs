@@ -96,7 +96,7 @@ impl PackedDynamicBuffer {
 
 	pub fn add_buffer(&mut self, data_buffer: &[u8]) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer add_buffer");
-		tracy_client::plot!("packed dynamic upload bytes", data_buffer.len() as f64);
+		// tracy_client::plot!("packed dynamic upload bytes", data_buffer.len() as f64);
 		if data_buffer.is_empty() {
 			return Err("Buffer size can't be 0.");
 		}
@@ -161,7 +161,7 @@ impl PackedDynamicBuffer {
 	/// If the new buffer does not fit the old buffer will still be removed
 	pub fn replace_buffer(&mut self, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer replace_buffer");
-		tracy_client::plot!("packed dynamic upload bytes", buffer.len() as f64);
+		// tracy_client::plot!("packed dynamic upload bytes", buffer.len() as f64);
 		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
 			if held_buffer.size == buffer.len() as u32 {
 				self.held_bytes -= held_buffer.size;

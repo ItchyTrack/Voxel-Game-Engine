@@ -21,7 +21,11 @@ pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
 }
 
 pub(crate) fn update_desired_sources_delta(
-	loader: &mut CameraVoxelLoader, grid: GridId, center: IVec3, settings: &CameraVoxelLoaderSettings, streaming: &GridStreaming,
+	loader: &mut CameraVoxelLoader,
+	grid: GridId,
+	center: IVec3,
+	settings: &CameraVoxelLoaderSettings,
+	streaming: &GridStreaming,
 ) -> DesiredSourceDelta {
 	let _span = span!();
 	let new_bands = desired_lod_bands(center, settings);
@@ -30,14 +34,16 @@ pub(crate) fn update_desired_sources_delta(
 	let mut added = Vec::new();
 	let mut removed = Vec::new();
 	let desired_tiles = &mut loader.desired_tiles;
-	run_over_diff(&old_bands, &new_bands, |lod, min, is_added| {
+	run_over_diff(&old_bands, &new_bands, streaming, |lod, min, is_added| {
 		let key = TileKey { grid, lod, min };
 		if is_added {
-			if tile_has_present_source(streaming, key) && desired_tiles.insert(key) {
+			if desired_tiles.insert(key) {
 				added.push(key);
 			}
-		} else if desired_tiles.remove(&key) {
-			removed.push(key);
+		} else {
+			if desired_tiles.remove(&key) {
+				removed.push(key);
+			}
 		}
 	});
 

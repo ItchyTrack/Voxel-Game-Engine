@@ -124,6 +124,16 @@ impl ChunkPresence {
 		self.tree.any_in_region(region)
 	}
 
+	pub fn all_present_in_region(&self, min: IVec3, max: IVec3) -> bool {
+		let size = max - min + IVec3::ONE;
+		self.tree.is_area_filled(&min, size)
+	}
+
+	pub fn for_each_occupied_tile_cover(&self, min: IVec3, max: IVec3, tile_origin: IVec3, tile_size: i32, f: impl FnMut(IVec3)) {
+		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return };
+		self.tree.for_each_occupied_tile_cover(region, tile_origin, tile_size, f);
+	}
+
 	/// `transform` rotation maps +Z onto the ray direction (matches the voxel tree).
 	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(IVec3, f32)> {
 		self.tree.raycast(transform, max_length).map(|(pos, _, dist)| (pos, dist))

@@ -19,3 +19,4 @@ imgui.ini
 **/.DS_Store
 *.pyc
 /pkg
+rustc-ice-*.txt

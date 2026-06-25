@@ -171,6 +171,10 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		traversal::any_in_region(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()))
 	}
 
+	pub fn for_each_occupied_tile_cover(&self, region: GridRegion, tile_origin: IVec3, tile_size: i32, f: impl FnMut(IVec3)) {
+		traversal::for_each_occupied_tile_cover(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), tile_origin, tile_size, f)
+	}
+
 	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(Co::Pos, I8Vec3, f32)> {
 		raycast::raycast(self.view(), transform, max_length)
 	}

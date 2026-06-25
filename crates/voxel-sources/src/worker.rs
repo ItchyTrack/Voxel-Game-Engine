@@ -191,10 +191,10 @@ fn handle_lod_request(
 				let generation = request.generation;
 				pusher.push(PriorityTask::new(request.request.priority, async move {
 					let _zone = span!("source request_load_lod direct");
-					tracy_client::plot!(
-						"source lod request volume chunks",
-						(request.request.key.size.x * request.request.key.size.y * request.request.key.size.z) as f64
-					);
+					// tracy_client::plot!(
+					// 	"source lod request volume chunks",
+					// 	(request.request.key.size.x * request.request.key.size.y * request.request.key.size.z) as f64
+					// );
 					source.request_load_lod(grid, request.request.key.min, request.request.key.size, request.request.key.lod as f32, generation);
 				}));
 			}
@@ -236,10 +236,10 @@ fn handle_lod_request(
 					let generation = request.generation;
 					pusher.push(PriorityTask::new(request.request.priority, async move {
 						let _zone = span!("source request_load_lod composite part");
-						tracy_client::plot!(
-							"source lod request volume chunks",
-							(request.request.key.size.x * request.request.key.size.y * request.request.key.size.z) as f64
-						);
+						// tracy_client::plot!(
+						// 	"source lod request volume chunks",
+						// 	(request.request.key.size.x * request.request.key.size.y * request.request.key.size.z) as f64
+						// );
 						source.request_load_lod(grid, request.request.key.min, request.request.key.size, intermediate_lod, generation);
 					}));
 				}

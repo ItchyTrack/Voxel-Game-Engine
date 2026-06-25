@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use voxel_streaming::GridStreaming;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct BandBounds {
@@ -31,7 +32,12 @@ impl Box3 {
 	}
 }
 
-pub(crate) fn run_over_diff(old_bands: &[LodBand], new_bands: &[LodBand], mut f: impl FnMut(u8, IVec3, bool)) {
+pub(crate) fn run_over_diff(
+	old_bands: &[LodBand],
+	new_bands: &[LodBand],
+	streaming: &GridStreaming,
+	mut f: impl FnMut(u8, IVec3, bool),
+) {
 	let Some(max_lod) = old_bands.iter().chain(new_bands.iter()).map(|band| band.lod).max() else { return };
 
 	for lod in 0..=max_lod {
@@ -39,11 +45,11 @@ pub(crate) fn run_over_diff(old_bands: &[LodBand], new_bands: &[LodBand], mut f:
 		let (new_outer, new_inner) = band_boxes(new_bands, lod);
 		if new_outer == old_outer && new_inner == old_inner { continue; }
 		let size = 1i32 << lod;
-		emit_minus_minus(new_outer, old_outer, new_inner, lod, size, true, &mut f);
-		emit_minus(new_outer.intersect(old_inner), new_inner, lod, size, true, &mut f);
+		emit_minus_minus(new_outer, old_outer, new_inner, lod, size, true, streaming, &mut f);
+		emit_minus(new_outer.intersect(old_inner), new_inner, lod, size, true, streaming, &mut f);
 
-		emit_minus_minus(old_outer, new_outer, old_inner, lod, size, false, &mut f);
-		emit_minus(old_outer.intersect(new_inner), old_inner, lod, size, false, &mut f);
+		emit_minus_minus(old_outer, new_outer, old_inner, lod, size, false, streaming, &mut f);
+		emit_minus(old_outer.intersect(new_inner), old_inner, lod, size, false, streaming, &mut f);
 	}
 }
 
@@ -58,16 +64,25 @@ fn band_boxes(bands: &[LodBand], lod: u8) -> (Box3, Box3) {
 	}
 }
 
-fn emit_minus<F: FnMut(u8, IVec3, bool)>(region: Box3, cut: Box3, lod: u8, size: i32, added: bool, f: &mut F) {
+fn emit_minus<F: FnMut(u8, IVec3, bool)>(region: Box3, cut: Box3, lod: u8, size: i32, added: bool, streaming: &GridStreaming, f: &mut F) {
 	for slab in box_minus_box(region, cut) {
-		emit_box(slab, lod, size, added, f);
+		emit_box(slab, lod, size, added, streaming, f);
 	}
 }
 
-fn emit_minus_minus<F: FnMut(u8, IVec3, bool)>(region: Box3, cut_a: Box3, cut_b: Box3, lod: u8, size: i32, added: bool, f: &mut F) {
+fn emit_minus_minus<F: FnMut(u8, IVec3, bool)>(
+	region: Box3,
+	cut_a: Box3,
+	cut_b: Box3,
+	lod: u8,
+	size: i32,
+	added: bool,
+	streaming: &GridStreaming,
+	f: &mut F,
+) {
 	for slab in box_minus_box(region, cut_a) {
 		for piece in box_minus_box(slab, cut_b) {
-			emit_box(piece, lod, size, added, f);
+			emit_box(piece, lod, size, added, streaming, f);
 		}
 	}
 }
@@ -90,21 +105,15 @@ fn box_minus_box(a: Box3, b: Box3) -> [Box3; 6] {
 	]
 }
 
-fn emit_box<F: FnMut(u8, IVec3, bool)>(b: Box3, lod: u8, size: i32, added: bool, f: &mut F) {
+fn emit_box<F: FnMut(u8, IVec3, bool)>(b: Box3, lod: u8, size: i32, added: bool, streaming: &GridStreaming, f: &mut F) {
 	if b.is_empty() {
 		return;
 	}
-	let mut x = b.min.x;
-	while x < b.max.x {
-		let mut y = b.min.y;
-		while y < b.max.y {
-			let mut z = b.min.z;
-			while z < b.max.z {
-				f(lod, IVec3::new(x, y, z), added);
-				z += size;
-			}
-			y += size;
-		}
-		x += size;
-	}
+	streaming.presence().for_each_occupied_tile_cover(
+		b.min,
+		b.max - IVec3::ONE,
+		b.min,
+		size,
+		|tile_min| f(lod, tile_min, added)
+	);
 }
