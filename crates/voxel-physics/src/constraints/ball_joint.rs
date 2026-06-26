@@ -30,8 +30,3 @@ impl BallJoint {
 		}
 	}
 }
-
-
-pub fn ordered_pair(a: Entity, b: Entity) -> (Entity, Entity) {
-	if a < b { (a, b) } else { (b, a) }
-}

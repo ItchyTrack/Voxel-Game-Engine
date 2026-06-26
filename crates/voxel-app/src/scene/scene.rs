@@ -121,8 +121,8 @@ fn spawn_ball_cluster(
 		commands.spawn(BallJoint::new(
 			main,
 			satellite,
-			&Transform::IDENTITY,
 			&Transform::from_translation(attachment),
+			&Transform::IDENTITY,
 			f32::INFINITY,
 			0.0,
 		));
@@ -152,8 +152,8 @@ fn spawn_bb8(
 	commands.spawn(BallJoint::new(
 		base,
 		ball,
-		&Transform::IDENTITY,
 		&Transform::from_translation(Vec3::new(0.0, -12.0, 0.0)),
+		&Transform::IDENTITY,
 		f32::INFINITY,
 		0.0,
 	));

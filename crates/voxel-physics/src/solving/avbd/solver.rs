@@ -12,7 +12,7 @@ use crate::math::{Mat6, Vec6};
 use super::body::SolverBody;
 use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
-use crate::{constraints::{ordered_pair, BallJoint}, collision};
+use crate::{constraints::BallJoint, collision};
 
 use super::ball_joint_constraint::AvbdBallJointConstraint;
 use super::collision_constraint::CollisionConstraint;
@@ -51,12 +51,11 @@ impl Solver {
 		let _zone = span!("Solve Collisions");
 		let mut constraint_map: HashMap<Entity, ((PhysicsBodyId, PhysicsBodyId), Mut<'_, AvbdBallJointConstraint>)> = HashMap::new();
 		for (entity, joint, avbd_constraint) in constraints.iter_mut() {
-			let key = ordered_pair(joint.body_1, joint.body_2);
-			if let Some(physics_body_1) = physics_bodies.get(&key.0) {
-				if let Some(physics_body_2) = physics_bodies.get(&key.1) {
+			if let Some(physics_body_1) = physics_bodies.get(&joint.body_1) {
+				if let Some(physics_body_2) = physics_bodies.get(&joint.body_2) {
 					let mut avbd_constraint = avbd_constraint;
-					avbd_constraint.update_attachment_com(joint, &physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
-					constraint_map.insert(entity, (key, avbd_constraint));
+					avbd_constraint.update_attachment_com(&joint, &physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
+					constraint_map.insert(entity, ((joint.body_1, joint.body_2), avbd_constraint));
 				}
 			}
 		}

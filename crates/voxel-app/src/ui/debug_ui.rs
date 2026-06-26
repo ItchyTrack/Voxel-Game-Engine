@@ -6,7 +6,7 @@ use camera_voxel_loader::FreezeCameraVoxelLoader;
 use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_data::task_queue::AsyncTaskPriorityQueueResource;
 use voxel_physics::{
-	CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
+	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
 };
 use voxel_renderer::graphics_settings::GraphicsSettings;
 use voxel_renderer::hit_count_feedback::RenderStats;
@@ -17,6 +17,9 @@ pub struct InertiaBoxes(pub bool);
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct ChunkPresenceBoxes(pub bool);
+
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct ConstraintDebugRender(pub bool);
 
 
 #[derive(Default, Reflect, GizmoConfigGroup)]
@@ -35,12 +38,14 @@ impl Plugin for DebugUiPlugin {
 		}
 		app.init_resource::<InertiaBoxes>()
 			.init_resource::<ChunkPresenceBoxes>()
+			.init_resource::<ConstraintDebugRender>()
 			.init_gizmo_group::<ChunkGizmos>()
 			.add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
 				store.config_mut::<ChunkGizmos>().0.line.width = 4.0;
 			})
 			.add_systems(EguiPrimaryContextPass, debug_window)
 			.add_systems(Update, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0))
+			.add_systems(Update, draw_ball_joint_constraints.run_if(|b: Res<ConstraintDebugRender>| b.0))
 			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0));
 	}
 }
@@ -54,6 +59,7 @@ fn debug_window(
 	mut freeze_camera_voxel_loader: ResMut<FreezeCameraVoxelLoader>,
 	mut freeze_physics: ResMut<FreezePhysics>,
 	mut inertia_boxes: ResMut<InertiaBoxes>,
+	mut constraint_debug_render: ResMut<ConstraintDebugRender>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
 	_requests: VoxelSourceRequests,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
@@ -102,6 +108,7 @@ fn debug_window(
 			ui.checkbox(&mut freeze_camera_voxel_loader.0, "freeze camera voxel loader");
 			ui.checkbox(&mut freeze_physics.0, "freeze physics");
 			ui.checkbox(&mut inertia_boxes.0, "inertia boxes");
+			ui.checkbox(&mut constraint_debug_render.0, "constraints");
 			ui.checkbox(&mut chunk_presence_boxes.0, "chunk presence");
 		});
 
@@ -163,6 +170,45 @@ fn draw_inertia_boxes(
 		] {
 			gizmos.line(a, b, color);
 		}
+	}
+}
+
+fn draw_ball_joint_constraints(
+	mut gizmos: Gizmos,
+	joints: Query<&BallJoint>,
+	bodies: Query<&GlobalTransform>,
+) {
+	const HALF_EXTENT: f32 = 0.75;
+	let color = Color::srgba(0.2, 0.8, 1.0, 0.9);
+
+	for joint in joints.iter() {
+		let Ok(body_1_gt) = bodies.get(joint.body_1) else { continue; };
+		let Ok(body_2_gt) = bodies.get(joint.body_2) else { continue; };
+
+		let attachment_1 = body_1_gt.transform_point(joint.body_1_attachment.translation);
+		let attachment_2 = body_2_gt.transform_point(joint.body_2_attachment.translation);
+		let center = (attachment_1 + attachment_2) * 0.5;
+
+		draw_axis_aligned_box_edges(&mut gizmos, center - Vec3::splat(HALF_EXTENT), center + Vec3::splat(HALF_EXTENT), color);
+	}
+}
+
+fn draw_axis_aligned_box_edges<C: GizmoConfigGroup>(gizmos: &mut Gizmos<C>, lo: Vec3, hi: Vec3, color: Color) {
+	let c000 = Vec3::new(lo.x, lo.y, lo.z);
+	let c100 = Vec3::new(hi.x, lo.y, lo.z);
+	let c010 = Vec3::new(lo.x, hi.y, lo.z);
+	let c001 = Vec3::new(lo.x, lo.y, hi.z);
+	let c110 = Vec3::new(hi.x, hi.y, lo.z);
+	let c101 = Vec3::new(hi.x, lo.y, hi.z);
+	let c011 = Vec3::new(lo.x, hi.y, hi.z);
+	let c111 = Vec3::new(hi.x, hi.y, hi.z);
+
+	for (a, b) in [
+		(c000, c100), (c010, c110), (c001, c101), (c011, c111),
+		(c000, c010), (c100, c110), (c001, c011), (c101, c111),
+		(c000, c001), (c100, c101), (c010, c011), (c110, c111),
+	] {
+		gizmos.line(a, b, color);
 	}
 }
 
