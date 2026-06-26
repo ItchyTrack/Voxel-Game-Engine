@@ -106,7 +106,7 @@ impl PluginGroup for ServerPlugins {
 				enable_server_chunk_source: true,
 			})
 			.add(MemoryStorePlugin)
-			.add(MandelbulbSourcePlugin)
+			// .add(MandelbulbSourcePlugin)
 			// .add(SphereSourcePlugin)
 			.add(ScenePlugin)
 			.add(StreamingTestPlugin)
@@ -266,7 +266,7 @@ fn setup(mut commands: Commands) {
 		Camera3d::default(),
 		Hdr,
 		Msaa::Off,
-		Transform::from_xyz(0.0, 0.0, 20000.0).looking_at(Vec3::ZERO, Vec3::Y),
+		Transform::from_xyz(0.0, 0.0, 200.0).looking_at(Vec3::ZERO, Vec3::Y),
 		FlyCamera::default(),
 	));
 }
