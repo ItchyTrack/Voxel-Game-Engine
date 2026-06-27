@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::math::{I16Vec3, IVec3, Vec3};
 
-use crate::aabb::transform_aabb;
+use crate::aabb::aabb_of_transformed_aabb;
 use crate::grid::GridId;
 use crate::voxels::{Voxel, Voxels};
 
@@ -46,5 +46,5 @@ impl<'a> SubGridRef<'a> {
 }
 
 pub fn aabb_from_bounds(min: I16Vec3, max: I16Vec3, transform: &Transform) -> (Vec3, Vec3) {
-	transform_aabb(transform, min.as_vec3(), max.as_vec3() + Vec3::ONE)
+	aabb_of_transformed_aabb(transform, min.as_vec3(), max.as_vec3() + Vec3::ONE)
 }

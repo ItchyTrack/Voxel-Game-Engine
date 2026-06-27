@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 
-use voxel_data::aabb::{aabb_corners, transform_aabb};
+use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
 use voxel_streaming::{GridStreaming, VoxelSourceRequests, CHUNK_SIZE};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
@@ -89,7 +89,7 @@ pub fn request_collision_chunks(
 		let body = child_of.parent();
 		let Ok((body_tf, is_static)) = bodies.get(body) else { continue };
 		let grid_tf = *body_tf * *local_tf;
-		let (gmin, gmax) = transform_aabb(&grid_tf, aabb.lo, aabb.hi);
+		let (gmin, gmax) = aabb_of_transformed_aabb(&grid_tf, aabb.lo, aabb.hi);
 		body_aabb
 			.entry(body)
 			.and_modify(|a| {
@@ -138,7 +138,7 @@ pub fn request_collision_chunks(
 		for chunk in candidates {
 			let lo = (chunk * CHUNK_SIZE).as_vec3();
 			let hi = ((chunk + IVec3::ONE) * CHUNK_SIZE).as_vec3();
-			let chunk_box = transform_aabb(&req.grid_tf, lo, hi);
+			let chunk_box = aabb_of_transformed_aabb(&req.grid_tf, lo, hi);
 			if partners.iter().any(|p| overlap(chunk_box, *p)) {
 				want.insert(chunk);
 			}
