@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use bevy::math::I16Vec3;
 use bevy::prelude::*;
 
+use bevy_egui::egui::mutex::RwLock;
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::voxels::{Voxel, Voxels};
 use voxel_edit::GridEdits;
@@ -17,7 +18,7 @@ use crate::voxel::lod_downsample::downsample_region;
 const ORIGINAL_COST: u32 = 10;
 
 type ChunkData = Vec<(I16Vec3, Voxel)>;
-type Chunks = Arc<Mutex<HashMap<(GridId, IVec3), ChunkData>>>;
+type Chunks = Arc<RwLock<HashMap<(GridId, IVec3), ChunkData>>>;
 
 #[derive(Resource, Clone, Default)]
 pub struct WorldStore {
@@ -26,7 +27,7 @@ pub struct WorldStore {
 
 impl WorldStore {
 	fn insert_chunk_data(&self, key: GridId, chunk_data: HashMap<IVec3, ChunkData>) {
-		let mut chunks = self.chunks.lock().unwrap();
+		let mut chunks = self.chunks.write();
 		for (chunk, data) in chunk_data {
 			chunks.entry((key, chunk)).or_default().extend(data);
 		}
@@ -40,17 +41,15 @@ struct WorldSource {
 
 impl WorldSource {
 	fn build_chunk(&self, grid: GridId, chunk: IVec3) -> Option<Voxels> {
-		self.chunks.lock().unwrap().get(&(grid, chunk)).map(|list| {
+		self.chunks.read().get(&(grid, chunk)).map(|list| {
 			let mut voxels = Voxels::new();
-			for (local, voxel) in list {
-				voxels.add_voxel(*local, *voxel);
-			}
+			voxels.add_voxels(list);
 			voxels
 		})
 	}
 
 	fn available_area(&self, grid: GridId) -> Option<(IVec3, IVec3)> {
-		let chunks = self.chunks.lock().unwrap();
+		let chunks = self.chunks.read();
 		let mut iter = chunks.keys().filter_map(|(key, chunk)| (*key == grid).then_some(*chunk));
 		let first = iter.next()?;
 		let (mut min, mut max) = (first, first);
@@ -68,7 +67,7 @@ impl ChunkSource for WorldSource {
 	}
 
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
-		self.chunks.lock().unwrap().contains_key(&(grid, chunk)).then_some(ORIGINAL_COST)
+		self.chunks.read().contains_key(&(grid, chunk)).then_some(ORIGINAL_COST)
 	}
 
 	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64) {
@@ -79,7 +78,7 @@ impl ChunkSource for WorldSource {
 	}
 
 	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
-		let chunks = self.chunks.lock().unwrap();
+		let chunks = self.chunks.read();
 		let region_has_data = (0..size.z).any(|z| (0..size.y).any(|y| (0..size.x).any(|x| {
 			chunks.contains_key(&(grid, min + IVec3::new(x, y, z)))
 		})));
@@ -103,7 +102,7 @@ impl ChunkSource for WorldSource {
 	}
 
 	fn forget(&self, grid: GridId, chunk: IVec3) {
-		self.chunks.lock().unwrap().remove(&(grid, chunk));
+		self.chunks.write().remove(&(grid, chunk));
 	}
 }
 
