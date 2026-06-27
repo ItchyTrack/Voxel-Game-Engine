@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 
+use voxel_data::aabb::{aabb_corners, transform_aabb};
 use voxel_streaming::{GridStreaming, VoxelSourceRequests, CHUNK_SIZE};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
@@ -10,43 +11,6 @@ voxel_streaming::chunk_consumer!(pub PhysicsConsumer);
 
 #[derive(Component, Default)]
 pub struct WantedChunks(HashSet<IVec3>);
-
-fn box_corners(lo: Vec3, hi: Vec3) -> [Vec3; 8] {
-	[
-		Vec3::new(lo.x, lo.y, lo.z),
-		Vec3::new(hi.x, lo.y, lo.z),
-		Vec3::new(lo.x, hi.y, lo.z),
-		Vec3::new(lo.x, lo.y, hi.z),
-		Vec3::new(hi.x, hi.y, lo.z),
-		Vec3::new(hi.x, lo.y, hi.z),
-		Vec3::new(lo.x, hi.y, hi.z),
-		Vec3::new(hi.x, hi.y, hi.z),
-	]
-}
-
-fn transform_box(tf: &Transform, lo: Vec3, hi: Vec3) -> (Vec3, Vec3) {
-	let lo_transformed = *tf * lo;
-	let transform_vec = |v: Vec3| tf.rotation * (tf.scale * v);
-	let vec_x_transformed = transform_vec(Vec3::new(hi.x - lo.x, 0.0, 0.0));
-	let vec_y_transformed = transform_vec(Vec3::new(0.0, hi.y - lo.y, 0.0));
-	let vec_z_transformed = transform_vec(Vec3::new(0.0, 0.0, hi.z - lo.z));
-	let mut min = lo_transformed;
-	let mut max = lo_transformed;
-
-	for v in [
-		lo_transformed + vec_x_transformed,
-		lo_transformed + vec_y_transformed,
-		lo_transformed + vec_z_transformed,
-		lo_transformed + vec_x_transformed + vec_y_transformed,
-		lo_transformed + vec_x_transformed + vec_z_transformed,
-		lo_transformed + vec_y_transformed + vec_z_transformed,
-		lo_transformed + vec_x_transformed + vec_y_transformed + vec_z_transformed,
-	] {
-		min = min.min(v);
-		max = max.max(v);
-	}
-	(min, max)
-}
 
 fn overlap(a: (Vec3, Vec3), b: (Vec3, Vec3)) -> bool {
 	a.0.cmple(b.1).all() && b.0.cmple(a.1).all()
@@ -125,7 +89,7 @@ pub fn request_collision_chunks(
 		let body = child_of.parent();
 		let Ok((body_tf, is_static)) = bodies.get(body) else { continue };
 		let grid_tf = *body_tf * *local_tf;
-		let (gmin, gmax) = transform_box(&grid_tf, aabb.lo, aabb.hi);
+		let (gmin, gmax) = transform_aabb(&grid_tf, aabb.lo, aabb.hi);
 		body_aabb
 			.entry(body)
 			.and_modify(|a| {
@@ -162,7 +126,7 @@ pub fn request_collision_chunks(
 		let mut cmin = IVec3::splat(i32::MAX);
 		let mut cmax = IVec3::splat(i32::MIN);
 		for (pmin, pmax) in &partners {
-			for corner in box_corners(*pmin, *pmax) {
+			for corner in aabb_corners(*pmin, *pmax) {
 				let chunk = (inv.transform_point3(corner) / CHUNK_SIZE as f32).floor().as_ivec3();
 				cmin = cmin.min(chunk);
 				cmax = cmax.max(chunk);
@@ -174,7 +138,7 @@ pub fn request_collision_chunks(
 		for chunk in candidates {
 			let lo = (chunk * CHUNK_SIZE).as_vec3();
 			let hi = ((chunk + IVec3::ONE) * CHUNK_SIZE).as_vec3();
-			let chunk_box = transform_box(&req.grid_tf, lo, hi);
+			let chunk_box = transform_aabb(&req.grid_tf, lo, hi);
 			if partners.iter().any(|p| overlap(chunk_box, *p)) {
 				want.insert(chunk);
 			}
