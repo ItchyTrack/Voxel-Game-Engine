@@ -3,7 +3,6 @@ use super::*;
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	pub fn insert(&mut self, pos: &Co::Pos, data: C::Data) -> Option<C::Data> {
 		debug_assert!(data <= C::MAX_DATA);
-		self.include_bounding_box(Co::to_ivec3(*pos), Co::to_ivec3(*pos));
 		let pos = Co::to_ivec3(*pos);
 		if !self.make_sure_root_covers_pos(pos) {
 			return None;
@@ -100,7 +99,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 						self.set_voxel_in_data_cell(current_node_index, current_depth, cell, C::EMPTY, current_relative_pos);
 					}
 					self.item_count -= 1;
-					self.rebuild_bounding_box();
 					return Some(cell.data_value());
 				}
 				CellKind::Node => {
