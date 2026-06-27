@@ -45,7 +45,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 
 		for attempt in 0..3 {
 			if self.clear_sdf_recurse(0, self.root_depth, self.root_pos, region, sdf) {
-				self.rebuild_bounding_box();
 				return;
 			}
 			if attempt < 2 {
@@ -168,19 +167,12 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		if other.is_empty() {
 			return;
 		}
-		if let Some(source_bounds) = other.occupied_bounds_in_region(source_region) {
-			let dest_bounds = source_bounds.translated(offset);
-			self.include_bounding_box(dest_bounds.min, dest_bounds.max_inclusive());
-		}
 		let Some(source_region) = source_region.intersection(other.root_region()) else { return };
 		let Some(_source_bounds) = other.occupied_bounds_in_region(source_region) else { return };
 
 		if self.is_empty() && source_region.contains_region(other.root_region()) {
 			*self = other.clone();
 			self.root_pos += offset;
-			if let Some((min, max)) = self.bounding_box {
-				self.bounding_box = Some((min + offset, max + offset));
-			}
 			return;
 		}
 
@@ -190,10 +182,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	pub fn merge_region_from_mapped(&mut self, other: &Self, source_region: GridRegion, offset: IVec3, mut map: impl FnMut(C::Data) -> C::Data) {
 		if other.is_empty() {
 			return;
-		}
-		if let Some(source_bounds) = other.occupied_bounds_in_region(source_region) {
-			let dest_bounds = source_bounds.translated(offset);
-			self.include_bounding_box(dest_bounds.min, dest_bounds.max_inclusive());
 		}
 		let Some(source_region) = source_region.intersection(other.root_region()) else { return };
 		if other.occupied_bounds_in_region(source_region).is_none() {
@@ -439,7 +427,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 
 		for attempt in 0..3 {
 			if self.clear_region_recurse(0, self.root_depth, self.root_pos, region) {
-				self.rebuild_bounding_box();
 				return;
 			}
 			if attempt < 2 {
