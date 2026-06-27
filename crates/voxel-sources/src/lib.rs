@@ -1,5 +1,4 @@
 mod handle;
-mod lazy_sdf;
 mod loader;
 mod registry;
 mod requests;
@@ -12,7 +11,6 @@ use bevy::prelude::*;
 use crate::registry::SourceRegistry;
 
 pub use handle::{SourceEvent, SourceHandle, SourceLodResult, SourceResult};
-pub use lazy_sdf::{LazySdfSource, LazySdfSourceOptions, LazyVoxelSdf};
 pub use loader::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, PresenceLoadRequest};
 pub use requests::{VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub use source::{ChunkSource, SourceId, VoxelLodGenerator};

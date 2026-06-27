@@ -1,20 +1,21 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use bevy::log::info;
 use bevy::math::{I16Vec3, IVec3, Vec3};
 
 use voxel_data::grid::GridId;
+use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{Voxel, Voxels};
 
-use crate::{ChunkSource, SourceHandle};
+use voxel_sources::{ChunkSource, SourceHandle};
 
 /// Procedural SDF contract used by [`LazySdfSource`].
 ///
 /// Coordinates are grid-local voxel coordinates. Negative distances are solid,
 /// positive distances are empty, and zero is treated as solid.
-pub trait LazyVoxelSdf: Send + Sync + 'static {
-	fn sample(&self, pos: Vec3) -> f32;
-
+pub trait LazyVoxelSdf: Sdf + Send + Sync + 'static {
 	/// Material for a solid voxel sampled at `pos`.
 	fn voxel(&self, pos: Vec3) -> Voxel;
 
@@ -190,6 +191,10 @@ impl<S: LazyVoxelSdf> LazySdfSource<S> {
 		}
 	}
 
+	fn sample_sdf(&self, pos: Vec3) -> f32 {
+		self.sdf.sample(pos)
+	}
+
 	fn sample_radius(&self, step: i32) -> f32 {
 		let scale = self.options.sample_radius_scale.max(0.0);
 		if scale == 0.0 {
@@ -222,7 +227,7 @@ impl<S: LazyVoxelSdf> LazySdfSource<S> {
 		let block_size = (extent * step).as_vec3();
 		let block_center = (base_origin + local_min * step).as_vec3() + block_size * 0.5;
 		let block_radius = block_size.length() * 0.5;
-		if self.sdf.sample(block_center) > block_radius + sample_radius {
+		if self.sample_sdf(block_center) > block_radius + sample_radius {
 			return;
 		}
 
@@ -257,7 +262,7 @@ impl<S: LazyVoxelSdf> LazySdfSource<S> {
 		solid: &mut Vec<(I16Vec3, Voxel)>,
 	) {
 		let sample = (base_origin + local * step).as_vec3() + sample_offset;
-		if self.sdf.sample(sample) <= sample_radius {
+		if self.sample_sdf(sample) <= sample_radius {
 			solid.push((I16Vec3::new(local.x as i16, local.y as i16, local.z as i16), self.sdf.voxel(sample)));
 		}
 	}
@@ -333,11 +338,13 @@ mod tests {
 	#[derive(Clone, Copy)]
 	struct Sphere;
 
-	impl LazyVoxelSdf for Sphere {
+	impl Sdf for Sphere {
 		fn sample(&self, pos: Vec3) -> f32 {
 			(pos - Vec3::splat(8.0)).length() - 4.0
 		}
+	}
 
+	impl LazyVoxelSdf for Sphere {
 		fn voxel(&self, _pos: Vec3) -> Voxel {
 			Voxel { color: [255, 0, 0, 255], mass: 1 }
 		}
