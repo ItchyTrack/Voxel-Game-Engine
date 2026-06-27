@@ -25,12 +25,25 @@ fn box_corners(lo: Vec3, hi: Vec3) -> [Vec3; 8] {
 }
 
 fn transform_box(tf: &Transform, lo: Vec3, hi: Vec3) -> (Vec3, Vec3) {
-	let mut min = Vec3::splat(f32::MAX);
-	let mut max = Vec3::splat(f32::MIN);
-	for corner in box_corners(lo, hi) {
-		let w = *tf * corner;
-		min = min.min(w);
-		max = max.max(w);
+	let lo_transformed = *tf * lo;
+	let transform_vec = |v: Vec3| tf.rotation * (tf.scale * v);
+	let vec_x_transformed = transform_vec(Vec3::new(hi.x - lo.x, 0.0, 0.0));
+	let vec_y_transformed = transform_vec(Vec3::new(0.0, hi.y - lo.y, 0.0));
+	let vec_z_transformed = transform_vec(Vec3::new(0.0, 0.0, hi.z - lo.z));
+	let mut min = lo_transformed;
+	let mut max = lo_transformed;
+
+	for v in [
+		lo_transformed + vec_x_transformed,
+		lo_transformed + vec_y_transformed,
+		lo_transformed + vec_z_transformed,
+		lo_transformed + vec_x_transformed + vec_y_transformed,
+		lo_transformed + vec_x_transformed + vec_z_transformed,
+		lo_transformed + vec_y_transformed + vec_z_transformed,
+		lo_transformed + vec_x_transformed + vec_y_transformed + vec_z_transformed,
+	] {
+		min = min.min(v);
+		max = max.max(v);
 	}
 	(min, max)
 }
