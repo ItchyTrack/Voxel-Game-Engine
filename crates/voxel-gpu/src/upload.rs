@@ -154,7 +154,6 @@ fn apply_gpu_upload(
 		Some(old) => upload_replace(&mut gpu_data, old, placement, tree_buffer, voxel_buffer),
 		None => upload_new(&mut gpu_data, placement, tree_buffer, voxel_buffer),
 	};
-	plot_gpu_usage(&gpu_data);
 
 	if let Some(new_state) = new_state {
 		if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
@@ -217,15 +216,4 @@ fn upload_replace(
 			None
 		}
 	}
-}
-
-fn plot_gpu_usage(gpu_data: &WorldGpuData) {
-	// tracy_client::plot!(
-	// 	"64 tree bytes",
-	// 	gpu_data.packed_64_tree_dynamic_buffer.held_bytes() as f64
-	// );
-	// tracy_client::plot!(
-	// 	"voxel data bytes",
-	// 	gpu_data.packed_voxel_data_dynamic_buffer.held_bytes() as f64
-	// );
 }

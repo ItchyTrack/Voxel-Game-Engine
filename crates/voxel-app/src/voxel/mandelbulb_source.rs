@@ -4,11 +4,14 @@ use bevy::math::Vec3;
 use bevy::prelude::*;
 
 use voxel_data::grid::{Grid, GridId};
+use voxel_data::sdf::Sdf;
 use voxel_data::voxels::Voxel;
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{LazySdfSource, LazySdfSourceOptions, LazyVoxelSdf, VoxelSourcesAppExt};
+use voxel_sources::VoxelSourcesAppExt;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
+
+use crate::voxel::sdf_source::{LazySdfSource, LazySdfSourceOptions, LazyVoxelSdf};
 
 const POWER: f32 = 8.0;
 const ITERATIONS: u32 = 16;
@@ -63,11 +66,13 @@ impl MandelbulbSdf {
 	}
 }
 
-impl LazyVoxelSdf for MandelbulbSdf {
+impl Sdf for MandelbulbSdf {
 	fn sample(&self, pos: Vec3) -> f32 {
 		Self::estimate(pos).0
 	}
+}
 
+impl LazyVoxelSdf for MandelbulbSdf {
 	fn voxel(&self, _pos: Vec3) -> Voxel {
 		Voxel { color: [220, 128, 128, 255], mass: 0 }
 	}

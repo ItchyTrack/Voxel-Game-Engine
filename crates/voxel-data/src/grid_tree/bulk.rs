@@ -40,6 +40,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	}
 
 	pub fn add_single_voxels_in_bounds(&mut self, voxels: &[(Co::Pos, C::Data)], min: IVec3, max: IVec3) {
+		self.include_bounding_box(min, max);
 		for (_, data) in voxels {
 			debug_assert!(*data <= C::MAX_DATA);
 		}
@@ -67,6 +68,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		if ops.is_empty() {
 			return;
 		}
+		self.include_bounding_box(bounds.min, bounds.max_inclusive());
 		if self.is_empty() && ops.iter().all(|op| op.end - op.min == IVec3::ONE) && self.try_build_single_voxel_batch(bounds.min, bounds.max_inclusive(), ops) {
 			return;
 		}

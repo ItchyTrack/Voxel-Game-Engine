@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use tracy_client::span;
 
 use bevy::math::{I8Vec3, IVec3, U8Vec3, UVec3};
 use serde::{Deserialize, Serialize};
@@ -95,6 +96,8 @@ pub struct GridTree<C: GridCell, Co: GridCoord> {
 	root_depth: u8,
 	item_count: u64,
 	dead_nodes: usize,
+	#[serde(skip)]
+	bounding_box: Option<(IVec3, IVec3)>,
 	_coord: PhantomData<Co>,
 }
 
@@ -107,7 +110,7 @@ struct AreaOp<D: Copy> {
 
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	pub fn new() -> Self {
-		Self { nodes: vec![GridTreeNode::new_root()], root_pos: IVec3::ZERO, root_depth: 0, item_count: 0, dead_nodes: 0, _coord: PhantomData }
+		Self { nodes: vec![GridTreeNode::new_root()], root_pos: IVec3::ZERO, root_depth: 0, item_count: 0, dead_nodes: 0, bounding_box: None, _coord: PhantomData }
 	}
 
 	pub fn view(&self) -> GridTreeView<'_, C, Co> {
@@ -177,6 +180,30 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 
 	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(Co::Pos, I8Vec3, f32)> {
 		raycast::raycast(self.view(), transform, max_length)
+	}
+
+	pub fn bounding_box(&self) -> Option<(Co::Pos, Co::Pos)> {
+		self.bounding_box.map(|(min, max)| (Co::from_ivec3(min), Co::from_ivec3(max)))
+	}
+
+	pub(super) fn include_bounding_box(&mut self, min: IVec3, max: IVec3) {
+		self.bounding_box = Some(match self.bounding_box {
+			Some((lo, hi)) => (lo.min(min), hi.max(max)),
+			None => (min, max),
+		});
+	}
+
+	pub(super) fn rebuild_bounding_box(&mut self) {
+		let _zone = span!("rebuild grid tree bounding box");
+		let mut bounds: Option<(IVec3, IVec3)> = None;
+		self.each_leaf(|origin, cell_size, _| {
+			let max = origin + IVec3::splat(cell_size as i32 - 1);
+			bounds = Some(match bounds {
+				Some((lo, hi)) => (lo.min(origin), hi.max(max)),
+				None => (origin, max),
+			});
+		});
+		self.bounding_box = bounds;
 	}
 }
 

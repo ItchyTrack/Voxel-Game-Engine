@@ -1,7 +1,6 @@
 use bevy::math::{I16Vec3, IVec2, Vec3};
 use serde::{Deserialize, Serialize};
-use tracy_client::span;
-use std::{collections::HashMap, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
+use std::collections::HashMap;
 use bimap::BiHashMap;
 
 use super::{grid_tree::{GridRegion, size as grid_tree_size}, sdf::Sdf, voxel_grid_tree::VoxelGridTree};
@@ -44,18 +43,6 @@ impl VoxelPalette {
 pub struct Voxels {
 	voxels: VoxelGridTree,
 	voxel_palette: VoxelPalette,
-	#[serde(skip, default = "default_bounding_box")]
-	bounding_box: Mutex<Option<(I16Vec3, I16Vec3)>>,
-	#[serde(skip, default = "default_bounding_box_dirty")]
-	bounding_box_dirty: AtomicBool,
-}
-
-fn default_bounding_box() -> Mutex<Option<(I16Vec3, I16Vec3)>> {
-	Mutex::new(None)
-}
-
-fn default_bounding_box_dirty() -> AtomicBool {
-	AtomicBool::new(true)
 }
 
 impl Clone for Voxels {
@@ -63,8 +50,6 @@ impl Clone for Voxels {
 		Self {
 			voxels: self.voxels.clone(),
 			voxel_palette: self.voxel_palette.clone(),
-			bounding_box: Mutex::new(*self.bounding_box.lock().unwrap()),
-			bounding_box_dirty: AtomicBool::new(self.bounding_box_dirty.load(Ordering::Relaxed)),
 		}
 	}
 }
@@ -74,17 +59,9 @@ impl Voxels {
 		Self {
 			voxels: VoxelGridTree::new(),
 			voxel_palette: VoxelPalette::new(),
-			bounding_box: Mutex::new(None),
-			bounding_box_dirty: AtomicBool::new(false)
 		}
 	}
 	pub fn add_voxel(&mut self, pos: I16Vec3, voxel: Voxel) -> Option<Voxel> {
-		let bounding_box = self.bounding_box.lock().unwrap().clone();
-		*self.bounding_box.get_mut().unwrap() = Some(if let Some(bounding_box) = bounding_box {
-			(bounding_box.0.min(pos), bounding_box.1.max(pos))
-		} else {
-			(pos, pos)
-		});
 		let out = self.voxels.insert(&pos, self.voxel_palette.palette_id(&voxel))?;
 		self.voxel_palette.voxel(out).cloned()
 	}
@@ -114,11 +91,6 @@ impl Voxels {
 		}
 		let Some((min, max)) = bounds else { return };
 		self.voxels.add_single_voxels_in_bounds(&tree_voxels, min.as_ivec3(), max.as_ivec3());
-		let bb = self.bounding_box.get_mut().unwrap();
-		*bb = Some(match *bb {
-			Some((mn, mx)) => (mn.min(min), mx.max(max)),
-			None => (min, max),
-		});
 	}
 
 	pub fn add_areas(&mut self, areas: &[(I16Vec3, I16Vec3, Voxel)]) {
@@ -160,11 +132,6 @@ impl Voxels {
 			}).collect();
 			self.voxels.add_single_voxels_in_bounds(&mapped, min.as_ivec3(), max.as_ivec3());
 		}
-		let bb = self.bounding_box.get_mut().unwrap();
-		*bb = Some(match *bb {
-			Some((mn, mx)) => (mn.min(min), mx.max(max)),
-			None => (min, max),
-		});
 	}
 
 	pub fn add_palette_areas(&mut self, areas: &[(I16Vec3, I16Vec3, u16)], source_palette: &VoxelPalette) {
@@ -205,35 +172,26 @@ impl Voxels {
 			return;
 		}
 		self.voxels.add_areas(&tree_areas);
-		let Some((min, max)) = bounds else { return };
-		let bb = self.bounding_box.get_mut().unwrap();
-		*bb = Some(match *bb {
-			Some((mn, mx)) => (mn.min(min), mx.max(max)),
-			None => (min, max),
-		});
+		let Some((_min, _max)) = bounds else { return };
 	}
 
 	pub fn remove_voxel(&mut self, pos: &I16Vec3) -> Option<Voxel> {
 		let out = self.voxel_palette.voxel(self.voxels.remove(pos)?).cloned();
-		self.bounding_box_dirty.store(true, Ordering::Release);
 		out
 	}
 
 	pub fn remove_area(&mut self, pos: I16Vec3, size: I16Vec3) {
 		let Some(region) = GridRegion::from_min_size(pos.as_ivec3(), size.as_ivec3()) else { return };
 		self.voxels.clear_region(region);
-		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
 	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, voxel: Voxel) {
 		let id = self.voxel_palette.palette_id(&voxel);
 		self.voxels.apply_sdf(initial_min, initial_max, sdf, face_resolution, iterations, id);
-		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
 	pub fn clear_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize) {
 		self.voxels.clear_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
-		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
 	pub fn merge_from(&mut self, source: &Voxels, offset: bevy::math::IVec3) {
@@ -241,32 +199,6 @@ impl Voxels {
 	}
 
 	pub fn merge_region_from(&mut self, source: &Voxels, source_region: Option<GridRegion>, offset: bevy::math::IVec3) {
-		let mut bounds: Option<(I16Vec3, I16Vec3)> = None;
-		let mut include_bounds = |min: bevy::math::IVec3, end: bevy::math::IVec3| {
-			let bb_min = (min + offset).as_i16vec3();
-			let bb_max = (end + offset - bevy::math::IVec3::ONE).as_i16vec3();
-			bounds = Some(match bounds {
-				Some((lo, hi)) => (lo.min(bb_min), hi.max(bb_max)),
-				None => (bb_min, bb_max),
-			});
-		};
-
-		match source_region {
-			Some(region) => source.voxels.for_each_in_region(region, |pos, size, _| {
-				let run_min = pos.as_ivec3().max(region.min);
-				let run_end = (pos.as_ivec3() + bevy::math::IVec3::splat(size as i32)).min(region.end);
-				if run_min.cmplt(run_end).all() {
-					include_bounds(run_min, run_end);
-				}
-			}),
-			None => {
-				for (pos, size, _) in source.voxels.iter() {
-					let min = pos.as_ivec3();
-					include_bounds(min, min + bevy::math::IVec3::splat(size as i32));
-				}
-			}
-		}
-
 		if self.voxels.is_empty() {
 			self.voxel_palette = source.voxel_palette.clone();
 			match source_region {
@@ -291,14 +223,6 @@ impl Voxels {
 				}
 			}
 		}
-
-		if let Some((min, max)) = bounds {
-			let bb = self.bounding_box.get_mut().unwrap();
-			*bb = Some(match *bb {
-				Some((lo, hi)) => (lo.min(min), hi.max(max)),
-				None => (min, max),
-			});
-		}
 	}
 
 	pub fn voxel(&self, pos: &I16Vec3) -> Option<&Voxel> {
@@ -310,16 +234,6 @@ impl Voxels {
 	pub fn is_empty(&self) -> bool { self.voxels.len() == 0 }
 
 	pub fn bounding_box(&self) -> Option<(I16Vec3, I16Vec3)> {
-		if self.bounding_box_dirty.load(Ordering::Acquire) {
-			let _zone = span!("rebuild voxel bounding box");
-			self.bounding_box_dirty.store(false, Ordering::Release);
-			*(self.bounding_box.lock()).unwrap() = self.voxels.iter().fold(None, |bb, (p, size, _)| {
-				match bb {
-					Some((min, max)) => Some((min.min(p), max.max(p + size as i16 - 1))),
-					None => Some((p, p + size as i16 - 1))
-				}
-			});
-		}
-		self.bounding_box.lock().unwrap().clone()
+		self.voxels.bounding_box()
 	}
 }

@@ -164,7 +164,7 @@ pub(crate) fn flush_chunk_results(
 	for ChunkLoaded { grid, chunk, generation, voxels } in loader.read() {
 		let pending_key = PendingChunkKey { grid: *grid, chunk: *chunk };
 		let Some(requests) = pending.0.remove(&pending_key) else {
-			warn!(?pending_key, "dropping chunk load result with no pending remote requests");
+			// warn!(?pending_key, "dropping chunk load result with no pending remote requests");
 			continue
 		};
 		let voxels = match voxels.as_ref() {
