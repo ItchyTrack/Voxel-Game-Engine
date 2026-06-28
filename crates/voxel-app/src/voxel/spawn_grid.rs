@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use voxel_content::{StreamingVoxels, WorldStore};
+use voxel_content::{StreamingVoxels, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
@@ -7,7 +7,7 @@ use voxel_streaming::GridStreaming;
 
 pub fn spawn_grid(
 	commands: &mut Commands,
-	store: &mut WorldStore,
+	store: &VoxelStoreSource,
 	parent: Option<Entity>,
 	transform: Transform,
 	voxels: StreamingVoxels,

@@ -13,7 +13,6 @@ use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
 use voxel_lightyear::ReplicateVoxels;
 
-use voxel_content::WorldStore;
 
 const RADIUS: i32 = 2_000;
 const COST: u32 = 5;
@@ -224,7 +223,7 @@ impl Plugin for SphereSourcePlugin {
 	}
 }
 
-fn spawn_sphere_grid(mut commands: Commands, _store: Res<WorldStore>, grid: Res<SphereGrid>) {
+fn spawn_sphere_grid(mut commands: Commands, grid: Res<SphereGrid>) {
 
 	let radius_chunks = RADIUS.div_euclid(CHUNK_SIZE) + 1;
 	let min = IVec3::splat(-radius_chunks);

@@ -4,7 +4,7 @@ use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 use std::path::PathBuf;
 
-use voxel_content::{StreamingVoxels, VoxFileSource, WorldStore};
+use voxel_content::{StreamingVoxels, VoxFileSource, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_data::voxels::Voxel;
 use voxel_edit::GridEdits;
@@ -65,14 +65,14 @@ fn drive_orientation(
 
 fn setup_scene(
 	mut commands: Commands,
-	mut store: ResMut<WorldStore>,
+	store: Res<VoxelStoreSource>,
 	church_source: Res<ChurchVoxSource>,
 ) {
 	spawn_church(&mut commands, &church_source.0);
 	// spawn_ball_cluster(&mut commands, &mut store);
 	// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
-	spawn_bb8(&mut commands, &mut store, Vec3::new(30.0, 120.0, 0.0));
-	spawn_bb8(&mut commands, &mut store, Vec3::new(-30.0, 120.0, 0.0));
+	spawn_bb8(&mut commands, &store, Vec3::new(30.0, 120.0, 0.0));
+	spawn_bb8(&mut commands, &store, Vec3::new(-30.0, 120.0, 0.0));
 	// for x in 0..3 {
 	// 	for y in 0..2 {
 	// 		for z in 0..3 {
@@ -124,7 +124,7 @@ fn church_vox_path() -> Option<PathBuf> {
 
 fn spawn_ball_cluster(
 	commands: &mut Commands,
-	store: &mut WorldStore,
+	store: &VoxelStoreSource,
 ) {
 	let r = 5;
 	let base_y = 80.0;
@@ -152,7 +152,7 @@ fn spawn_ball_cluster(
 
 fn spawn_bb8(
 	commands: &mut Commands,
-	store: &mut WorldStore,
+	store: &VoxelStoreSource,
 	position: Vec3,
 ) {
 	let mut base_grid = StreamingVoxels::new();
@@ -180,7 +180,7 @@ fn spawn_bb8(
 	));
 }
 
-fn spawn_ball(commands: &mut Commands, store: &mut WorldStore, position: Vec3, radius: i32) -> Entity {
+fn spawn_ball(commands: &mut Commands, store: &VoxelStoreSource, position: Vec3, radius: i32) -> Entity {
 	let radius_sq = (radius as f32 - 0.5).powi(2);
 
 	let mut top = StreamingVoxels::new();

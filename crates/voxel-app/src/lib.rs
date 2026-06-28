@@ -23,14 +23,13 @@ use ui::crosshair::CrosshairPlugin;
 use ui::debug_toggles::DebugTogglesPlugin;
 use ui::debug_ui::DebugUiPlugin;
 use scene::gravity::GravityPlugin;
-use voxel_content::MemoryStorePlugin;
+use voxel_content::VoxelStoreSourcePlugin;
 #[cfg(not(target_arch = "wasm32"))]
 use networking::network_client::NetworkClientPlugin;
 #[cfg(not(target_arch = "wasm32"))]
 use networking::network_server::NetworkServerPlugin;
 use scene::scene::ScenePlugin;
 use scene::skybox::SkyboxPlugin;
-use voxel_content::StreamingContentPlugin;
 use voxel_engine::{VoxelEngineMode, VoxelEnginePlugins};
 use voxel_sources::VoxelSourcesAppExt;
 use scene::world_interaction::WorldInteractionPlugin;
@@ -101,7 +100,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 
 	match mode {
 		VoxelEngineMode::Server => {
-			app.add_plugins((MemoryStorePlugin, ScenePlugin, StreamingContentPlugin));
+			app.add_plugins((VoxelStoreSourcePlugin, ScenePlugin));
 			#[cfg(not(target_arch = "wasm32"))]
 			app.add_plugins(NetworkServerPlugin);
 		}
@@ -110,7 +109,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 			app.add_plugins(NetworkClientPlugin);
 		}
 		VoxelEngineMode::Host => {
-			app.add_plugins((MemoryStorePlugin, ScenePlugin, StreamingContentPlugin));
+			app.add_plugins((VoxelStoreSourcePlugin, ScenePlugin));
 			#[cfg(not(target_arch = "wasm32"))]
 			app.add_plugins(NetworkServerPlugin);
 		}
