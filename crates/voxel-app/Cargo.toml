@@ -40,7 +40,7 @@ voxel-lightyear = { version = "0.1.0", path = "../voxel-lightyear" }
 voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 voxel-engine = { version = "0.1.0", path = "../voxel-engine" }
 voxel-content = { version = "0.1.0", path = "../voxel-content" }
-lightyear = { version = "0.26.4", features = ["udp", "netcode"] }
+lightyear = { version = "0.28.0", features = ["udp", "netcode"] }
 serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

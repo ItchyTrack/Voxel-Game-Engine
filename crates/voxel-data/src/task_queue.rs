@@ -32,7 +32,7 @@ impl TaskQueueResource {
 
 	pub fn push(&self, command: impl Command) {
 		let mut queue = CommandQueue::default();
-		queue.push(command);
+		let _ = queue.push(command);
 		let _ = self.sender.send(queue);
 	}
 
