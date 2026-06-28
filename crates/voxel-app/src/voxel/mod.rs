@@ -1,7 +1,5 @@
 pub mod lod_downsample;
 pub mod mandelbulb_source;
-pub mod memory_store;
 pub mod sphere_source;
-pub mod streaming_test;
 pub mod sdf_source;
-pub mod vox_loader;
+pub mod spawn_grid;

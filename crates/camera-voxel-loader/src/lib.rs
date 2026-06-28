@@ -8,12 +8,17 @@ mod subgrid_interface;
 mod types;
 
 use bevy::prelude::*;
-use voxel_renderer::voxel_camera::VoxelCamera;
 use voxel_streaming::{StreamingPhase, StreamingSchedule, VoxelStreamingAppExt};
 
 pub use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
 
 voxel_streaming::chunk_consumer!(pub CameraVoxelLoaderConsumer);
+
+#[derive(Component, Debug, Clone, Default)]
+pub struct CameraVoxelRenderState {
+	pub subgrids_to_render: Vec<Entity>,
+	pub lods_to_render: Vec<Entity>,
+}
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct FreezeCameraVoxelLoader(pub bool);
@@ -27,13 +32,13 @@ impl Default for CameraVoxelLoaderDefaultSettings {
 
 fn ensure_camera_voxel_loader_components(
 	mut commands: Commands, default_settings: Res<CameraVoxelLoaderDefaultSettings>,
-	cameras: Query<(Entity, Option<&CameraVoxelLoader>, Option<&CameraVoxelLoaderConsumer>, Option<&VoxelCamera>), With<Camera3d>>,
+	cameras: Query<(Entity, Option<&CameraVoxelLoader>, Option<&CameraVoxelLoaderConsumer>, Option<&CameraVoxelRenderState>), With<Camera3d>>,
 ) {
-	for (entity, loader, consumer, voxel_camera) in &cameras {
+	for (entity, loader, consumer, render_state) in &cameras {
 		let mut entity_commands = commands.entity(entity);
 		if loader.is_none() { entity_commands.insert(CameraVoxelLoader::with_settings(default_settings.0.clone())); }
 		if consumer.is_none() { entity_commands.insert(CameraVoxelLoaderConsumer::default()); }
-		if voxel_camera.is_none() { entity_commands.insert(VoxelCamera::default()); }
+		if render_state.is_none() { entity_commands.insert(CameraVoxelRenderState::default()); }
 	}
 }
 

@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 
 use bevy::math::{I8Vec3, IVec3, U8Vec3, UVec3};
-use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 use bevy::transform::components::Transform;
 
 mod cell;
@@ -30,10 +28,8 @@ pub fn child_size(node_depth: u8) -> u32 {
 	1 << (LOG_SIZE * node_depth)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "C: Serialize", deserialize = "C: Deserialize<'de>"))]
+#[derive(Debug, Clone)]
 pub struct GridTreeNode<C: GridCell> {
-	#[serde(with = "BigArray")]
 	pub contents: [C; SIZE_USIZE_CUBED],
 	pub parent_offset: u16, // if parent_offset == 0 then no parent
 	pub used_cell_count: u8,
@@ -87,8 +83,7 @@ impl<C: GridCell> GridTreeNode<C> {
 	}
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "C: Serialize", deserialize = "C: Deserialize<'de>"))]
+#[derive(Debug, Clone)]
 pub struct GridTree<C: GridCell, Co: GridCoord> {
 	nodes: Vec<GridTreeNode<C>>, // root at 0
 	root_pos: IVec3,
@@ -141,6 +136,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	}
 }
 
+mod serialize;
 mod bulk;
 mod point_ops;
 mod region;

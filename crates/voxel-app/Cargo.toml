@@ -38,6 +38,8 @@ voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
 voxel-lightyear = { version = "0.1.0", path = "../voxel-lightyear" }
 voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
+voxel-engine = { version = "0.1.0", path = "../voxel-engine" }
+voxel-content = { version = "0.1.0", path = "../voxel-content" }
 lightyear = { version = "0.26.4", features = ["udp", "netcode"] }
 serde = { version = "1.0", features = ["derive"] }
 

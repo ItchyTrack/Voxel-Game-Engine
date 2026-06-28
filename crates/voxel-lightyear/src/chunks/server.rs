@@ -168,7 +168,7 @@ pub(crate) fn flush_chunk_results(
 			continue
 		};
 		let voxels = match voxels.as_ref() {
-			Some(voxels) => match CompressedVoxels::new(voxels) {
+			Some(voxels) => match CompressedVoxels::with_max_compression(voxels) {
 				Ok(voxels) => Some(voxels),
 				Err(err) => {
 					warn!(grid=?grid, chunk=?chunk, error=%err, "failed to compress chunk response voxels");
@@ -209,7 +209,7 @@ pub(crate) fn flush_lod_results(
 			continue
 		};
 		let voxels = match voxels.as_ref() {
-			Some(voxels) => match CompressedVoxels::new(voxels) {
+			Some(voxels) => match CompressedVoxels::with_max_compression(voxels) {
 				Ok(voxels) => Some(voxels),
 				Err(err) => {
 					warn!(grid=?grid, min=?key.min, size=?key.size, lod=key.lod, error=%err, "failed to compress lod response voxels");

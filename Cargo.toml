@@ -11,7 +11,9 @@ members = [
 	"crates/voxel-lightyear",
 	"crates/voxel-renderer",
 	"crates/voxel-physics",
+	"crates/voxel-content",
 	"crates/voxel-app",
+	"crates/voxel-engine",
 	"crates/bevy-web-worker",
 ]
 

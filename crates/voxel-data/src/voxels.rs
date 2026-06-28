@@ -1,7 +1,7 @@
 use bevy::math::{I16Vec3, IVec2, Vec3};
 use serde::{Deserialize, Serialize};
 use tracy_client::span;
-use std::{collections::HashMap, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
+use std::{collections::HashMap, io::{self, Read, Write}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use bimap::BiHashMap;
 
 use super::{grid_tree::{GridRegion, size as grid_tree_size}, sdf::Sdf, voxel_grid_tree::VoxelGridTree};
@@ -37,6 +37,41 @@ impl VoxelPalette {
 	}
 	pub fn voxel(&self, id: u16) -> Option<&Voxel> {
 		self.palette.get_by_left(&id)
+	}
+
+	fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+		writer.write_all(&(self.palette.len() as u32).to_le_bytes())?;
+		writer.write_all(&self.next_id.to_le_bytes())?;
+		for (id, voxel) in self.palette.iter() {
+			writer.write_all(&id.to_le_bytes())?;
+			writer.write_all(&voxel.color)?;
+			writer.write_all(&voxel.mass.to_le_bytes())?;
+		}
+		Ok(())
+	}
+
+	fn read_from<R: Read>(reader: &mut R) -> io::Result<Self> {
+		let mut len_buf = [0u8; 4];
+		reader.read_exact(&mut len_buf)?;
+		let len = u32::from_le_bytes(len_buf) as usize;
+		let mut next_id_buf = [0u8; 2];
+		reader.read_exact(&mut next_id_buf)?;
+		let next_id = u16::from_le_bytes(next_id_buf);
+		let mut palette = BiHashMap::new();
+		for _ in 0..len {
+			let mut id_buf = [0u8; 2];
+			let mut color = [0u8; 4];
+			let mut mass_buf = [0u8; 4];
+			reader.read_exact(&mut id_buf)?;
+			reader.read_exact(&mut color)?;
+			reader.read_exact(&mut mass_buf)?;
+			let id = u16::from_le_bytes(id_buf);
+			let voxel = Voxel { color, mass: u32::from_le_bytes(mass_buf) };
+			if palette.insert_no_overwrite(id, voxel).is_err() {
+				return Err(io::Error::new(io::ErrorKind::InvalidData, "duplicate voxel palette id during decode"));
+			}
+		}
+		Ok(Self { palette, next_id })
 	}
 }
 
@@ -101,11 +136,17 @@ impl Voxels {
 		if voxels.is_empty() {
 			return;
 		}
-		let mut palette_cache = HashMap::new();
+		let mut palette_cache: Vec<(Voxel, u16)> = Vec::new();
 		let mut tree_voxels = Vec::with_capacity(voxels.len());
 		let mut bounds: Option<(I16Vec3, I16Vec3)> = None;
 		for (pos, voxel) in voxels {
-			let id = *palette_cache.entry(*voxel).or_insert_with(|| self.voxel_palette.palette_id(voxel));
+			let id = if let Some((_, id)) = palette_cache.iter().find(|(cached, _)| cached == voxel) {
+				*id
+			} else {
+				let id = self.voxel_palette.palette_id(voxel);
+				palette_cache.push((*voxel, id));
+				id
+			};
 			tree_voxels.push((*pos, id));
 			bounds = Some(match bounds {
 				Some((mn, mx)) => (mn.min(*pos), mx.max(*pos)),
@@ -321,5 +362,19 @@ impl Voxels {
 			});
 		}
 		self.bounding_box.lock().unwrap().clone()
+	}
+
+	pub fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+		self.voxels.write_to(writer)?;
+		self.voxel_palette.write_to(writer)
+	}
+
+	pub fn read_from<R: Read>(reader: &mut R) -> io::Result<Self> {
+		Ok(Self {
+			voxels: VoxelGridTree::read_from(reader)?,
+			voxel_palette: VoxelPalette::read_from(reader)?,
+			bounding_box: Mutex::new(None),
+			bounding_box_dirty: AtomicBool::new(true),
+		})
 	}
 }

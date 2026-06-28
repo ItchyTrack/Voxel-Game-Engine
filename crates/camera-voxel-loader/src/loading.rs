@@ -6,7 +6,6 @@ use voxel_gpu::{SubGridGpuState, VoxelGpuUploadFinished};
 use tracy_client::span;
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::subgrid::SubGrid;
-use voxel_renderer::voxel_camera::VoxelCamera;
 use voxel_streaming::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkConsumer, ChunkLoadResolved, GridStreaming, LodKey, VoxelSourceRequestApi, VoxelSourceRequests, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
@@ -17,7 +16,7 @@ use crate::coverage::{
 use crate::lod_policy::{nearest_chunk_center, tile_has_present_source, update_desired_sources_delta};
 use crate::subgrid_interface::{chunks_in_bounds, collect_subgrids_to_render, resolve_chunk_source_if_ready};
 use crate::types::{TileKey, TileRecord, TileStatus};
-use crate::CameraVoxelLoaderConsumer;
+use crate::{CameraVoxelLoaderConsumer, CameraVoxelRenderState};
 
 pub(crate) fn update_camera_voxel_loader_requests(
 	requests: VoxelSourceRequests,
@@ -254,7 +253,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 	mut gpu_events: MessageReader<VoxelGpuUploadFinished>,
 	mut chunk_events: MessageReader<ChunkLoadResolved>,
 	mut availability_events: MessageReader<ChunkAvailabilityChanged>,
-	mut cameras: Query<(Entity, &mut CameraVoxelLoader, &mut VoxelCamera)>,
+	mut cameras: Query<(Entity, &mut CameraVoxelLoader, &mut CameraVoxelRenderState)>,
 	grids: Query<&Grid>,
 	mut streaming_grids: Query<&mut GridStreaming>,
 	subgrids: Query<&SubGrid>,

@@ -2,24 +2,33 @@ use std::f32::consts::PI;
 
 use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
+use std::path::PathBuf;
 
+use voxel_content::{StreamingVoxels, VoxFileSource, WorldStore};
+use voxel_data::grid::Grid;
 use voxel_data::voxels::Voxel;
+use voxel_edit::GridEdits;
+use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, RotationalInertia, VoxelPhysicsAppExt
 };
+use voxel_sources::VoxelSourcesAppExt;
+use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
-use crate::voxel::streaming_test::{spawn_grid, StreamingVoxels, WorldStore};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::voxel::vox_loader::load_vox;
-#[cfg(target_arch = "wasm32")]
-use crate::voxel::vox_loader::load_vox_bytes;
+use crate::voxel::spawn_grid::spawn_grid;
 
 pub struct ScenePlugin;
 
+#[derive(Resource, Clone)]
+struct ChurchVoxSource(pub VoxFileSource);
+
 impl Plugin for ScenePlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(Startup, setup_scene)
+		let church_source = VoxFileSource::new();
+		app.insert_resource(ChurchVoxSource(church_source.clone()))
+			.register_source(church_source)
+			.add_systems(Startup, setup_scene)
 			.add_physics_apply_systems(drive_orientation);
 	}
 }
@@ -57,8 +66,9 @@ fn drive_orientation(
 fn setup_scene(
 	mut commands: Commands,
 	mut store: ResMut<WorldStore>,
+	church_source: Res<ChurchVoxSource>,
 ) {
-	spawn_church(&mut commands, &mut store);
+	spawn_church(&mut commands, &church_source.0);
 	// spawn_ball_cluster(&mut commands, &mut store);
 	// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
 	spawn_bb8(&mut commands, &mut store, Vec3::new(30.0, 120.0, 0.0));
@@ -72,9 +82,8 @@ fn setup_scene(
 	// }
 }
 
-fn spawn_church(commands: &mut Commands, store: &mut WorldStore) {
-	let mut grid = StreamingVoxels::new();
-	if !load_church(&mut grid) { return }
+fn spawn_church(commands: &mut Commands, church_source: &VoxFileSource) {
+	let Some(path) = church_vox_path() else { return };
 
 	let parent = commands
 		.spawn((
@@ -83,22 +92,34 @@ fn spawn_church(commands: &mut Commands, store: &mut WorldStore) {
 			Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
 		))
 		.id();
-	spawn_grid(commands, store, Some(parent), Transform::IDENTITY, grid, VoxelCollider);
+	let grid = commands
+		.spawn((
+			Transform::IDENTITY,
+			Grid::new(),
+			GridEdits::default(),
+			GridStreaming::default(),
+			RequestChunkPresence,
+			ReplicateVoxels,
+			VoxelCollider,
+		))
+		.id();
+	commands.entity(parent).add_child(grid);
+	church_source.set_grid_vox_file(grid, Vec3::ZERO, path);
 }
 
 #[cfg(target_arch = "wasm32")]
-fn load_church(grid: &mut StreamingVoxels) -> bool {
-	load_vox_bytes(grid, include_bytes!("../../../res/Church_Of_St_Sophia.vox"), Vec3::ZERO)
+fn church_vox_path() -> Option<PathBuf> {
+	None
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn load_church(grid: &mut StreamingVoxels) -> bool {
-	let candidate_paths = [
-		std::path::PathBuf::from("res/Church_Of_St_Sophia.vox"),
-		std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-			.join("../../res/Church_Of_St_Sophia.vox"),
-	];
-	candidate_paths.iter().any(|p| load_vox(grid, p, Vec3::ZERO))
+fn church_vox_path() -> Option<PathBuf> {
+	[
+		PathBuf::from("res/Church_Of_St_Sophia.vox"),
+		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../res/Church_Of_St_Sophia.vox"),
+	]
+	.into_iter()
+	.find(|p| p.exists())
 }
 
 fn spawn_ball_cluster(

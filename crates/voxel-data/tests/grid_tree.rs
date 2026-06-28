@@ -7,6 +7,7 @@ mod tests {
 		grid_tree::{CellKind, GridRegion, GridTree, I32Coord, SIZE},
 		voxel_grid_tree::{PackedCell, VoxelGridTree},
 	};
+	use bincode;
 
 	fn lcg(state: &mut u64) -> u64 {
 		*state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -165,6 +166,26 @@ mod tests {
 		assert_eq!(t.get(&p(-1, -1, -1)), Some(4));
 		assert_eq!(t.get(&p(-10, 5, -30)), Some(5));
 		assert_eq!(t.len(), 3);
+	}
+
+	#[test]
+	fn serialization_roundtrips_voxel_tree() {
+		let mut tree = VoxelGridTree::new();
+		tree.add_area(&p(-8, -4, 2), IVec3::new(6, 5, 4), 3);
+		tree.add_area(&p(12, 0, -3), IVec3::new(5, 7, 2), 9);
+		tree.remove_area(&p(-6, -2, 3), IVec3::new(2, 2, 2));
+		tree.insert(&p(31, 1, 1), 12);
+		tree.insert(&p(-17, 9, 4), 15);
+
+		let encoded = bincode::serialize(&tree).expect("serialize grid tree");
+		let decoded: VoxelGridTree = bincode::deserialize(&encoded).expect("deserialize grid tree");
+
+		assert_eq!(decoded.len(), tree.len());
+		assert_eq!(decoded.is_empty(), tree.is_empty());
+		assert_eq!(decoded.iter().collect::<Vec<_>>(), tree.iter().collect::<Vec<_>>());
+		for (pos, _, value) in tree.iter() {
+			assert_eq!(decoded.get(&pos), Some(value), "roundtrip mismatch at {pos:?}");
+		}
 	}
 
 	// ---- merging behavior ----

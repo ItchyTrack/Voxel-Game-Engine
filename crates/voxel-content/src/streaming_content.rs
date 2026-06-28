@@ -1,19 +1,15 @@
-
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use bevy::math::I16Vec3;
 use bevy::prelude::*;
-
 use bevy_egui::egui::mutex::RwLock;
-use voxel_data::grid::{Grid, GridId};
+use voxel_data::grid::GridId;
 use voxel_data::voxels::{Voxel, Voxels};
-use voxel_edit::GridEdits;
 use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
-use voxel_streaming::{chunk_of, GridStreaming, CHUNK_SIZE};
-use voxel_lightyear::ReplicateVoxels;
+use voxel_streaming::{CHUNK_SIZE, chunk_of};
 
-use crate::voxel::lod_downsample::downsample_region;
+use crate::lod_downsample::downsample_region;
 
 const ORIGINAL_COST: u32 = 10;
 
@@ -26,7 +22,7 @@ pub struct WorldStore {
 }
 
 impl WorldStore {
-	fn insert_chunk_data(&self, key: GridId, chunk_data: HashMap<IVec3, ChunkData>) {
+	pub fn insert_chunk_data(&self, key: GridId, chunk_data: HashMap<IVec3, ChunkData>) {
 		let mut chunks = self.chunks.write();
 		for (chunk, data) in chunk_data {
 			chunks.entry((key, chunk)).or_default().extend(data);
@@ -106,9 +102,9 @@ impl ChunkSource for WorldSource {
 	}
 }
 
-pub struct StreamingTestPlugin;
+pub struct StreamingContentPlugin;
 
-impl Plugin for StreamingTestPlugin {
+impl Plugin for StreamingContentPlugin {
 	fn build(&self, app: &mut App) {
 		let store = WorldStore::default();
 		app.register_source(WorldSource { chunks: store.chunks.clone(), handle: OnceLock::new() });
@@ -116,7 +112,6 @@ impl Plugin for StreamingTestPlugin {
 	}
 }
 
-/// Collects voxels destined for the streaming store before a grid is spawned.
 #[derive(Default)]
 pub struct StreamingVoxels {
 	chunks: HashMap<IVec3, ChunkData>,
@@ -134,25 +129,12 @@ impl StreamingVoxels {
 		let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_i16vec3();
 		self.chunks.entry(chunk).or_default().push((local, *voxel));
 	}
-}
 
-pub fn spawn_grid(
-	commands: &mut Commands,
-	store: &mut WorldStore,
-	parent: Option<Entity>,
-	transform: Transform,
-	voxels: StreamingVoxels,
-	extra: impl Bundle,
-) {
-	let child = commands
-		.spawn((transform, Grid::new(), GridEdits::default(), ReplicateVoxels, extra))
-		.id();
-	if parent.is_some() { commands.entity(parent.unwrap()).add_child(child); }
-
-	let mut streaming = GridStreaming::default();
-	for chunk in voxels.chunks.keys() {
-		streaming.presence_mut().mark_present(*chunk);
+	pub fn chunk_positions(&self) -> impl Iterator<Item = IVec3> + '_ {
+		self.chunks.keys().copied()
 	}
-	store.insert_chunk_data(child, voxels.chunks);
-	commands.entity(child).insert(streaming);
+
+	pub fn into_chunk_data(self) -> HashMap<IVec3, ChunkData> {
+		self.chunks
+	}
 }

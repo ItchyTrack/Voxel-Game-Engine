@@ -7,7 +7,7 @@ use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
 use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
 
-use crate::voxel::lod_downsample::downsample_region;
+use crate::lod_downsample::downsample_region;
 
 const LOAD_COST: u32 = 0;
 

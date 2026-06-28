@@ -1,0 +1,15 @@
+[package]
+name = "voxel-engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { workspace = true }
+camera-voxel-loader = { version = "0.1.0", path = "../camera-voxel-loader" }
+voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
+voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
+voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
+voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
+voxel-lightyear = { version = "0.1.0", path = "../voxel-lightyear" }
+voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
