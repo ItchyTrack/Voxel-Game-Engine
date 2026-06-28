@@ -10,7 +10,8 @@ use bevy::log::LogPlugin;
 use bevy::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
-use bevy::render::view::{Hdr, Msaa};
+use bevy::camera::Hdr;
+use bevy::render::view::Msaa;
 #[cfg(target_arch = "wasm32")]
 use bevy::render::RenderPlugin;
 use bevy::window::WindowResolution;

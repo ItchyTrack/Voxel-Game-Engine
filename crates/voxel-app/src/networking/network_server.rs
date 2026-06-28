@@ -35,8 +35,9 @@ fn start_server(mut commands: Commands) {
 }
 
 fn configure_connected_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+	let _ = REPLICATION_INTERVAL;
 	commands.entity(trigger.entity).insert((
-		ReplicationSender::new(REPLICATION_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+		ReplicationSender,
 		Name::new("Lightyear Client Connection"),
 	));
 }

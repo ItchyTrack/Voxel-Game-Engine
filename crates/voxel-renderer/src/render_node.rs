@@ -1,11 +1,7 @@
-use bevy::ecs::query::QueryItem;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::render::render_graph::{
-	NodeRunError, RenderGraphContext, RenderLabel, ViewNode,
-};
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
 use bevy::render::view::ViewTarget;
 
 use crate::camera::CameraUniform;
@@ -13,9 +9,6 @@ use crate::extract::ExtractedVoxelScene;
 use crate::graphics_settings::{GraphicsSettings, RenderSettingsUniform};
 use crate::hit_count_feedback::{LastGpuBvh, RenderStats};
 use crate::voxel_renderer_resource::VoxelRendererResource;
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, RenderLabel)]
-pub struct VoxelRenderLabel;
 
 #[derive(Resource, Default)]
 pub struct VoxelViewBindGroups {
@@ -57,60 +50,50 @@ pub fn prepare_voxel_view_bind_groups(
 	bind_groups.ready = true;
 }
 
-#[derive(Default)]
-pub struct VoxelRenderNode;
+pub fn voxel_render_pass(
+	world: &World,
+	view: ViewQuery<&ViewTarget>,
+	mut render_context: RenderContext,
+) {
+	if !world.resource::<VoxelViewBindGroups>().ready { return; }
 
-impl ViewNode for VoxelRenderNode {
-	type ViewQuery = &'static ViewTarget;
+	let voxel_resource = world.resource::<VoxelRendererResource>();
+	let Some(voxel_renderer) = voxel_resource.voxel_renderer.as_ref() else { return };
 
-	fn run<'w>(
-		&self,
-		_graph: &mut RenderGraphContext,
-		render_context: &mut RenderContext<'w>,
-		view_target: QueryItem<'w, '_, Self::ViewQuery>,
-		world: &'w World,
-	) -> Result<(), NodeRunError> {
-		if !world.resource::<VoxelViewBindGroups>().ready { return Ok(()); }
+	let extracted = world.resource::<ExtractedVoxelScene>();
+	let Some(bvh) = extracted.bvh.as_ref() else { return };
+	if extracted.id_to_offsets.is_empty() { return }
+	let (Some(tree_buffer), Some(voxel_buffer)) =
+		(extracted.tree_buffer.as_ref(), extracted.voxel_buffer.as_ref())
+	else { return };
 
-		let voxel_resource = world.resource::<VoxelRendererResource>();
-		let Some(voxel_renderer) = voxel_resource.voxel_renderer.as_ref() else { return Ok(()) };
+	let view_target = view.into_inner();
+	let device = render_context.render_device().wgpu_device().clone();
+	let encoder = render_context.command_encoder();
+	let main_texture = view_target.main_texture();
+	let color_attachment = view_target.get_color_attachment();
 
-		let extracted = world.resource::<ExtractedVoxelScene>();
-		let Some(bvh) = extracted.bvh.as_ref() else { return Ok(()) };
-		if extracted.id_to_offsets.is_empty() { return Ok(()) }
-		let (Some(tree_buffer), Some(voxel_buffer)) =
-			(extracted.tree_buffer.as_ref(), extracted.voxel_buffer.as_ref())
-		else { return Ok(()) };
+	let gpu_bvh = voxel_renderer.render(
+		&device,
+		encoder,
+		main_texture.width(),
+		main_texture.height(),
+		&voxel_resource.camera_bind_group,
+		bvh,
+		&extracted.id_to_offsets,
+		tree_buffer,
+		voxel_buffer,
+		color_attachment,
+	);
 
-		let device = render_context.render_device().wgpu_device().clone();
-		let encoder = render_context.command_encoder();
-		let main_texture = view_target.main_texture();
-		let color_attachment = view_target.get_color_attachment();
+	if let Ok(mut stats) = world.resource::<RenderStats>().inner.lock() {
+		stats.bvh_bytes = gpu_bvh.bvh_buffer.size();
+		stats.bvh_leaf_bytes = gpu_bvh.items_buffer.size();
+	}
 
-		let gpu_bvh = voxel_renderer.render(
-			&device,
-			encoder,
-			main_texture.width(),
-			main_texture.height(),
-			&voxel_resource.camera_bind_group,
-			bvh,
-			&extracted.id_to_offsets,
-			tree_buffer,
-			voxel_buffer,
-			color_attachment,
-		);
-
-		if let Ok(mut stats) = world.resource::<RenderStats>().inner.lock() {
-			stats.bvh_bytes = gpu_bvh.bvh_buffer.size();
-			stats.bvh_leaf_bytes = gpu_bvh.items_buffer.size();
-		}
-
-		// Hold onto the GpuBvh so next frame's prepare can read back its
-		// item-hit-count staging buffer.
-		if let Ok(mut slot) = world.resource::<LastGpuBvh>().0.lock() {
-			*slot = Some(gpu_bvh);
-		}
-
-		Ok(())
+	// Hold onto the GpuBvh so next frame's prepare can read back its
+	// item-hit-count staging buffer.
+	if let Ok(mut slot) = world.resource::<LastGpuBvh>().0.lock() {
+		*slot = Some(gpu_bvh);
 	}
 }

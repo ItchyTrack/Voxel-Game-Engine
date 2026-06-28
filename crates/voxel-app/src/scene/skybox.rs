@@ -1,17 +1,13 @@
 use bevy::camera::{Camera, Projection};
-use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::ecs::query::QueryItem;
+use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::prelude::*;
-use bevy::render::render_graph::{
-	NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
-};
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
 use bevy::render::view::ViewTarget;
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::transform::components::GlobalTransform;
 
 use voxel_renderer::camera::CameraUniform;
-use voxel_renderer::VoxelRenderLabel;
+use voxel_renderer::render_node::voxel_render_pass;
 use bevy::render::renderer::WgpuWrapper;
 
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
@@ -29,8 +25,12 @@ impl Plugin for SkyboxPlugin {
 			.init_resource::<SkyboxResource>()
 			.add_systems(ExtractSchedule, extract_skybox_camera)
 			.add_systems(Render, prepare_skybox.in_set(RenderSystems::PrepareBindGroups))
-			.add_render_graph_node::<ViewNodeRunner<SkyboxNode>>(Core3d, SkyboxLabel)
-			.add_render_graph_edges(Core3d, (Node3d::StartMainPass, SkyboxLabel, VoxelRenderLabel));
+			.add_systems(
+				Core3d,
+				skybox_pass
+					.in_set(Core3dSystems::MainPass)
+					.before(voxel_render_pass),
+			);
 	}
 }
 
@@ -66,8 +66,8 @@ impl SkyboxRenderer {
 		let (buffer, bind_group, layout) = CameraUniform::get_buffer(device, 0);
 		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Skybox Pipeline Layout"),
-			bind_group_layouts: &[&layout],
-			push_constant_ranges: &[],
+			bind_group_layouts: &[Some(&layout)],
+			immediate_size: 0,
 		});
 		let pipeline = WgpuWrapper::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: Some("Skybox Pipeline"),
@@ -91,7 +91,7 @@ impl SkyboxRenderer {
 			primitive: wgpu::PrimitiveState::default(),
 			depth_stencil: None,
 			multisample: wgpu::MultisampleState::default(),
-			multiview: None,
+			multiview_mask: None,
 			cache: None,
 		}));
 		Self { pipeline, buffer, bind_group }
@@ -124,38 +124,26 @@ fn prepare_skybox(
 	render_queue.write_buffer(&renderer.buffer, 0, uniform.as_bytes());
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, RenderLabel)]
-struct SkyboxLabel;
+fn skybox_pass(
+	world: &World,
+	view: ViewQuery<&ViewTarget>,
+	mut render_context: RenderContext,
+) {
+	let skybox = world.resource::<SkyboxResource>();
+	let Some(renderer) = skybox.renderer.as_ref() else { return };
 
-#[derive(Default)]
-struct SkyboxNode;
-
-impl ViewNode for SkyboxNode {
-	type ViewQuery = &'static ViewTarget;
-
-	fn run<'w>(
-		&self,
-		_graph: &mut RenderGraphContext,
-		render_context: &mut RenderContext<'w>,
-		view_target: QueryItem<'w, '_, Self::ViewQuery>,
-		world: &'w World,
-	) -> Result<(), NodeRunError> {
-		let skybox = world.resource::<SkyboxResource>();
-		let Some(renderer) = skybox.renderer.as_ref() else { return Ok(()) };
-
-		let color_attachment = view_target.get_color_attachment();
-		let encoder = render_context.command_encoder();
-		let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-			label: Some("Skybox Pass"),
-			color_attachments: &[Some(color_attachment)],
-			depth_stencil_attachment: None,
-			occlusion_query_set: None,
-			timestamp_writes: None,
-		});
-		pass.set_pipeline(&renderer.pipeline);
-		pass.set_bind_group(0, &*renderer.bind_group, &[]);
-		pass.draw(0..3, 0..1);
-
-		Ok(())
-	}
+	let view_target = view.into_inner();
+	let color_attachment = view_target.get_color_attachment();
+	let encoder = render_context.command_encoder();
+	let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+		label: Some("Skybox Pass"),
+		color_attachments: &[Some(color_attachment)],
+		depth_stencil_attachment: None,
+		occlusion_query_set: None,
+		timestamp_writes: None,
+		multiview_mask: None,
+	});
+	pass.set_pipeline(&renderer.pipeline);
+	pass.set_bind_group(0, &*renderer.bind_group, &[]);
+	pass.draw(0..3, 0..1);
 }

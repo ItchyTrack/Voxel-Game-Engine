@@ -1,10 +1,7 @@
-use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::ecs::query::QueryItem;
+use bevy::core_pipeline::tonemapping::tonemapping;
+use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::prelude::*;
-use bevy::render::render_graph::{
-	NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
-};
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, WgpuWrapper};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery, WgpuWrapper};
 use bevy::render::view::ViewTarget;
 use bevy::render::{Render, RenderApp, RenderSystems};
 
@@ -21,10 +18,11 @@ impl Plugin for CrosshairPlugin {
 		render_app
 			.init_resource::<CrosshairResource>()
 			.add_systems(Render, prepare_crosshair.in_set(RenderSystems::PrepareBindGroups))
-			.add_render_graph_node::<ViewNodeRunner<CrosshairNode>>(Core3d, CrosshairLabel)
-			.add_render_graph_edges(
+			.add_systems(
 				Core3d,
-				(Node3d::Tonemapping, CrosshairLabel, Node3d::EndMainPassPostProcessing),
+				crosshair_pass
+					.in_set(Core3dSystems::PostProcess)
+					.after(tonemapping),
 			);
 	}
 }
@@ -84,8 +82,8 @@ impl CrosshairRenderer {
 		};
 		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Crosshair Pipeline Layout"),
-			bind_group_layouts: &[&bgl],
-			push_constant_ranges: &[],
+			bind_group_layouts: &[Some(&bgl)],
+			immediate_size: 0,
 		});
 		let pipeline = WgpuWrapper::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: Some("Crosshair Pipeline"),
@@ -116,7 +114,7 @@ impl CrosshairRenderer {
 			primitive: wgpu::PrimitiveState::default(),
 			depth_stencil: None,
 			multisample: wgpu::MultisampleState::default(),
-			multiview: None,
+			multiview_mask: None,
 			cache: None,
 		}));
 
@@ -141,46 +139,33 @@ fn prepare_crosshair(
 	render_queue.write_buffer(&renderer.buffer, 0, &bytes);
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, RenderLabel)]
-struct CrosshairLabel;
+fn crosshair_pass(
+	world: &World,
+	view: ViewQuery<&ViewTarget>,
+	mut render_context: RenderContext,
+) {
+	let crosshair = world.resource::<CrosshairResource>();
+	let Some(renderer) = crosshair.renderer.as_ref() else { return };
 
-#[derive(Default)]
-struct CrosshairNode;
-
-impl ViewNode for CrosshairNode {
-	type ViewQuery = &'static ViewTarget;
-
-	fn run<'w>(
-		&self,
-		_graph: &mut RenderGraphContext,
-		render_context: &mut RenderContext<'w>,
-		view_target: QueryItem<'w, '_, Self::ViewQuery>,
-		world: &'w World,
-	) -> Result<(), NodeRunError> {
-		let crosshair = world.resource::<CrosshairResource>();
-		let Some(renderer) = crosshair.renderer.as_ref() else { return Ok(()) };
-
-		let encoder = render_context.command_encoder();
-		let view = view_target.main_texture_view();
-		let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-			label: Some("Crosshair Pass"),
-			color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-				view,
-				resolve_target: None,
-				depth_slice: None,
-				ops: wgpu::Operations {
-					load: wgpu::LoadOp::Load,
-					store: wgpu::StoreOp::Store,
-				},
-			})],
-			depth_stencil_attachment: None,
-			occlusion_query_set: None,
-			timestamp_writes: None,
-		});
-		pass.set_pipeline(&renderer.pipeline);
-		pass.set_bind_group(0, &*renderer.bind_group, &[]);
-		pass.draw(0..3, 0..1);
-
-		Ok(())
-	}
+	let encoder = render_context.command_encoder();
+	let view = view.into_inner().main_texture_view();
+	let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+		label: Some("Crosshair Pass"),
+		color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+			view,
+			resolve_target: None,
+			depth_slice: None,
+			ops: wgpu::Operations {
+				load: wgpu::LoadOp::Load,
+				store: wgpu::StoreOp::Store,
+			},
+		})],
+		depth_stencil_attachment: None,
+		occlusion_query_set: None,
+		timestamp_writes: None,
+		multiview_mask: None,
+	});
+	pass.set_pipeline(&renderer.pipeline);
+	pass.set_bind_group(0, &*renderer.bind_group, &[]);
+	pass.draw(0..3, 0..1);
 }

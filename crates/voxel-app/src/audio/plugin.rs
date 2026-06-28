@@ -26,7 +26,7 @@ pub struct VoxelAudioPlugin;
 
 impl Plugin for VoxelAudioPlugin {
 	fn build(&self, app: &mut App) {
-		app.init_non_send_resource::<AudioEngineResource>()
+		app.init_non_send::<AudioEngineResource>()
 			.add_message::<PlaySfx>()
 			.add_systems(Update, (update_listener, drain_sfx_messages));
 	}

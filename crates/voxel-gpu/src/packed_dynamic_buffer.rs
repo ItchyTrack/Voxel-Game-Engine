@@ -67,7 +67,7 @@ impl PackedDynamicBuffer {
 			queue: WgpuWrapper::new(bevy::render::renderer::WgpuWrapper::clone(&**queue).into_inner()),
 			usage,
 			buffer_size,
-			max_binding_size: raw_device.limits().max_storage_buffer_binding_size,
+			max_binding_size: raw_device.limits().max_storage_buffer_binding_size.min(u32::MAX as u64) as u32,
 		})
 	}
 

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use lightyear::prelude::{DisableReplicateHierarchy, ReplicationBufferSystems};
+use lightyear::prelude::{DisableReplicateHierarchy, ReplicationSystems};
 use voxel_data::subgrid::SubGrid;
 use voxel_gpu::lod_voxels::LodVoxels;
 
@@ -7,7 +7,7 @@ pub struct ReplicationPlugin;
 
 impl Plugin for ReplicationPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(PostUpdate, disable_hierarchy_replication.before(ReplicationBufferSystems::BeforeBuffer));
+		app.add_systems(PostUpdate, disable_hierarchy_replication.before(ReplicationSystems::Send));
 	}
 }
 

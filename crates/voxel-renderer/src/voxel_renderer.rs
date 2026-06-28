@@ -224,8 +224,13 @@ impl VoxelRenderer {
 			});
 			let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Beam Pipeline Layout"),
-				bind_group_layouts: &[camera_bind_group_layout, &gpu_bvh_layout, &tree_bind_group_layout, &bvh_beam_textured_storage_bind_group_layout],
-				push_constant_ranges: &[],
+				bind_group_layouts: &[
+					Some(camera_bind_group_layout),
+					Some(&gpu_bvh_layout),
+					Some(&tree_bind_group_layout),
+					Some(&bvh_beam_textured_storage_bind_group_layout),
+				],
+				immediate_size: 0,
 			});
 			WgpuWrapper::new(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 				label: Some("Beam Pipeline"),
@@ -243,8 +248,13 @@ impl VoxelRenderer {
 			});
 			let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Ray Casting Pipeline Layout"),
-				bind_group_layouts: &[camera_bind_group_layout, &gpu_bvh_layout, &tree_bind_group_layout, &ray_marching_bind_group_layout],
-				push_constant_ranges: &[],
+				bind_group_layouts: &[
+					Some(camera_bind_group_layout),
+					Some(&gpu_bvh_layout),
+					Some(&tree_bind_group_layout),
+					Some(&ray_marching_bind_group_layout),
+				],
+				immediate_size: 0,
 			});
 			WgpuWrapper::new(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 				label: Some("Ray Casting Pipeline"),
@@ -264,8 +274,13 @@ impl VoxelRenderer {
 			});
 			let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Coloring Pipeline Layout"),
-				bind_group_layouts: &[camera_bind_group_layout, &gpu_bvh_layout, &voxel_bind_group_layout, &intermediate_textured_read_bind_group_layout],
-				push_constant_ranges: &[],
+				bind_group_layouts: &[
+					Some(camera_bind_group_layout),
+					Some(&gpu_bvh_layout),
+					Some(&voxel_bind_group_layout),
+					Some(&intermediate_textured_read_bind_group_layout),
+				],
+				immediate_size: 0,
 			});
 			WgpuWrapper::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 				label: Some("Coloring Pipeline"),
@@ -285,7 +300,7 @@ impl VoxelRenderer {
 				primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, strip_index_format: None, front_face: wgpu::FrontFace::Ccw, cull_mode: Some(wgpu::Face::Back), polygon_mode: wgpu::PolygonMode::Fill, unclipped_depth: false, conservative: false },
 				depth_stencil: None,
 				multisample: wgpu::MultisampleState { count: 1, mask: !0, alpha_to_coverage_enabled: false },
-				multiview: None,
+				multiview_mask: None,
 				cache: None,
 			}))
 		};
@@ -386,6 +401,7 @@ impl VoxelRenderer {
 				depth_stencil_attachment: None,
 				occlusion_query_set: None,
 				timestamp_writes: None,
+				multiview_mask: None,
 			});
 			render_pass.set_bind_group(0, &**camera_transform_bind_group, &[]);
 			render_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);

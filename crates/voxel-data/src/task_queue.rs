@@ -30,7 +30,7 @@ impl TaskQueueResource {
 		Self { sender, receiver }
 	}
 
-	pub fn push(&self, command: impl Command) {
+	pub fn push(&self, command: impl Command<Out = ()>) {
 		let mut queue = CommandQueue::default();
 		let _ = queue.push(command);
 		let _ = self.sender.send(queue);

@@ -40,10 +40,10 @@ pub struct NetworkProtocolPlugin;
 
 impl Plugin for NetworkProtocolPlugin {
 	fn build(&self, app: &mut App) {
-		app.register_component::<NetworkBody>();
-		app.register_component::<NetworkGrid>();
-		app.register_component::<NetworkTransform>();
-		app.register_component::<ReplicateVoxels>();
+		app.component::<NetworkBody>().replicate();
+		app.component::<NetworkGrid>().replicate();
+		app.component::<NetworkTransform>().replicate();
+		app.component::<ReplicateVoxels>().replicate();
 	}
 }
 

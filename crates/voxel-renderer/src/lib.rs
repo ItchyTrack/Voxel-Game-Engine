@@ -7,16 +7,14 @@ pub mod voxel_camera;
 pub mod voxel_renderer_resource;
 
 mod extract;
-mod render_node;
-
-pub use render_node::VoxelRenderLabel;
+pub mod render_node;
 
 use bevy::app::{App, Plugin};
-use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
+use bevy::core_pipeline::core_3d::main_opaque_pass_3d;
+use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
-use bevy::render::render_graph::{RenderGraphExt, ViewNodeRunner};
 
 use voxel_data::VoxelDataPlugin;
 use voxel_gpu::{GpuVoxelDataPlugin};
@@ -58,17 +56,11 @@ impl Plugin for VoxelRendererPlugin {
 				render_node::prepare_voxel_view_bind_groups
 					.in_set(RenderSystems::PrepareBindGroups),
 			)
-			.add_render_graph_node::<ViewNodeRunner<render_node::VoxelRenderNode>>(
+			.add_systems(
 				Core3d,
-				render_node::VoxelRenderLabel,
-			)
-			.add_render_graph_edges(
-				Core3d,
-				(
-					Node3d::StartMainPass,
-					render_node::VoxelRenderLabel,
-					Node3d::MainOpaquePass,
-				),
+				render_node::voxel_render_pass
+					.in_set(Core3dSystems::MainPass)
+					.before(main_opaque_pass_3d),
 			);
 	}
 

@@ -23,7 +23,7 @@ tracy = [
 dot_vox = "5.2.0"
 nalgebra = "0.34.1"
 rtrb = "0.3.2"
-bevy_egui = "0.39"
+bevy_egui = "0.40"
 log = { workspace = true }
 bevy = { workspace = true }
 wgpu = { workspace = true }
