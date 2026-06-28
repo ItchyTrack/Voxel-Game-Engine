@@ -1,9 +1,7 @@
-use std::sync::{Arc, OnceLock};
-
 use bevy::math::Vec3;
 use bevy::prelude::*;
 
-use voxel_data::grid::{Grid, GridId};
+use voxel_data::grid::Grid;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::Voxel;
 use voxel_edit::GridEdits;
@@ -11,12 +9,12 @@ use voxel_lightyear::ReplicateVoxels;
 use voxel_sources::VoxelSourcesAppExt;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
-use crate::voxel::sdf_source::{LazySdfSource, LazySdfSourceOptions, LazyVoxelSdf};
+use voxel_content::{SdfSource, SdfSourceOptions, VoxelSdf};
 
 const POWER: f32 = 8.0;
 const ITERATIONS: u32 = 16;
 const BAILOUT: f32 = 8.0;
-const SCALE: f32 = 4200.0;
+const SCALE: f32 = 420.0;
 /// Grid-local presence radius in voxels. Keep this tied to SCALE so making the
 /// Mandelbulb larger also expands the claimed chunk-presence area.
 const BOUNDS_RADIUS: f32 = SCALE * 1.75;
@@ -72,7 +70,7 @@ impl Sdf for MandelbulbSdf {
 	}
 }
 
-impl LazyVoxelSdf for MandelbulbSdf {
+impl VoxelSdf for MandelbulbSdf {
 	fn voxel(&self, _pos: Vec3) -> Voxel {
 		Voxel { color: [220, 128, 128, 255], mass: 0 }
 	}
@@ -83,34 +81,20 @@ impl LazyVoxelSdf for MandelbulbSdf {
 }
 
 #[derive(Resource, Clone)]
-pub struct MandelbulbGrid(Arc<OnceLock<GridId>>);
+pub struct MandelbulbSource(pub SdfSource);
 
 pub struct MandelbulbSourcePlugin;
 
 impl Plugin for MandelbulbSourcePlugin {
 	fn build(&self, app: &mut App) {
-		let grid = Arc::new(OnceLock::new());
-		app.register_source(LazySdfSource::with_options(
-			grid.clone(),
-			MandelbulbSdf,
-			LazySdfSourceOptions {
-				cost: COST,
-				chunk_size: 64,
-				cache_capacity: 256,
-				// Include cells whose centers are just outside the DE surface so thin
-				// fractal features survive at coarse LODs instead of popping away.
-				sample_radius_scale: 1.0,
-				// The Mandelbulb DE is expensive; recursively reject definitely-empty
-				// blocks before sampling every voxel in them.
-				empty_pruning: true,
-			},
-		));
-		app.insert_resource(MandelbulbGrid(grid));
+		let source = SdfSource::new();
+		app.insert_resource(MandelbulbSource(source.clone()));
+		app.register_source(source);
 		app.add_systems(Startup, spawn_mandelbulb_grid);
 	}
 }
 
-fn spawn_mandelbulb_grid(mut commands: Commands, grid: Res<MandelbulbGrid>) {
+fn spawn_mandelbulb_grid(mut commands: Commands, source: Res<MandelbulbSource>) {
 	let entity = commands
 		.spawn((
 			Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
@@ -121,5 +105,15 @@ fn spawn_mandelbulb_grid(mut commands: Commands, grid: Res<MandelbulbGrid>) {
 			ReplicateVoxels,
 		))
 		.id();
-	let _ = grid.0.set(entity);
+	source.0.set_grid_sdf_with_options(entity, MandelbulbSdf, SdfSourceOptions {
+		cost: COST,
+		chunk_size: 64,
+		cache_capacity: 256,
+		// Include cells whose centers are just outside the DE surface so thin
+		// fractal features survive at coarse LODs instead of popping away.
+		sample_radius_scale: 1.0,
+		// The Mandelbulb DE is expensive; recursively reject definitely-empty
+		// blocks before sampling every voxel in them.
+		empty_pruning: true,
+	});
 }
