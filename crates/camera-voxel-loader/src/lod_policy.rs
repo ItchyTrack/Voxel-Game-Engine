@@ -66,14 +66,21 @@ fn desired_lod_bands(center: IVec3, settings: &CameraVoxelLoaderSettings) -> Vec
 	let (near_min, near_max) = near_bounds(center, settings);
 	bands.push(LodBand { lod: 0, outer: BandBounds { min: near_min, max: near_max }, inner: None });
 
+	let mut prev_outer = (near_min, near_max);
 	for lod in 1..=settings.max_lod {
-		let (inner_min, inner_max) = lod_inner_bounds(center, settings, lod);
-		let (outer_min, outer_max) = lod_outer_bounds(center, settings, lod);
+		let size = 1i32 << lod;
+		let inner = prev_outer;
+		let expand = IVec3::splat(size * settings.rings_per_lod);
+		let mut outer = (inner.0 - expand, inner.1 + expand);
+		if lod < settings.max_lod {
+			outer = align_bounds_to_tile(outer.0, outer.1, 1i32 << (lod + 1));
+		}
 		bands.push(LodBand {
 			lod,
-			outer: BandBounds { min: outer_min, max: outer_max },
-			inner: Some(BandBounds { min: inner_min, max: inner_max }),
+			outer: BandBounds { min: outer.0, max: outer.1 },
+			inner: Some(BandBounds { min: inner.0, max: inner.1 }),
 		});
+		prev_outer = outer;
 	}
 
 	bands
@@ -81,17 +88,6 @@ fn desired_lod_bands(center: IVec3, settings: &CameraVoxelLoaderSettings) -> Vec
 
 fn near_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings) -> (IVec3, IVec3) {
 	align_bounds_to_tile(center - IVec3::splat(settings.near_radius_chunks), center + IVec3::splat(settings.near_radius_chunks + 1), 2)
-}
-
-fn lod_inner_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings, lod: u8) -> (IVec3, IVec3) {
-	if lod == 1 { near_bounds(center, settings) } else { lod_outer_bounds(center, settings, lod - 1) }
-}
-
-fn lod_outer_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings, lod: u8) -> (IVec3, IVec3) {
-	let size = 1i32 << lod;
-	let (min, max) = lod_inner_bounds(center, settings, lod);
-	let bounds = (min - IVec3::splat(size * settings.rings_per_lod), max + IVec3::splat(size * settings.rings_per_lod));
-	if lod < settings.max_lod { align_bounds_to_tile(bounds.0, bounds.1, 1i32 << (lod + 1)) } else { bounds }
 }
 
 fn align_bounds_to_tile(min: IVec3, max: IVec3, size: i32) -> (IVec3, IVec3) {
