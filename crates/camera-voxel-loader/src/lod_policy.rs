@@ -95,8 +95,18 @@ fn lod_outer_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings, lod: u8
 }
 
 fn align_bounds_to_tile(min: IVec3, max: IVec3, size: i32) -> (IVec3, IVec3) {
-	let tile = IVec3::splat(size);
-	(min.div_euclid(tile) * tile, (max + tile - IVec3::ONE).div_euclid(tile) * tile)
+	(align_down_pow2(min, size), align_up_pow2(max, size))
+}
+
+fn align_down_pow2(v: IVec3, size: i32) -> IVec3 {
+	let mask = !(size - 1);
+	IVec3::new(v.x & mask, v.y & mask, v.z & mask)
+}
+
+fn align_up_pow2(v: IVec3, size: i32) -> IVec3 {
+	let mask = !(size - 1);
+	let add = size - 1;
+	IVec3::new((v.x + add) & mask, (v.y + add) & mask, (v.z + add) & mask)
 }
 
 #[cfg(test)]
