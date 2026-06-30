@@ -63,7 +63,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> 
 		if depth > 0 {
 			for cell in nodes[cpu_idx as usize].contents.iter() {
 				if cell.kind() == CellKind::Node {
-					let child_cpu = cpu_idx + cell.node_offset();
+					let child_cpu = cell.node_index();
 					dfs_stack.push((child_cpu, depth - 1));
 				}
 			}
@@ -104,7 +104,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> 
 	// 				CellKind::Empty => false,
 	// 				CellKind::Data => true,
 	// 				CellKind::Node => {
-	// 					let child_cpu = cpu_idx + cell.node_offset();
+	// 					let child_cpu = cpu_idx + cell.node_index();
 	// 					stack.push((child_cpu, depth - 1, [
 	// 						node_origin[0] + cell_x * cell_size,
 	// 						node_origin[1] + cell_y * cell_size,
@@ -304,7 +304,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> 
 						0x00
 					}
 					CellKind::Node => {
-						let child_cpu = cpu_idx + cell.node_offset();
+						let child_cpu = cell.node_index();
 						let child_slot = slot_indices[cpu_to_gpu[child_cpu as usize] as usize];
 						let offset = child_slot - my_slot;
 						voxel_node_run += 1;

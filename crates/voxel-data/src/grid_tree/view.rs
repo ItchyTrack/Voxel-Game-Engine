@@ -48,8 +48,8 @@ impl<C: GridCell> CellRef<C> {
 	}
 
 	#[inline]
-	pub fn node_offset(self) -> u32 {
-		self.cell.node_offset()
+	pub fn node_index(self) -> u32 {
+		self.cell.node_index()
 	}
 }
 
@@ -111,7 +111,7 @@ impl<'a, C: GridCell, Co: GridCoord> GridTreeView<'a, C, Co> {
 		if cell.kind() != CellKind::Node {
 			return None;
 		}
-		Some(NodeRef { index: cell.parent.index + cell.node_offset(), depth: cell.parent.depth.saturating_sub(1), origin: cell.origin })
+		Some(NodeRef { index: cell.node_index(), depth: cell.parent.depth.saturating_sub(1), origin: cell.origin })
 	}
 
 	#[inline]

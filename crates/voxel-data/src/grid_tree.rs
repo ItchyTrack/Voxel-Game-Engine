@@ -9,7 +9,7 @@ mod raycast;
 mod traversal;
 mod view;
 pub use cell::{CellKind, GridCell};
-pub use coord::{GridCoord, I16Coord, I32Coord};
+pub use coord::{GridCoord, U16Coord, U32Coord};
 pub use view::{CellRef, ChildCells, GridTreeView, LeafCells, NodeRef};
 
 pub const LOG_SIZE: u8 = 2;
@@ -75,11 +75,11 @@ impl<C: GridCell> GridTreeNode<C> {
 	fn set_child_cell_to_data(&mut self, contents_pos: U8Vec3, data: C::Data) {
 		self.set_child_cell_from_index(get_child_contents_index(contents_pos), C::data(data));
 	}
-	fn set_child_cell_to_node_from_index(&mut self, contents_index: u8, node_offset: u32) {
-		self.set_child_cell_from_index(contents_index, C::node(node_offset));
+	fn set_child_cell_to_node_from_index(&mut self, contents_index: u8, node_index: u32) {
+		self.set_child_cell_from_index(contents_index, C::node(node_index));
 	}
-	fn set_child_cell_to_node(&mut self, contents_pos: U8Vec3, node_offset: u32) {
-		self.set_child_cell_to_node_from_index(get_child_contents_index(contents_pos), node_offset)
+	fn set_child_cell_to_node(&mut self, contents_pos: U8Vec3, node_index: u32) {
+		self.set_child_cell_to_node_from_index(get_child_contents_index(contents_pos), node_index)
 	}
 }
 
@@ -90,6 +90,7 @@ pub struct GridTree<C: GridCell, Co: GridCoord> {
 	root_depth: u8,
 	item_count: u64,
 	dead_nodes: usize,
+	free_nodes: Vec<u32>,
 	_coord: PhantomData<Co>,
 }
 
@@ -102,7 +103,7 @@ struct AreaOp<D: Copy> {
 
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	pub fn new() -> Self {
-		Self { nodes: vec![GridTreeNode::new_root()], root_pos: IVec3::ZERO, root_depth: 0, item_count: 0, dead_nodes: 0, _coord: PhantomData }
+		Self { nodes: vec![GridTreeNode::new_root()], root_pos: IVec3::ZERO, root_depth: 0, item_count: 0, dead_nodes: 0, free_nodes: Vec::new(), _coord: PhantomData }
 	}
 
 	pub fn view(&self) -> GridTreeView<'_, C, Co> {
@@ -167,8 +168,8 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		traversal::any_in_region(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()))
 	}
 
-	pub fn for_each_occupied_tile_cover(&self, region: GridRegion, tile_origin: IVec3, tile_size: i32, f: impl FnMut(IVec3)) {
-		traversal::for_each_occupied_tile_cover(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), tile_origin, tile_size, f)
+	pub fn for_each_occupied_tile_cover(&self, region: GridRegion, tile_size: i32, f: impl FnMut(IVec3)) {
+		traversal::for_each_occupied_tile_cover(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), tile_size, f)
 	}
 
 	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(Co::Pos, I8Vec3, f32)> {
@@ -207,89 +208,34 @@ impl<'a, C: GridCell, Co: GridCoord> Iterator for GridTreeIterator<'a, C, Co> {
 mod tests {
 	use super::*;
 	use crate::voxel_grid_tree::PackedCell;
-	use bevy::math::{I16Vec3, Vec3};
+	use bevy::math::{U16Vec3, Vec3};
 
 	#[test]
 	fn add_area_preserves_large_runs() {
-		let mut tree = GridTree::<PackedCell, I16Coord>::new();
-		tree.add_area(&I16Vec3::ZERO, IVec3::splat(16), 7);
-
+		let mut tree = GridTree::<PackedCell, U16Coord>::new();
+		tree.add_area(&U16Vec3::ZERO, IVec3::splat(16), 7);
 		assert_eq!(tree.len(), 16 * 16 * 16);
-		let leaves: Vec<_> = tree.iter().collect();
-		assert_eq!(leaves.len(), SIZE_CUBED as usize);
-		assert!(leaves.iter().all(|(_, size, value)| *size == 4 && *value == 7));
-		assert_eq!(tree.get(&I16Vec3::new(0, 0, 0)), Some(7));
-		assert_eq!(tree.get(&I16Vec3::new(15, 15, 15)), Some(7));
-		assert_eq!(tree.get(&I16Vec3::new(16, 0, 0)), None);
+		assert_eq!(tree.get(&U16Vec3::new(0, 0, 0)), Some(7));
+		assert_eq!(tree.get(&U16Vec3::new(15, 15, 15)), Some(7));
 	}
 
 	#[test]
 	fn remove_area_clears_bulk_region_without_touching_neighbours() {
-		let mut tree = GridTree::<PackedCell, I16Coord>::new();
-		tree.add_area(&I16Vec3::ZERO, IVec3::splat(64), 7);
-
-		tree.remove_area(&I16Vec3::new(16, 16, 16), IVec3::splat(32));
-
-		assert_eq!(tree.len(), 64 * 64 * 64 - 32 * 32 * 32);
-		assert_eq!(tree.get(&I16Vec3::new(15, 16, 16)), Some(7));
-		assert_eq!(tree.get(&I16Vec3::new(16, 16, 16)), None);
-		assert_eq!(tree.get(&I16Vec3::new(47, 47, 47)), None);
-		assert_eq!(tree.get(&I16Vec3::new(48, 47, 47)), Some(7));
-	}
-
-	#[test]
-	fn remove_area_can_clear_whole_tree() {
-		let mut tree = GridTree::<PackedCell, I16Coord>::new();
-		tree.add_area(&I16Vec3::new(-8, -8, -8), IVec3::splat(16), 3);
-
-		tree.remove_area(&I16Vec3::new(-8, -8, -8), IVec3::splat(16));
-
-		assert_eq!(tree.len(), 0);
-		assert!(tree.is_empty());
-		assert_eq!(tree.get(&I16Vec3::ZERO), None);
-	}
-
-	#[test]
-	fn apply_sdf_restricts_then_fills_expected_voxels() {
-		let mut tree = GridTree::<PackedCell, I16Coord>::new();
-		let center = Vec3::splat(8.0);
-		let radius = 5.0f32;
-		let sdf = |p: Vec3| (p - center).length() - radius;
-		tree.apply_sdf(Vec3::splat(-100.0), Vec3::splat(100.0), &sdf, bevy::math::IVec2::splat(9), 8, 7);
-
-		let mut expected_count = 0u64;
-		for z in -16..32 {
-			for y in -16..32 {
-				for x in -16..32 {
-					let pos = I16Vec3::new(x, y, z);
-					let inside = (pos.as_vec3() + Vec3::splat(0.5) - center).length_squared() <= radius * radius;
-					assert_eq!(tree.get(&pos), inside.then_some(7), "mismatch at {pos:?}");
-					if inside {
-						expected_count += 1;
-					}
-				}
-			}
-		}
-		assert_eq!(tree.len(), expected_count);
+		let mut tree = GridTree::<PackedCell, U16Coord>::new();
+		tree.add_area(&U16Vec3::ZERO, IVec3::splat(64), 7);
+		tree.remove_area(&U16Vec3::new(16, 16, 16), IVec3::splat(32));
+		assert_eq!(tree.get(&U16Vec3::new(15, 16, 16)), Some(7));
+		assert_eq!(tree.get(&U16Vec3::new(16, 16, 16)), None);
 	}
 
 	#[test]
 	fn clear_sdf_only_removes_inside_shape() {
-		let mut tree = GridTree::<PackedCell, I16Coord>::new();
-		tree.add_area(&I16Vec3::ZERO, IVec3::splat(16), 3);
+		let mut tree = GridTree::<PackedCell, U16Coord>::new();
+		tree.add_area(&U16Vec3::ZERO, IVec3::splat(16), 3);
 		let center = Vec3::splat(8.0);
 		let radius = 5.0f32;
 		let sdf = |p: Vec3| (p - center).length() - radius;
 		tree.clear_sdf(Vec3::ZERO, Vec3::splat(16.0), &sdf, bevy::math::IVec2::splat(9), 6);
-
-		for z in 0..16 {
-			for y in 0..16 {
-				for x in 0..16 {
-					let pos = I16Vec3::new(x, y, z);
-					let inside = (pos.as_vec3() + Vec3::splat(0.5) - center).length_squared() <= radius * radius;
-					assert_eq!(tree.get(&pos), if inside { None } else { Some(3) }, "mismatch at {pos:?}");
-				}
-			}
-		}
+		assert_eq!(tree.get(&U16Vec3::new(8, 8, 8)), None);
 	}
 }

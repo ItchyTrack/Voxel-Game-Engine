@@ -1,7 +1,7 @@
-use bevy::math::{I16Vec3, Quat, U8Vec3, Vec3};
+use bevy::math::{Quat, U16Vec3, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
-use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, I16Coord, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
+use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED, U16Coord};
 use voxel_data::voxel_grid_tree::PackedCell;
 use voxel_data::transform_ext::TransformExt;
 use voxel_data::voxels;
@@ -11,7 +11,7 @@ use crate::collision::CubeFeature;
 /// ((min_a, max_a), (min_b, max_b), axis, index)
 type SeparatingAxes = Vec<((f32, f32), (f32, f32), Vec3, u8)>;
 
-type SubgridContact = (Vec3, CubeFeature, Vec3, CubeFeature, I16Vec3, I16Vec3);
+type SubgridContact = (Vec3, CubeFeature, Vec3, CubeFeature, U16Vec3, U16Vec3);
 
 fn get_bit(num: u8, bit: u8) -> u8 {
 	((num & (1 << bit)) != 0) as u8
@@ -19,7 +19,7 @@ fn get_bit(num: u8, bit: u8) -> u8 {
 
 #[derive(Clone, Copy)]
 struct DescendBox {
-	origin: I16Vec3,
+	origin: U16Vec3,
 	size: u16,
 	src: BoxSrc,
 }
@@ -42,8 +42,8 @@ pub(super) fn get_collisions_between_subgrids(
 	let view_2 = voxels_2.grid_tree().view();
 	let root_1 = view_1.root();
 	let root_2 = view_2.root();
-	let box_1 = DescendBox { origin: root_1.origin.as_i16vec3(), size: voxel_data::grid_tree::size(root_1.depth) as u16, src: BoxSrc::Node(root_1) };
-	let box_2 = DescendBox { origin: root_2.origin.as_i16vec3(), size: voxel_data::grid_tree::size(root_2.depth) as u16, src: BoxSrc::Node(root_2) };
+	let box_1 = DescendBox { origin: root_1.origin.as_u16vec3(), size: voxel_data::grid_tree::size(root_1.depth) as u16, src: BoxSrc::Node(root_1) };
+	let box_2 = DescendBox { origin: root_2.origin.as_u16vec3(), size: voxel_data::grid_tree::size(root_2.depth) as u16, src: BoxSrc::Node(root_2) };
 	descend(&mut collisions, &separating_axes, transform_of_1_in_2, view_1, box_1, view_2, box_2);
 	collisions
 }
@@ -52,9 +52,9 @@ fn descend(
 	collisions: &mut Vec<SubgridContact>,
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,
-	view_1: GridTreeView<'_, PackedCell, I16Coord>,
+	view_1: GridTreeView<'_, PackedCell, U16Coord>,
 	box_1: DescendBox,
-	view_2: GridTreeView<'_, PackedCell, I16Coord>,
+	view_2: GridTreeView<'_, PackedCell, U16Coord>,
 	box_2: DescendBox,
 ) {
 	let center_1 = *transform_of_1_in_2 * (box_1.origin.as_vec3() + Vec3::splat(box_1.size as f32 * 0.5));
@@ -82,12 +82,12 @@ fn descend(
 	}
 }
 
-fn collect_children(parent: &DescendBox, view: GridTreeView<'_, PackedCell, I16Coord>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
+fn collect_children(parent: &DescendBox, view: GridTreeView<'_, PackedCell, U16Coord>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
 	let mut count = 0;
 	match parent.src {
 		BoxSrc::Node(node) => {
 			for child in view.occupied_children(node) {
-				let origin = child.origin.as_i16vec3();
+				let origin = child.origin.as_u16vec3();
 				let size = child.size as u16;
 				match child.kind() {
 					CellKind::Empty => {}
@@ -99,7 +99,7 @@ fn collect_children(parent: &DescendBox, view: GridTreeView<'_, PackedCell, I16C
 		BoxSrc::Solid => {
 			let child_size = parent.size / SIZE as u16;
 			for i in 0..SIZE_CUBED {
-				let origin = parent.origin + (get_child_contents_pos(i).as_u16vec3() * child_size).as_i16vec3();
+				let origin = parent.origin + get_child_contents_pos(i).as_u16vec3() * child_size;
 				out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Solid };
 				count += 1;
 			}
@@ -124,8 +124,8 @@ fn boxes_overlap(separating_axes: &SeparatingAxes, rel_center: Vec3, size_1: f32
 fn get_collision_1x1x1_voxel_pair(
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,
-	pos_1: I16Vec3,
-	pos_2: I16Vec3,
+	pos_1: U16Vec3,
+	pos_2: U16Vec3,
 ) -> Vec<SubgridContact> {
 	let shift = Transform { translation: pos_2.as_vec3() + Vec3::splat(0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE };
 	let local = shift.inverse() * *transform_of_1_in_2 * Transform::from_translation(pos_1.as_vec3() + Vec3::splat(0.5));

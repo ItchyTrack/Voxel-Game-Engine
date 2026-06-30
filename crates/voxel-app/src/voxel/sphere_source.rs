@@ -1,6 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
-use bevy::math::{I16Vec3, IVec3, Vec3};
+use bevy::math::{IVec3, U16Vec3, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
@@ -90,7 +90,7 @@ fn build_chunk(chunk: IVec3) -> Option<Voxels> {
 			let max_y = isqrt_u64(rem as u64) as i64;
 			let Some((y0, y1)) = sample_y_span(origin.y, CHUNK_SIZE, 1, 0, max_y) else { continue };
 			for y in y0..=y1 {
-				points.push((I16Vec3::new(x as i16, y as i16, z as i16), sphere_voxel_unchecked(origin + IVec3::new(x, y, z), 100)));
+				points.push((U16Vec3::new(x as u16, y as u16, z as u16), sphere_voxel_unchecked(origin + IVec3::new(x, y, z), 100)));
 			}
 		}
 	}
@@ -148,7 +148,7 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {
 
 			let mid_y = ((y0 + y1) / 2 * step + sample_offset).min(max_source.y);
 			let voxel = quantized_lod_voxel(sphere_voxel_unchecked(origin + IVec3::new(sample_x, mid_y, sample_z), 0));
-			areas.push((I16Vec3::new(x as i16, y0 as i16, z as i16), I16Vec3::new(1, (y1 + 1 - y0) as i16, 1), voxel));
+			areas.push((U16Vec3::new(x as u16, y0 as u16, z as u16), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), voxel));
 		}
 	}
 

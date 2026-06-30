@@ -76,7 +76,7 @@ fn serialize_node_bytes<C: GridCell>(nodes: &[GridTreeNode<C>], node_index: u32,
 	}
 	for cell in node.contents.iter().copied() {
 		if matches!(cell.kind(), CellKind::Node) {
-			serialize_node_bytes(nodes, node_index + cell.node_offset(), out);
+			serialize_node_bytes(nodes, cell.node_index(), out);
 		}
 	}
 }
@@ -108,7 +108,7 @@ fn deserialize_node_bytes<C: GridCell>(
 	for index in 0..SIZE_USIZE_CUBED {
 		if (node_mask & (1u64 << index)) != 0 {
 			let child_index = deserialize_node_bytes::<C>(input, nodes, Some(node_index))?;
-			nodes[node_index as usize].contents[index] = C::node(child_index - node_index);
+			nodes[node_index as usize].contents[index] = C::node(child_index);
 		}
 	}
 	Ok(node_index)
@@ -137,7 +137,7 @@ fn write_node_to<W: Write, C: GridCell>(writer: &mut W, nodes: &[GridTreeNode<C>
 	}
 	for cell in node.contents.iter().copied() {
 		if matches!(cell.kind(), CellKind::Node) {
-			write_node_to(writer, nodes, node_index + cell.node_offset())?;
+			write_node_to(writer, nodes, cell.node_index())?;
 		}
 	}
 	Ok(())
@@ -165,7 +165,7 @@ fn read_node_from<R: Read, C: GridCell>(reader: &mut R, nodes: &mut Vec<GridTree
 	for index in 0..SIZE_USIZE_CUBED {
 		if (node_mask & (1u64 << index)) != 0 {
 			let child_index = read_node_from::<R, C>(reader, nodes, Some(node_index))?;
-			nodes[node_index as usize].contents[index] = C::node(child_index - node_index);
+			nodes[node_index as usize].contents[index] = C::node(child_index);
 		}
 	}
 	Ok(node_index)
@@ -193,6 +193,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			root_depth,
 			item_count,
 			dead_nodes: 0,
+			free_nodes: Vec::new(),
 			_coord: PhantomData,
 		})
 	}
@@ -250,6 +251,7 @@ impl<'de, C: GridCell, Co: GridCoord> Deserialize<'de> for GridTree<C, Co> {
 					root_depth,
 					item_count,
 					dead_nodes: 0,
+					free_nodes: Vec::new(),
 					_coord: PhantomData,
 				})
 			}

@@ -53,7 +53,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 				}
 				CellKind::Node => {
 					current_relative_pos %= child_size(current_depth);
-					current_node_index += cell.node_offset();
+					current_node_index = cell.node_index();
 					current_depth -= 1;
 				}
 			}
@@ -103,7 +103,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 				}
 				CellKind::Node => {
 					current_relative_pos %= child_size(current_depth);
-					current_node_index += cell.node_offset();
+					current_node_index = cell.node_index();
 					current_depth -= 1;
 				}
 			}

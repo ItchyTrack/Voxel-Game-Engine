@@ -1,10 +1,11 @@
 use bevy::math::IVec3;
 use bevy::transform::components::Transform;
 
-use voxel_data::grid_tree::{GridRegion, GridTree, I32Coord};
+use voxel_data::grid_tree::GridRegion;
+use voxel_data::signed_grid_tree::SignedGridTree;
 use voxel_data::voxel_grid_tree::PackedCell;
 
-type ChunkGridTree = GridTree<PackedCell, I32Coord>;
+type ChunkGridTree = SignedGridTree<PackedCell>;
 
 /// Lifecycle of a chunk. A chunk absent from the tree is either unknown or
 /// confirmed empty.
@@ -129,9 +130,9 @@ impl ChunkPresence {
 		self.tree.is_area_filled(&min, size)
 	}
 
-	pub fn for_each_occupied_tile_cover(&self, min: IVec3, max: IVec3, tile_origin: IVec3, tile_size: i32, f: impl FnMut(IVec3)) {
+	pub fn for_each_occupied_tile_cover(&self, min: IVec3, max: IVec3, tile_size: i32, f: impl FnMut(IVec3)) {
 		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return };
-		self.tree.for_each_occupied_tile_cover(region, tile_origin, tile_size, f);
+		self.tree.for_each_occupied_tile_cover(region, tile_size, f);
 	}
 
 	/// `transform` rotation maps +Z onto the ray direction (matches the voxel tree).

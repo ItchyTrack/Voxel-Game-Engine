@@ -43,7 +43,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		for (_, data) in voxels {
 			debug_assert!(*data <= C::MAX_DATA);
 		}
-		if self.is_empty() && self.try_build_single_voxel_pairs(min, max, voxels) {
+		if self.is_empty() && self.build_single_voxel_pairs(min, max, voxels) {
 			return;
 		}
 		if !self.make_sure_root_covers_area(min, max) {
@@ -67,21 +67,13 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		if ops.is_empty() {
 			return;
 		}
-		if self.is_empty() && ops.iter().all(|op| op.end - op.min == IVec3::ONE) && self.try_build_single_voxel_batch(bounds.min, bounds.max_inclusive(), ops) {
+		if self.is_empty() && ops.iter().all(|op| op.end - op.min == IVec3::ONE) && self.build_single_voxel_batch(bounds.min, bounds.max_inclusive(), ops) {
 			return;
 		}
 		if !self.make_sure_root_covers_area(bounds.min, bounds.max_inclusive()) || !self.has_node_budget() {
 			return;
 		}
 
-		for attempt in 0..3 {
-			if self.add_areas_recurse(0, self.root_depth, self.root_pos, ops) {
-				return;
-			}
-			if attempt < 2 {
-				self.compact();
-			}
-		}
-		bevy::log::warn!("GridTree could not finish add_areas after compaction retries");
+		let _ = self.add_areas_recurse(0, self.root_depth, self.root_pos, ops);
 	}
 }

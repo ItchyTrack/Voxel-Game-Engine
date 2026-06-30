@@ -1,18 +1,16 @@
 use super::*;
 
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
-	pub(super) fn occupied_count_in_cell(&self, node_index: u32, node_depth: u8, cell: C) -> u64 {
+	pub(super) fn occupied_count_in_cell(&self, _node_index: u32, node_depth: u8, cell: C) -> u64 {
 		match cell.kind() {
 			CellKind::Empty => 0,
 			CellKind::Data => {
 				let s = child_size(node_depth) as u64;
 				s * s * s
 			}
-			// A node at depth 0 cannot represent more than this single voxel-sized
-			// cell. Treat it as occupied if encountered while replacing legacy or
-			// partially-collapsed structure instead of underflowing the depth.
+			// A node at depth 0 can only stand for one voxel-sized cell.
 			CellKind::Node if node_depth == 0 => 1,
-			CellKind::Node => self.occupied_count_in_node(node_index + cell.node_offset(), node_depth - 1),
+			CellKind::Node => self.occupied_count_in_node(cell.node_index(), node_depth - 1),
 		}
 	}
 
@@ -24,7 +22,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		for i in 0..SIZE_CUBED {
 			let cell = self.nodes[node_index as usize].contents[i as usize];
 			if cell.kind() == CellKind::Node {
-				self.mark_subtree_dead(node_index + cell.node_offset());
+				self.mark_subtree_dead(cell.node_index());
 			}
 		}
 		self.remove_node(node_index);
@@ -34,7 +32,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		let old = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
 		let old_count = self.occupied_count_in_cell(node_index, node_depth, old);
 		if old.kind() == CellKind::Node {
-			self.mark_subtree_dead(node_index + old.node_offset());
+			self.mark_subtree_dead(old.node_index());
 		}
 
 		let s = child_size(node_depth) as u64;
@@ -55,7 +53,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		}
 		let old_count = self.occupied_count_in_cell(node_index, node_depth, old);
 		if old.kind() == CellKind::Node {
-			self.mark_subtree_dead(node_index + old.node_offset());
+			self.mark_subtree_dead(old.node_index());
 		}
 
 		let node = &mut self.nodes[node_index as usize];
@@ -75,26 +73,16 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			}
 			CellKind::Data => {}
 			CellKind::Node => {
-				// A depth-0 child should not normally be a node, but preserve the
-				// replacement semantics if older/corrupt structure is encountered.
-				self.mark_subtree_dead(node_index + old.node_offset());
+				self.mark_subtree_dead(old.node_index());
 			}
 		}
 		self.nodes[node_index as usize].set_child_cell_from_index(child_index, C::data(data));
 	}
 
 	pub(super) fn allocate_child_node(&mut self, parent_index: u32, child_index: u8, contents: C) -> Option<u32> {
-		if self.nodes.len() + MAX_TREE_DEPTH_USIZE > C::MAX_NODE_OFFSET as usize {
-			bevy::log::warn!("GridTree node arena full ({} live); skipping partial add_area edit", self.nodes.len());
-			return None;
-		}
-		let child_index_u32 = self.nodes.len() as u32;
-		let offset = child_index_u32 - parent_index;
-		if offset == 0 || offset > C::MAX_NODE_OFFSET {
-			bevy::log::warn!("GridTree node offset overflow; skipping partial add_area edit");
-			return None;
-		}
 		let used_cell_count = if contents.kind() == CellKind::Empty { 0 } else { SIZE_CUBED };
+		let child_index_u32 = self.alloc_node_after_parent(parent_index, contents, used_cell_count)?;
+		let offset = child_index_u32;
 		let old = self.nodes[parent_index as usize].get_child_cell_from_index(child_index);
 		let parent = &mut self.nodes[parent_index as usize];
 		if old.kind() == CellKind::Empty {
@@ -102,7 +90,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			assert!(parent.used_cell_count <= 64);
 		}
 		parent.set_child_cell_to_node_from_index(child_index, offset);
-		self.nodes.push(GridTreeNode { contents: [contents; SIZE_USIZE_CUBED], parent_offset: offset as u16, used_cell_count });
 		Some(child_index_u32)
 	}
 
@@ -111,7 +98,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		if cell.kind() != CellKind::Node {
 			return;
 		}
-		let child_index_abs = parent_index + cell.node_offset();
+		let child_index_abs = cell.node_index();
 		let child = &self.nodes[child_index_abs as usize];
 		if child.used_cell_count == 0 {
 			self.remove_node(child_index_abs);
@@ -229,7 +216,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	pub(super) fn child_node_for_partial_area(&mut self, node_index: u32, child_index: u8) -> Option<u32> {
 		let cell = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
 		match cell.kind() {
-			CellKind::Node => Some(node_index + cell.node_offset()),
+			CellKind::Node => Some(cell.node_index()),
 			CellKind::Empty => self.allocate_child_node(node_index, child_index, C::EMPTY),
 			CellKind::Data => self.allocate_child_node(node_index, child_index, cell),
 		}

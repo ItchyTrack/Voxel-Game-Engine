@@ -1,6 +1,6 @@
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::math::I16Vec3;
+use bevy::math::U16Vec3;
 use bevy::prelude::*;
 
 use crate::world_gpu_data::WorldGpuData;
@@ -9,9 +9,9 @@ use crate::world_gpu_data::WorldGpuData;
 // from the same snapshot it was encoded from, not the live sub-grid.
 #[derive(Clone, Copy, Debug)]
 pub struct SubGridPlacement {
-	pub tree_root_pos: I16Vec3,
-	pub bounds_min: I16Vec3,
-	pub bounds_max: I16Vec3,
+	pub tree_root_pos: U16Vec3,
+	pub bounds_min: U16Vec3,
+	pub bounds_max: U16Vec3,
 }
 
 /// GPU residency of a sub-grid. Present on a sub-grid entity exactly when its

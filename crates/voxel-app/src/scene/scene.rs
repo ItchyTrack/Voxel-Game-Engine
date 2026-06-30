@@ -4,7 +4,7 @@ use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 use std::path::PathBuf;
 
-use voxel_content::{StreamingVoxels, VoxFileSource, VoxelStoreSource};
+use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_data::voxels::Voxel;
 use voxel_edit::GridEdits;
@@ -16,18 +16,20 @@ use voxel_physics::{
 use voxel_sources::VoxelSourcesAppExt;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
+use crate::voxel::mandelbulb_source::spawn_mandelbulb_grid;
 use crate::voxel::spawn_grid::spawn_grid;
 
 pub struct ScenePlugin;
 
-#[derive(Resource, Clone)]
-struct ChurchVoxSource(pub VoxFileSource);
-
 impl Plugin for ScenePlugin {
 	fn build(&self, app: &mut App) {
-		let church_source = VoxFileSource::new();
-		app.insert_resource(ChurchVoxSource(church_source.clone()))
-			.register_source(church_source)
+		let vox_source = VoxFileSource::new();
+		let sdf_source = SdfSource::new();
+		app
+			.insert_resource(vox_source.clone())
+			.insert_resource(sdf_source.clone())
+			.register_source(vox_source)
+			.register_source(sdf_source)
 			.add_systems(Startup, setup_scene)
 			.add_physics_apply_systems(drive_orientation);
 	}
@@ -66,9 +68,10 @@ fn drive_orientation(
 fn setup_scene(
 	mut commands: Commands,
 	store: Res<VoxelStoreSource>,
-	church_source: Res<ChurchVoxSource>,
+	vox_source: Res<VoxFileSource>,
+	sdf_source: Res<SdfSource>,
 ) {
-	spawn_church(&mut commands, &church_source.0);
+	spawn_church(&mut commands, &vox_source);
 	// spawn_ball_cluster(&mut commands, &mut store);
 	// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
 	spawn_bb8(&mut commands, &store, Vec3::new(30.0, 120.0, 0.0));
@@ -80,9 +83,10 @@ fn setup_scene(
 	// 		}
 	// 	}
 	// }
+	// spawn_mandelbulb_grid(commands, sdf_source);
 }
 
-fn spawn_church(commands: &mut Commands, church_source: &VoxFileSource) {
+fn spawn_church(commands: &mut Commands, vox_source: &VoxFileSource) {
 	let Some(path) = church_vox_path() else { return };
 
 	let parent = commands
@@ -104,7 +108,7 @@ fn spawn_church(commands: &mut Commands, church_source: &VoxFileSource) {
 		))
 		.id();
 	commands.entity(parent).add_child(grid);
-	church_source.set_grid_vox_file(grid, Vec3::ZERO, path);
+	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
 }
 
 #[cfg(target_arch = "wasm32")]

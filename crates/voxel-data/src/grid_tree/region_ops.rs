@@ -1,8 +1,30 @@
-use bevy::math::{IVec2, Vec3};
+use bevy::math::{IVec2, IVec3, Vec3};
 
 use crate::sdf::{shrink_aabb_with_sdf, voxel_center, voxel_region_from_bounds, Sdf};
 
 use super::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BlockSdfRelation {
+	Outside,
+	Inside,
+	Intersecting,
+}
+
+fn sdf_relation_for_block(sdf: &(impl Sdf + ?Sized), block_min: IVec3, block_size: i32) -> BlockSdfRelation {
+	let min = block_min.as_vec3();
+	let size = Vec3::splat(block_size as f32);
+	let center = min + size * 0.5;
+	let radius = size.length() * 0.5;
+	let d = sdf.sample(center);
+	if d > radius {
+		BlockSdfRelation::Outside
+	} else if d < -radius {
+		BlockSdfRelation::Inside
+	} else {
+		BlockSdfRelation::Intersecting
+	}
+}
 
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, data: C::Data) {
@@ -23,15 +45,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			return;
 		}
 
-		for attempt in 0..3 {
-			if self.fill_sdf_recurse(0, self.root_depth, self.root_pos, region, sdf, data) {
-				return;
-			}
-			if attempt < 2 {
-				self.compact();
-			}
-		}
-		bevy::log::warn!("GridTree could not finish apply_sdf after compaction retries");
+		let _ = self.fill_sdf_recurse(0, self.root_depth, self.root_pos, region, sdf, data);
 	}
 
 	fn clear_sdf_region(&mut self, region: GridRegion, sdf: &(impl Sdf + ?Sized)) {
@@ -43,15 +57,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			return;
 		}
 
-		for attempt in 0..3 {
-			if self.clear_sdf_recurse(0, self.root_depth, self.root_pos, region, sdf) {
-				return;
-			}
-			if attempt < 2 {
-				self.compact();
-			}
-		}
-		bevy::log::warn!("GridTree could not finish clear_sdf after compaction retries");
+		let _ = self.clear_sdf_recurse(0, self.root_depth, self.root_pos, region, sdf);
 	}
 
 	fn fill_sdf_recurse(
@@ -65,6 +71,26 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	) -> bool {
 		let node_region = GridRegion { min: node_origin, end: node_origin + IVec3::splat(size(node_depth) as i32) };
 		let Some(overlap) = node_region.intersection(region) else { return true };
+		if region.contains_region(node_region) {
+			match sdf_relation_for_block(sdf, node_origin, size(node_depth) as i32) {
+				BlockSdfRelation::Outside => return true,
+				BlockSdfRelation::Inside => {
+					if node_index == 0 {
+						for z in 0..SIZE as i32 {
+							for y in 0..SIZE as i32 {
+								for x in 0..SIZE as i32 {
+									let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+									self.set_child_area_to_data(node_index, node_depth, child_index, data);
+								}
+							}
+						}
+						return true;
+					}
+					return false;
+				}
+				BlockSdfRelation::Intersecting => {}
+			}
+		}
 		let cell_size = child_size(node_depth) as i32;
 		let child_min = (overlap.min - node_origin).div_euclid(IVec3::splat(cell_size));
 		let child_max = (overlap.end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
@@ -74,6 +100,15 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 				for x in child_min.x..=child_max.x {
 					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
 					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
+					let child_region = GridRegion { min: child_origin, end: child_origin + IVec3::splat(cell_size) };
+					match sdf_relation_for_block(sdf, child_origin, cell_size) {
+						BlockSdfRelation::Outside => continue,
+						BlockSdfRelation::Inside if region.contains_region(child_region) => {
+							self.set_child_area_to_data(node_index, node_depth, child_index, data);
+							continue;
+						}
+						BlockSdfRelation::Inside | BlockSdfRelation::Intersecting => {}
+					}
 					if node_depth == 0 {
 						if sdf.sample(voxel_center(child_origin)) <= 0.0 {
 							self.set_voxel_child_to_data(node_index, child_index, data);
@@ -105,6 +140,26 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	) -> bool {
 		let node_region = GridRegion { min: node_origin, end: node_origin + IVec3::splat(size(node_depth) as i32) };
 		let Some(overlap) = node_region.intersection(region) else { return true };
+		if region.contains_region(node_region) {
+			match sdf_relation_for_block(sdf, node_origin, size(node_depth) as i32) {
+				BlockSdfRelation::Outside => return true,
+				BlockSdfRelation::Inside => {
+					if node_index == 0 {
+						for z in 0..SIZE as i32 {
+							for y in 0..SIZE as i32 {
+								for x in 0..SIZE as i32 {
+									let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+									self.set_child_area_to_empty(node_index, node_depth, child_index);
+								}
+							}
+						}
+						return true;
+					}
+					return false;
+				}
+				BlockSdfRelation::Intersecting => {}
+			}
+		}
 		let cell_size = child_size(node_depth) as i32;
 		let child_min = (overlap.min - node_origin).div_euclid(IVec3::splat(cell_size));
 		let child_max = (overlap.end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
@@ -114,9 +169,18 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 				for x in child_min.x..=child_max.x {
 					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
 					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
+					let child_region = GridRegion { min: child_origin, end: child_origin + IVec3::splat(cell_size) };
 					let cell = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
 					if cell.kind() == CellKind::Empty {
 						continue;
+					}
+					match sdf_relation_for_block(sdf, child_origin, cell_size) {
+						BlockSdfRelation::Outside => continue,
+						BlockSdfRelation::Inside if region.contains_region(child_region) => {
+							self.set_child_area_to_empty(node_index, node_depth, child_index);
+							continue;
+						}
+						BlockSdfRelation::Inside | BlockSdfRelation::Intersecting => {}
 					}
 					if node_depth == 0 {
 						if sdf.sample(voxel_center(child_origin)) <= 0.0 {
@@ -125,15 +189,12 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 						continue;
 					}
 
-					if cell.kind() != CellKind::Node {
-						let child_region = GridRegion { min: child_origin, end: child_origin + IVec3::splat(cell_size) };
-						if !region.intersects(child_region) {
-							continue;
-						}
+					if cell.kind() != CellKind::Node && !region.intersects(child_region) {
+						continue;
 					}
 
 					let child_node_index = match cell.kind() {
-						CellKind::Node => node_index + cell.node_offset(),
+						CellKind::Node => cell.node_index(),
 						_ => match self.child_node_for_partial_area(node_index, child_index) {
 							Some(index) => index,
 							None => return false,
@@ -203,22 +264,14 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			return;
 		}
 
-		for attempt in 0..3 {
-			if source_region.contains_region(other.root_region()) {
-				if let Some(dest_node_index) = self.node_for_region(other.root_pos + offset, other.root_depth) {
-					if self.merge_aligned_nodes_from_mapped(other, 0, dest_node_index, other.root_depth, map) {
-						return;
-					}
+		if source_region.contains_region(other.root_region()) {
+			if let Some(dest_node_index) = self.node_for_region(other.root_pos + offset, other.root_depth) {
+				if self.merge_aligned_nodes_from_mapped(other, 0, dest_node_index, other.root_depth, map) {
+					return;
 				}
 			}
-			if self.merge_region_from_mapped_recurse(other, 0, other.root_depth, other.root_pos, source_region, offset, map) {
-				return;
-			}
-			if attempt < 2 {
-				self.compact();
-			}
 		}
-		bevy::log::warn!("GridTree could not finish merge_region_from_mapped after compaction retries");
+		let _ = self.merge_region_from_mapped_recurse(other, 0, other.root_depth, other.root_pos, source_region, offset, map);
 	}
 
 	fn node_for_region(&mut self, target_origin: IVec3, target_depth: u8) -> Option<u32> {
@@ -264,7 +317,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 						Some(index) => index,
 						None => return false,
 					};
-					if !self.merge_aligned_nodes_from_mapped(other, src_node_index + src_cell.node_offset(), dest_child_node, node_depth - 1, map) {
+					if !self.merge_aligned_nodes_from_mapped(other, src_cell.node_index(), dest_child_node, node_depth - 1, map) {
 						return false;
 					}
 					self.collapse_child_node_if_possible(dest_node_index, child_index);
@@ -310,7 +363,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 							}
 						}
 						CellKind::Node => {
-							let child_node_index = src_node_index + cell.node_offset();
+							let child_node_index = cell.node_index();
 							let child_depth = src_node_depth - 1;
 							if source_region.contains_region(child_region) {
 								if let Some(dest_node_index) = self.node_for_region(child_origin + offset, child_depth) {
@@ -425,15 +478,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			return;
 		}
 
-		for attempt in 0..3 {
-			if self.clear_region_recurse(0, self.root_depth, self.root_pos, region) {
-				return;
-			}
-			if attempt < 2 {
-				self.compact();
-			}
-		}
-		bevy::log::warn!("GridTree could not finish clear_region after compaction retries");
+		let _ = self.clear_region_recurse(0, self.root_depth, self.root_pos, region);
 	}
 
 	pub fn remove_area(&mut self, pos: &Co::Pos, size: IVec3) {
@@ -476,7 +521,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 				match cell.kind() {
 					CellKind::Empty => unreachable!(),
 					CellKind::Data => f(child_origin, cell_size, cell.data_value()),
-					CellKind::Node => stack.push((node_index + cell.node_offset(), depth - 1, child_origin)),
+					CellKind::Node => stack.push((cell.node_index(), depth - 1, child_origin)),
 				}
 			}
 		}

@@ -188,7 +188,7 @@ pub fn raycast<C: GridCell, Co: GridCoord>(
 			}
 			CellKind::Node => {
 				current_depth -= 1;
-				current_node_index += cell.node_offset();
+				current_node_index = cell.node_index();
 			}
 		}
 	}

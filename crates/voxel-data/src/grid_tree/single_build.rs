@@ -1,20 +1,11 @@
 use super::*;
 
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
-	pub(super) fn try_build_single_voxel_pairs(&mut self, min: IVec3, max: IVec3, voxels: &[(Co::Pos, C::Data)]) -> bool {
-		let span = (max - min).max_element() as i64 + 1;
-		let mut depth = 0u8;
-		while (size(depth) as i64) < span {
-			if depth >= Co::MAX_ROOT_DEPTH {
-				return false;
-			}
-			depth += 1;
-		}
-		self.nodes = vec![GridTreeNode::new_root()];
-		self.root_pos = min;
-		self.root_depth = depth;
-		self.item_count = 0;
-		self.dead_nodes = 0;
+	pub(super) fn build_single_voxel_pairs(&mut self, min: IVec3, max: IVec3, voxels: &[(Co::Pos, C::Data)]) -> bool {
+		let Some((root_pos, depth)) = Self::canonical_root_for_bounds(min, max) else {
+			return false;
+		};
+		self.reset_empty_root(root_pos, depth);
 		if depth > 2 {
 			return false;
 		}
@@ -22,7 +13,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			0 => {
 				let root = &mut self.nodes[0];
 				for (pos, data) in voxels {
-					let rel = Co::to_ivec3(*pos) - min;
+					let rel = Co::to_ivec3(*pos) - root_pos;
 					let i = (rel.x + rel.y * SIZE as i32 + rel.z * SIZE as i32 * SIZE as i32) as usize;
 					if root.contents[i].kind() == CellKind::Empty {
 						root.used_cell_count += 1;
@@ -34,7 +25,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			1 => {
 				let mut leaves = vec![GridTreeNode::<C>::new(0); SIZE_USIZE_CUBED];
 				for (pos, data) in voxels {
-					let rel = Co::to_ivec3(*pos) - min;
+					let rel = Co::to_ivec3(*pos) - root_pos;
 					let child = rel / SIZE as i32;
 					let leaf_i = (child.x + child.y * SIZE as i32 + child.z * SIZE as i32 * SIZE as i32) as usize;
 					let local = rel - child * SIZE as i32;
@@ -63,7 +54,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			2 => {
 				let mut leaves = vec![GridTreeNode::<C>::new(0); SIZE_USIZE_CUBED * SIZE_USIZE_CUBED];
 				for (pos, data) in voxels {
-					let rel = Co::to_ivec3(*pos) - min;
+					let rel = Co::to_ivec3(*pos) - root_pos;
 					let root_child = rel / 16;
 					let mid_rel = rel - root_child * 16;
 					let mid_child = mid_rel / 4;
@@ -96,10 +87,10 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 						}
 						let leaf_index = self.nodes.len() as u32;
 						let leaf_offset = leaf_index - mid_index;
-						if leaf_offset > C::MAX_NODE_OFFSET {
+						if leaf_index > C::MAX_NODE_OFFSET {
 							return false;
 						}
-						self.nodes[mid_index as usize].contents[mid_i] = C::node(leaf_offset);
+						self.nodes[mid_index as usize].contents[mid_i] = C::node(leaf_index);
 						self.nodes[mid_index as usize].used_cell_count += 1;
 						leaves[leaf_key].parent_offset = leaf_offset as u16;
 						self.nodes.push(leaves[leaf_key].clone());
@@ -111,25 +102,17 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		true
 	}
 
-	pub(super) fn try_build_single_voxel_batch(&mut self, min: IVec3, max: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
-		let span = (max - min).max_element() as i64 + 1;
-		let mut depth = 0u8;
-		while (size(depth) as i64) < span {
-			if depth >= Co::MAX_ROOT_DEPTH {
-				return false;
-			}
-			depth += 1;
-		}
+	pub(super) fn build_single_voxel_batch(&mut self, min: IVec3, max: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
+		let Some((root_pos, depth)) = Self::canonical_root_for_bounds(min, max) else {
+			return false;
+		};
 
-		self.nodes = vec![GridTreeNode::new_root()];
-		self.root_pos = min;
-		self.root_depth = depth;
-		self.item_count = 0;
-		self.dead_nodes = 0;
+		self.reset_empty_root(root_pos, depth);
 		if depth <= 2 {
-			return self.build_single_voxel_depth2_or_less(depth, min, ops);
+			return self.build_single_voxel_depth2_or_less(depth, root_pos, ops);
 		}
-		self.build_single_voxel_node(0, depth, min, ops)
+		self.build_single_voxel_node(0, depth, min, ops);
+		true
 	}
 
 	pub(super) fn build_single_voxel_depth2_or_less(&mut self, depth: u8, origin: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
@@ -168,10 +151,10 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 					}
 					let child_index = self.nodes.len() as u32;
 					let offset = child_index;
-					if offset > C::MAX_NODE_OFFSET {
+					if child_index > C::MAX_NODE_OFFSET {
 						return false;
 					}
-					self.nodes[0].contents[i] = C::node(offset);
+					self.nodes[0].contents[i] = C::node(child_index);
 					self.nodes[0].used_cell_count += 1;
 					leaves[i].parent_offset = offset as u16;
 					self.nodes.push(leaves[i].clone());
@@ -203,13 +186,12 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 						continue;
 					}
 					let mid_index = self.nodes.len() as u32;
-					let root_offset = mid_index;
-					if root_offset > C::MAX_NODE_OFFSET {
+					if mid_index > C::MAX_NODE_OFFSET {
 						return false;
 					}
-					self.nodes[0].contents[root_i] = C::node(root_offset);
+					self.nodes[0].contents[root_i] = C::node(mid_index);
 					self.nodes[0].used_cell_count += 1;
-					self.nodes.push(GridTreeNode::new(root_offset as u16));
+					self.nodes.push(GridTreeNode::new(mid_index as u16));
 					for mid_i in 0..SIZE_USIZE_CUBED {
 						let leaf_key = root_i * SIZE_USIZE_CUBED + mid_i;
 						if leaves[leaf_key].used_cell_count == 0 {
@@ -217,10 +199,10 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 						}
 						let leaf_index = self.nodes.len() as u32;
 						let leaf_offset = leaf_index - mid_index;
-						if leaf_offset > C::MAX_NODE_OFFSET {
+						if leaf_index > C::MAX_NODE_OFFSET {
 							return false;
 						}
-						self.nodes[mid_index as usize].contents[mid_i] = C::node(leaf_offset);
+						self.nodes[mid_index as usize].contents[mid_i] = C::node(leaf_index);
 						self.nodes[mid_index as usize].used_cell_count += 1;
 						leaves[leaf_key].parent_offset = leaf_offset as u16;
 						self.nodes.push(leaves[leaf_key].clone());
@@ -232,7 +214,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		}
 	}
 
-	pub(super) fn build_single_voxel_node(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
+	pub(super) fn build_single_voxel_node(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, ops: &[AreaOp<C::Data>]) {
 		let cell_size = child_size(node_depth) as i32;
 		let mut child_ops: [Vec<AreaOp<C::Data>>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
 		for op in ops {
@@ -250,7 +232,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 				node.used_cell_count += 1;
 				self.item_count += 1;
 			}
-			return true;
+			return;
 		}
 
 		let mut uniform_children = 0u8;
@@ -280,15 +262,11 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 
 			let child_index = self.nodes.len() as u32;
 			let offset = child_index - node_index;
-			if offset == 0 || offset > C::MAX_NODE_OFFSET {
-				return false;
-			}
-			self.nodes[node_index as usize].contents[i as usize] = C::node(offset);
+			debug_assert!(child_index <= C::MAX_NODE_OFFSET);
+			self.nodes[node_index as usize].contents[i as usize] = C::node(child_index);
 			self.nodes[node_index as usize].used_cell_count += 1;
 			self.nodes.push(GridTreeNode::new(offset as u16));
-			if !self.build_single_voxel_node(child_index, node_depth - 1, child_origin, bucket) {
-				return false;
-			}
+			self.build_single_voxel_node(child_index, node_depth - 1, child_origin, bucket);
 		}
 
 		if self.nodes[node_index as usize].used_cell_count == SIZE_CUBED {
@@ -299,7 +277,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 				let _ = (uniform_children, uniform_value);
 			}
 		}
-		true
 	}
 
 }

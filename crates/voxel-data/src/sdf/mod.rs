@@ -20,9 +20,12 @@ pub fn voxel_center(pos: IVec3) -> Vec3 {
 }
 
 pub fn voxel_region_from_bounds(min: Vec3, max: Vec3) -> Option<GridRegion> {
-	let voxel_min = (min - Vec3::splat(0.5)).floor().as_ivec3();
-	let voxel_max = (max + Vec3::splat(0.5)).ceil().as_ivec3() - IVec3::ONE;
-	GridRegion::from_min_max_inclusive(voxel_min, voxel_max)
+	if !min.cmplt(max).all() {
+		return None;
+	}
+	let voxel_min = min.floor().as_ivec3();
+	let voxel_end = max.ceil().as_ivec3();
+	GridRegion::new(voxel_min, voxel_end)
 }
 
 pub fn shrink_aabb_with_sdf(

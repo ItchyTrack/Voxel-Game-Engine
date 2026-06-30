@@ -12,9 +12,9 @@ use voxel_streaming::{GridStreaming, RequestChunkPresence};
 use voxel_content::{SdfSource, SdfSourceOptions, VoxelSdf};
 
 const POWER: f32 = 8.0;
-const ITERATIONS: u32 = 16;
+const ITERATIONS: u32 = 8;
 const BAILOUT: f32 = 8.0;
-const SCALE: f32 = 420.0;
+const SCALE: f32 = 480.0;
 /// Grid-local presence radius in voxels. Keep this tied to SCALE so making the
 /// Mandelbulb larger also expands the claimed chunk-presence area.
 const BOUNDS_RADIUS: f32 = SCALE * 1.75;
@@ -80,24 +80,10 @@ impl VoxelSdf for MandelbulbSdf {
 	}
 }
 
-#[derive(Resource, Clone)]
-pub struct MandelbulbSource(pub SdfSource);
-
-pub struct MandelbulbSourcePlugin;
-
-impl Plugin for MandelbulbSourcePlugin {
-	fn build(&self, app: &mut App) {
-		let source = SdfSource::new();
-		app.insert_resource(MandelbulbSource(source.clone()));
-		app.register_source(source);
-		app.add_systems(Startup, spawn_mandelbulb_grid);
-	}
-}
-
-fn spawn_mandelbulb_grid(mut commands: Commands, source: Res<MandelbulbSource>) {
+pub fn spawn_mandelbulb_grid(mut commands: Commands, source: Res<SdfSource>) {
 	let entity = commands
 		.spawn((
-			Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+			Transform::from_translation(Vec3::new(0.0, 0.0, -1000.0)),
 			Grid::new(),
 			GridEdits::default(),
 			GridStreaming::default(),
@@ -105,15 +91,8 @@ fn spawn_mandelbulb_grid(mut commands: Commands, source: Res<MandelbulbSource>) 
 			ReplicateVoxels,
 		))
 		.id();
-	source.0.set_grid_sdf_with_options(entity, MandelbulbSdf, SdfSourceOptions {
+	source.set_grid_sdf_with_options(entity, MandelbulbSdf, SdfSourceOptions {
 		cost: COST,
-		chunk_size: 64,
-		cache_capacity: 256,
-		// Include cells whose centers are just outside the DE surface so thin
-		// fractal features survive at coarse LODs instead of popping away.
 		sample_radius_scale: 1.0,
-		// The Mandelbulb DE is expensive; recursively reject definitely-empty
-		// blocks before sampling every voxel in them.
-		empty_pruning: true,
 	});
 }

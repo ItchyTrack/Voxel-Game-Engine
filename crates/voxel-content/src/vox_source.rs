@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use bevy::math::{I16Vec3, IVec3, Quat, Vec3};
+use bevy::ecs::resource::Resource;
+use bevy::math::{IVec3, Quat, U16Vec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{Voxel, Voxels};
@@ -13,7 +14,7 @@ use crate::lod_downsample::downsample_region;
 
 const COST: u32 = 10;
 
-#[derive(Clone)]
+#[derive(Resource, Clone)]
 pub struct VoxFileSource {
 	inner: Arc<VoxFileSourceInner>,
 }
@@ -84,7 +85,7 @@ impl VoxFileSource {
 			flip: IVec3,
 		}
 
-		let mut chunk_points: HashMap<IVec3, Vec<(I16Vec3, Voxel)>> = HashMap::new();
+		let mut chunk_points: HashMap<IVec3, Vec<(U16Vec3, Voxel)>> = HashMap::new();
 		let mut current_chunk: Option<IVec3> = None;
 		let mut current_points = Vec::new();
 		let mut touched_bounds: Option<(IVec3, IVec3)> = None;
@@ -95,9 +96,9 @@ impl VoxFileSource {
 		})];
 		while let Some((scene_id, pose)) = stack.pop() {
 			let flush_current_chunk = |
-				chunk_points: &mut HashMap<IVec3, Vec<(I16Vec3, Voxel)>>,
+				chunk_points: &mut HashMap<IVec3, Vec<(U16Vec3, Voxel)>>,
 				current_chunk: &mut Option<IVec3>,
-				current_points: &mut Vec<(I16Vec3, Voxel)>
+				current_points: &mut Vec<(U16Vec3, Voxel)>
 			| {
 				if let Some(chunk) = current_chunk.take() {
 					chunk_points.insert(chunk, std::mem::take(current_points));
@@ -144,7 +145,7 @@ impl VoxFileSource {
 								current_chunk = Some(chunk);
 								current_points = chunk_points.remove(&chunk).unwrap_or_default();
 							}
-							let local = source_pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_i16vec3();
+							let local = source_pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_u16vec3();
 							let palette = dot_vox_data.palette[voxel.i as usize];
 							current_points.push((local, Voxel {
 								color: [palette.r, palette.g, palette.b, palette.a],
@@ -203,7 +204,7 @@ impl VoxFileSource {
 							if grid_voxel.cmplt(grid_chunk_origin).any() || grid_voxel.cmpge(grid_chunk_origin + IVec3::splat(CHUNK_SIZE)).any() {
 								continue;
 							}
-							points.push(((grid_voxel - grid_chunk_origin).as_i16vec3(), voxel));
+							points.push(((grid_voxel - grid_chunk_origin).as_u16vec3(), voxel));
 						}}}
 					}
 				}
@@ -283,4 +284,53 @@ impl ChunkSource for VoxFileSource {
 
 pub fn vox_file_source() -> VoxFileSource {
 	VoxFileSource::new()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn church_path() -> PathBuf {
+		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../res/Church_Of_St_Sophia.vox")
+	}
+
+	#[test]
+	fn zero_offset_translation_preserves_source_chunk_positions_for_church() {
+		let source = VoxFileSource::new();
+		let path = church_path();
+		source.ensure_file_loaded(&path);
+		let binding = GridBinding { path: path.clone(), offset: IVec3::ZERO };
+		let files = source.inner.files.read().unwrap();
+		let cache = files.get(&path).expect("church cache");
+		let sample_chunks: Vec<_> = cache.chunks.keys().copied().take(8).collect();
+		drop(files);
+
+		for chunk in sample_chunks {
+			let raw = source.source_chunk(&path, chunk).expect("raw chunk");
+			let translated = source.translated_chunk(&binding, chunk).expect("translated chunk");
+			let raw_voxels: std::collections::HashMap<_, _> = raw
+				.grid_tree()
+				.iter()
+				.map(|(pos, _size, id)| (pos, *raw.palette().voxel(id).expect("raw palette")))
+				.collect();
+			let translated_voxels: std::collections::HashMap<_, _> = translated
+				.grid_tree()
+				.iter()
+				.map(|(pos, _size, id)| (pos, *translated.palette().voxel(id).expect("translated palette")))
+				.collect();
+			assert_eq!(raw_voxels, translated_voxels, "chunk {chunk:?} changed under zero-offset translation");
+		}
+	}
+
+	#[test]
+	fn zero_offset_available_area_matches_source_chunk_bounds_for_church() {
+		let source = VoxFileSource::new();
+		let path = church_path();
+		source.ensure_file_loaded(&path);
+		let binding = GridBinding { path: path.clone(), offset: IVec3::ZERO };
+		let files = source.inner.files.read().unwrap();
+		let area = files.get(&path).and_then(|cache| cache.available_area).expect("church area");
+		drop(files);
+		assert_eq!(source.translated_available_area(&binding), Some(area));
+	}
 }

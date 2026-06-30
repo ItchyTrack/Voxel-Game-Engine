@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bevy::math::{I16Vec3, IVec3};
+use bevy::math::{IVec3, U16Vec3};
 
 use voxel_data::voxels::{Voxel, Voxels};
 use voxel_sources::VoxelLodGenerator;
@@ -73,7 +73,7 @@ pub fn downsample_region(
 		if accum.weight <= 0.0 { continue; }
 		let average: [f64; 4] = std::array::from_fn(|channel| accum.color[channel] / accum.weight);
 		out.add_voxel(
-			I16Vec3::new(coarse_pos.x as i16, coarse_pos.y as i16, coarse_pos.z as i16),
+			U16Vec3::new(coarse_pos.x as u16, coarse_pos.y as u16, coarse_pos.z as u16),
 			quantized_lod_voxel(average),
 		);
 	}
@@ -126,7 +126,7 @@ pub fn downsample_voxels(src: &Voxels, lod: f32) -> Voxels {
 		if accum.weight <= 0.0 { continue; }
 		let average: [f64; 4] = std::array::from_fn(|channel| accum.color[channel] / accum.weight);
 		out.add_voxel(
-			I16Vec3::new(coarse_pos.x as i16, coarse_pos.y as i16, coarse_pos.z as i16),
+			U16Vec3::new(coarse_pos.x as u16, coarse_pos.y as u16, coarse_pos.z as u16),
 			quantized_lod_voxel(average),
 		);
 	}

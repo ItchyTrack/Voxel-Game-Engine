@@ -238,7 +238,7 @@ fn merge_voxels(parts: Vec<Voxels>) -> Voxels {
 		let areas: Vec<_> = voxels
 			.grid_tree()
 			.iter()
-			.map(|(pos, size, id)| (pos, bevy::math::I16Vec3::splat(size as i16), id))
+			.map(|(pos, size, id)| (pos, bevy::math::U16Vec3::splat(size), id))
 			.collect();
 		merged.add_palette_areas(&areas, voxels.palette());
 	}

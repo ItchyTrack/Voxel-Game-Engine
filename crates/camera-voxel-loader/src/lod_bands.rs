@@ -112,7 +112,6 @@ fn emit_box<F: FnMut(u8, IVec3, bool)>(b: Box3, lod: u8, size: i32, added: bool,
 	streaming.presence().for_each_occupied_tile_cover(
 		b.min,
 		b.max - IVec3::ONE,
-		b.min,
 		size,
 		|tile_min| f(lod, tile_min, added)
 	);
