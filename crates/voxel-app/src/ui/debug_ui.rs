@@ -3,13 +3,14 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use camera_voxel_loader::FreezeCameraVoxelLoader;
-use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_data::task_queue::AsyncTaskPriorityQueueResource;
 use voxel_physics::{
 	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
 };
-use voxel_renderer::graphics_settings::GraphicsSettings;
-use voxel_renderer::hit_count_feedback::RenderStats;
+use voxel_engine::VoxelCameraMode;
+use voxel_gpu::world_gpu_data::WorldGpuData;
+use voxel_ray_renderer::graphics_settings::GraphicsSettings;
+use voxel_ray_renderer::hit_count_feedback::RenderStats;
 use voxel_streaming::{ChunkState, GridStreaming, VoxelSourceRequests, CHUNK_SIZE};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
@@ -61,6 +62,7 @@ fn debug_window(
 	mut inertia_boxes: ResMut<InertiaBoxes>,
 	mut constraint_debug_render: ResMut<ConstraintDebugRender>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
+	mut camera_modes: Query<&mut VoxelCameraMode, With<Camera3d>>,
 	_requests: VoxelSourceRequests,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) -> Result {
@@ -71,13 +73,14 @@ fn debug_window(
 		.and_then(|d| d.smoothed())
 		.unwrap_or(0.0);
 
-	let (tree_kb, voxel_kb) = world_gpu_data
+	let (tree_kb, voxel_kb, raster_kb) = world_gpu_data
 		.as_ref()
 		.map(|w| (
 			w.packed_64_tree_dynamic_buffer.held_bytes() / 1000,
 			w.packed_voxel_data_dynamic_buffer.held_bytes() / 1000,
+			w.packed_raster_face_dynamic_buffer.held_bytes() / 1000,
 		))
-		.unwrap_or((0, 0));
+		.unwrap_or((0, 0, 0));
 
 	let (bvh_kb, bvh_leaf_kb) = render_stats
 		.inner
@@ -86,6 +89,7 @@ fn debug_window(
 		.unwrap_or((0, 0));
 
 	let async_queue_len = async_task_priority_queue.len();
+	let mut camera_mode = camera_modes.iter_mut().next().map(|mode| *mode).unwrap_or_default();
 
 	egui::Window::new("Debug")
 		.default_pos([0.0, 0.0])
@@ -95,6 +99,7 @@ fn debug_window(
 			ui.separator();
 			ui.label(format!("64 tree bytes: {}KB", tree_kb));
 			ui.label(format!("Voxel bytes: {}KB", voxel_kb));
+			ui.label(format!("Raster face bytes: {}KB", raster_kb));
 			ui.label(format!("BVH bytes: {}KB", bvh_kb));
 			ui.label(format!("BVH leaf bytes: {}KB", bvh_leaf_kb));
 			ui.separator();
@@ -103,6 +108,11 @@ fn debug_window(
 			ui.separator();
 			ui.label("Graphics");
 			ui.checkbox(&mut graphics_settings.shadows, "shadows");
+			ui.horizontal(|ui| {
+				ui.label("camera renderer");
+				ui.selectable_value(&mut camera_mode, VoxelCameraMode::Ray, "ray");
+				ui.selectable_value(&mut camera_mode, VoxelCameraMode::Raster, "raster");
+			});
 			ui.separator();
 			ui.label("Debug");
 			ui.checkbox(&mut freeze_camera_voxel_loader.0, "freeze camera voxel loader");
@@ -111,6 +121,10 @@ fn debug_window(
 			ui.checkbox(&mut constraint_debug_render.0, "constraints");
 			ui.checkbox(&mut chunk_presence_boxes.0, "chunk presence");
 		});
+
+	if let Some(mut mode) = camera_modes.iter_mut().next() {
+		*mode = camera_mode;
+	}
 
 	Ok(())
 }

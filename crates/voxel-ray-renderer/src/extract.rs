@@ -10,8 +10,8 @@ use bevy::transform::components::{GlobalTransform, Transform};
 
 use voxel_gpu::lod_voxels::LodVoxels;
 use voxel_gpu::residency::ResidencyBuffers;
-use voxel_gpu::sub_grid_gpu_state::SubGridGpuState;
 use voxel_gpu::world_gpu_data::WorldGpuData;
+use voxel_gpu::VoxelGpuState;
 use voxel_data::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
 
@@ -46,8 +46,8 @@ pub fn extract_voxel_scene(
 	mut residency: ResMut<ResidencyBuffers>,
 	hit_feedback: Res<HitCountFeedback>,
 	cameras: Extract<Query<(&VoxelCamera, &Camera, &Projection, &GlobalTransform)>>,
-	sub_grids: Extract<Query<(&SubGrid, &SubGridGpuState)>>,
-	lod_voxels: Extract<Query<(&LodVoxels, &SubGridGpuState, &GlobalTransform)>>,
+	sub_grids: Extract<Query<(&SubGrid, &VoxelGpuState)>>,
+	lod_voxels: Extract<Query<(&LodVoxels, &VoxelGpuState, &GlobalTransform)>>,
 	grid_transforms: Extract<Query<&GlobalTransform>>,
 	world_gpu: Extract<Res<WorldGpuData>>,
 ) {
@@ -64,7 +64,8 @@ pub fn extract_voxel_scene(
 		extracted.has_camera = true;
 
 		for entity in voxel_camera.subgrids_to_render.iter() {
-			let Ok((sub_grid, sub_grid_gpu_state)) = sub_grids.get(*entity) else { continue; };
+			let Ok((sub_grid, gpu_state)) = sub_grids.get(*entity) else { continue; };
+			let Some(sub_grid_gpu_state) = gpu_state.ray else { continue; };
 			let Ok(grid_global) = grid_transforms.get(sub_grid.grid()) else { continue; };
 			let sub_world = grid_global.compute_transform() * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
 			let placement = sub_grid_gpu_state.placement();
@@ -83,7 +84,8 @@ pub fn extract_voxel_scene(
 		}
 
 		for entity in voxel_camera.lods_to_render.iter() {
-			let Ok((lod_grid, lod_grid_gpu_state, lod_global)) = lod_voxels.get(*entity) else { continue; };
+			let Ok((lod_grid, gpu_state, lod_global)) = lod_voxels.get(*entity) else { continue; };
+			let Some(lod_grid_gpu_state) = gpu_state.ray else { continue; };
 			let scale = (1u32 << lod_grid.lod.max(0.0).floor() as u32) as f32;
 			let area_world = lod_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
 			let placement = lod_grid_gpu_state.placement();

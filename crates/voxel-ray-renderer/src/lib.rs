@@ -28,9 +28,9 @@ use graphics_settings::GraphicsSettings;
 use hit_count_feedback::{HitCountFeedback, LastGpuBvh, RenderStats};
 
 #[derive(Default)]
-pub struct VoxelRendererPlugin;
+pub struct VoxelRayRendererPlugin;
 
-impl Plugin for VoxelRendererPlugin {
+impl Plugin for VoxelRayRendererPlugin {
 	fn build(&self, app: &mut App) {
 		if !app.is_plugin_added::<VoxelDataPlugin>() {
 			app.add_plugins(VoxelDataPlugin);

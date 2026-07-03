@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 bevy = { workspace = true }
 camera-voxel-loader = { version = "0.1.0", path = "../camera-voxel-loader" }
-voxel-renderer = { version = "0.1.0", path = "../voxel-renderer" }
+voxel-ray-renderer = { version = "0.1.0", path = "../voxel-ray-renderer" }
+voxel-raster-renderer = { version = "0.1.0", path = "../voxel-raster-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }

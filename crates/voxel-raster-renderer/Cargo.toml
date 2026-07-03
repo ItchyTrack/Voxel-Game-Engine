@@ -1,12 +1,7 @@
 [package]
-name = "voxel-renderer"
+name = "voxel-raster-renderer"
 version = "0.1.0"
 edition = "2024"
-
-[features]
-default = []
-gpu_profiling = []
-shader_hot_reload = ["dep:notify", "dep:wesl"]
 
 [dependencies]
 anyhow = "1.0"
@@ -17,18 +12,10 @@ bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 
-[build-dependencies]
-wesl = { workspace = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-notify = { version = "8", optional = true }
-wesl = { workspace = true, optional = true }
-
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["console"] }
+wgpu = { workspace = true, features = ["webgpu"] }
 getrandom = { workspace = true }
 getrandom_0_3 = { workspace = true }
-wgpu = { workspace = true, features = ["webgpu"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

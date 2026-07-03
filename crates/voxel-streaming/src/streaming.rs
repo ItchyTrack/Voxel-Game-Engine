@@ -570,9 +570,9 @@ pub fn refresh_lod_uploads(
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
 	let mut updates = Vec::new();
-	for event in gpu_events.read().copied() {
+	for entity in gpu_events.read().map(|event| event.entity) {
 		for (grid, mut streaming) in &mut grids {
-			let Some((&key, state)) = streaming.lods.iter_mut().find(|(_, state)| matches!(state.upload, LodUploadState::Uploading { entity, .. } if entity == event.entity)) else { continue };
+			let Some((&key, state)) = streaming.lods.iter_mut().find(|(_, state)| matches!(state.upload, LodUploadState::Uploading { entity: uploading, .. } if uploading == entity)) else { continue };
 			let generation = match state.upload {
 				LodUploadState::Uploading { entity, generation, active } => {
 					if let Some(old) = active {
@@ -585,7 +585,7 @@ pub fn refresh_lod_uploads(
 			};
 			state.status = LodStatus::Loaded;
 			for &requester in state.requesters.keys() {
-				updates.push(LodLoadResult { grid, requester, key, priority: state.requesters[&requester], generation, voxels: None, entity: Some(event.entity) });
+				updates.push(LodLoadResult { grid, requester, key, priority: state.requesters[&requester], generation, voxels: None, entity: Some(entity) });
 			}
 		}
 	}

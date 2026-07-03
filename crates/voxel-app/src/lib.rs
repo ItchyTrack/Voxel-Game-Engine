@@ -31,7 +31,7 @@ use networking::network_client::NetworkClientPlugin;
 use networking::network_server::NetworkServerPlugin;
 use scene::scene::ScenePlugin;
 use scene::skybox::SkyboxPlugin;
-use voxel_engine::{VoxelEngineMode, VoxelEnginePlugins};
+use voxel_engine::{VoxelCameraMode, VoxelEngineMode, VoxelEnginePlugins};
 use voxel_sources::VoxelSourcesAppExt;
 use scene::world_interaction::WorldInteractionPlugin;
 
@@ -209,6 +209,7 @@ fn setup(mut commands: Commands) {
 		Msaa::Off,
 		Transform::from_xyz(0.0, 0.0, 200.0).looking_at(Vec3::ZERO, Vec3::Y),
 		FlyCamera::default(),
+		VoxelCameraMode::Ray,
 	));
 }
 

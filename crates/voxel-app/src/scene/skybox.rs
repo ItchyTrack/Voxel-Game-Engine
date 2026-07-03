@@ -6,8 +6,9 @@ use bevy::render::view::ViewTarget;
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::transform::components::GlobalTransform;
 
-use voxel_renderer::camera::CameraUniform;
-use voxel_renderer::render_node::voxel_render_pass;
+use voxel_raster_renderer::render_node::voxel_raster_render_pass;
+use voxel_ray_renderer::camera::CameraUniform;
+use voxel_ray_renderer::render_node::voxel_render_pass;
 use bevy::render::renderer::WgpuWrapper;
 
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
@@ -29,7 +30,8 @@ impl Plugin for SkyboxPlugin {
 				Core3d,
 				skybox_pass
 					.in_set(Core3dSystems::MainPass)
-					.before(voxel_render_pass),
+					.before(voxel_render_pass)
+					.before(voxel_raster_render_pass),
 			);
 	}
 }

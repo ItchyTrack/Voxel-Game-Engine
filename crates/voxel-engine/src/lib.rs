@@ -1,6 +1,7 @@
 mod client_rendering;
 
 use bevy::app::{PluginGroup, PluginGroupBuilder};
+use bevy::prelude::*;
 use voxel_data::VoxelDataPlugin;
 use voxel_edit::VoxelEditPlugin;
 use voxel_gpu::GpuVoxelDataPlugin;
@@ -16,6 +17,13 @@ pub enum VoxelEngineMode {
 	Server,
 	Client,
 	Host,
+}
+
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+pub enum VoxelCameraMode {
+	#[default]
+	Ray,
+	Raster,
 }
 
 pub struct VoxelEnginePlugins {
