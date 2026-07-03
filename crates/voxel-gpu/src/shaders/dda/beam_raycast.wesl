@@ -3,6 +3,28 @@ import package::dda::data::{
 	dda_get_child_contents_index, dda_node_byte_off, dda_node_entry, dda_node_size,
 	dda_nodes_base, dda_parent_offset, dda_u32,
 };
+import package::helpers::raycast::{ ray_aabb };
+
+fn beam_conservative_cell_hit_distance(
+	origin: vec3<f32>,
+	inv_dir: vec3<f32>,
+	beam_radius_local: f32,
+	hit_distance: f32,
+	root_relative_grid_pos: vec3<u32>,
+	current_relative_pos: vec3<u32>,
+	child_cell_size: u32,
+) -> f32 {
+	let child_cell_min_u32 = root_relative_grid_pos - (current_relative_pos & vec3<u32>(child_cell_size - 1u));
+	let child_cell_min = vec3<f32>(child_cell_min_u32);
+	let child_cell_max = child_cell_min + vec3<f32>(f32(child_cell_size));
+	let conservative_hit = ray_aabb(
+		origin,
+		inv_dir,
+		child_cell_min - vec3<f32>(beam_radius_local),
+		child_cell_max + vec3<f32>(beam_radius_local),
+	);
+	return max(0.0, min(hit_distance, conservative_hit.x));
+}
 
 fn beam_dda_raycast(
 	origin:     vec3<f32>,
@@ -21,7 +43,8 @@ fn beam_dda_raycast(
 	let inv_dir = vec3<f32>(1.0) / dir;
 	let distance_to_min_planes = (root_min - origin) * inv_dir;
 	let distance_to_max_planes = (root_max - origin) * inv_dir;
-	let entry_distance = max(max(min(distance_to_min_planes.x, distance_to_max_planes.x), min(distance_to_min_planes.y, distance_to_max_planes.y)), min(distance_to_min_planes.z, distance_to_max_planes.z));
+	let near_distances = min(distance_to_min_planes, distance_to_max_planes);
+	let entry_distance = max(max(near_distances.x, near_distances.y), near_distances.z);
 	let exit_distance = min(min(max(distance_to_min_planes.x, distance_to_max_planes.x), max(distance_to_min_planes.y, distance_to_max_planes.y)), max(distance_to_min_planes.z, distance_to_max_planes.z));
 	if entry_distance > exit_distance || exit_distance < 0.0 { return 1e38; }
 	let distance_to_aabb = max(entry_distance, 0.0);
@@ -75,11 +98,7 @@ fn beam_dda_raycast(
 		+ vec3<f32>(starting_distance, starting_distance, starting_distance);
 	var root_relative_grid_pos = vec3<u32>(vec3<i32>(root_relative_post_aabb_origin));
 
-	var last_step_axis: u32;
-	let pre_shift_delta = abs(post_aabb_origin_pre_shift - post_aabb_origin);
-	if pre_shift_delta.x >= pre_shift_delta.y && pre_shift_delta.x >= pre_shift_delta.z { last_step_axis = 0u; }
-	else if pre_shift_delta.y >= pre_shift_delta.z                                      { last_step_axis = 1u; }
-	else                                                                                { last_step_axis = 2u; }
+	var current_cell_entry_distance = starting_distance;
 
 	if max_length_reduced < starting_distance { return 1e38; }
 
@@ -94,7 +113,23 @@ fn beam_dda_raycast(
 
 	loop {
 		let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
-		let contents_pos = current_relative_pos / vec3<u32>(node_size >> DDA_LOG_SIZE);
+		let child_cell_size = node_size >> DDA_LOG_SIZE;
+		let hit_distance = current_cell_entry_distance;
+		let beam_radius_local = (beam_start_distance + hit_distance * item_scale) * beam_expand_k / max(item_scale, 1e-6);
+		let beam_diameter_local = beam_radius_local * 2.0;
+		if beam_diameter_local >= f32(child_cell_size) {
+			return beam_conservative_cell_hit_distance(
+				origin,
+				inv_dir,
+				beam_radius_local,
+				hit_distance,
+				root_relative_grid_pos,
+				current_relative_pos,
+				child_cell_size,
+			);
+		}
+
+		let contents_pos = current_relative_pos / vec3<u32>(child_cell_size);
 		let cell_index = dda_get_child_contents_index(contents_pos);
 
 		if !dda_bitmap_has(bitmap_low_bits, bitmap_high_bits, bitmap_status, cell_index) {
@@ -118,8 +153,9 @@ fn beam_dda_raycast(
 				));
 			}
 
-			last_step_axis = select(select(2u, 1u, axis_hit_distances.y <= axis_hit_distances.z), 0u, axis_hit_distances.x <= axis_hit_distances.y && axis_hit_distances.x <= axis_hit_distances.z);
+			var last_step_axis = select(select(2u, 1u, axis_hit_distances.y <= axis_hit_distances.z), 0u, axis_hit_distances.x <= axis_hit_distances.y && axis_hit_distances.x <= axis_hit_distances.z);
 			if max_length_reduced < axis_hit_distances[last_step_axis] { return 1e38; }
+			current_cell_entry_distance = axis_hit_distances[last_step_axis];
 			axis_hit_distances[last_step_axis] += axis_step_distances[last_step_axis];
 
 			let next_pos_signed = i32(root_relative_grid_pos[last_step_axis]) + (i32((step_mask & (1u << last_step_axis)) != 0u) * 2 - 1);
@@ -141,17 +177,20 @@ fn beam_dda_raycast(
 			root_relative_grid_pos[last_step_axis] = u32(next_pos_signed);
 		} else {
 			let data_index = dda_data_index(bitmap_low_bits, bitmap_high_bits, bitmap_status, cell_index);
-			let hit_distance = axis_hit_distances[last_step_axis] - axis_step_distances[last_step_axis];
-			let child_cell_size = node_size >> DDA_LOG_SIZE;
-			let beam_radius_local = (beam_start_distance + hit_distance * item_scale) * beam_expand_k / max(item_scale, 1e-6);
-			let beam_diameter_local = beam_radius_local * 2.0;
-
-			if node_size == 4u { return hit_distance; }
+			let conservative_hit_distance = beam_conservative_cell_hit_distance(
+				origin,
+				inv_dir,
+				beam_radius_local,
+				hit_distance,
+				root_relative_grid_pos,
+				current_relative_pos,
+				child_cell_size,
+			);
+			if node_size == 4u { return conservative_hit_distance; }
 
 			let entry_value = dda_node_entry(node_byte_offset, bitmap_status, data_index, node_size);
-			if beam_diameter_local >= f32(child_cell_size) { return hit_distance; }
 			if entry_value == 0u {
-				return hit_distance;
+				return conservative_hit_distance;
 			} else {
 				node_byte_offset += entry_value * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;

@@ -4,6 +4,62 @@ import package::dda::data::{
 	dda_nodes_base, dda_parent_offset, dda_u32, dda_voxel_data_offset,
 };
 
+fn dda_initial_hit_normal(
+	start_pos: vec3<f32>,
+	dir: vec3<f32>,
+	step: u32,
+	cell_min_u32: vec3<u32>,
+	cell_size: u32,
+) -> u32 {
+	let cell_min = vec3<f32>(cell_min_u32);
+	let cell_max = cell_min + vec3<f32>(f32(cell_size));
+	let back_distances = vec3<f32>(
+		select(1e38, (start_pos.x - cell_min.x) / dir.x, dir.x > 0.0),
+		select(1e38, (start_pos.y - cell_min.y) / dir.y, dir.y > 0.0),
+		select(1e38, (start_pos.z - cell_min.z) / dir.z, dir.z > 0.0),
+	);
+	let back_distances_neg = vec3<f32>(
+		select((cell_max.x - start_pos.x) / -dir.x, back_distances.x, dir.x > 0.0),
+		select((cell_max.y - start_pos.y) / -dir.y, back_distances.y, dir.y > 0.0),
+		select((cell_max.z - start_pos.z) / -dir.z, back_distances.z, dir.z > 0.0),
+	);
+	let clamped_back_distances = max(back_distances_neg, vec3<f32>(0.0));
+	let entry_axis = select(
+		select(2u, 1u, clamped_back_distances.y <= clamped_back_distances.z),
+		0u,
+		clamped_back_distances.x <= clamped_back_distances.y && clamped_back_distances.x <= clamped_back_distances.z,
+	);
+	return step + (entry_axis << 3u) + (1u << 10u);
+}
+
+fn dda_make_hit(
+	start_pos: vec3<f32>,
+	dir: vec3<f32>,
+	step: u32,
+	last_step_axis: u32,
+	axis_distances: vec3<f32>,
+	delta: vec3<f32>,
+	root_relative_grid_pos: vec3<u32>,
+	node_size: u32,
+	voxel_data_index: u32,
+	voxel_index: u32,
+) -> DDAHit {
+	var hit_result: DDAHit;
+	let hit_dist = axis_distances[last_step_axis] - delta[last_step_axis];
+	if hit_dist < 0.0 {
+		let cell_size = node_size >> DDA_LOG_SIZE;
+		let cell_min = root_relative_grid_pos - (root_relative_grid_pos & vec3<u32>(cell_size - 1u));
+		hit_result.normal = dda_initial_hit_normal(start_pos, dir, step, cell_min, cell_size);
+		hit_result.dist = 0.0;
+	} else {
+		hit_result.normal = step + (last_step_axis << 3u) + (1u << 10u);
+		hit_result.dist = hit_dist;
+	}
+	hit_result.voxel_data_index = voxel_data_index;
+	hit_result.voxel_index = voxel_index;
+	return hit_result;
+}
+
 fn dda_raycast(
 	origin:     vec3<f32>,
 	dir:        vec3<f32>,
@@ -170,22 +226,34 @@ fn dda_raycast(
 		} else {
 			let data_idx = dda_data_index(bitmap_low, bitmap_high, bitmap_status, cell_index);
 			if node_size == 4u {
-				var hit_result: DDAHit;
-				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10);
-				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
-				hit_result.voxel_index = data_idx;
-				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
-				return hit_result;
+				return dda_make_hit(
+					post_aabb_origin_clamped,
+					dir,
+					step,
+					last_step_axis,
+					axis_distances,
+					delta,
+					root_relative_grid_pos,
+					node_size,
+					dda_voxel_data_offset(node_byte_off),
+					data_idx,
+				);
 			}
 
 			let entry_val = dda_node_entry(node_byte_off, bitmap_status, data_idx, node_size);
 			if entry_val == 0u {
-				var hit_result: DDAHit;
-				hit_result.normal = step + (last_step_axis << 3u) + (1 << 10);
-				hit_result.voxel_data_index = dda_voxel_data_offset(node_byte_off);
-				hit_result.voxel_index = data_idx;
-				hit_result.dist = axis_distances[last_step_axis] - delta[last_step_axis];
-				return hit_result;
+				return dda_make_hit(
+					post_aabb_origin_clamped,
+					dir,
+					step,
+					last_step_axis,
+					axis_distances,
+					delta,
+					root_relative_grid_pos,
+					node_size,
+					dda_voxel_data_offset(node_byte_off),
+					data_idx,
+				);
 			} else {
 				node_byte_off += entry_val * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;
