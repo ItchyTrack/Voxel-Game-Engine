@@ -8,6 +8,11 @@ pub mod voxel_renderer_resource;
 
 mod extract;
 pub mod render_node;
+#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+mod shader_common;
+#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+mod shader_hot_reload;
+mod shader_sources;
 
 use bevy::app::{App, Plugin};
 use bevy::core_pipeline::core_3d::main_opaque_pass_3d;

@@ -13,8 +13,26 @@ type GpuRenderPipeline = WgpuWrapper<wgpu::RenderPipeline>;
 type GpuTexture = WgpuWrapper<wgpu::Texture>;
 
 use crate::gpu_bvh::GpuBvh;
+use crate::shader_sources::VoxelShaderSources;
 
 pub const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
+
+impl VoxelShaderSources {
+	pub fn embedded() -> Self {
+		Self {
+			beam: include_str!(concat!(env!("OUT_DIR"), "/beam.wgsl")).to_string(),
+			raycasting: include_str!(concat!(env!("OUT_DIR"), "/raycasting.wgsl")).to_string(),
+			coloring: include_str!(concat!(env!("OUT_DIR"), "/coloring_shader.wgsl")).to_string(),
+		}
+	}
+
+	#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+	pub fn load_from_disk() -> crate::shader_sources::ShaderSourceResult<Self> {
+		let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+		let [local_shader_dir, shared_shader_dir] = crate::shader_common::voxel_shader_watch_roots(manifest_dir);
+		crate::shader_sources::compile_voxel_shader_sources(&local_shader_dir, &shared_shader_dir)
+	}
+}
 
 pub struct VoxelRenderer {
 	pub color_format: wgpu::TextureFormat,
@@ -64,6 +82,7 @@ impl VoxelRenderer {
 		height: u32,
 		color_format: wgpu::TextureFormat,
 		camera_bind_group_layout: &GpuBindGroupLayout,
+		shader_sources: &VoxelShaderSources,
 	) -> anyhow::Result<Self> {
 		struct Cfg { width: u32, height: u32 }
 		let config = Cfg { width, height };
@@ -220,7 +239,7 @@ impl VoxelRenderer {
 		let bvh_beam_pipeline = {
 			let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("Beam Shader"),
-				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/beam.wgsl")).into()),
+				source: wgpu::ShaderSource::Wgsl(shader_sources.beam.clone().into()),
 			});
 			let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Beam Pipeline Layout"),
@@ -244,7 +263,7 @@ impl VoxelRenderer {
 		let ray_marching_pipeline = {
 			let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("Ray Casting Shader"),
-				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/raycasting.wgsl")).into()),
+				source: wgpu::ShaderSource::Wgsl(shader_sources.raycasting.clone().into()),
 			});
 			let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Ray Casting Pipeline Layout"),
@@ -270,7 +289,7 @@ impl VoxelRenderer {
 		let coloring_pipeline = {
 			let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("Coloring Shader"),
-				source: wgpu::ShaderSource::Wgsl(include_str!(concat!(env!("OUT_DIR"), "/coloring_shader.wgsl")).into()),
+				source: wgpu::ShaderSource::Wgsl(shader_sources.coloring.clone().into()),
 			});
 			let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Coloring Pipeline Layout"),
@@ -329,26 +348,6 @@ impl VoxelRenderer {
 			ray_marching_pipeline,
 			coloring_pipeline,
 		})
-	}
-
-	pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
-		let rebuilt = Self::new(device, width, height, self.color_format, &self.camera_bind_group_layout)
-			.expect("Failed to resize VoxelRenderer");
-		self.bvh_beam_textured = rebuilt.bvh_beam_textured;
-		self.bvh_beam_textured_storage_bind_group_layout = rebuilt.bvh_beam_textured_storage_bind_group_layout;
-		self.bvh_beam_textured_storage_bind_group = rebuilt.bvh_beam_textured_storage_bind_group;
-		self.bvh_beam_textured_read_bind_group_layout = rebuilt.bvh_beam_textured_read_bind_group_layout;
-		self.bvh_beam_textured_read_bind_group = rebuilt.bvh_beam_textured_read_bind_group;
-		self.tree_bind_group_layout = rebuilt.tree_bind_group_layout;
-		self.voxel_bind_group_layout = rebuilt.voxel_bind_group_layout;
-		self.intermediate_textured = rebuilt.intermediate_textured;
-		self.ray_marching_bind_group_layout = rebuilt.ray_marching_bind_group_layout;
-		self.ray_marching_bind_group = rebuilt.ray_marching_bind_group;
-		self.intermediate_textured_read_bind_group_layout = rebuilt.intermediate_textured_read_bind_group_layout;
-		self.intermediate_textured_read_bind_group = rebuilt.intermediate_textured_read_bind_group;
-		self.bvh_beam_pipeline = rebuilt.bvh_beam_pipeline;
-		self.ray_marching_pipeline = rebuilt.ray_marching_pipeline;
-		self.coloring_pipeline = rebuilt.coloring_pipeline;
 	}
 
 	pub fn render(
