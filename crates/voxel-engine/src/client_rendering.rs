@@ -1,6 +1,6 @@
 use bevy::app::{PluginGroup, PluginGroupBuilder};
 use bevy::prelude::*;
-use camera_voxel_loader::{CameraVoxelLoaderPlugin, CameraVoxelRenderState};
+use camera_voxel_loader::{CameraVoxelLoaderPlugin, CameraVoxelLoaderSet, CameraVoxelRenderState};
 use voxel_renderer::{VoxelRendererPlugin, voxel_camera::VoxelCamera};
 
 #[derive(Default)]
@@ -19,7 +19,7 @@ struct ClientRenderingLinkPlugin;
 
 impl Plugin for ClientRenderingLinkPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(Update, ensure_voxel_camera_components);
+		app.add_systems(Update, ensure_voxel_camera_components.after(CameraVoxelLoaderSet::RefreshVisibility));
 	}
 }
 

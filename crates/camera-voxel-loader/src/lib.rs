@@ -42,6 +42,11 @@ fn ensure_camera_voxel_loader_components(
 	}
 }
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CameraVoxelLoaderSet {
+	RefreshVisibility,
+}
+
 #[derive(Default)]
 pub struct CameraVoxelLoaderPlugin;
 
@@ -53,6 +58,6 @@ impl Plugin for CameraVoxelLoaderPlugin {
 			.add_systems(Update, ensure_camera_voxel_loader_components)
 			.add_systems(Update, loading::update_camera_voxel_loader_requests.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0).in_set(StreamingPhase::Request))
 			.add_systems(StreamingSchedule, loading::receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive))
-			.add_systems(Update, loading::refresh_camera_voxel_loader_visibility.after(voxel_gpu::GpuUploadSet::Upload));
+			.add_systems(Update, loading::refresh_camera_voxel_loader_visibility.after(voxel_gpu::GpuUploadSet::Upload).in_set(CameraVoxelLoaderSet::RefreshVisibility));
 	}
 }
