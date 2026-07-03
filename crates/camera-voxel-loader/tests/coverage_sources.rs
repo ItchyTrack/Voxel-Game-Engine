@@ -27,14 +27,14 @@ mod replacement_graph;
 
 mod camera_voxel_loader {
 	use super::*;
-	use crate::coverage::{CoverageRecord, CoverageSource};
+	use crate::coverage::{SourceState, TileKey};
 	use crate::replacement_graph::ReplacementGraph;
 	use crate::types::TileKey;
 
 	#[derive(Default)]
 	pub(crate) struct CameraVoxelLoader {
 		pub(crate) desired_tiles: HashSet<TileKey>,
-		pub(crate) coverage_sources: HashMap<CoverageSource, CoverageRecord>,
+		pub(crate) coverage_sources: HashMap<TileKey, SourceState>,
 		pub(crate) replacement_graph: ReplacementGraph,
 	}
 }

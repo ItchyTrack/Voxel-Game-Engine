@@ -5,7 +5,7 @@ use voxel_gpu::SubGridGpuState;
 use voxel_data::{grid::{Grid, GridId}, subgrid::SubGrid};
 use voxel_streaming::CHUNK_SIZE;
 
-use crate::{camera_voxel_loader::CameraVoxelLoader, coverage::{resolve_empty, resolve_visible, retiring_visible_chunks, CoverageSource}, types::TileKey};
+use crate::{camera_voxel_loader::CameraVoxelLoader, coverage::{resolve_empty, resolve_visible, retiring_visible_chunks}, types::TileKey};
 
 pub(crate) fn chunks_in_bounds(grid: GridId, min: IVec3, max: IVec3) -> Vec<TileKey> {
 	let min = min.div_euclid(IVec3::splat(CHUNK_SIZE));
@@ -17,7 +17,7 @@ pub(crate) fn chunks_in_bounds(grid: GridId, min: IVec3, max: IVec3) -> Vec<Tile
 
 pub(crate) fn resolve_chunk_source_if_ready(
 	loader: &mut CameraVoxelLoader, grids: &Query<&Grid>, subgrids: &Query<&SubGrid>, subgrid_gpu: &Query<&SubGridGpuState, With<SubGrid>>, chunk: TileKey,
-) -> Vec<CoverageSource> {
+) -> Vec<TileKey> {
 	let Ok(grid) = grids.get(chunk.grid) else { return Vec::new() };
 	let mut ready = Vec::new();
 	let mut found = false;

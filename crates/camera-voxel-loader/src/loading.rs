@@ -10,7 +10,7 @@ use voxel_streaming::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, Chu
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::coverage::{
-	remove_source, request_source, resolve_empty, resolve_visible, undesire_source, CoverageSource, SourceResolution,
+	remove_source, request_source, resolve_empty, resolve_visible, undesire_source, SourceResolution,
 	SourceState,
 };
 use crate::lod_policy::{nearest_chunk_center, tile_has_present_source, update_desired_sources_delta};
@@ -127,7 +127,7 @@ fn retire_sources(
 	camera_voxel_loader: &mut CameraVoxelLoader,
 	grids: &mut Query<&mut GridStreaming>,
 	requester: Entity,
-	sources: impl IntoIterator<Item = CoverageSource>,
+	sources: impl IntoIterator<Item = TileKey>,
 ) {
 	for source in sources {
 		remove_source(camera_voxel_loader, source);
@@ -144,7 +144,7 @@ fn retire_sources_from_request_query(
 	camera_voxel_loader: &mut CameraVoxelLoader,
 	grid_streamings: &mut Query<&mut GridStreaming>,
 	requester: Entity,
-	sources: impl IntoIterator<Item = CoverageSource>,
+	sources: impl IntoIterator<Item = TileKey>,
 ) {
 	for source in sources {
 		remove_source(camera_voxel_loader, source);
@@ -165,10 +165,10 @@ fn queue_tile_if_missing(camera_voxel_loader: &mut CameraVoxelLoader, key: TileK
 }
 
 fn tile_coverage_is_desired_empty(camera_voxel_loader: &CameraVoxelLoader, key: TileKey) -> bool {
-	matches!(camera_voxel_loader.coverage_sources.get(&key).map(|record| record.state), Some(SourceState::Desired(SourceResolution::Empty)))
+	matches!(camera_voxel_loader.coverage_sources.get(&key), Some(SourceState::Desired(SourceResolution::Empty)))
 }
 
-fn handle_non_desired_tile(camera_voxel_loader: &mut CameraVoxelLoader, key: TileKey) -> Vec<CoverageSource> {
+fn handle_non_desired_tile(camera_voxel_loader: &mut CameraVoxelLoader, key: TileKey) -> Vec<TileKey> {
 	if key.is_chunk() {
 		return undesire_source(camera_voxel_loader, key);
 	}

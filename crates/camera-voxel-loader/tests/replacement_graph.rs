@@ -6,18 +6,18 @@ mod types {
 	#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 	pub(crate) struct TileKey { pub(crate) grid: GridId, pub(crate) lod: u8, pub(crate) min: IVec3 }
 }
-mod coverage { pub(crate) type CoverageSource = crate::types::TileKey; }
+mod coverage { pub(crate) type TileKey = crate::types::TileKey; }
 #[allow(dead_code)]
 #[path = "../src/replacement_graph.rs"]
 mod replacement_graph;
 
-use coverage::CoverageSource;
+use coverage::TileKey;
 use replacement_graph::{DependencyRecord, ReplacementGraph};
 use types::TileKey;
 
 fn grid() -> Entity { Entity::from_bits(1) }
-fn tile(lod: u8, min: IVec3) -> CoverageSource { TileKey { grid: grid(), lod, min } }
-fn chunk(min: IVec3) -> CoverageSource { tile(0, min) }
+fn tile(lod: u8, min: IVec3) -> TileKey { TileKey { grid: grid(), lod, min } }
+fn chunk(min: IVec3) -> TileKey { tile(0, min) }
 
 #[test]
 fn unresolved_replacements_block_removal_until_all_are_satisfied() {
