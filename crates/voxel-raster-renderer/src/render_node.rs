@@ -35,6 +35,10 @@ pub fn prepare_raster_view_bind_groups(
 		raster_resource.face_bind_group = None;
 		return;
 	};
+	let Some(palette_buffer) = extracted.palette_buffer.as_ref() else {
+		raster_resource.face_bind_group = None;
+		return;
+	};
 
 	let camera_uniform = CameraUniform::from_camera(
 		&extracted.camera_transform,
@@ -47,7 +51,7 @@ pub fn prepare_raster_view_bind_groups(
 	for item in &extracted.items {
 		let start = model_bytes.len();
 		let model = Mat4::from_scale_rotation_translation(item.transform.scale, item.transform.rotation, item.transform.translation);
-		model_bytes.extend_from_slice(bytemuck::bytes_of(&ModelUniform::from_mat4(&model)));
+		model_bytes.extend_from_slice(bytemuck::bytes_of(&ModelUniform::from_mat4(&model, item.palette_offset)));
 		model_bytes.resize(start + raster_resource.model_stride as usize, 0);
 	}
 	if !model_bytes.is_empty() {
@@ -57,14 +61,24 @@ pub fn prepare_raster_view_bind_groups(
 	let face_bind_group_layout = raster_resource.renderer.as_ref().unwrap().face_bind_group_layout.clone();
 	raster_resource.face_bind_group = Some(WgpuWrapper::new(render_device.wgpu_device().create_bind_group(&wgpu::BindGroupDescriptor {
 		layout: &face_bind_group_layout,
-		entries: &[wgpu::BindGroupEntry {
-			binding: 0,
-			resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-				buffer: face_buffer,
-				offset: 0,
-				size: None,
-			}),
-		}],
+		entries: &[
+			wgpu::BindGroupEntry {
+				binding: 0,
+				resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+					buffer: face_buffer,
+					offset: 0,
+					size: None,
+				}),
+			},
+			wgpu::BindGroupEntry {
+				binding: 1,
+				resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+					buffer: palette_buffer,
+					offset: 0,
+					size: None,
+				}),
+			},
+		],
 		label: Some("raster_face_bind_group"),
 	})));
 }

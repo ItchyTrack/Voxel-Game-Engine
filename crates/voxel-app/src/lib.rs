@@ -10,7 +10,7 @@ use bevy::log::LogPlugin;
 use bevy::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
-use bevy::camera::Hdr;
+use bevy::camera::{Hdr, PerspectiveProjection, Projection};
 use bevy::render::view::Msaa;
 #[cfg(target_arch = "wasm32")]
 use bevy::render::RenderPlugin;
@@ -205,6 +205,10 @@ fn tracy_layer(_app: &mut App) -> Option<bevy::log::BoxedLayer> {
 fn setup(mut commands: Commands) {
 	commands.spawn((
 		Camera3d::default(),
+		Projection::Perspective(PerspectiveProjection {
+			far: 10_000.0,
+			..default()
+		}),
 		Hdr,
 		Msaa::Off,
 		Transform::from_xyz(0.0, 0.0, 200.0).looking_at(Vec3::ZERO, Vec3::Y),

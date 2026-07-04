@@ -229,10 +229,10 @@ pub(crate) fn manage_raster_gpu_uploads(
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build raster sub-grid");
-			let (face_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette);
+			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply raster sub-grid");
-				apply_raster_upload(world, entity, bounds, &face_buffer, face_count);
+				apply_raster_upload(world, entity, bounds, &face_buffer, &palette_buffer, face_count);
 			});
 		}));
 	}
@@ -261,10 +261,10 @@ pub(crate) fn manage_raster_lod_uploads(
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build raster LOD");
-			let (face_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette);
+			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply raster LOD");
-				apply_raster_upload(world, entity, bounds, &face_buffer, face_count);
+				apply_raster_upload(world, entity, bounds, &face_buffer, &palette_buffer, face_count);
 			});
 		}));
 	}
@@ -314,6 +314,7 @@ fn apply_raster_upload(
 	entity: Entity,
 	bounds: VoxelGpuBounds,
 	face_buffer: &[u8],
+	palette_buffer: &[u8],
 	face_count: u32,
 ) {
 	let _zone = span!("GPU upload apply raster");
@@ -343,8 +344,8 @@ fn apply_raster_upload(
 
 	let Some(mut gpu_data) = world.get_resource_mut::<WorldGpuData>() else { return; };
 	let new_state = match existing.as_ref().and_then(|state| state.raster) {
-		Some(old) => upload_replace_raster(&mut gpu_data, old, face_buffer, face_count),
-		None => upload_new_raster(&mut gpu_data, face_buffer, face_count),
+		Some(old) => upload_replace_raster(&mut gpu_data, old, face_buffer, palette_buffer, face_count),
+		None => upload_new_raster(&mut gpu_data, face_buffer, palette_buffer, face_count),
 	};
 	if let Some(ray) = existing.as_ref().and_then(|state| state.ray) {
 		free_ray_buffers(&mut gpu_data, ray);
@@ -420,13 +421,24 @@ fn upload_replace_ray(
 fn upload_new_raster(
 	gpu_data: &mut WorldGpuData,
 	face_buffer: &[u8],
+	palette_buffer: &[u8],
 	face_count: u32,
 ) -> Option<RasterGpuState> {
 	let _zone = span!("GPU upload buffer add raster");
-	match gpu_data.packed_raster_face_dynamic_buffer.add_buffer(face_buffer) {
-		Ok(buffer_id) => Some(RasterGpuState::new(buffer_id, face_count)),
+	let buffer_id = match gpu_data.packed_raster_face_dynamic_buffer.add_buffer(face_buffer) {
+		Ok(buffer_id) => buffer_id,
 		Err(err) => {
 			log::warn!("{err}");
+			return None;
+		}
+	};
+	match gpu_data.packed_raster_palette_dynamic_buffer.add_buffer(palette_buffer) {
+		Ok(palette_id) => Some(RasterGpuState::new(buffer_id, palette_id, face_count)),
+		Err(err) => {
+			log::warn!("{err}");
+			if let Err(err) = gpu_data.packed_raster_face_dynamic_buffer.remove_buffer(buffer_id) {
+				log::warn!("{err}");
+			}
 			None
 		}
 	}
@@ -436,13 +448,27 @@ fn upload_replace_raster(
 	gpu_data: &mut WorldGpuData,
 	old: RasterGpuState,
 	face_buffer: &[u8],
+	palette_buffer: &[u8],
 	face_count: u32,
 ) -> Option<RasterGpuState> {
 	let _zone = span!("GPU upload buffer replace raster");
-	match gpu_data.packed_raster_face_dynamic_buffer.replace_buffer(old.buffer_id(), face_buffer) {
-		Ok(buffer_id) => Some(RasterGpuState::new(buffer_id, face_count)),
+	let buffer_id = match gpu_data.packed_raster_face_dynamic_buffer.replace_buffer(old.buffer_id(), face_buffer) {
+		Ok(buffer_id) => buffer_id,
 		Err(err) => {
 			log::warn!("{err}");
+			if let Err(err) = gpu_data.packed_raster_palette_dynamic_buffer.remove_buffer(old.palette_id()) {
+				log::warn!("{err}");
+			}
+			return None;
+		}
+	};
+	match gpu_data.packed_raster_palette_dynamic_buffer.replace_buffer(old.palette_id(), palette_buffer) {
+		Ok(palette_id) => Some(RasterGpuState::new(buffer_id, palette_id, face_count)),
+		Err(err) => {
+			log::warn!("{err}");
+			if let Err(err) = gpu_data.packed_raster_face_dynamic_buffer.remove_buffer(buffer_id) {
+				log::warn!("{err}");
+			}
 			None
 		}
 	}

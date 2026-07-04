@@ -6,27 +6,27 @@ var<uniform> camera: CameraUniform;
 
 struct ModelUniform {
 	model: mat4x4<f32>,
+	palette_offset: u32,
+	_padding0: u32,
+	_padding1: u32,
+	_padding2: u32,
 };
 @group(1) @binding(0)
 var<uniform> model: ModelUniform;
 
 struct Face {
-	packed_position_orientation_size: u32,
-	color: u32,
+	packed: u32,
 };
 @group(2) @binding(0)
 var<storage, read> faces: array<Face>;
+@group(2) @binding(1)
+var<storage, read> palette: array<u32>;
 
 struct VertexOutput {
 	@builtin(position) clip_position: vec4<f32>,
 	@location(0) color: vec4<f32>,
 	@location(1) world_position: vec3<f32>,
 	@location(2) world_normal: vec3<f32>,
-}
-
-fn unpack_i8(value: u32, shift: u32) -> i32 {
-	let byte = (value >> shift) & 0xFFu;
-	return select(i32(byte), i32(byte) - 256, byte >= 128u);
 }
 
 @vertex
@@ -42,15 +42,15 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 
 	let face = faces[vertex_index / 6u];
 	let base = offsets_2d[vertex_index % 6u];
-	let packed = face.packed_position_orientation_size;
-	let orientation_size = (packed >> 24u) & 0xFFu;
-	let orientation = orientation_size & 0x7u;
-	let size_log2 = orientation_size >> 3u;
-	let size = f32(1u << size_log2);
+	let packed = face.packed;
+	let orientation = (packed >> 18u) & 0x7u;
+	let size_log4 = (packed >> 21u) & 0x3u;
+	let size = f32(1u << (size_log4 * 2u));
+	let palette_index = (packed >> 23u) & 0xFFu;
 	let position = vec3<f32>(
-		f32(unpack_i8(packed, 0u)),
-		f32(unpack_i8(packed, 8u)),
-		f32(unpack_i8(packed, 16u)),
+		f32(packed & 0x3Fu),
+		f32((packed >> 6u) & 0x3Fu),
+		f32((packed >> 12u) & 0x3Fu),
 	);
 	var offset: vec3<f32>;
 	var local_normal: vec3<f32>;
@@ -82,7 +82,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 	}
 
 	var out: VertexOutput;
-	out.color = unpack4x8unorm(face.color);
+	out.color = unpack4x8unorm(palette[model.palette_offset + palette_index]);
 	let local = position + offset * size;
 	let world = model.model * vec4(local, 1.0);
 	out.world_position = world.xyz;

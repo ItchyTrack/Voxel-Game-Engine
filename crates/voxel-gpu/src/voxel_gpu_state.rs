@@ -49,15 +49,17 @@ impl RayGpuState {
 #[derive(Clone, Copy, Debug)]
 pub struct RasterGpuState {
 	buffer_id: u32,
+	palette_id: u32,
 	face_count: u32,
 }
 
 impl RasterGpuState {
-	pub(crate) fn new(buffer_id: u32, face_count: u32) -> Self {
-		Self { buffer_id, face_count }
+	pub(crate) fn new(buffer_id: u32, palette_id: u32, face_count: u32) -> Self {
+		Self { buffer_id, palette_id, face_count }
 	}
 
 	pub fn buffer_id(&self) -> u32 { self.buffer_id }
+	pub fn palette_id(&self) -> u32 { self.palette_id }
 	pub fn face_count(&self) -> u32 { self.face_count }
 }
 
@@ -122,6 +124,9 @@ pub(crate) fn free_ray_buffers(gpu_data: &mut WorldGpuData, state: RayGpuState) 
 
 pub(crate) fn free_raster_buffer(gpu_data: &mut WorldGpuData, state: RasterGpuState) {
 	if let Err(err) = gpu_data.packed_raster_face_dynamic_buffer.remove_buffer(state.buffer_id) {
+		log::warn!("{err}");
+	}
+	if let Err(err) = gpu_data.packed_raster_palette_dynamic_buffer.remove_buffer(state.palette_id) {
 		log::warn!("{err}");
 	}
 }

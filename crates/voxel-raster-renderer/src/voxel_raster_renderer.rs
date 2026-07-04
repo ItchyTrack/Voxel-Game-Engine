@@ -21,16 +21,28 @@ impl VoxelRasterRenderer {
 		model_bind_group_layout: &GpuBindGroupLayout,
 	) -> anyhow::Result<Self> {
 		let face_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[wgpu::BindGroupLayoutEntry {
-				binding: 0,
-				visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-				ty: wgpu::BindingType::Buffer {
-					ty: wgpu::BufferBindingType::Storage { read_only: true },
-					has_dynamic_offset: false,
-					min_binding_size: None,
+			entries: &[
+				wgpu::BindGroupLayoutEntry {
+					binding: 0,
+					visibility: wgpu::ShaderStages::VERTEX,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Storage { read_only: true },
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
 				},
-				count: None,
-			}],
+				wgpu::BindGroupLayoutEntry {
+					binding: 1,
+					visibility: wgpu::ShaderStages::VERTEX,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Storage { read_only: true },
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
+				},
+			],
 			label: Some("raster_face_bind_group_layout"),
 		}));
 

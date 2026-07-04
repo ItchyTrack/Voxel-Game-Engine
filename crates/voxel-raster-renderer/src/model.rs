@@ -7,11 +7,17 @@ type GpuBindGroupLayout = WgpuWrapper<wgpu::BindGroupLayout>;
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ModelUniform {
 	model: [[f32; 4]; 4],
+	palette_offset: u32,
+	_padding: [u32; 3],
 }
 
 impl ModelUniform {
-	pub fn from_mat4(mat: &Mat4) -> Self {
-		Self { model: mat.to_cols_array_2d() }
+	pub fn from_mat4(mat: &Mat4, palette_offset: u32) -> Self {
+		Self {
+			model: mat.to_cols_array_2d(),
+			palette_offset,
+			_padding: [0; 3],
+		}
 	}
 
 	pub fn get_dynamic_offset_bind_group_layout(device: &wgpu::Device, binding: u32) -> GpuBindGroupLayout {

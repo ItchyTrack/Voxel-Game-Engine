@@ -5,13 +5,15 @@ use crate::packed_dynamic_buffer::PackedDynamicBuffer;
 
 pub const TREE_BUFFER_ALIGNMENT: u32 = 12;
 pub const VOXEL_BUFFER_ALIGNMENT: u32 = 4;
-pub const RASTER_FACE_BUFFER_ALIGNMENT: u32 = 8;
+pub const RASTER_FACE_BUFFER_ALIGNMENT: u32 = 4;
+pub const RASTER_PALETTE_BUFFER_ALIGNMENT: u32 = 4;
 
 #[derive(Resource, Debug)]
 pub struct WorldGpuData {
 	pub packed_64_tree_dynamic_buffer: PackedDynamicBuffer,
 	pub packed_voxel_data_dynamic_buffer: PackedDynamicBuffer,
 	pub packed_raster_face_dynamic_buffer: PackedDynamicBuffer,
+	pub packed_raster_palette_dynamic_buffer: PackedDynamicBuffer,
 }
 
 impl FromWorld for WorldGpuData {
@@ -43,10 +45,19 @@ impl FromWorld for WorldGpuData {
 		)
 		.expect("Failed to create packed_raster_face_dynamic_buffer");
 
+		let packed_raster_palette_dynamic_buffer = PackedDynamicBuffer::new(
+			render_device,
+			render_queue,
+			RASTER_PALETTE_BUFFER_ALIGNMENT,
+			wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+		)
+		.expect("Failed to create packed_raster_palette_dynamic_buffer");
+
 		Self {
 			packed_64_tree_dynamic_buffer,
 			packed_voxel_data_dynamic_buffer,
 			packed_raster_face_dynamic_buffer,
+			packed_raster_palette_dynamic_buffer,
 		}
 	}
 }
