@@ -16,7 +16,6 @@ use voxel_physics::{
 use voxel_sources::VoxelSourcesAppExt;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
-use crate::voxel::mandelbulb_source::spawn_mandelbulb_grid;
 use crate::voxel::spawn_grid::spawn_grid;
 
 pub struct ScenePlugin;
@@ -69,7 +68,7 @@ fn setup_scene(
 	mut commands: Commands,
 	store: Res<VoxelStoreSource>,
 	vox_source: Res<VoxFileSource>,
-	sdf_source: Res<SdfSource>,
+	_sdf_source: Res<SdfSource>,
 ) {
 	spawn_church(&mut commands, &vox_source);
 	// spawn_ball_cluster(&mut commands, &mut store);
@@ -83,7 +82,6 @@ fn setup_scene(
 	// 		}
 	// 	}
 	// }
-	// spawn_mandelbulb_grid(commands, sdf_source);
 }
 
 fn spawn_church(commands: &mut Commands, vox_source: &VoxFileSource) {

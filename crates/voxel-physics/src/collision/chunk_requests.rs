@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 
 use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
+use voxel_data::bvh::BVH;
 use voxel_streaming::{GridStreaming, VoxelSourceRequests, CHUNK_SIZE};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
@@ -99,6 +100,7 @@ pub fn request_collision_chunks(
 			.or_insert((gmin, gmax));
 		reqs.push(GridReq { entity, body, is_static, grid_tf });
 	}
+	let body_bvh = BVH::new(body_aabb.iter().map(|(&body, &aabb)| (body, aabb)).collect());
 
 	// Pass 2: compute the wanted chunk set per grid under the policy above.
 	let mut desired: HashMap<Entity, HashSet<IVec3>> = HashMap::new();
@@ -111,10 +113,11 @@ pub fn request_collision_chunks(
 		}
 
 		let mine = body_aabb[&req.body];
-		let partners: Vec<(Vec3, Vec3)> = body_aabb
-			.iter()
-			.filter(|(body, aabb)| **body != req.body && overlap(mine, **aabb))
-			.map(|(_, aabb)| *aabb)
+		let partners: Vec<(Vec3, Vec3)> = body_bvh
+			.collisions(&mine)
+			.into_iter()
+			.filter(|body| *body != req.body)
+			.filter_map(|body| body_aabb.get(&body).copied())
 			.collect();
 		if partners.is_empty() {
 			continue;

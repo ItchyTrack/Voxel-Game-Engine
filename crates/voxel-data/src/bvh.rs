@@ -124,9 +124,10 @@ impl BVHNode {
 
 			let mut bins = [(); BIN_COUNT].map(|_| Bin::empty());
 
+			let axis_extent_inv = 1.0 / axis_extent;
 			for item in slice.iter() {
-				let centroid   = (item.1.0 + item.1.1) * 0.5;
-				let normalized = (centroid[axis] - centroid_min[axis]) / axis_extent;
+				let centroid   = (item.1.0[axis] + item.1.1[axis]) * 0.5;
+				let normalized = (centroid - centroid_min[axis]) * axis_extent_inv;
 				let bin_index  = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
 				bins[bin_index].extend(item.1.0, item.1.1);
 			}

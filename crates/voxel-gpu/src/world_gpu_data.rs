@@ -14,6 +14,15 @@ pub struct WorldGpuData {
 	pub packed_voxel_data_dynamic_buffer: PackedDynamicBuffer,
 	pub packed_raster_face_dynamic_buffer: PackedDynamicBuffer,
 	pub packed_raster_palette_dynamic_buffer: PackedDynamicBuffer,
+	next_upload_generation: u64,
+}
+
+impl WorldGpuData {
+	pub fn next_upload_generation(&mut self) -> u64 {
+		let generation = self.next_upload_generation;
+		self.next_upload_generation = self.next_upload_generation.wrapping_add(1);
+		generation
+	}
 }
 
 impl FromWorld for WorldGpuData {
@@ -58,6 +67,7 @@ impl FromWorld for WorldGpuData {
 			packed_voxel_data_dynamic_buffer,
 			packed_raster_face_dynamic_buffer,
 			packed_raster_palette_dynamic_buffer,
+			next_upload_generation: 1,
 		}
 	}
 }

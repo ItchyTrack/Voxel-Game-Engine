@@ -1,6 +1,5 @@
 pub mod gpu_grid_tree;
 pub mod gpu_raster_mesh;
-pub mod packed_buffer;
 pub mod packed_dynamic_buffer;
 pub mod world_gpu_data;
 pub mod voxel_gpu_state;

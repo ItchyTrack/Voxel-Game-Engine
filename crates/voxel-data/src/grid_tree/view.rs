@@ -116,12 +116,12 @@ impl<'a, C: GridCell, Co: GridCoord> GridTreeView<'a, C, Co> {
 
 	#[inline]
 	pub fn children(self, node: NodeRef) -> ChildCells<'a, C, Co> {
-		ChildCells { view: self, node, next: 0, occupied_only: false }
+		ChildCells { view: self, node, next: 0, occupied_only: false, remaining_occupied: self.node(node).used_cell_count }
 	}
 
 	#[inline]
 	pub fn occupied_children(self, node: NodeRef) -> ChildCells<'a, C, Co> {
-		ChildCells { view: self, node, next: 0, occupied_only: true }
+		ChildCells { view: self, node, next: 0, occupied_only: true, remaining_occupied: self.node(node).used_cell_count }
 	}
 
 	#[inline]
@@ -136,6 +136,7 @@ pub struct ChildCells<'a, C: GridCell, Co: GridCoord> {
 	node: NodeRef,
 	next: u8,
 	occupied_only: bool,
+	remaining_occupied: u8,
 }
 
 impl<'a, C: GridCell, Co: GridCoord> Iterator for ChildCells<'a, C, Co> {
@@ -143,13 +144,23 @@ impl<'a, C: GridCell, Co: GridCoord> Iterator for ChildCells<'a, C, Co> {
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
+		if self.occupied_only && self.remaining_occupied == 0 {
+			return None;
+		}
+		let size = child_size(self.node.depth);
 		while self.next < SIZE_CUBED {
 			let i = self.next;
 			self.next += 1;
-			let cell = self.view.child(self.node, i);
-			if !self.occupied_only || cell.kind() != CellKind::Empty {
-				return Some(cell);
+			let cell = self.view.node(self.node).contents[i as usize];
+			let kind = cell.kind();
+			if self.occupied_only && kind == CellKind::Empty {
+				continue;
 			}
+			if kind != CellKind::Empty {
+				self.remaining_occupied = self.remaining_occupied.saturating_sub(1);
+			}
+			let origin = self.node.origin + (get_child_contents_pos(i).as_uvec3() * size).as_ivec3();
+			return Some(CellRef { parent: self.node, child_index: i, origin, size, cell });
 		}
 		None
 	}

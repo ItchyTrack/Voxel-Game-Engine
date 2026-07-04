@@ -1,7 +1,8 @@
-use std::{collections::BTreeMap, ops::*};
+use std::{collections::BTreeMap, num::NonZero, ops::*};
 
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 use num::Integer;
+use orderly_allocator::{Allocation, Allocator};
 use tracy_client::span;
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
@@ -17,14 +18,21 @@ pub struct HeldBuffer {
 impl HeldBuffer {
 	pub fn offset(&self) -> u32 { self.offset }
 	pub fn size(&self) -> u32 { self.size }
+
+	fn allocation(&self) -> Allocation {
+		Allocation {
+			offset: self.offset,
+			size: NonZero::new(self.size).expect("held buffers are never zero-sized"),
+		}
+	}
 }
 
 pub struct PackedDynamicBuffer {
 	buffer: GpuBuffer,
 	held_bytes: u32,
-	held_bytes_alignment: u32,
 	alignment: u32,
 	held_buffers: BTreeMap<u32, HeldBuffer>,
+	allocator: Allocator,
 	device: GpuDevice,
 	queue: GpuQueue,
 	usage: wgpu::BufferUsages,
@@ -37,9 +45,9 @@ impl std::fmt::Debug for PackedDynamicBuffer {
 		f.debug_struct("PackedDynamicBuffer")
 			.field("buffer", &self.buffer)
 			.field("held_bytes", &self.held_bytes)
-			.field("held_bytes_alignment", &self.held_bytes_alignment)
 			.field("alignment", &self.alignment)
 			.field("held_buffers", &self.held_buffers)
+			.field("allocator", &self.allocator)
 			.field("device", &self.device)
 			.field("queue", &self.queue)
 			.finish()
@@ -60,9 +68,9 @@ impl PackedDynamicBuffer {
 		Ok(Self {
 			buffer,
 			held_bytes: 0,
-			held_bytes_alignment: 0,
 			alignment,
 			held_buffers: BTreeMap::new(),
+			allocator: Allocator::new(buffer_size as u32),
 			device: WgpuWrapper::new(raw_device.clone()),
 			queue: WgpuWrapper::new(bevy::render::renderer::WgpuWrapper::clone(&**queue).into_inner()),
 			usage,
@@ -80,6 +88,7 @@ impl PackedDynamicBuffer {
 	}
 
 	fn grow_buffer(&mut self, min_size: u64) {
+		let old_size = self.buffer_size;
 		let new_size = self.buffer_size.max(min_size).next_power_of_two().next_multiple_of(self.alignment as u64);
 		let new_buffer = WgpuWrapper::new(self.device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("PackedBuffer"),
@@ -92,66 +101,50 @@ impl PackedDynamicBuffer {
 		self.queue.submit(std::iter::once(encoder.finish()));
 		self.buffer = new_buffer;
 		self.buffer_size = new_size;
+		self
+			.allocator
+			.grow_capacity((new_size - old_size) as u32)
+			.expect("PackedDynamicBuffer allocator capacity overflowed while growing");
+	}
+
+	fn allocate_buffer(&mut self, size: u32) -> Result<Allocation, &'static str> {
+		if size == 0 {
+			return Err("Buffer size can't be 0.");
+		}
+		if size > self.max_binding_size {
+			return Err("Buffer max size hit!");
+		}
+		loop {
+			if let Some(allocation) = self.allocator.alloc_with_align(size, self.alignment) {
+				return Ok(allocation);
+			}
+			let required_total_size = self.buffer_size + (size as u64).next_multiple_of(self.alignment as u64);
+			let next_size = self.buffer_size.max(required_total_size).next_power_of_two().next_multiple_of(self.alignment as u64);
+			if next_size > self.max_binding_size as u64 {
+				return Err("Buffer max size hit!");
+			}
+			self.grow_buffer(required_total_size);
+		}
 	}
 
 	pub fn add_buffer(&mut self, data_buffer: &[u8]) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer add_buffer");
 		// tracy_client::plot!("packed dynamic upload bytes", data_buffer.len() as f64);
-		if data_buffer.is_empty() {
-			return Err("Buffer size can't be 0.");
-		}
-		if data_buffer.len() as u32 > self.buffer_size as u32 - self.held_bytes_alignment {
-			let next_size = self.buffer_size.shl(1u32).next_multiple_of(self.alignment as u64);
-			if next_size > self.max_binding_size as u64 {
-				return Err("Buffer max size hit!");
-			}
-			self.grow_buffer(next_size);
-		}
-		let mut placement_location = 0;
-		loop {
-			let range = self.held_buffers.range(
-				(placement_location / self.alignment) as u32..
-				(placement_location + data_buffer.len() as u32).div_ceil(self.alignment) as u32
-			);
-			if let Some((_, held_buffer)) = range.last() {
-				placement_location = held_buffer.offset + held_buffer.size.next_multiple_of(self.alignment);
-				assert!(placement_location.is_multiple_of(self.alignment));
-				if (placement_location + data_buffer.len() as u32) > self.buffer_size as u32 {
-					let next_size = self.buffer_size.shl(1u32).next_multiple_of(self.alignment as u64);
-					if next_size > self.max_binding_size as u64 {
-						return Err("Buffer max size hit!");
-					}
-					self.grow_buffer(next_size);
-					placement_location = self.buffer_size as u32 / 2;
-					{
-						let _write_zone = span!("wgpu queue write_buffer");
-						self.queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
-					}
-					self.held_bytes += data_buffer.len() as u32;
-					self.held_bytes_alignment += (data_buffer.len() as u32).next_multiple_of(self.alignment);
-					let id = placement_location / self.alignment;
-					self.held_buffers.insert(id, HeldBuffer { offset: placement_location, size: data_buffer.len() as u32 });
-					return Ok(id);
-				}
-			} else {
-				break;
-			}
-		}
+		let allocation = self.allocate_buffer(data_buffer.len() as u32)?;
 		{
 			let _write_zone = span!("wgpu queue write_buffer");
-			self.queue.write_buffer(&self.buffer, placement_location as u64, data_buffer);
+			self.queue.write_buffer(&self.buffer, allocation.offset as u64, data_buffer);
 		}
-		self.held_bytes += data_buffer.len() as u32;
-		self.held_bytes_alignment += (data_buffer.len() as u32).next_multiple_of(self.alignment);
-		let id = placement_location / self.alignment;
-		self.held_buffers.insert(id, HeldBuffer { offset: placement_location, size: data_buffer.len() as u32 });
+		self.held_bytes += allocation.size();
+		let id = allocation.offset / self.alignment;
+		self.held_buffers.insert(id, HeldBuffer { offset: allocation.offset, size: allocation.size() });
 		Ok(id)
 	}
 
 	pub fn remove_buffer(&mut self, id: u32) -> Result<(), &'static str> {
 		if let Some(held_buffer) = self.held_buffers.remove(&id) {
+			self.allocator.free(held_buffer.allocation());
 			self.held_bytes -= held_buffer.size;
-			self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment);
 			Ok(())
 		} else {
 			Err("Could not find id.")
@@ -162,24 +155,31 @@ impl PackedDynamicBuffer {
 	pub fn replace_buffer(&mut self, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer replace_buffer");
 		// tracy_client::plot!("packed dynamic upload bytes", buffer.len() as f64);
-		if let Some(held_buffer) = self.held_buffers.get_mut(&id) {
-			if held_buffer.size == buffer.len() as u32 {
-				self.held_bytes -= held_buffer.size;
-				self.held_bytes += buffer.len() as u32;
-				self.held_bytes_alignment -= held_buffer.size.next_multiple_of(self.alignment);
-				self.held_bytes_alignment += (buffer.len() as u32).next_multiple_of(self.alignment);
-				held_buffer.size = buffer.len() as u32;
-				{
-					let _write_zone = span!("wgpu queue write_buffer");
-					self.queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
-				}
+		let Some(held_buffer) = self.held_buffers.get_mut(&id) else {
+			return Err("Could not find id.");
+		};
+		let Some(new_size) = u32::try_from(buffer.len()).ok() else {
+			return Err("Buffer max size hit!");
+		};
+		if new_size == held_buffer.size {
+			let _write_zone = span!("wgpu queue write_buffer");
+			self.queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
+			return Ok(id);
+		}
+		match self.allocator.try_reallocate(held_buffer.allocation(), new_size) {
+			Ok(allocation) => {
+				self.held_bytes = self.held_bytes - held_buffer.size + allocation.size();
+				held_buffer.offset = allocation.offset;
+				held_buffer.size = allocation.size();
+				let _write_zone = span!("wgpu queue write_buffer");
+				self.queue.write_buffer(&self.buffer, allocation.offset as u64, buffer);
 				Ok(id)
-			} else {
+			},
+			Err(orderly_allocator::ReallocateError::InsufficientSpace { .. }) => {
 				self.remove_buffer(id)?;
 				self.add_buffer(buffer)
-			}
-		} else {
-			Err("Could not find id.")
+			},
+			Err(orderly_allocator::ReallocateError::Invalid) => Err("Buffer size can't be 0."),
 		}
 	}
 

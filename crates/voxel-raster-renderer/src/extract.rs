@@ -13,7 +13,7 @@ use voxel_gpu::lod_voxels::LodVoxels;
 use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_gpu::VoxelGpuState;
 
-use crate::residency::RasterResidencyBuffers;
+use crate::residency::{RasterResidencyBuffers, ResidentRasterVoxels};
 use crate::voxel_camera::VoxelRasterCamera;
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
@@ -40,6 +40,7 @@ struct RenderItem {
 	entity: Entity,
 	buffer_id: u32,
 	palette_id: u32,
+	generation: u64,
 	face_count: u32,
 	transform: Transform,
 	priority: f32,
@@ -83,6 +84,7 @@ pub fn extract_raster_scene(
 				entity: *entity,
 				buffer_id: raster_state.buffer_id(),
 				palette_id: raster_state.palette_id(),
+				generation: raster_state.generation(),
 				face_count: raster_state.face_count(),
 				transform,
 				priority: -global_transform.translation().distance(center),
@@ -100,6 +102,7 @@ pub fn extract_raster_scene(
 				entity: *entity,
 				buffer_id: raster_state.buffer_id(),
 				palette_id: raster_state.palette_id(),
+				generation: raster_state.generation(),
 				face_count: raster_state.face_count(),
 				transform,
 				priority: -global_transform.translation().distance(transform.translation),
@@ -115,7 +118,7 @@ pub fn extract_raster_scene(
 	let palette_alignment = residency.palette_alignment();
 	let mut total_faces = 0u64;
 	let mut total_palettes = 0u64;
-	let mut resident = Vec::with_capacity(items.len());
+	let mut resident: Vec<ResidentRasterVoxels> = Vec::with_capacity(items.len());
 	for item in &items {
 		let Some(face_held) = world_gpu.packed_raster_face_dynamic_buffer.held_buffer(item.buffer_id) else { continue; };
 		let Some(palette_held) = world_gpu.packed_raster_palette_dynamic_buffer.held_buffer(item.palette_id) else { continue; };
@@ -126,9 +129,15 @@ pub fn extract_raster_scene(
 		}
 		total_faces = next_faces;
 		total_palettes = next_palettes;
-		resident.push((item.entity, item.buffer_id, item.palette_id));
+		resident.push(ResidentRasterVoxels {
+			entity: item.entity,
+			buffer_id: item.buffer_id,
+			palette_id: item.palette_id,
+			generation: item.generation,
+		});
 	}
 
+	resident.sort_unstable_by_key(|item| item.entity.to_bits());
 	residency.upload(&world_gpu, &resident);
 	let face_offsets = residency.face_offsets();
 	let palette_offsets = residency.palette_offsets();

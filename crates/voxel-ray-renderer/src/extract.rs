@@ -9,7 +9,7 @@ use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
 
 use voxel_gpu::lod_voxels::LodVoxels;
-use voxel_gpu::residency::ResidencyBuffers;
+use voxel_gpu::residency::{ResidentVoxels, ResidencyBuffers};
 use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_gpu::VoxelGpuState;
 use voxel_data::bvh::BVH;
@@ -36,6 +36,7 @@ struct RenderItem {
 	entity: Entity,
 	tree_id: u32,
 	voxels_id: u32,
+	generation: u64,
 	aabb: (Vec3, Vec3),
 	dda_transform: Transform,
 	priority: f32,
@@ -77,6 +78,7 @@ pub fn extract_voxel_scene(
 				entity: *entity,
 				tree_id: sub_grid_gpu_state.tree_id(),
 				voxels_id: sub_grid_gpu_state.voxels_id(),
+				generation: sub_grid_gpu_state.generation(),
 				aabb,
 				dda_transform,
 				priority: (-global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) + hit_count as f32 * 0.001,
@@ -97,6 +99,7 @@ pub fn extract_voxel_scene(
 				entity: *entity,
 				tree_id: lod_grid_gpu_state.tree_id(),
 				voxels_id: lod_grid_gpu_state.voxels_id(),
+				generation: lod_grid_gpu_state.generation(),
 				aabb,
 				dda_transform,
 				priority: (-global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) + hit_count as f32 * 0.001,
@@ -114,7 +117,7 @@ pub fn extract_voxel_scene(
 	let limit = residency.binding_limit();
 	let mut tree_total = 0u64;
 	let mut voxel_total = 0u64;
-	let mut resident: Vec<(Entity, u32, u32)> = Vec::with_capacity(items.len());
+	let mut resident: Vec<ResidentVoxels> = Vec::with_capacity(items.len());
 	let mut dropped = 0usize;
 	for item in &items {
 		let Some(tree_held) = world_gpu.packed_64_tree_dynamic_buffer.held_buffer(item.tree_id) else { continue; };
@@ -127,7 +130,12 @@ pub fn extract_voxel_scene(
 		}
 		tree_total = next_tree;
 		voxel_total = next_voxel;
-		resident.push((item.entity, item.tree_id, item.voxels_id));
+		resident.push(ResidentVoxels {
+			entity: item.entity,
+			tree_id: item.tree_id,
+			voxels_id: item.voxels_id,
+			generation: item.generation,
+		});
 	}
 
 	if dropped > 0 {
@@ -138,6 +146,7 @@ pub fn extract_voxel_scene(
 		);
 	}
 
+	resident.sort_unstable_by_key(|item| item.entity.to_bits());
 	residency.upload(&world_gpu, &resident);
 
 	let offsets = residency.offsets();

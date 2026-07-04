@@ -36,6 +36,7 @@ use voxel_sources::VoxelSourcesAppExt;
 use scene::world_interaction::WorldInteractionPlugin;
 
 use crate::voxel::lod_downsample::AverageVoxelLodGenerator;
+use crate::voxel::planet_source::ProceduralPlanetPlugin;
 
 struct VoxelLodGeneratorPlugin;
 
@@ -101,7 +102,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 
 	match mode {
 		VoxelEngineMode::Server => {
-			app.add_plugins((VoxelStoreSourcePlugin, ScenePlugin));
+			app.add_plugins((VoxelStoreSourcePlugin, ScenePlugin, ProceduralPlanetPlugin));
 			#[cfg(not(target_arch = "wasm32"))]
 			app.add_plugins(NetworkServerPlugin);
 		}
@@ -110,7 +111,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 			app.add_plugins(NetworkClientPlugin);
 		}
 		VoxelEngineMode::Host => {
-			app.add_plugins((VoxelStoreSourcePlugin, ScenePlugin));
+			app.add_plugins((VoxelStoreSourcePlugin, ScenePlugin, ProceduralPlanetPlugin));
 			#[cfg(not(target_arch = "wasm32"))]
 			app.add_plugins(NetworkServerPlugin);
 		}
@@ -206,7 +207,7 @@ fn setup(mut commands: Commands) {
 	commands.spawn((
 		Camera3d::default(),
 		Projection::Perspective(PerspectiveProjection {
-			far: 10_000.0,
+			far: 100_000.0,
 			..default()
 		}),
 		Hdr,

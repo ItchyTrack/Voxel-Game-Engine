@@ -377,7 +377,10 @@ fn upload_new_ray(
 		Err(err) => { log::warn!("{err}"); return None; }
 	};
 	match gpu_data.packed_voxel_data_dynamic_buffer.add_buffer(voxel_buffer) {
-		Ok(voxels_id) => Some(RayGpuState::new(tree_id, voxels_id, placement)),
+		Ok(voxels_id) => {
+			let generation = gpu_data.next_upload_generation();
+			Some(RayGpuState::new(tree_id, voxels_id, generation, placement))
+		},
 		Err(err) => {
 			log::warn!("{err}");
 			if let Err(err) = gpu_data.packed_64_tree_dynamic_buffer.remove_buffer(tree_id) {
@@ -407,7 +410,10 @@ fn upload_replace_ray(
 		}
 	};
 	match gpu_data.packed_voxel_data_dynamic_buffer.replace_buffer(old.voxels_id(), voxel_buffer) {
-		Ok(voxels_id) => Some(RayGpuState::new(tree_id, voxels_id, placement)),
+		Ok(voxels_id) => {
+			let generation = gpu_data.next_upload_generation();
+			Some(RayGpuState::new(tree_id, voxels_id, generation, placement))
+		},
 		Err(err) => {
 			log::warn!("{err}");
 			if let Err(err) = gpu_data.packed_64_tree_dynamic_buffer.remove_buffer(tree_id) {
@@ -433,7 +439,10 @@ fn upload_new_raster(
 		}
 	};
 	match gpu_data.packed_raster_palette_dynamic_buffer.add_buffer(palette_buffer) {
-		Ok(palette_id) => Some(RasterGpuState::new(buffer_id, palette_id, face_count)),
+		Ok(palette_id) => {
+			let generation = gpu_data.next_upload_generation();
+			Some(RasterGpuState::new(buffer_id, palette_id, face_count, generation))
+		},
 		Err(err) => {
 			log::warn!("{err}");
 			if let Err(err) = gpu_data.packed_raster_face_dynamic_buffer.remove_buffer(buffer_id) {
@@ -463,7 +472,10 @@ fn upload_replace_raster(
 		}
 	};
 	match gpu_data.packed_raster_palette_dynamic_buffer.replace_buffer(old.palette_id(), palette_buffer) {
-		Ok(palette_id) => Some(RasterGpuState::new(buffer_id, palette_id, face_count)),
+		Ok(palette_id) => {
+			let generation = gpu_data.next_upload_generation();
+			Some(RasterGpuState::new(buffer_id, palette_id, face_count, generation))
+		},
 		Err(err) => {
 			log::warn!("{err}");
 			if let Err(err) = gpu_data.packed_raster_face_dynamic_buffer.remove_buffer(buffer_id) {

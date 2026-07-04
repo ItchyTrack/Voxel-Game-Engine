@@ -33,16 +33,23 @@ impl VoxelGpuBounds {
 pub struct RayGpuState {
 	tree_id: u32,
 	voxels_id: u32,
+	generation: u64,
 	placement: SubGridPlacement,
 }
 
 impl RayGpuState {
-	pub(crate) fn new(tree_id: u32, voxels_id: u32, placement: SubGridPlacement) -> Self {
-		Self { tree_id, voxels_id, placement }
+	pub(crate) fn new(tree_id: u32, voxels_id: u32, generation: u64, placement: SubGridPlacement) -> Self {
+		Self {
+			tree_id,
+			voxels_id,
+			generation,
+			placement,
+		}
 	}
 
 	pub fn tree_id(&self) -> u32 { self.tree_id }
 	pub fn voxels_id(&self) -> u32 { self.voxels_id }
+	pub fn generation(&self) -> u64 { self.generation }
 	pub fn placement(&self) -> SubGridPlacement { self.placement }
 }
 
@@ -51,16 +58,23 @@ pub struct RasterGpuState {
 	buffer_id: u32,
 	palette_id: u32,
 	face_count: u32,
+	generation: u64,
 }
 
 impl RasterGpuState {
-	pub(crate) fn new(buffer_id: u32, palette_id: u32, face_count: u32) -> Self {
-		Self { buffer_id, palette_id, face_count }
+	pub(crate) fn new(buffer_id: u32, palette_id: u32, face_count: u32, generation: u64) -> Self {
+		Self {
+			buffer_id,
+			palette_id,
+			face_count,
+			generation,
+		}
 	}
 
 	pub fn buffer_id(&self) -> u32 { self.buffer_id }
 	pub fn palette_id(&self) -> u32 { self.palette_id }
 	pub fn face_count(&self) -> u32 { self.face_count }
+	pub fn generation(&self) -> u64 { self.generation }
 }
 
 #[derive(Component, Clone, Debug, Default)]
