@@ -122,6 +122,7 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 			slot.voxels = result.voxels;
 			grid.subgrids.insert(result.sub_origin, slot);
 		}
+		grid.mark_subgrid_bvh_dirty();
 		touched.entry(result.grid).or_default().insert(result.sub_origin);
 	}
 	touched

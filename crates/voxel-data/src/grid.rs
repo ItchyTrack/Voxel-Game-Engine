@@ -1,10 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 
 use bevy::math::{I8Vec3, IVec2, IVec3, Quat, U16Vec3, Vec3};
 use bevy::prelude::*;
 
 use tracy_client::span;
 
+use crate::bvh::BVH;
 use crate::sdf::Sdf;
 use crate::subgrid::{SubGrid, SubGridId, SubGridRef};
 use crate::voxels::{Voxel, Voxels};
@@ -45,9 +46,17 @@ impl SubGridSlot {
 	}
 }
 
-#[derive(Debug, Component, Default)]
+#[derive(Debug, Component)]
 pub struct Grid {
 	pub(crate) subgrids: HashMap<IVec3, SubGridSlot>,
+	subgrid_bvh: Mutex<Option<BVH<IVec3>>>,
+	subgrid_bvh_dirty: AtomicBool,
+}
+
+impl Default for Grid {
+	fn default() -> Self {
+		Self { subgrids: HashMap::new(), subgrid_bvh: Mutex::new(None), subgrid_bvh_dirty: AtomicBool::new(false) }
+	}
 }
 
 impl Grid {
@@ -127,6 +136,55 @@ impl Grid {
 		regions
 	}
 
+	pub(crate) fn mark_subgrid_bvh_dirty(&mut self) {
+		self.subgrid_bvh_dirty.store(true, Ordering::Release);
+	}
+
+	fn occupied_subgrid_bounds(sub_grid_pos: IVec3, slot: &SubGridSlot) -> Option<(IVec3, IVec3)> {
+		let (bounds_min, bounds_max) = slot.voxels.bounding_box()?;
+		Some((sub_grid_pos + bounds_min.as_ivec3(), sub_grid_pos + bounds_max.as_ivec3() + IVec3::ONE))
+	}
+
+	fn rebuild_subgrid_bvh(&self) {
+		let items = self.subgrids.iter().filter_map(|(sub_grid_pos, slot)| {
+			let (min, hi) = Self::occupied_subgrid_bounds(*sub_grid_pos, slot)?;
+			Some((*sub_grid_pos, (min.as_vec3(), hi.as_vec3())))
+		}).collect();
+		*self.subgrid_bvh.lock().unwrap() = Some(BVH::new(items));
+		self.subgrid_bvh_dirty.store(false, Ordering::Release);
+	}
+
+	fn ensure_subgrid_bvh(&self) {
+		if self.subgrid_bvh_dirty.load(Ordering::Acquire) {
+			self.rebuild_subgrid_bvh();
+			return;
+		}
+		let needs_init = {
+			let guard = self.subgrid_bvh.lock().unwrap();
+			guard.is_none() && !self.subgrids.is_empty()
+		};
+		if needs_init {
+			self.rebuild_subgrid_bvh();
+		}
+	}
+
+	fn subgrid_origins_in_area(&self, min: IVec3, size: IVec3) -> Vec<IVec3> {
+		if size.cmple(IVec3::ZERO).any() || self.subgrids.is_empty() {
+			return Vec::new();
+		}
+		let hi = min + size;
+		self.ensure_subgrid_bvh();
+		let candidates = {
+			let guard = self.subgrid_bvh.lock().unwrap();
+			guard.as_ref().map(|bvh| bvh.collisions(&(min.as_vec3(), hi.as_vec3()))).unwrap_or_default()
+		};
+		candidates.into_iter().filter(|sub_grid_pos| {
+			let Some(slot) = self.subgrids.get(sub_grid_pos) else { return false };
+			let Some((occupied_min, occupied_hi)) = Self::occupied_subgrid_bounds(*sub_grid_pos, slot) else { return false };
+			occupied_min.cmplt(hi).all() && occupied_hi.cmpgt(min).all()
+		}).collect()
+	}
+
 	fn read_region_into(out: &mut Voxels, out_min: IVec3, sub_grid_pos: IVec3, slot: &SubGridSlot, cell_lo: IVec3, cell_hi: IVec3) {
 		let _span = span!();
 		let region_lo = Self::local_of(sub_grid_pos, cell_lo);
@@ -158,6 +216,7 @@ impl Grid {
 				}
 			}
 		}
+		self.mark_subgrid_bvh_dirty();
 		sub_grid_pos
 	}
 
@@ -178,6 +237,9 @@ impl Grid {
 				slot.voxels.remove_area(local, extent);
 			}
 			touched.insert(sub_grid_pos);
+		}
+		if !touched.is_empty() {
+			self.mark_subgrid_bvh_dirty();
 		}
 		touched
 	}
@@ -202,6 +264,9 @@ impl Grid {
 				slot.voxels.remove_area(local, extent);
 			}
 			touched.insert(sub_grid_pos);
+		}
+		if !touched.is_empty() {
+			self.mark_subgrid_bvh_dirty();
 		}
 		(touched, out)
 	}
@@ -239,6 +304,9 @@ impl Grid {
 			slot.voxels.merge_region_from(src, Some(source_region), base - sub_grid_pos);
 			touched.insert(sub_grid_pos);
 		}
+		if !touched.is_empty() {
+			self.mark_subgrid_bvh_dirty();
+		}
 		touched
 	}
 
@@ -254,6 +322,9 @@ impl Grid {
 			slot.voxels.apply_sdf(local_min, local_max, &local_sdf, face_resolution, iterations, voxel);
 			touched.insert(sub_grid_pos);
 		}
+		if !touched.is_empty() {
+			self.mark_subgrid_bvh_dirty();
+		}
 		touched
 	}
 
@@ -268,6 +339,9 @@ impl Grid {
 			let local_sdf = |p: Vec3| sdf.sample(p + sub_grid_pos.as_vec3());
 			slot.voxels.clear_sdf(local_min, local_max, &local_sdf, face_resolution, iterations);
 			touched.insert(sub_grid_pos);
+		}
+		if !touched.is_empty() {
+			self.mark_subgrid_bvh_dirty();
 		}
 		touched
 	}
@@ -300,26 +374,37 @@ impl Grid {
 	/// Entities for non-empty sub-grids whose occupied voxel bounds intersect the
 	/// half-open grid-local area `[min, min + size)`.
 	pub fn subgrid_entities_in_area(&self, min: IVec3, size: IVec3) -> impl Iterator<Item = SubGridId> + '_ {
-		let hi = min + size;
-		self.subgrids.iter().filter_map(move |(sub_origin, slot)| {
-			let (bounds_min, bounds_max) = slot.voxels.bounding_box()?;
-			let occupied_min = *sub_origin + bounds_min.as_ivec3();
-			let occupied_hi = *sub_origin + bounds_max.as_ivec3() + IVec3::ONE;
-			(occupied_min.cmplt(hi).all() && occupied_hi.cmpgt(min).all()).then_some(slot.entity)
-		})
+		self.subgrid_origins_in_area(min, size)
+			.into_iter()
+			.filter_map(|sub_grid_pos| self.subgrids.get(&sub_grid_pos).map(|slot| slot.entity))
 	}
 
 	pub fn raycast(&self, origin: Vec3, dir: Vec3) -> Option<GridRaycastHit> {
-		self.subgrids()
-			.filter_map(|sub_grid| {
-				let sub_origin = sub_grid.sub_grid_pos().as_vec3();
-				sub_grid.raycast(origin - sub_origin, dir, None).map(|hit| GridRaycastHit {
-					voxel_pos: sub_grid.sub_grid_pos() + hit.voxel_pos.as_ivec3(),
+		if self.subgrids.is_empty() {
+			return None;
+		}
+		self.ensure_subgrid_bvh();
+		let transform = Transform { translation: origin, rotation: Quat::from_rotation_arc(Vec3::Z, dir), scale: Vec3::ONE };
+		let candidates = {
+			let guard = self.subgrid_bvh.lock().unwrap();
+			guard.as_ref().map(|bvh| bvh.raycast(&transform, None).collect::<Vec<_>>()).unwrap_or_default()
+		};
+		let mut best: Option<GridRaycastHit> = None;
+		for (sub_grid_pos, entry_distance) in candidates {
+			if best.as_ref().is_some_and(|hit| entry_distance > hit.distance) {
+				break;
+			}
+			let Some(slot) = self.subgrids.get(&sub_grid_pos) else { continue };
+			let sub_grid = SubGridRef::new(&slot.voxels, sub_grid_pos);
+			if let Some(hit) = sub_grid.raycast(origin - sub_grid_pos.as_vec3(), dir, best.as_ref().map(|current| current.distance)) {
+				best = Some(GridRaycastHit {
+					voxel_pos: sub_grid_pos + hit.voxel_pos.as_ivec3(),
 					normal: hit.normal.as_ivec3(),
 					distance: hit.distance,
-				})
-			})
-			.min_by(|a, b| a.distance.total_cmp(&b.distance))
+				});
+			}
+		}
+		best
 	}
 }
 
@@ -355,6 +440,7 @@ pub fn reconcile_subgrids(
 				commands.entity(entity).despawn();
 			}
 			grid.subgrids.remove(&pos);
+			grid.mark_subgrid_bvh_dirty();
 		} else if entity == Entity::PLACEHOLDER {
 			let entity = commands.spawn((SubGrid::new(grid_entity, pos), ChildOf(grid_entity))).id();
 			grid.subgrids.get_mut(&pos).unwrap().entity = entity;
@@ -442,5 +528,28 @@ mod tests {
 		let sdf = |q: Vec3| if (q - Vec3::new(16.5, 0.5, 0.5)).length() < 0.1 { -1.0 } else { 1.0 };
 		grid.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, vox(9));
 		assert_eq!(grid.voxel(&IVec3::new(16, 0, 0)), Some(&vox(9)));
+	}
+
+	#[test]
+	fn subgrid_area_queries_use_occupied_bounds() {
+		let mut grid = Grid::new();
+		grid.set_voxel(IVec3::new(1, 1, 1), Some(vox(1)));
+		grid.set_voxel(IVec3::new(65, 1, 1), Some(vox(2)));
+
+		assert_eq!(grid.subgrid_origins_in_area(IVec3::ZERO, IVec3::splat(64)), vec![IVec3::ZERO]);
+		assert_eq!(grid.subgrid_origins_in_area(IVec3::new(64, 0, 0), IVec3::splat(64)), vec![IVec3::new(64, 0, 0)]);
+		assert!(grid.subgrid_origins_in_area(IVec3::new(128, 0, 0), IVec3::splat(64)).is_empty());
+	}
+
+	#[test]
+	fn subgrid_bvh_stays_in_sync_after_blocking_splat() {
+		bevy::tasks::ComputeTaskPool::get_or_init(|| bevy::tasks::TaskPoolBuilder::new().build());
+		let mut src = Voxels::new();
+		src.add_area(U16Vec3::ZERO, U16Vec3::splat(8), vox(7));
+		let mut grid = Grid::new();
+
+		crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::new(64, 0, 0), voxels: &src }]);
+
+		assert_eq!(grid.subgrid_origins_in_area(IVec3::new(64, 0, 0), IVec3::splat(64)), vec![IVec3::new(64, 0, 0)]);
 	}
 }
