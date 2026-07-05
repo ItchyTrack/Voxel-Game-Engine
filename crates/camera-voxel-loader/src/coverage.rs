@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use bevy::prelude::*;
 use tracy_client::span;
 
@@ -78,7 +80,7 @@ pub(crate) fn remove_source(loader: &mut CameraVoxelLoader, source: TileKey) {
 	loader.replacement_graph.remove_source(source);
 }
 
-fn unresolved_replacements_for(loader: &CameraVoxelLoader, source: TileKey) -> Vec<TileKey> {
+fn unresolved_replacements_for(loader: &CameraVoxelLoader, source: TileKey) -> HashSet<TileKey> {
 	loader
 		.desired_tiles
 		.iter()

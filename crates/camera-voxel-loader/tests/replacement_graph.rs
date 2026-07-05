@@ -13,7 +13,6 @@ mod replacement_graph;
 
 use coverage::TileKey;
 use replacement_graph::{DependencyRecord, ReplacementGraph};
-use types::TileKey;
 
 fn grid() -> Entity { Entity::from_bits(1) }
 fn tile(lod: u8, min: IVec3) -> TileKey { TileKey { grid: grid(), lod, min } }
@@ -64,6 +63,22 @@ fn one_satisfied_source_can_unlock_multiple_records() {
 	let mut removed = graph.apply_satisfied(replacement);
 	removed.sort_by_key(|source| source.min.x);
 	assert_eq!(removed, vec![old_a, old_b]);
+}
+
+#[test]
+fn remove_source_only_updates_records_waiting_on_that_source() {
+	let mut graph = ReplacementGraph::default();
+	let old_a = tile(2, IVec3::ZERO);
+	let old_b = tile(2, IVec3::new(4, 0, 0));
+	let replacement_a = tile(1, IVec3::ZERO);
+	let replacement_b = tile(1, IVec3::new(2, 0, 0));
+	graph.add_record(DependencyRecord::new(old_a, [replacement_a]));
+	graph.add_record(DependencyRecord::new(old_b, [replacement_a, replacement_b]));
+
+	graph.remove_source(replacement_a);
+
+	assert!(graph.apply_satisfied(replacement_a).is_empty());
+	assert_eq!(graph.apply_satisfied(replacement_b), vec![old_b]);
 }
 
 #[test]

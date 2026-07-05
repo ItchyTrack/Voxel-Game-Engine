@@ -20,11 +20,11 @@ pub struct CameraVoxelLoaderSettings {
 impl Default for CameraVoxelLoaderSettings {
 	fn default() -> Self {
 		Self {
-		max_lod: 6,
-		near_radius_chunks: 5,
-		rings_per_lod: 3,
-		requests_per_frame: 16,
-		max_in_flight: 128
+			max_lod: 6,
+			near_radius_chunks: 5,
+			rings_per_lod: 3,
+			requests_per_frame: 20000,
+			max_in_flight: 20000,
 		}
 	}
 }
