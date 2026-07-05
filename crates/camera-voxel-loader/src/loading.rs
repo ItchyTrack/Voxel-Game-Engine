@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
 use voxel_gpu::{VoxelGpuFormat, VoxelGpuState, VoxelGpuUploadFinished};
-use tracy_client::span;
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::subgrid::SubGrid;
 use voxel_streaming::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkConsumer, ChunkLoadResolved, GridStreaming, LodKey, VoxelSourceRequestApi, VoxelSourceRequests, CHUNK_SIZE};
@@ -54,9 +53,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			camera_entity,
 		);
 		let mut sent = 0usize;
-		while sent < camera_voxel_loader.settings.requests_per_frame
-			&& in_flight_count(&camera_voxel_loader) < camera_voxel_loader.settings.max_in_flight
-		{
+		while sent < camera_voxel_loader.settings.requests_per_frame {
 			let Some(key) = camera_voxel_loader.queue.pop_front() else {
 				break;
 			};
@@ -118,11 +115,6 @@ fn apply_desired_delta(
 		let ready = handle_non_desired_tile(camera_voxel_loader, key);
 		retire_sources_from_request_query(camera_voxel_loader, grids, camera_entity, ready);
 	}
-}
-
-fn in_flight_count(camera_voxel_loader: &CameraVoxelLoader) -> usize {
-	let _span = span!("in_flight_count");
-	camera_voxel_loader.tiles.values().filter(|r| r.status == TileStatus::Loading).count()
 }
 
 fn retire_sources(

@@ -115,26 +115,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		self.root_covers(min) && self.root_covers(max)
 	}
 
-	/// Visit every DATA leaf as (world origin, cell size, value) via an internal DFS.
-	pub(super) fn each_leaf(&self, mut f: impl FnMut(IVec3, u32, C::Data)) {
-		if self.nodes.is_empty() {
-			return;
-		}
-		let mut stack: Vec<(u32, u8, IVec3)> = vec![(0, self.root_depth, self.root_pos)];
-		while let Some((node_index, depth, origin)) = stack.pop() {
-			let node = &self.nodes[node_index as usize];
-			let cell_size = child_size(depth);
-			for i in 0..SIZE_CUBED {
-				let cell = node.contents[i as usize];
-				let child_origin = origin + (get_child_contents_pos(i).as_uvec3() * cell_size).as_ivec3();
-				match cell.kind() {
-					CellKind::Empty => {}
-					CellKind::Data => f(child_origin, cell_size, cell.data_value()),
-					CellKind::Node => stack.push((cell.node_index(), depth - 1, child_origin)),
-				}
-			}
-		}
-	}
 
 	pub(super) fn alloc_node_after_parent(&mut self, parent_node_index: u32, contents: C, used_cell_count: u8) -> Option<u32> {
 		if let Some(free_slot) = self.free_nodes.iter().position(|&idx| idx > parent_node_index && idx - parent_node_index <= C::MAX_NODE_OFFSET) {

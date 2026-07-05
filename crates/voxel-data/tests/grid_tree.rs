@@ -2,7 +2,7 @@
 mod tests {
 	use bevy::math::{IVec2, IVec3, U16Vec3, Vec3};
 	use bevy::transform::components::Transform;
-	use std::{collections::HashMap, io::Cursor};
+	use std::{collections::{HashMap, HashSet}, io::Cursor};
 	use voxel_data::{
 		grid_tree::{CellKind, GridRegion, SIZE},
 		voxel_grid_tree::VoxelGridTree,
@@ -36,6 +36,16 @@ mod tests {
 		bytes.extend_from_slice(&0u64.to_le_bytes());
 		bytes.extend_from_slice(&0u64.to_le_bytes());
 		bytes
+	}
+
+	fn bounds_from_positions(positions: impl Iterator<Item = U16Vec3>) -> Option<GridRegion> {
+		positions.fold(None, |bounds, pos| {
+			let pos = pos.as_ivec3();
+			Some(match bounds {
+				Some(existing) => GridRegion::from_min_max_inclusive(existing.min.min(pos), existing.max_inclusive().max(pos)).unwrap(),
+				None => GridRegion::from_min_max_inclusive(pos, pos).unwrap(),
+			})
+		})
 	}
 
 	#[test]
@@ -107,6 +117,52 @@ mod tests {
 		let expected: HashMap<_, _> = tree_voxels(&t)
 			.into_iter()
 			.filter(|(pos, _)| pos.cmpge(p(4, 4, 4)).all() && pos.cmple(p(10, 10, 10)).all())
+			.collect();
+		assert_eq!(actual, expected);
+	}
+
+	#[test]
+	fn occupied_bounds_queries_match_oracle() {
+		let mut t = VoxelGridTree::new();
+		t.add_area(&p(2, 3, 4), IVec3::new(5, 6, 7), 3);
+		t.remove_area(&p(4, 5, 6), IVec3::new(2, 2, 2));
+		t.insert(&p(20, 1, 9), 8);
+
+		let voxels = tree_voxels(&t);
+		assert_eq!(t.occupied_bounds(), bounds_from_positions(voxels.keys().copied()));
+
+		let region = GridRegion::from_min_max_inclusive(IVec3::new(3, 4, 5), IVec3::new(8, 9, 10)).unwrap();
+		let expected = bounds_from_positions(voxels.keys().copied().filter(|pos| region.contains(pos.as_ivec3())));
+		assert_eq!(t.occupied_bounds_in_region(region), expected);
+
+		let empty_region = GridRegion::from_min_max_inclusive(IVec3::new(30, 30, 30), IVec3::new(35, 35, 35)).unwrap();
+		assert_eq!(t.occupied_bounds_in_region(empty_region), None);
+	}
+
+	#[test]
+	fn occupied_tile_cover_matches_oracle() {
+		let mut t = VoxelGridTree::new();
+		for x in 0..24 {
+			for y in 0..20 {
+				for z in 0..18 {
+					if (x + 2 * y + 3 * z) % 7 == 0 {
+						t.insert(&p(x, y, z), 1);
+					}
+				}
+			}
+		}
+		let region = GridRegion::from_min_max_inclusive(IVec3::new(3, 2, 1), IVec3::new(21, 17, 15)).unwrap();
+		let tile_size = 5;
+
+		let mut actual = HashSet::new();
+		t.for_each_occupied_tile_cover(region, tile_size, |tile| {
+			actual.insert(tile);
+		});
+
+		let expected: HashSet<_> = tree_voxels(&t)
+			.into_keys()
+			.filter(|pos| region.contains(pos.as_ivec3()))
+			.map(|pos| pos.as_ivec3().div_euclid(IVec3::splat(tile_size)) * tile_size)
 			.collect();
 		assert_eq!(actual, expected);
 	}

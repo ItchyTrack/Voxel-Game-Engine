@@ -11,12 +11,11 @@ mod camera_voxel_loader {
 		pub near_radius_chunks: i32,
 		pub rings_per_lod: i32,
 		pub requests_per_frame: usize,
-		pub max_in_flight: usize,
 	}
 
 	impl Default for CameraVoxelLoaderSettings {
 		fn default() -> Self {
-			Self { max_lod: 3, near_radius_chunks: 3, rings_per_lod: 2, requests_per_frame: 16, max_in_flight: 128 }
+			Self { max_lod: 3, near_radius_chunks: 3, rings_per_lod: 2, requests_per_frame: 16 }
 		}
 	}
 
@@ -70,7 +69,7 @@ fn near_chunks_only_include_present_chunks() {
 #[test]
 fn minimal_delta_misses_lod3_tile_when_inner_ring_boundary_moves_one_chunk() {
 	let grid: GridId = Entity::PLACEHOLDER;
-	let settings = CameraVoxelLoaderSettings { max_lod: 4, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512, max_in_flight: 4096 };
+	let settings = CameraVoxelLoaderSettings { max_lod: 4, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
 	streaming.presence_mut().mark_present_area(IVec3::splat(-160), IVec3::splat(321));
@@ -254,7 +253,7 @@ fn editing_chunk_inside_active_lod2_tile_should_dirty_tile_and_wait_to_unload_ol
 #[test]
 fn full_lod_policy_covers_every_present_chunk_inside_streaming_domain() {
 	let grid: GridId = Entity::PLACEHOLDER;
-	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512, max_in_flight: 4096 };
+	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
 	streaming.presence_mut().mark_present_area(IVec3::splat(-48), IVec3::splat(97));
@@ -410,7 +409,7 @@ fn incremental_lod_policy_matches_full_rebuild_for_explicit_settings_and_targete
 #[test]
 fn incremental_lod_policy_matches_full_rebuild_for_systematic_one_chunk_boundary_crossings() {
 	let grid: GridId = Entity::PLACEHOLDER;
-	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512, max_in_flight: 4096 };
+	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
 	streaming.presence_mut().mark_present_area(IVec3::splat(-80), IVec3::splat(161));
@@ -453,7 +452,7 @@ fn incremental_lod_policy_matches_full_rebuild_for_systematic_one_chunk_boundary
 #[test]
 fn incremental_lod_policy_matches_full_rebuild_for_deterministic_flight_stress() {
 	let grid: GridId = Entity::PLACEHOLDER;
-	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512, max_in_flight: 4096 };
+	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
 	streaming.presence_mut().mark_present_area(IVec3::splat(-80), IVec3::splat(161));
@@ -490,7 +489,7 @@ fn incremental_lod_policy_matches_full_rebuild_for_deterministic_flight_stress()
 #[test]
 fn incremental_lod_policy_matches_full_rebuild_while_camera_flies() {
 	let grid: GridId = Entity::PLACEHOLDER;
-	let settings = CameraVoxelLoaderSettings { max_lod: 4, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512, max_in_flight: 4096 };
+	let settings = CameraVoxelLoaderSettings { max_lod: 4, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
 	streaming.presence_mut().mark_present_area(IVec3::splat(-160), IVec3::splat(321));
@@ -516,10 +515,10 @@ fn incremental_lod_policy_matches_full_rebuild_while_camera_flies() {
 
 fn explicit_settings_cases() -> Vec<CameraVoxelLoaderSettings> {
 	vec![
-		CameraVoxelLoaderSettings { max_lod: 2, near_radius_chunks: 2, rings_per_lod: 1, requests_per_frame: 8, max_in_flight: 32 },
-		CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 3, rings_per_lod: 2, requests_per_frame: 16, max_in_flight: 128 },
-		CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 32, max_in_flight: 256 },
-		CameraVoxelLoaderSettings { max_lod: 4, near_radius_chunks: 5, rings_per_lod: 1, requests_per_frame: 32, max_in_flight: 256 },
+		CameraVoxelLoaderSettings { max_lod: 2, near_radius_chunks: 2, rings_per_lod: 1, requests_per_frame: 8 },
+		CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 3, rings_per_lod: 2, requests_per_frame: 16 },
+		CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 32 },
+		CameraVoxelLoaderSettings { max_lod: 4, near_radius_chunks: 5, rings_per_lod: 1, requests_per_frame: 32 },
 	]
 }
 

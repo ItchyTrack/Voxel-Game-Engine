@@ -238,25 +238,10 @@ impl Voxels {
 	pub fn merge_from(&mut self, source: &Voxels, offset: IVec3) { self.merge_region_from(source, None, offset); }
 
 	pub fn merge_region_from(&mut self, source: &Voxels, source_region: Option<GridRegion>, offset: IVec3) {
-		let mut bounds: Option<(U16Vec3, U16Vec3)> = None;
-		let mut include_bounds = |min: IVec3, end: IVec3| {
-			let bb_min = (min + offset).as_u16vec3();
-			let bb_max = (end + offset - IVec3::ONE).as_u16vec3();
-			bounds = Some(match bounds { Some((lo, hi)) => (lo.min(bb_min), hi.max(bb_max)), None => (bb_min, bb_max) });
-		};
-		match source_region {
-			Some(region) => source.voxels.for_each_in_region(region, |pos, size, _| {
-				let run_min = pos.as_ivec3().max(region.min);
-				let run_end = (pos.as_ivec3() + IVec3::splat(size as i32)).min(region.end);
-				if run_min.cmplt(run_end).all() { include_bounds(run_min, run_end); }
-			}),
-			None => {
-				for (pos, size, _) in source.voxels.iter() {
-					let min = pos.as_ivec3();
-					include_bounds(min, min + IVec3::splat(size as i32));
-				}
-			}
-		}
+		let bounds = match source_region {
+			Some(region) => source.voxels.occupied_bounds_in_region(region),
+			None => source.voxels.occupied_bounds(),
+		}.map(|region| ((region.min + offset).as_u16vec3(), (region.end + offset - IVec3::ONE).as_u16vec3()));
 		if self.voxels.is_empty() {
 			self.voxel_palette = source.voxel_palette.clone();
 			match source_region {
@@ -295,11 +280,9 @@ impl Voxels {
 	pub fn bounding_box(&self) -> Option<(U16Vec3, U16Vec3)> {
 		if self.bounding_box_dirty.load(Ordering::Acquire) {
 			let _zone = span!("rebuild voxel bounding box");
+			let bounds = self.voxels.occupied_bounds().map(|region| (region.min.as_u16vec3(), (region.end - IVec3::ONE).as_u16vec3()));
 			self.bounding_box_dirty.store(false, Ordering::Release);
-			*(self.bounding_box.lock()).unwrap() = self.voxels.iter().fold(None, |bb, (p, size, _)| {
-				let end = p + U16Vec3::splat(size - 1);
-				match bb { Some((min, max)) => Some((min.min(p), max.max(end))), None => Some((p, end)) }
-			});
+			*(self.bounding_box.lock()).unwrap() = bounds;
 		}
 		*self.bounding_box.lock().unwrap()
 	}

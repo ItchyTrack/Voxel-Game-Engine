@@ -148,6 +148,22 @@ fn occupied_tile_cover_recurse<C, Co, F>(
 	Co: GridCoord,
 	F: FnMut(IVec3),
 {
+	let node_end = node.origin + IVec3::splat(super::size(node.depth) as i32);
+	if node.origin.cmpgt(max).any() || node_end.cmple(min).any() {
+		return;
+	}
+	let overlap_min = node.origin.max(min);
+	let overlap_max = (node_end - IVec3::ONE).min(max);
+	let first = overlap_min.div_euclid(IVec3::splat(tile_size));
+	let last = overlap_max.div_euclid(IVec3::splat(tile_size));
+	if first == last {
+		let tile_min = first * tile_size;
+		if seen.insert(tile_min) {
+			f(tile_min);
+		}
+		return;
+	}
+
 	for child in view.occupied_children(node) {
 		let child_end = child.origin + IVec3::splat(child.size as i32);
 		if child.origin.cmpgt(max).any() || child_end.cmple(min).any() {

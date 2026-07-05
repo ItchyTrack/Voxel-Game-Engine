@@ -81,17 +81,76 @@ pub(crate) fn remove_source(loader: &mut CameraVoxelLoader, source: TileKey) {
 }
 
 fn unresolved_replacements_for(loader: &CameraVoxelLoader, source: TileKey) -> HashSet<TileKey> {
-	loader
-		.desired_tiles
-		.iter()
-		.copied()
-		.filter(|candidate| *candidate != source && sources_overlap(source, *candidate))
-		.filter(|replacement| !matches!(loader.coverage_sources.get(replacement), Some(SourceState::Desired(SourceResolution::Visible(_) | SourceResolution::Empty))))
-		.collect()
+	// Enumerate only the tiles that can geometrically overlap this source at each LOD.
+	let mut replacements = HashSet::new();
+	for lod in 0..=max_supported_lod() {
+		collect_unresolved_replacements_at_lod(loader, source, lod, &mut replacements);
+	}
+	replacements
 }
 
-fn sources_overlap(a: TileKey, b: TileKey) -> bool {
-	let (a_min, a_max) = (a.min, a.min + a.size());
-	let (b_min, b_max) = (b.min, b.min + b.size());
-	a_min.cmplt(b_max).all() && b_min.cmplt(a_max).all()
+fn collect_unresolved_replacements_at_lod(
+	loader: &CameraVoxelLoader,
+	source: TileKey,
+	lod: u8,
+	replacements: &mut HashSet<TileKey>,
+) {
+	let size = 1i32 << lod;
+	let tile = IVec3::splat(size);
+	let source_max = source.min + source.size();
+	let min = source.min.div_euclid(tile) * tile;
+
+	let mut x = min.x;
+	while x < source_max.x {
+		let mut y = min.y;
+		while y < source_max.y {
+			let mut z = min.z;
+			while z < source_max.z {
+				let candidate = TileKey { grid: source.grid, lod, min: IVec3::new(x, y, z) };
+				if candidate != source
+					&& loader.desired_tiles.contains(&candidate)
+					&& !matches!(
+						loader.coverage_sources.get(&candidate),
+						Some(SourceState::Desired(SourceResolution::Visible(_) | SourceResolution::Empty))
+					) {
+					replacements.insert(candidate);
+				}
+				z += size;
+			}
+			y += size;
+		}
+		x += size;
+	}
+}
+
+const fn max_supported_lod() -> u8 {
+	// Tile sizes use 1i32 << lod, so keep enumeration below the sign bit.
+	i32::BITS as u8 - 2
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn grid(bits: u64) -> Entity { Entity::from_bits(bits) }
+	fn tile(grid: Entity, lod: u8, min: IVec3) -> TileKey { TileKey { grid, lod, min } }
+
+	#[test]
+	fn same_grid_replacements_do_not_wait_on_other_grids() {
+		let source_grid = grid(1);
+		let other_grid = grid(2);
+		let source = tile(source_grid, 1, IVec3::ZERO);
+		let replacement = tile(source_grid, 0, IVec3::ZERO);
+		let other_grid_replacement = tile(other_grid, 0, IVec3::ZERO);
+		let mut loader = CameraVoxelLoader::default();
+		loader.desired_tiles.insert(replacement);
+		loader.desired_tiles.insert(other_grid_replacement);
+
+		request_source(&mut loader, source);
+		resolve_visible(&mut loader, source, Entity::from_bits(10));
+		request_source(&mut loader, replacement);
+
+		assert!(undesire_source(&mut loader, source).is_empty());
+		assert_eq!(resolve_visible(&mut loader, replacement, Entity::from_bits(11)), vec![source]);
+	}
 }

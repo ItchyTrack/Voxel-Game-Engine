@@ -14,7 +14,6 @@ pub struct CameraVoxelLoaderSettings {
 	pub near_radius_chunks: i32,
 	pub rings_per_lod: i32,
 	pub requests_per_frame: usize,
-	pub max_in_flight: usize,
 }
 
 impl Default for CameraVoxelLoaderSettings {
@@ -24,7 +23,6 @@ impl Default for CameraVoxelLoaderSettings {
 			near_radius_chunks: 5,
 			rings_per_lod: 3,
 			requests_per_frame: 20000,
-			max_in_flight: 20000,
 		}
 	}
 }
