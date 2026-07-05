@@ -24,17 +24,33 @@ mod types {
 #[allow(dead_code)]
 #[path = "../src/replacement_graph.rs"]
 mod replacement_graph;
+#[allow(dead_code)]
+#[path = "../src/unresolved_tile_index.rs"]
+mod unresolved_tile_index;
 
 mod camera_voxel_loader {
 	use super::*;
-	use crate::coverage::{SourceState, TileKey};
+	use crate::coverage::SourceState;
 	use crate::replacement_graph::ReplacementGraph;
 	use crate::types::TileKey;
+	use crate::unresolved_tile_index::UnresolvedTileIndex;
+
+	#[derive(Debug, Clone)]
+	pub(crate) struct CameraVoxelLoaderSettings {
+		pub(crate) max_lod: u8,
+	}
+	impl Default for CameraVoxelLoaderSettings {
+		fn default() -> Self {
+			Self { max_lod: 6 }
+		}
+	}
 
 	#[derive(Default)]
 	pub(crate) struct CameraVoxelLoader {
+		pub(crate) settings: CameraVoxelLoaderSettings,
 		pub(crate) desired_tiles: HashSet<TileKey>,
 		pub(crate) coverage_sources: HashMap<TileKey, SourceState>,
+		pub(crate) unresolved_tiles: UnresolvedTileIndex,
 		pub(crate) replacement_graph: ReplacementGraph,
 	}
 }
@@ -200,6 +216,6 @@ fn source_state_records_visibility_and_empty() {
 	request_source(&mut loader, empty);
 	resolve_empty(&mut loader, empty);
 
-	assert_eq!(loader.coverage_sources[&visible].state, SourceState::Desired(SourceResolution::Visible(Entity::from_bits(3))));
-	assert_eq!(loader.coverage_sources[&empty].state, SourceState::Desired(SourceResolution::Empty));
+	assert_eq!(loader.coverage_sources[&visible], SourceState::Desired(SourceResolution::Visible(Entity::from_bits(3))));
+	assert_eq!(loader.coverage_sources[&empty], SourceState::Desired(SourceResolution::Empty));
 }

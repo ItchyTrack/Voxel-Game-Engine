@@ -3,10 +3,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use bevy::ecs::component::Component;
 use voxel_data::grid::GridId;
 
-use crate::coverage::{SourceState};
+use crate::coverage::SourceState;
 use crate::lod_bands::LodBand;
 use crate::replacement_graph::ReplacementGraph;
 use crate::types::{TileKey, TileRecord};
+use crate::unresolved_tile_index::UnresolvedTileIndex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CameraVoxelLoaderSettings {
@@ -33,6 +34,7 @@ pub struct CameraVoxelLoader {
 	pub(crate) desired_tiles: HashSet<TileKey>,
 	pub(crate) bands: HashMap<GridId, Vec<LodBand>>,
 	pub(crate) coverage_sources: HashMap<TileKey, SourceState>,
+	pub(crate) unresolved_tiles: UnresolvedTileIndex,
 	pub(crate) replacement_graph: ReplacementGraph,
 	pub(crate) queue: VecDeque<TileKey>,
 	pub(crate) tiles: HashMap<TileKey, TileRecord>,

@@ -6,6 +6,7 @@ mod lod_bands;
 mod lod_policy;
 mod subgrid_interface;
 mod types;
+mod unresolved_tile_index;
 
 use bevy::prelude::*;
 use voxel_streaming::{StreamingPhase, StreamingSchedule, VoxelStreamingAppExt};

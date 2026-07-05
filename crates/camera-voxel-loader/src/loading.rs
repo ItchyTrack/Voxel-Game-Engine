@@ -177,7 +177,10 @@ fn handle_non_desired_tile(camera_voxel_loader: &mut CameraVoxelLoader, key: Til
 		}
 		// In-flight work may still produce valid voxel data. Keep the record so the
 		// late result can be applied, then retire it through the same no-gap path.
-		TileStatus::Loading => Vec::new(),
+		TileStatus::Loading => {
+			camera_voxel_loader.unresolved_tiles.remove(key);
+			Vec::new()
+		}
 		// Queued work has not been sent yet, so it can be safely dropped.
 		TileStatus::Queued => {
 			camera_voxel_loader.tiles.remove(&key);
@@ -413,8 +416,6 @@ fn tiles_overlap_area(key: TileKey, min: IVec3, size: IVec3) -> bool {
 
 #[cfg(test)]
 mod tests {
-	use bevy::prelude::*;
-
 	use super::*;
 	use crate::camera_voxel_loader::CameraVoxelLoader;
 	use crate::coverage::request_source;
@@ -432,5 +433,8 @@ mod tests {
 		assert!(ready.is_empty());
 		assert!(loader.tiles.contains_key(&key), "loading LOD records stay until the in-flight result resolves because release_lod is delayed until dependency retirement");
 		assert!(loader.coverage_sources.contains_key(&key), "coverage remains requested so the late result can satisfy replacement dependencies");
+		let mut unresolved = Vec::new();
+		loader.unresolved_tiles.for_each_in_region(key.grid, voxel_data::grid_tree::GridRegion::from_min_size(key.min, key.size()).unwrap(), loader.settings.max_lod, None, |candidate| unresolved.push(candidate));
+		assert!(unresolved.is_empty(), "undesired in-flight tiles must not block other retirements");
 	}
 }

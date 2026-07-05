@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 use tracy_client::span;
+use voxel_data::grid_tree::GridRegion;
 
 use crate::camera_voxel_loader::CameraVoxelLoader;
 use crate::replacement_graph::DependencyRecord;
@@ -16,13 +17,16 @@ pub(crate) enum SourceState { Desired(SourceResolution), RetiringVisible(Entity)
 pub(crate) fn request_source(loader: &mut CameraVoxelLoader, source: TileKey) {
 	let _span = span!();
 	match loader.coverage_sources.get(&source) {
-		None => { loader.coverage_sources.insert(source, SourceState::Desired(SourceResolution::Requested)); }
+		None => {
+			loader.coverage_sources.insert(source, SourceState::Desired(SourceResolution::Requested));
+		}
 		Some(SourceState::RetiringVisible(entity)) => {
 			loader.replacement_graph.cancel_record(source);
 			*loader.coverage_sources.get_mut(&source).unwrap() = SourceState::Desired(SourceResolution::Visible(*entity));
 		}
 		_ => {}
 	}
+	sync_unresolved_source(loader, source);
 }
 
 pub(crate) fn undesire_source(loader: &mut CameraVoxelLoader, source: TileKey) -> Vec<TileKey> {
@@ -54,8 +58,8 @@ pub(crate) fn resolve_visible(loader: &mut CameraVoxelLoader, source: TileKey, e
 }
 
 fn resolve_source(loader: &mut CameraVoxelLoader, source: TileKey, resolution: SourceResolution) -> Vec<TileKey> {
-	match loader.coverage_sources.get(&source) {
-		None => Vec::new(),
+	let ready = match loader.coverage_sources.get(&source) {
+		None => return Vec::new(),
 		Some(SourceState::Desired(_)) => {
 			*loader.coverage_sources.get_mut(&source).unwrap() = SourceState::Desired(resolution);
 			loader.replacement_graph.apply_satisfied(source)
@@ -65,10 +69,14 @@ fn resolve_source(loader: &mut CameraVoxelLoader, source: TileKey, resolution: S
 				*loader.coverage_sources.get_mut(&source).unwrap() = SourceState::RetiringVisible(entity);
 			}
 			let mut ready = loader.replacement_graph.apply_satisfied(source);
-			if matches!(resolution, SourceResolution::Empty) { ready.push(source); }
+			if matches!(resolution, SourceResolution::Empty) {
+				ready.push(source);
+			}
 			ready
 		}
-	}
+	};
+	sync_unresolved_source(loader, source);
+	ready
 }
 
 pub(crate) fn retiring_visible_chunks(loader: &CameraVoxelLoader) -> Vec<TileKey> {
@@ -77,55 +85,26 @@ pub(crate) fn retiring_visible_chunks(loader: &CameraVoxelLoader) -> Vec<TileKey
 
 pub(crate) fn remove_source(loader: &mut CameraVoxelLoader, source: TileKey) {
 	loader.coverage_sources.remove(&source);
+	loader.unresolved_tiles.remove(source);
 	loader.replacement_graph.remove_source(source);
 }
 
 fn unresolved_replacements_for(loader: &CameraVoxelLoader, source: TileKey) -> HashSet<TileKey> {
-	// Enumerate only the tiles that can geometrically overlap this source at each LOD.
+	let Some(region) = GridRegion::from_min_size(source.min, source.size()) else { return HashSet::new() };
 	let mut replacements = HashSet::new();
-	for lod in 0..=max_supported_lod() {
-		collect_unresolved_replacements_at_lod(loader, source, lod, &mut replacements);
-	}
+	loader.unresolved_tiles.for_each_in_region(source.grid, region, loader.settings.max_lod, Some(source.lod), |candidate| {
+		replacements.insert(candidate);
+	});
 	replacements
 }
 
-fn collect_unresolved_replacements_at_lod(
-	loader: &CameraVoxelLoader,
-	source: TileKey,
-	lod: u8,
-	replacements: &mut HashSet<TileKey>,
-) {
-	let size = 1i32 << lod;
-	let tile = IVec3::splat(size);
-	let source_max = source.min + source.size();
-	let min = source.min.div_euclid(tile) * tile;
-
-	let mut x = min.x;
-	while x < source_max.x {
-		let mut y = min.y;
-		while y < source_max.y {
-			let mut z = min.z;
-			while z < source_max.z {
-				let candidate = TileKey { grid: source.grid, lod, min: IVec3::new(x, y, z) };
-				if candidate != source
-					&& loader.desired_tiles.contains(&candidate)
-					&& !matches!(
-						loader.coverage_sources.get(&candidate),
-						Some(SourceState::Desired(SourceResolution::Visible(_) | SourceResolution::Empty))
-					) {
-					replacements.insert(candidate);
-				}
-				z += size;
-			}
-			y += size;
-		}
-		x += size;
+fn sync_unresolved_source(loader: &mut CameraVoxelLoader, source: TileKey) {
+	if loader.desired_tiles.contains(&source)
+		&& matches!(loader.coverage_sources.get(&source), Some(SourceState::Desired(SourceResolution::Requested))) {
+		loader.unresolved_tiles.insert(source);
+	} else {
+		loader.unresolved_tiles.remove(source);
 	}
-}
-
-const fn max_supported_lod() -> u8 {
-	// Tile sizes use 1i32 << lod, so keep enumeration below the sign bit.
-	i32::BITS as u8 - 2
 }
 
 #[cfg(test)]

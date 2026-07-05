@@ -24,12 +24,16 @@ mod types {
 #[allow(dead_code)]
 #[path = "../src/replacement_graph.rs"]
 mod replacement_graph;
+#[allow(dead_code)]
+#[path = "../src/unresolved_tile_index.rs"]
+mod unresolved_tile_index;
 
 mod camera_voxel_loader {
 	use super::*;
-	use crate::coverage::{SourceState, TileKey};
+	use crate::coverage::SourceState;
 	use crate::replacement_graph::ReplacementGraph;
 	use crate::types::TileKey;
+	use crate::unresolved_tile_index::UnresolvedTileIndex;
 
 	#[derive(Debug, Clone, PartialEq, Eq)]
 	pub struct CameraVoxelLoaderSettings {
@@ -49,6 +53,7 @@ mod camera_voxel_loader {
 		pub(crate) settings: CameraVoxelLoaderSettings,
 		pub(crate) desired_tiles: HashSet<TileKey>,
 		pub(crate) coverage_sources: HashMap<TileKey, SourceState>,
+		pub(crate) unresolved_tiles: UnresolvedTileIndex,
 		pub(crate) replacement_graph: ReplacementGraph,
 	}
 }
@@ -82,12 +87,12 @@ fn desired_empty_lod_tile_stays_resolved_without_persistent_tile_record() {
 	resolve_empty(&mut loader, tile);
 	sync_desired_coverage(&mut loader, &desired_tiles);
 
-	let state = loader.coverage_sources.get(&tile).map(|record| record.state);
+	let state = loader.coverage_sources.get(&tile).copied();
 	assert!(matches!(state, Some(SourceState::Desired(SourceResolution::Empty))));
 
 	sync_desired_coverage(&mut loader, &HashSet::new());
 	sync_desired_coverage(&mut loader, &desired_tiles);
-	let state = loader.coverage_sources.get(&tile).map(|record| record.state);
+	let state = loader.coverage_sources.get(&tile).copied();
 	assert!(matches!(state, Some(SourceState::Desired(SourceResolution::Requested))));
 }
 
@@ -104,7 +109,7 @@ fn re_desired_ready_lod_tile_resolves_visible_without_new_gpu_event() {
 	request_source(&mut loader, ready_replacement);
 	undesire_source(&mut loader, old_tile);
 	assert!(matches!(
-		loader.coverage_sources.get(&ready_replacement).map(|record| record.state),
+		loader.coverage_sources.get(&ready_replacement).copied(),
 		Some(SourceState::Desired(SourceResolution::Requested))
 	));
 
@@ -113,7 +118,7 @@ fn re_desired_ready_lod_tile_resolves_visible_without_new_gpu_event() {
 	let ready = resolve_visible(&mut loader, ready_replacement, existing_ready_tile_entity);
 
 	assert!(
-		matches!(loader.coverage_sources.get(&ready_replacement).map(|record| record.state), Some(SourceState::Desired(SourceResolution::Visible(entity))) if entity == existing_ready_tile_entity)
+		matches!(loader.coverage_sources.get(&ready_replacement).copied(), Some(SourceState::Desired(SourceResolution::Visible(entity))) if entity == existing_ready_tile_entity)
 	);
 	assert_eq!(ready, vec![old_tile]);
 }
@@ -184,7 +189,7 @@ fn church_flight_never_waits_on_empty_lod_tile_that_will_not_request_again() {
 
 		for tile in desired_tiles.iter().copied().filter(|key| key.lod > 0) {
 			if !tile_records.contains_key(&tile) {
-				let state = loader.coverage_sources.get(&tile).map(|record| record.state);
+				let state = loader.coverage_sources.get(&tile).copied();
 				assert!(
 					matches!(state, Some(SourceState::Desired(SourceResolution::Empty))),
 					"frame {frame}: desired LOD tile {tile:?} has no TileRecord, but coverage is {state:?}"
@@ -200,7 +205,7 @@ fn sync_desired_coverage(loader: &mut CameraVoxelLoader, desired_tiles: &HashSet
 		request_source(loader, *source);
 	}
 	let old_desired: Vec<_> =
-		loader.coverage_sources.iter().filter_map(|(&source, record)| matches!(record.state, SourceState::Desired(_)).then_some(source)).collect();
+		loader.coverage_sources.iter().filter_map(|(&source, record)| matches!(record, SourceState::Desired(_)).then_some(source)).collect();
 	for source in old_desired {
 		if !desired_tiles.contains(&source) {
 			undesire_source(loader, source);
@@ -209,7 +214,7 @@ fn sync_desired_coverage(loader: &mut CameraVoxelLoader, desired_tiles: &HashSet
 }
 
 fn tile_coverage_is_desired_empty(loader: &CameraVoxelLoader, tile: TileKey) -> bool {
-	matches!(loader.coverage_sources.get(&tile).map(|record| record.state), Some(SourceState::Desired(SourceResolution::Empty)))
+	matches!(loader.coverage_sources.get(&tile).copied(), Some(SourceState::Desired(SourceResolution::Empty)))
 }
 
 fn tile_has_real_church_data(tile: TileKey, chunks: &HashSet<IVec3>, cache: &mut HashMap<TileKey, bool>) -> bool {
