@@ -33,17 +33,14 @@ pub(crate) fn update_desired_sources_delta(
 
 	let mut added = Vec::new();
 	let mut removed = Vec::new();
-	let desired_tiles = &mut loader.desired_tiles;
 	run_over_diff(&old_bands, &new_bands, streaming, |lod, min, is_added| {
 		let key = TileKey { grid, lod, min };
 		if is_added {
-			if desired_tiles.insert(key) {
+			if loader.insert_desired_tile(key) {
 				added.push(key);
 			}
-		} else {
-			if desired_tiles.remove(&key) {
-				removed.push(key);
-			}
+		} else if loader.remove_desired_tile(key) {
+			removed.push(key);
 		}
 	});
 

@@ -122,8 +122,8 @@ mod tests {
 		let replacement = tile(source_grid, 0, IVec3::ZERO);
 		let other_grid_replacement = tile(other_grid, 0, IVec3::ZERO);
 		let mut loader = CameraVoxelLoader::default();
-		loader.desired_tiles.insert(replacement);
-		loader.desired_tiles.insert(other_grid_replacement);
+		loader.insert_desired_tile(replacement);
+		loader.insert_desired_tile(other_grid_replacement);
 
 		request_source(&mut loader, source);
 		resolve_visible(&mut loader, source, Entity::from_bits(10));

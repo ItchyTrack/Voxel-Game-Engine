@@ -7,10 +7,12 @@ mod consumer;
 mod lod_index;
 mod presence;
 mod streaming;
+pub mod tile_index;
 
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use presence::{ChunkPresence, ChunkState};
+pub use tile_index::{TileIndex, TileIndexKey};
 pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaded, PresenceLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
 pub type LodLoadResult = voxel_sources::LodLoaded;

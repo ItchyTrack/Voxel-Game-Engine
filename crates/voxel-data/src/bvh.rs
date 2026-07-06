@@ -1,6 +1,7 @@
-use std::{cmp::Ordering, collections::BinaryHeap, fmt::Debug};
+use std::{cmp::Ordering, collections::BinaryHeap, fmt::Debug, sync::Arc};
 
 use bevy::math::Vec3;
+use bevy::tasks::{ComputeTaskPool, TaskPoolBuilder};
 use bevy::transform::components::Transform;
 
 use tracy_client::span;
@@ -35,6 +36,7 @@ pub struct BVHNode {
 /// build cost. The improvement matters most when primitives are non-uniform
 /// in size or distribution.
 const BIN_COUNT: usize = 16;
+const PARALLEL_BUILD_THRESHOLD: usize = 2048;
 
 /// Cost of traversing one BVH node relative to testing one primitive.
 const TRAVERSAL_COST: f32 = 1.0;
@@ -43,6 +45,18 @@ const INTERSECT_COST: f32 = 1.0;
 fn surface_area(min_corner: Vec3, max_corner: Vec3) -> f32 {
 	let extent = (max_corner - min_corner).max(Vec3::ZERO);
 	2.0 * (extent.x * extent.y + extent.y * extent.z + extent.z * extent.x)
+}
+
+#[derive(Clone, Copy)]
+struct BuildPrimitive<Index> {
+	index: Index,
+	min_corner: Vec3,
+	max_corner: Vec3,
+}
+
+struct BuiltSubtree<Index> {
+	nodes: Vec<BVHNode>,
+	items: Vec<(Index, (Vec3, Vec3))>,
 }
 
 struct Bin {
@@ -67,79 +81,100 @@ impl Bin {
 	}
 }
 
-impl BVHNode {
-	fn build_range<Index>(items: &mut [(Index, (Vec3, Vec3))], nodes: &mut Vec<BVHNode>, start: u16, end: u16) -> Self {
-		assert!(end > start);
-		let slice = &mut items[start as usize..end as usize];
+fn rebase_subtree<Index>(subtree: &mut BuiltSubtree<Index>, node_base: u16, item_base: u16) {
+	for node in &mut subtree.nodes {
+		match &mut node.sub_nodes {
+			BVHInternal::SubNodes { sub1, sub2 } => {
+				*sub1 += node_base;
+				*sub2 += node_base;
+			}
+			BVHInternal::Leaf { start, .. } => {
+				*start += item_base;
+			}
+		}
+	}
+}
 
-		// Compute the bounding box of all primitives and of their centroids.
-		let mut bounds_min   = slice[0].1.0;
-		let mut bounds_max   = slice[0].1.1;
-		let mut centroid_min = (slice[0].1.0 + slice[0].1.1) * 0.5;
+impl BVHNode {
+	fn build_subtree<Index: Copy + Send + Sync + 'static>(primitives: Arc<[BuildPrimitive<Index>]>, indices: &mut [u16]) -> BuiltSubtree<Index> {
+		assert!(!indices.is_empty());
+
+		let first = primitives[indices[0] as usize];
+		let mut bounds_min = first.min_corner;
+		let mut bounds_max = first.max_corner;
+		let mut centroid_min = (first.min_corner + first.max_corner) * 0.5;
 		let mut centroid_max = centroid_min;
 
-		for item in slice.iter() {
-			bounds_min   = bounds_min.min(item.1.0);
-			bounds_max   = bounds_max.max(item.1.1);
-			let centroid = (item.1.0 + item.1.1) * 0.5;
+		for &primitive_index in indices.iter() {
+			let primitive = primitives[primitive_index as usize];
+			bounds_min = bounds_min.min(primitive.min_corner);
+			bounds_max = bounds_max.max(primitive.max_corner);
+			let centroid = (primitive.min_corner + primitive.max_corner) * 0.5;
 			centroid_min = centroid_min.min(centroid);
 			centroid_max = centroid_max.max(centroid);
 		}
 
-		let count = slice.len() as u16;
-
-		// Leaf conditions:
-		//   <= 4 primitives  -> forced leaf (each item is an expensive DDA call on the GPU;
-		//                      small leaves mean we bail out after fewer wasted traversals)
-		//   coincident centroids -> splitting cannot separate anything
+		let count = indices.len() as u16;
 		if count <= 4 || centroid_min == centroid_max {
-			return Self {
-				min_corner: bounds_min,
-				max_corner: bounds_max,
-				sub_nodes:  BVHInternal::Leaf { start, count },
+			let items = indices
+				.iter()
+				.map(|&primitive_index| {
+					let primitive = primitives[primitive_index as usize];
+					(primitive.index, (primitive.min_corner, primitive.max_corner))
+				})
+				.collect();
+			return BuiltSubtree {
+				nodes: vec![Self {
+					min_corner: bounds_min,
+					max_corner: bounds_max,
+					sub_nodes: BVHInternal::Leaf { start: 0, count },
+				}],
+				items,
 			};
 		}
 
-		// SAH binning split
-		//
-		// For each axis, distribute primitives into BIN_COUNT uniform bins along
-		// that axis by centroid position. Sweep left->right and right->left to
-		// build prefix bounds and counts, then evaluate the SAH cost at every
-		// bin boundary on every axis. The globally cheapest split wins.
-		//
-		// SAH cost = TRAVERSAL_COST
-		//          + (left_count  * SA(left))  / SA(parent) * INTERSECT_COST
-		//          + (right_count * SA(right)) / SA(parent) * INTERSECT_COST
-
 		let parent_surface_area = surface_area(bounds_min, bounds_max);
-		let no_split_cost       = count as f32 * INTERSECT_COST;
-
+		let no_split_cost = count as f32 * INTERSECT_COST;
 		let mut best_cost = f32::INFINITY;
 		let mut best_axis = 0usize;
-		let mut best_bin  = 0usize;
+		let mut best_bin = 0usize;
 
+		let mut axis_extent_inv = [0.0; 3];
+		let mut axis_active = [false; 3];
 		for axis in 0..3 {
 			let axis_extent = centroid_max[axis] - centroid_min[axis];
-			if axis_extent <= 0.0 { continue; }
-
-			let mut bins = [(); BIN_COUNT].map(|_| Bin::empty());
-
-			let axis_extent_inv = 1.0 / axis_extent;
-			for item in slice.iter() {
-				let centroid   = (item.1.0[axis] + item.1.1[axis]) * 0.5;
-				let normalized = (centroid - centroid_min[axis]) * axis_extent_inv;
-				let bin_index  = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
-				bins[bin_index].extend(item.1.0, item.1.1);
+			if axis_extent > 0.0 {
+				axis_extent_inv[axis] = 1.0 / axis_extent;
+				axis_active[axis] = true;
 			}
+		}
 
-			// Left-to-right prefix
-			let mut left_min    = [Vec3::splat(f32::INFINITY);     BIN_COUNT];
-			let mut left_max    = [Vec3::splat(f32::NEG_INFINITY); BIN_COUNT];
+		let mut bins_by_axis: [[Bin; BIN_COUNT]; 3] = std::array::from_fn(|_| std::array::from_fn(|_| Bin::empty()));
+		for &primitive_index in indices.iter() {
+			let primitive = primitives[primitive_index as usize];
+			let centroid = (primitive.min_corner + primitive.max_corner) * 0.5;
+			for axis in 0..3 {
+				if !axis_active[axis] {
+					continue;
+				}
+				let normalized = (centroid[axis] - centroid_min[axis]) * axis_extent_inv[axis];
+				let bin_index = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
+				bins_by_axis[axis][bin_index].extend(primitive.min_corner, primitive.max_corner);
+			}
+		}
+
+		for axis in 0..3 {
+			if !axis_active[axis] {
+				continue;
+			}
+			let bins = &bins_by_axis[axis];
+			let mut left_min = [Vec3::splat(f32::INFINITY); BIN_COUNT];
+			let mut left_max = [Vec3::splat(f32::NEG_INFINITY); BIN_COUNT];
 			let mut left_counts = [0u32; BIN_COUNT];
 			{
 				let mut rmin = Vec3::splat(f32::INFINITY);
 				let mut rmax = Vec3::splat(f32::NEG_INFINITY);
-				let mut cnt  = 0u32;
+				let mut cnt = 0u32;
 				for b in 0..BIN_COUNT {
 					let bin = &bins[b];
 					if bin.primitive_count > 0 {
@@ -147,20 +182,19 @@ impl BVHNode {
 						rmax = rmax.max(bin.max_corner);
 						cnt += bin.primitive_count;
 					}
-					left_min[b]    = rmin;
-					left_max[b]    = rmax;
+					left_min[b] = rmin;
+					left_max[b] = rmax;
 					left_counts[b] = cnt;
 				}
 			}
 
-			// Right-to-left prefix
-			let mut right_min    = [Vec3::splat(f32::INFINITY);     BIN_COUNT];
-			let mut right_max    = [Vec3::splat(f32::NEG_INFINITY); BIN_COUNT];
+			let mut right_min = [Vec3::splat(f32::INFINITY); BIN_COUNT];
+			let mut right_max = [Vec3::splat(f32::NEG_INFINITY); BIN_COUNT];
 			let mut right_counts = [0u32; BIN_COUNT];
 			{
 				let mut rmin = Vec3::splat(f32::INFINITY);
 				let mut rmax = Vec3::splat(f32::NEG_INFINITY);
-				let mut cnt  = 0u32;
+				let mut cnt = 0u32;
 				for b in (0..BIN_COUNT).rev() {
 					let bin = &bins[b];
 					if bin.primitive_count > 0 {
@@ -168,97 +202,135 @@ impl BVHNode {
 						rmax = rmax.max(bin.max_corner);
 						cnt += bin.primitive_count;
 					}
-					right_min[b]    = rmin;
-					right_max[b]    = rmax;
+					right_min[b] = rmin;
+					right_max[b] = rmax;
 					right_counts[b] = cnt;
 				}
 			}
 
-			// Evaluate split planes
 			for split_bin in 0..(BIN_COUNT - 1) {
-				let left_count  = left_counts[split_bin];
+				let left_count = left_counts[split_bin];
 				let right_count = right_counts[split_bin + 1];
-				if left_count == 0 || right_count == 0 { continue; }
+				if left_count == 0 || right_count == 0 {
+					continue;
+				}
 
-				let left_sa  = surface_area(left_min[split_bin],      left_max[split_bin]);
+				let left_sa = surface_area(left_min[split_bin], left_max[split_bin]);
 				let right_sa = surface_area(right_min[split_bin + 1], right_max[split_bin + 1]);
-
 				let cost = TRAVERSAL_COST
-					+ (left_count  as f32 * left_sa  / parent_surface_area) * INTERSECT_COST
+					+ (left_count as f32 * left_sa / parent_surface_area) * INTERSECT_COST
 					+ (right_count as f32 * right_sa / parent_surface_area) * INTERSECT_COST;
-
 				if cost < best_cost {
 					best_cost = cost;
 					best_axis = axis;
-					best_bin  = split_bin;
+					best_bin = split_bin;
 				}
 			}
 		}
 
-		// If no split beats a leaf, make a leaf.
 		if best_cost >= no_split_cost {
-			return Self {
-				min_corner: bounds_min,
-				max_corner: bounds_max,
-				sub_nodes:  BVHInternal::Leaf { start, count },
+			let items = indices
+				.iter()
+				.map(|&primitive_index| {
+					let primitive = primitives[primitive_index as usize];
+					(primitive.index, (primitive.min_corner, primitive.max_corner))
+				})
+				.collect();
+			return BuiltSubtree {
+				nodes: vec![Self {
+					min_corner: bounds_min,
+					max_corner: bounds_max,
+					sub_nodes: BVHInternal::Leaf { start: 0, count },
+				}],
+				items,
 			};
 		}
 
-		// In-place partition around the winning split plane.
 		let axis_extent = centroid_max[best_axis] - centroid_min[best_axis];
-
 		let split_index = {
-			let mut left  = 0usize;
-			let mut right = slice.len() - 1;
-
+			let mut left = 0usize;
+			let mut right = indices.len() - 1;
 			loop {
 				while left <= right {
-					let centroid   = (slice[left].1.0 + slice[left].1.1) * 0.5;
+					let primitive = primitives[indices[left] as usize];
+					let centroid = (primitive.min_corner + primitive.max_corner) * 0.5;
 					let normalized = (centroid[best_axis] - centroid_min[best_axis]) / axis_extent;
-					let bin_index  = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
-					if bin_index <= best_bin { left += 1; } else { break; }
+					let bin_index = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
+					if bin_index <= best_bin {
+						left += 1;
+					} else {
+						break;
+					}
 				}
 				while right > left {
-					let centroid   = (slice[right].1.0 + slice[right].1.1) * 0.5;
+					let primitive = primitives[indices[right] as usize];
+					let centroid = (primitive.min_corner + primitive.max_corner) * 0.5;
 					let normalized = (centroid[best_axis] - centroid_min[best_axis]) / axis_extent;
-					let bin_index  = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
-					if bin_index > best_bin { if right == 0 { break; } right -= 1; } else { break; }
+					let bin_index = ((normalized * BIN_COUNT as f32) as usize).min(BIN_COUNT - 1);
+					if bin_index > best_bin {
+						if right == 0 {
+							break;
+						}
+						right -= 1;
+					} else {
+						break;
+					}
 				}
-				if left >= right { break; }
-				slice.swap(left, right);
+				if left >= right {
+					break;
+				}
+				indices.swap(left, right);
 				left += 1;
-				if right > 0 { right -= 1; }
+				if right > 0 {
+					right -= 1;
+				}
 			}
-
-			// Guard against degenerate cases where floating-point binning
-			// pushes everything to one side.
-			left.max(1).min(slice.len() - 1) as u16
+			left.max(1).min(indices.len() - 1)
 		};
 
-		nodes.push(BVHNode {
-			min_corner: Vec3::ZERO,
-			max_corner: Vec3::ZERO,
-			sub_nodes:  BVHInternal::Leaf { start: 0, count: 0 },
-		});
-		let sub1_index = nodes.len() - 1;
-		nodes[sub1_index] = Self::build_range(items, nodes, start, start + split_index);
+		let should_parallelize = indices.len() >= PARALLEL_BUILD_THRESHOLD;
+		let (left_indices, right_indices) = indices.split_at_mut(split_index);
+		let (mut left_tree, mut right_tree) = if should_parallelize {
+			let left_owned = left_indices.to_vec();
+			let right_owned = right_indices.to_vec();
+			let pool = ComputeTaskPool::get_or_init(|| TaskPoolBuilder::new().build());
+			let mut results: Vec<BuiltSubtree<Index>> = pool.scope(|scope| {
+				let primitives_left = primitives.clone();
+				scope.spawn(async move {
+					let mut indices = left_owned;
+					Self::build_subtree(primitives_left, &mut indices)
+				});
+				let primitives_right = primitives.clone();
+				scope.spawn(async move {
+					let mut indices = right_owned;
+					Self::build_subtree(primitives_right, &mut indices)
+				});
+			});
+			(results.remove(0), results.remove(0))
+		} else {
+			(
+				Self::build_subtree(primitives.clone(), left_indices),
+				Self::build_subtree(primitives.clone(), right_indices),
+			)
+		};
 
-		nodes.push(BVHNode {
-			min_corner: Vec3::ZERO,
-			max_corner: Vec3::ZERO,
-			sub_nodes:  BVHInternal::Leaf { start: 0, count: 0 },
-		});
-		let sub2_index = nodes.len() - 1;
-		nodes[sub2_index] = Self::build_range(items, nodes, start + split_index, end);
+		let left_root = 1u16;
+		let right_root = left_root + left_tree.nodes.len() as u16;
+		rebase_subtree(&mut left_tree, left_root, 0);
+		rebase_subtree(&mut right_tree, right_root, left_tree.items.len() as u16);
 
-		Self {
+		let mut nodes = Vec::with_capacity(1 + left_tree.nodes.len() + right_tree.nodes.len());
+		nodes.push(Self {
 			min_corner: bounds_min,
 			max_corner: bounds_max,
-			sub_nodes:  BVHInternal::SubNodes {
-				sub1: sub1_index as u16,
-				sub2: sub2_index as u16,
-			},
-		}
+			sub_nodes: BVHInternal::SubNodes { sub1: left_root, sub2: right_root },
+		});
+		nodes.extend(left_tree.nodes);
+		nodes.extend(right_tree.nodes);
+
+		let mut items = left_tree.items;
+		items.extend(right_tree.items);
+		BuiltSubtree { nodes, items }
 	}
 }
 
@@ -269,19 +341,32 @@ pub struct BVH<Index: Copy + Debug + PartialEq> {
 }
 
 impl<Index: Copy + Debug + PartialEq> BVH<Index> {
-	pub fn new(mut items: Vec<(Index, (Vec3, Vec3))>) -> Self {
+	pub fn new(items: Vec<(Index, (Vec3, Vec3))>) -> Self
+	where
+		Index: Send + Sync + 'static,
+	{
 		let _zone = span!("BVH creation");
 		let item_count = items.len() as u16;
-		let mut nodes: Vec<BVHNode> = vec![];
-		nodes.push(BVHNode {
-			min_corner: Vec3::ZERO,
-			max_corner: Vec3::ZERO,
-			sub_nodes:  BVHInternal::Leaf { start: 0, count: 0 },
-		});
-		if item_count != 0 {
-			nodes[0] = BVHNode::build_range(&mut items, &mut nodes, 0, item_count);
+		let primitives: Arc<[BuildPrimitive<Index>]> = items
+			.into_iter()
+			.map(|(index, (min_corner, max_corner))| BuildPrimitive {
+				index,
+				min_corner,
+				max_corner,
+			})
+			.collect::<Vec<_>>()
+			.into();
+		if item_count == 0 {
+			return BVH { nodes: vec![BVHNode {
+				min_corner: Vec3::ZERO,
+				max_corner: Vec3::ZERO,
+				sub_nodes: BVHInternal::Leaf { start: 0, count: 0 },
+			}], items: Vec::new() };
 		}
-		BVH { nodes, items }
+
+		let mut indices: Vec<u16> = (0..item_count).collect();
+		let built = BVHNode::build_subtree(primitives, &mut indices);
+		BVH { nodes: built.nodes, items: built.items }
 	}
 
 	fn intersects(aabb_a: &(Vec3, Vec3), aabb_b: &(Vec3, Vec3)) -> bool {

@@ -39,7 +39,20 @@ struct RenderItem {
 	generation: u64,
 	aabb: (Vec3, Vec3),
 	dda_transform: Transform,
-	priority: f32,
+}
+
+const PRIORITY_BUCKET_SCALE: f32 = 16.0;
+
+fn priority_bucket(priority: f32) -> usize {
+	priority.max(0.0).ln_1p().mul_add(PRIORITY_BUCKET_SCALE, 0.0) as usize
+}
+
+fn bucket_push(buckets: &mut Vec<Vec<RenderItem>>, priority: f32, item: RenderItem) {
+	let bucket = priority_bucket(priority);
+	if bucket >= buckets.len() {
+		buckets.resize_with(bucket + 1, Vec::new);
+	}
+	buckets[bucket].push(item);
 }
 
 pub fn extract_voxel_scene(
@@ -56,7 +69,7 @@ pub fn extract_voxel_scene(
 	extracted.bvh = None;
 	extracted.id_to_offsets.clear();
 
-	let mut items = Vec::new();
+	let mut buckets: Vec<Vec<RenderItem>> = Vec::new();
 
 	for (voxel_camera, camera, projection, global_transform) in cameras.iter() {
 		if !camera.is_active { continue; }
@@ -74,15 +87,18 @@ pub fn extract_voxel_scene(
 			let dda_transform = sub_world * Transform::from_translation(placement.tree_root_pos.as_vec3());
 			let hit_count = hit_feedback.0.get(entity).copied().unwrap_or(0);
 
-			items.push(RenderItem {
-				entity: *entity,
-				tree_id: sub_grid_gpu_state.tree_id(),
-				voxels_id: sub_grid_gpu_state.voxels_id(),
-				generation: sub_grid_gpu_state.generation(),
-				aabb,
-				dda_transform,
-				priority: (-global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) + hit_count as f32 * 0.001,
-			});
+			bucket_push(
+				&mut buckets,
+				(global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) - hit_count as f32 * 0.001,
+				RenderItem {
+					entity: *entity,
+					tree_id: sub_grid_gpu_state.tree_id(),
+					voxels_id: sub_grid_gpu_state.voxels_id(),
+					generation: sub_grid_gpu_state.generation(),
+					aabb,
+					dda_transform,
+				},
+			);
 		}
 
 		for entity in voxel_camera.lods_to_render.iter() {
@@ -95,15 +111,18 @@ pub fn extract_voxel_scene(
 			let dda_transform = area_world * Transform::from_translation(placement.tree_root_pos.as_vec3());
 			let hit_count = hit_feedback.0.get(entity).copied().unwrap_or(0);
 
-			items.push(RenderItem {
-				entity: *entity,
-				tree_id: lod_grid_gpu_state.tree_id(),
-				voxels_id: lod_grid_gpu_state.voxels_id(),
-				generation: lod_grid_gpu_state.generation(),
-				aabb,
-				dda_transform,
-				priority: (-global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) + hit_count as f32 * 0.001,
-			});
+			bucket_push(
+				&mut buckets,
+				(global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) - hit_count as f32 * 0.001,
+				RenderItem {
+					entity: *entity,
+					tree_id: lod_grid_gpu_state.tree_id(),
+					voxels_id: lod_grid_gpu_state.voxels_id(),
+					generation: lod_grid_gpu_state.generation(),
+					aabb,
+					dda_transform,
+				},
+			);
 		}
 		break;
 	}
@@ -112,30 +131,41 @@ pub fn extract_voxel_scene(
 	let tree_alignment = residency.tree_alignment();
 	let voxel_alignment = residency.voxel_alignment();
 
-	items.sort_by(|a, b| b.priority.total_cmp(&a.priority));
+	let items_len: usize = buckets.iter().map(Vec::len).sum();
+	let mut items = Vec::with_capacity(items_len);
 
 	let limit = residency.binding_limit();
 	let mut tree_total = 0u64;
 	let mut voxel_total = 0u64;
-	let mut resident: Vec<ResidentVoxels> = Vec::with_capacity(items.len());
+	let mut resident: Vec<ResidentVoxels> = Vec::with_capacity(items_len);
 	let mut dropped = 0usize;
-	for item in &items {
-		let Some(tree_held) = world_gpu.packed_64_tree_dynamic_buffer.held_buffer(item.tree_id) else { continue; };
-		let Some(voxel_held) = world_gpu.packed_voxel_data_dynamic_buffer.held_buffer(item.voxels_id) else { continue; };
-		let next_tree = tree_total + tree_held.size().next_multiple_of(tree_alignment) as u64;
-		let next_voxel = voxel_total + voxel_held.size().next_multiple_of(voxel_alignment) as u64;
-		if next_tree > limit || next_voxel > limit {
-			dropped += 1;
-			continue;
+	for bucket in &buckets {
+		for item in bucket {
+			let Some(tree_held) = world_gpu.packed_64_tree_dynamic_buffer.held_buffer(item.tree_id) else { continue; };
+			let Some(voxel_held) = world_gpu.packed_voxel_data_dynamic_buffer.held_buffer(item.voxels_id) else { continue; };
+			let next_tree = tree_total + tree_held.size().next_multiple_of(tree_alignment) as u64;
+			let next_voxel = voxel_total + voxel_held.size().next_multiple_of(voxel_alignment) as u64;
+			if next_tree > limit || next_voxel > limit {
+				dropped += 1;
+				continue;
+			}
+			tree_total = next_tree;
+			voxel_total = next_voxel;
+			resident.push(ResidentVoxels {
+				entity: item.entity,
+				tree_id: item.tree_id,
+				voxels_id: item.voxels_id,
+				generation: item.generation,
+			});
+			items.push(RenderItem {
+				entity: item.entity,
+				tree_id: item.tree_id,
+				voxels_id: item.voxels_id,
+				generation: item.generation,
+				aabb: item.aabb,
+				dda_transform: item.dda_transform,
+			});
 		}
-		tree_total = next_tree;
-		voxel_total = next_voxel;
-		resident.push(ResidentVoxels {
-			entity: item.entity,
-			tree_id: item.tree_id,
-			voxels_id: item.voxels_id,
-			generation: item.generation,
-		});
 	}
 
 	if dropped > 0 {

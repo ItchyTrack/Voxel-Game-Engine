@@ -5,6 +5,7 @@ pub mod world_gpu_data;
 pub mod voxel_gpu_state;
 pub mod lod_voxels;
 pub mod residency;
+pub mod residency_packing;
 pub mod upload;
 
 use bevy::{ecs::message::Message, prelude::*, render::RenderApp};

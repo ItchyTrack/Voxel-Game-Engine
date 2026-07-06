@@ -59,6 +59,7 @@ pub struct GridStreaming {
 	lods: HashMap<LodKey, LodTileState>,
 	pending_lod_requests: HashSet<LodKey>,
 	lod_index: LodIndex,
+	uploading_lods_by_entity: HashMap<Entity, LodKey>,
 }
 
 #[derive(Component, Debug, Default)]
@@ -524,6 +525,8 @@ pub fn receive_lod_results(
 				continue;
 			}
 		}
+		let prior_upload = state.upload;
+		let requesters: Vec<_> = state.requesters.iter().map(|(&requester, &priority)| (requester, priority)).collect();
 		match result.voxels.take() {
 			Some(voxels) if !voxels.is_empty() => {
 				let entity = commands.spawn((
@@ -531,7 +534,7 @@ pub fn receive_lod_results(
 					Transform::from_translation((result.key.min * CHUNK_SIZE).as_vec3()),
 					ChildOf(result.grid),
 				)).id();
-				let active = match state.upload {
+				let active = match prior_upload {
 					LodUploadState::Uploading { entity, active, .. } => {
 						commands.entity(entity).despawn();
 						active
@@ -543,19 +546,28 @@ pub fn receive_lod_results(
 				state.status = LodStatus::Loaded;
 			}
 			_ => {
-				match state.upload {
-					LodUploadState::Active { entity, .. } | LodUploadState::Uploading { entity, .. } => commands.entity(entity).despawn(),
+				match prior_upload {
+					LodUploadState::Active { entity, .. } => commands.entity(entity).despawn(),
+					LodUploadState::Uploading { entity, .. } => commands.entity(entity).despawn(),
 					LodUploadState::None => {}
 				}
 				state.upload = LodUploadState::None;
 				state.status = LodStatus::Empty;
-				for &requester in state.requesters.keys() {
+				for (requester, _) in requesters {
 					let mut update = result.clone();
 					update.requester = requester;
 					update.entity = None;
 					updates.push(update);
 				}
 			}
+		}
+		let current_upload = state.upload;
+		let _ = state;
+		if let LodUploadState::Uploading { entity, .. } = prior_upload {
+			streaming.uploading_lods_by_entity.remove(&entity);
+		}
+		if let LodUploadState::Uploading { entity, .. } = current_upload {
+			streaming.uploading_lods_by_entity.insert(entity, result.key);
 		}
 	}
 	for update in updates {
@@ -572,7 +584,8 @@ pub fn refresh_lod_uploads(
 	let mut updates = Vec::new();
 	for entity in gpu_events.read().map(|event| event.entity) {
 		for (grid, mut streaming) in &mut grids {
-			let Some((&key, state)) = streaming.lods.iter_mut().find(|(_, state)| matches!(state.upload, LodUploadState::Uploading { entity: uploading, .. } if uploading == entity)) else { continue };
+			let Some(key) = streaming.uploading_lods_by_entity.remove(&entity) else { continue };
+			let Some(state) = streaming.lods.get_mut(&key) else { continue };
 			let generation = match state.upload {
 				LodUploadState::Uploading { entity, generation, active } => {
 					if let Some(old) = active {
@@ -604,7 +617,11 @@ pub fn cleanup_released_lods(mut commands: Commands, mut grids: Query<&mut GridS
 		for key in released {
 			let Some(state) = streaming.lods.remove(&key) else { continue };
 			match state.upload {
-				LodUploadState::Active { entity, .. } | LodUploadState::Uploading { entity, .. } => commands.entity(entity).despawn(),
+				LodUploadState::Active { entity, .. } => commands.entity(entity).despawn(),
+				LodUploadState::Uploading { entity, .. } => {
+					streaming.uploading_lods_by_entity.remove(&entity);
+					commands.entity(entity).despawn();
+				}
 				LodUploadState::None => {}
 			}
 		}

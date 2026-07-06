@@ -1,90 +1,37 @@
-use std::collections::{HashMap, HashSet};
+use crate::{LodKey, TileIndex, TileIndexKey};
 
-use bevy::math::IVec3;
-
-use crate::LodKey;
+impl TileIndexKey for LodKey {
+	fn lod(self) -> u8 { self.lod }
+	fn min(self) -> bevy::math::IVec3 { self.min }
+	fn size(self) -> bevy::math::IVec3 { self.size }
+}
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct LodIndex {
-	bins: HashMap<(u8, IVec3), Vec<LodKey>>,
-	max_lod: u8,
-}
+pub(crate) struct LodIndex(TileIndex<LodKey>);
 
 impl LodIndex {
 	pub(crate) fn insert(&mut self, key: LodKey) {
-		self.max_lod = self.max_lod.max(key.lod);
-		for bin in bins_intersecting(key) {
-			let keys = self.bins.entry((key.lod, bin)).or_default();
-			if !keys.contains(&key) {
-				keys.push(key);
-			}
-		}
+		self.0.insert(key);
 	}
 
 	pub(crate) fn remove(&mut self, key: LodKey) {
-		for bin in bins_intersecting(key) {
-			let Some(keys) = self.bins.get_mut(&(key.lod, bin)) else { continue };
-			keys.retain(|candidate| *candidate != key);
-			if keys.is_empty() {
-				self.bins.remove(&(key.lod, bin));
-			}
-		}
-		if key.lod == self.max_lod && !self.bins.keys().any(|(lod, _)| *lod == self.max_lod) {
-			self.max_lod = self.bins.keys().map(|(lod, _)| *lod).max().unwrap_or(0);
-		}
+		self.0.remove(key);
 	}
 
-	pub(crate) fn lods_covering_chunk(&self, chunk: IVec3) -> Vec<LodKey> {
-		let mut seen = HashSet::new();
-		let mut out = Vec::new();
-		for lod in 1..=self.max_lod {
-			let bin = align_to_lod_bin(chunk, lod);
-			let Some(keys) = self.bins.get(&(lod, bin)) else { continue };
-			for &key in keys {
-				if contains_chunk(key, chunk) && seen.insert(key) {
-					out.push(key);
-				}
-			}
-		}
-		out
+	pub(crate) fn lods_covering_chunk(&self, chunk: bevy::math::IVec3) -> Vec<LodKey> {
+		self.0.keys_covering_point(chunk, 1)
 	}
 
 	#[cfg(test)]
 	pub(crate) fn is_empty(&self) -> bool {
-		self.bins.is_empty()
+		self.0.is_empty()
 	}
-}
-
-fn bins_intersecting(key: LodKey) -> impl Iterator<Item = IVec3> {
-	let bin_size = lod_bin_size(key.lod);
-	let min = align_to_lod_bin(key.min, key.lod);
-	let max = align_to_lod_bin(key.min + key.size - IVec3::ONE, key.lod);
-	let mut bins = Vec::new();
-	for x in (min.x..=max.x).step_by(bin_size as usize) {
-		for y in (min.y..=max.y).step_by(bin_size as usize) {
-			for z in (min.z..=max.z).step_by(bin_size as usize) {
-				bins.push(IVec3::new(x, y, z));
-			}
-		}
-	}
-	bins.into_iter()
-}
-
-fn contains_chunk(key: LodKey, chunk: IVec3) -> bool {
-	chunk.cmpge(key.min).all() && chunk.cmplt(key.min + key.size).all()
-}
-
-fn align_to_lod_bin(chunk: IVec3, lod: u8) -> IVec3 {
-	let size = IVec3::splat(lod_bin_size(lod));
-	chunk.div_euclid(size) * size
-}
-
-fn lod_bin_size(lod: u8) -> i32 {
-	1i32 << lod
 }
 
 #[cfg(test)]
 mod tests {
+	use bevy::math::IVec3;
+
 	use super::*;
 
 	fn key(lod: u8, min: IVec3, size: IVec3) -> LodKey {

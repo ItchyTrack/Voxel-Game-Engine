@@ -43,7 +43,20 @@ struct RenderItem {
 	generation: u64,
 	face_count: u32,
 	transform: Transform,
-	priority: f32,
+}
+
+const PRIORITY_BUCKET_SCALE: f32 = 16.0;
+
+fn priority_bucket(priority: f32) -> usize {
+	priority.max(0.0).ln_1p().mul_add(PRIORITY_BUCKET_SCALE, 0.0) as usize
+}
+
+fn bucket_push(buckets: &mut Vec<Vec<RenderItem>>, priority: f32, item: RenderItem) {
+	let bucket = priority_bucket(priority);
+	if bucket >= buckets.len() {
+		buckets.resize_with(bucket + 1, Vec::new);
+	}
+	buckets[bucket].push(item);
 }
 
 fn in_frustum(frustum: &Frustum, bounds: voxel_gpu::voxel_gpu_state::VoxelGpuBounds, transform: &Transform) -> bool {
@@ -65,7 +78,7 @@ pub fn extract_raster_scene(
 	extracted.face_buffer = None;
 	extracted.palette_buffer = None;
 
-	let mut items = Vec::new();
+	let mut buckets: Vec<Vec<RenderItem>> = Vec::new();
 	for (raster_camera, camera, projection, global_transform, frustum) in cameras.iter() {
 		if !camera.is_active { continue; }
 		extracted.camera_transform = global_transform.compute_transform();
@@ -80,15 +93,18 @@ pub fn extract_raster_scene(
 			let transform = grid_global.compute_transform() * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
 			if !in_frustum(frustum, bounds, &transform) { continue; }
 			let center = transform.translation;
-			items.push(RenderItem {
-				entity: *entity,
-				buffer_id: raster_state.buffer_id(),
-				palette_id: raster_state.palette_id(),
-				generation: raster_state.generation(),
-				face_count: raster_state.face_count(),
-				transform,
-				priority: -global_transform.translation().distance(center),
-			});
+			bucket_push(
+				&mut buckets,
+				global_transform.translation().distance(center),
+				RenderItem {
+					entity: *entity,
+					buffer_id: raster_state.buffer_id(),
+					palette_id: raster_state.palette_id(),
+					generation: raster_state.generation(),
+					face_count: raster_state.face_count(),
+					transform,
+				},
+			);
 		}
 
 		for entity in &raster_camera.lods_to_render {
@@ -98,43 +114,57 @@ pub fn extract_raster_scene(
 			let scale = (1u32 << lod_grid.lod.max(0.0).floor() as u32) as f32;
 			let transform = lod_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
 			if !in_frustum(frustum, bounds, &transform) { continue; }
-			items.push(RenderItem {
-				entity: *entity,
-				buffer_id: raster_state.buffer_id(),
-				palette_id: raster_state.palette_id(),
-				generation: raster_state.generation(),
-				face_count: raster_state.face_count(),
-				transform,
-				priority: -global_transform.translation().distance(transform.translation),
-			});
+			bucket_push(
+				&mut buckets,
+				global_transform.translation().distance(transform.translation),
+				RenderItem {
+					entity: *entity,
+					buffer_id: raster_state.buffer_id(),
+					palette_id: raster_state.palette_id(),
+					generation: raster_state.generation(),
+					face_count: raster_state.face_count(),
+					transform,
+				},
+			);
 		}
 		break;
 	}
 	if !extracted.has_camera { return; }
 
-	items.sort_by(|a, b| b.priority.total_cmp(&a.priority));
+	let items_len: usize = buckets.iter().map(Vec::len).sum();
+	let mut items = Vec::with_capacity(items_len);
 	let limit = residency.binding_limit();
 	let face_alignment = residency.face_alignment();
 	let palette_alignment = residency.palette_alignment();
 	let mut total_faces = 0u64;
 	let mut total_palettes = 0u64;
-	let mut resident: Vec<ResidentRasterVoxels> = Vec::with_capacity(items.len());
-	for item in &items {
-		let Some(face_held) = world_gpu.packed_raster_face_dynamic_buffer.held_buffer(item.buffer_id) else { continue; };
-		let Some(palette_held) = world_gpu.packed_raster_palette_dynamic_buffer.held_buffer(item.palette_id) else { continue; };
-		let next_faces = total_faces + face_held.size().next_multiple_of(face_alignment) as u64;
-		let next_palettes = total_palettes + palette_held.size().next_multiple_of(palette_alignment) as u64;
-		if next_faces > limit || next_palettes > limit {
-			continue;
+	let mut resident: Vec<ResidentRasterVoxels> = Vec::with_capacity(items_len);
+	for bucket in &buckets {
+		for item in bucket {
+			let Some(face_held) = world_gpu.packed_raster_face_dynamic_buffer.held_buffer(item.buffer_id) else { continue; };
+			let Some(palette_held) = world_gpu.packed_raster_palette_dynamic_buffer.held_buffer(item.palette_id) else { continue; };
+			let next_faces = total_faces + face_held.size().next_multiple_of(face_alignment) as u64;
+			let next_palettes = total_palettes + palette_held.size().next_multiple_of(palette_alignment) as u64;
+			if next_faces > limit || next_palettes > limit {
+				continue;
+			}
+			total_faces = next_faces;
+			total_palettes = next_palettes;
+			resident.push(ResidentRasterVoxels {
+				entity: item.entity,
+				buffer_id: item.buffer_id,
+				palette_id: item.palette_id,
+				generation: item.generation,
+			});
+			items.push(RenderItem {
+				entity: item.entity,
+				buffer_id: item.buffer_id,
+				palette_id: item.palette_id,
+				generation: item.generation,
+				face_count: item.face_count,
+				transform: item.transform,
+			});
 		}
-		total_faces = next_faces;
-		total_palettes = next_palettes;
-		resident.push(ResidentRasterVoxels {
-			entity: item.entity,
-			buffer_id: item.buffer_id,
-			palette_id: item.palette_id,
-			generation: item.generation,
-		});
 	}
 
 	resident.sort_unstable_by_key(|item| item.entity.to_bits());

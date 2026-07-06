@@ -320,8 +320,7 @@ fn handle_chunk_availability_changed(
 				if !has_present {
 					continue;
 				}
-				let inserted = camera_voxel_loader.desired_tiles.insert(key);
-				if !inserted {
+				if !camera_voxel_loader.insert_desired_tile(key) {
 					continue;
 				}
 				if key.is_chunk() {
@@ -333,19 +332,14 @@ fn handle_chunk_availability_changed(
 			}
 		}
 		ChunkAvailabilityChangeKind::BecameEmpty => {
-			let affected: Vec<_> = camera_voxel_loader
-				.desired_tiles
-				.iter()
-				.copied()
-				.filter(|key| key.grid == event.grid && tiles_overlap_area(*key, event.min, event.size))
-				.collect();
+			let affected = camera_voxel_loader.desired_tiles_in_area(event.grid, event.min, event.size);
 			for key in affected {
 				let Ok(streaming) = streaming_grids.get_mut(key.grid) else { continue; };
 				let still_present = tile_has_present_source(streaming.as_ref(), key);
 				if still_present {
 					continue;
 				}
-				camera_voxel_loader.desired_tiles.remove(&key);
+				camera_voxel_loader.remove_desired_tile(key);
 				if key.is_chunk() {
 					let ready = resolve_empty(camera_voxel_loader, key);
 					retire_sources_from_request_query(camera_voxel_loader, streaming_grids, camera_entity, ready);
@@ -405,13 +399,6 @@ fn is_tile_in_band(band: crate::lod_bands::LodBand, min: IVec3) -> bool {
 	let in_outer = min.cmpge(band.outer.min).all() && tile_max.cmple(band.outer.max).all();
 	let outside_inner = band.inner.is_none_or(|inner| !(min.cmpge(inner.min).all() && tile_max.cmple(inner.max).all()));
 	in_outer && outside_inner
-}
-
-fn tiles_overlap_area(key: TileKey, min: IVec3, size: IVec3) -> bool {
-	let key_min = key.min;
-	let key_max = key.min + key.size();
-	let area_max = min + size;
-	key_min.cmplt(area_max).all() && min.cmplt(key_max).all()
 }
 
 #[cfg(test)]

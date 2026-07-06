@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, num::NonZero, ops::*};
+use std::{collections::HashMap, num::NonZero, ops::*};
 
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 use num::Integer;
@@ -31,7 +31,7 @@ pub struct PackedDynamicBuffer {
 	buffer: GpuBuffer,
 	held_bytes: u32,
 	alignment: u32,
-	held_buffers: BTreeMap<u32, HeldBuffer>,
+	held_buffers: HashMap<u32, HeldBuffer>,
 	allocator: Allocator,
 	device: GpuDevice,
 	queue: GpuQueue,
@@ -69,7 +69,7 @@ impl PackedDynamicBuffer {
 			buffer,
 			held_bytes: 0,
 			alignment,
-			held_buffers: BTreeMap::new(),
+			held_buffers: HashMap::new(),
 			allocator: Allocator::new(buffer_size as u32),
 			device: WgpuWrapper::new(raw_device.clone()),
 			queue: WgpuWrapper::new(bevy::render::renderer::WgpuWrapper::clone(&**queue).into_inner()),
