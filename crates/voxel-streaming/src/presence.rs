@@ -166,4 +166,10 @@ impl ChunkPresence {
 			}
 		});
 	}
+
+	/// Visit every occupied presence node or leaf whose box intersects the inclusive chunk region `[min, max]`.
+	pub fn for_each_node_in_region(&self, min: IVec3, max: IVec3, mut f: impl FnMut(IVec3, u32, bool)) {
+		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return };
+		self.tree.for_each_node_in_region(region, |origin, size, is_leaf| f(origin, size, is_leaf));
+	}
 }

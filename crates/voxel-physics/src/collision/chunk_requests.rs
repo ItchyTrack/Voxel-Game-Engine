@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use bevy::math::Affine3A;
 use bevy::prelude::*;
 
 use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
@@ -54,7 +55,9 @@ struct GridReq {
 	entity: Entity,
 	body: Entity,
 	is_static: bool,
-	grid_tf: Transform,
+	grid_affine: Affine3A,
+	grid_inv_affine: Affine3A,
+	chunk_world_half: Vec3,
 }
 
 /// Expand a grid's present chunks into a flat list (a tree node covers `size^3`).
@@ -90,6 +93,7 @@ pub fn request_collision_chunks(
 		let body = child_of.parent();
 		let Ok((body_tf, is_static)) = bodies.get(body) else { continue };
 		let grid_tf = *body_tf * *local_tf;
+		let grid_affine = grid_tf.compute_affine();
 		let (gmin, gmax) = aabb_of_transformed_aabb(&grid_tf, aabb.lo, aabb.hi);
 		body_aabb
 			.entry(body)
@@ -98,7 +102,19 @@ pub fn request_collision_chunks(
 				a.1 = a.1.max(gmax);
 			})
 			.or_insert((gmin, gmax));
-		reqs.push(GridReq { entity, body, is_static, grid_tf });
+		let chunk_half = Vec3::splat(CHUNK_SIZE as f32 * 0.5);
+		let chunk_world_half = (grid_affine.matrix3.x_axis.abs() * chunk_half.x
+			+ grid_affine.matrix3.y_axis.abs() * chunk_half.y
+			+ grid_affine.matrix3.z_axis.abs() * chunk_half.z)
+			.into();
+		reqs.push(GridReq {
+			entity,
+			body,
+			is_static,
+			grid_inv_affine: grid_affine.inverse(),
+			grid_affine,
+			chunk_world_half,
+		});
 	}
 	let body_bvh = BVH::new(body_aabb.iter().map(|(&body, &aabb)| (body, aabb)).collect());
 
@@ -125,27 +141,64 @@ pub fn request_collision_chunks(
 
 		// Local chunk-space region covering every partner AABB. The grid may be
 		// rotated, so take the AABB of the inverse-transformed partner corners.
-		let inv = req.grid_tf.compute_affine().inverse();
 		let mut cmin = IVec3::splat(i32::MAX);
 		let mut cmax = IVec3::splat(i32::MIN);
 		for (pmin, pmax) in &partners {
 			for corner in aabb_corners(*pmin, *pmax) {
-				let chunk = (inv.transform_point3(corner) / CHUNK_SIZE as f32).floor().as_ivec3();
+				let chunk = (req.grid_inv_affine.transform_point3(corner) / CHUNK_SIZE as f32).floor().as_ivec3();
 				cmin = cmin.min(chunk);
 				cmax = cmax.max(chunk);
 			}
 		}
 
-		let mut candidates = Vec::new();
-		streaming.presence().for_each_in_region(cmin, cmax, |chunk| candidates.push(chunk));
-		for chunk in candidates {
-			let lo = (chunk * CHUNK_SIZE).as_vec3();
-			let hi = ((chunk + IVec3::ONE) * CHUNK_SIZE).as_vec3();
-			let chunk_box = aabb_of_transformed_aabb(&req.grid_tf, lo, hi);
-			if partners.iter().any(|p| overlap(chunk_box, *p)) {
-				want.insert(chunk);
+		let chunk_local_center_offset = Vec3::splat(CHUNK_SIZE as f32 * 0.5);
+		let mut skipped_regions: Vec<(IVec3, u32)> = Vec::new();
+		streaming.presence().for_each_node_in_region(cmin, cmax, |origin, size, is_leaf| {
+			let node_end = origin + IVec3::splat(size as i32);
+			while let Some((skip_origin, skip_size)) = skipped_regions.last().copied() {
+				let skip_end = skip_origin + IVec3::splat(skip_size as i32);
+				if origin.cmpge(skip_origin).all() && node_end.cmple(skip_end).all() {
+					break;
+				}
+				skipped_regions.pop();
 			}
-		}
+			if !skipped_regions.is_empty() {
+				return;
+			}
+
+			let local_center = (origin * CHUNK_SIZE).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 * size as f32 * 0.5);
+			let world_center = req.grid_affine.transform_point3(local_center);
+			let node_world_half = req.chunk_world_half * size as f32;
+			let node_box = (world_center - node_world_half, world_center + node_world_half);
+			if !partners.iter().any(|p| overlap(node_box, *p)) {
+				if !is_leaf {
+					skipped_regions.push((origin, size));
+				}
+				return;
+			}
+
+			if !is_leaf {
+				return;
+			}
+			if size == 1 {
+				want.insert(origin);
+				return;
+			}
+
+			for x in origin.x..origin.x + size as i32 {
+				for y in origin.y..origin.y + size as i32 {
+					for z in origin.z..origin.z + size as i32 {
+						let chunk = IVec3::new(x, y, z);
+						let local_center = (chunk * CHUNK_SIZE).as_vec3() + chunk_local_center_offset;
+						let world_center = req.grid_affine.transform_point3(local_center);
+						let chunk_box = (world_center - req.chunk_world_half, world_center + req.chunk_world_half);
+						if partners.iter().any(|p| overlap(chunk_box, *p)) {
+							want.insert(chunk);
+						}
+					}
+				}
+			}
+		});
 	}
 
 	// Pass 3: diff against last tick — fetch newly wanted chunks, release dropped

@@ -168,6 +168,11 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		traversal::any_in_region(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()))
 	}
 
+	/// Visit every occupied cell (internal node or data leaf) whose cell box intersects a half-open region.
+	pub fn for_each_node_in_region(&self, region: GridRegion, f: impl FnMut(Co::Pos, Co::Size, bool)) {
+		traversal::for_each_node_in_region(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), f);
+	}
+
 	pub fn for_each_occupied_tile_cover(&self, region: GridRegion, tile_size: i32, f: impl FnMut(IVec3)) {
 		traversal::for_each_occupied_tile_cover(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), tile_size, f)
 	}

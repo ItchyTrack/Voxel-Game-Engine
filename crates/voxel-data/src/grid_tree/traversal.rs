@@ -47,6 +47,22 @@ where
 	region_recurse(view, view.root(), min, max, &mut |o, s, v| f(Co::from_ivec3(o), Co::size_from_u32(s), v));
 }
 
+/// Visit every occupied cell (internal node or data leaf) whose cell box
+/// intersects inclusive region `[min, max]`.
+#[inline]
+pub fn for_each_node_in_region<C, Co, F>(view: GridTreeView<'_, C, Co>, min: Co::Pos, max: Co::Pos, mut f: F)
+where
+	C: GridCell,
+	Co: GridCoord,
+	F: FnMut(Co::Pos, Co::Size, bool),
+{
+	if view.is_empty() {
+		return;
+	}
+	let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
+	node_region_recurse(view, view.root(), min, max, &mut |o, s, is_leaf| f(Co::from_ivec3(o), Co::size_from_u32(s), is_leaf));
+}
+
 #[inline]
 pub fn any_in_region<C: GridCell, Co: GridCoord>(view: GridTreeView<'_, C, Co>, min: Co::Pos, max: Co::Pos) -> bool {
 	if view.is_empty() {
@@ -90,6 +106,26 @@ where
 			CellKind::Data => f(child.origin, child.size, child.data_value()),
 			CellKind::Node => region_recurse(view, view.child_node(child).expect("node cell has child"), min, max, f),
 			CellKind::Empty => unreachable!(),
+		}
+	}
+}
+
+#[inline]
+fn node_region_recurse<C, Co, F>(view: GridTreeView<'_, C, Co>, node: NodeRef, min: IVec3, max: IVec3, f: &mut F)
+where
+	C: GridCell,
+	Co: GridCoord,
+	F: FnMut(IVec3, u32, bool),
+{
+	for child in view.occupied_children(node) {
+		let child_end = child.origin + IVec3::splat(child.size as i32); // exclusive
+		if child.origin.cmpgt(max).any() || child_end.cmple(min).any() {
+			continue;
+		}
+		let is_leaf = child.kind() == CellKind::Data;
+		f(child.origin, child.size, is_leaf);
+		if child.kind() == CellKind::Node {
+			node_region_recurse(view, view.child_node(child).expect("node cell has child"), min, max, f);
 		}
 	}
 }

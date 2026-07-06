@@ -70,6 +70,12 @@ impl<C: GridCell> SignedGridTree<C> {
 		}
 	}
 
+	pub fn for_each_node_in_region(&self, region: GridRegion, mut f: impl FnMut(IVec3, u32, bool)) {
+		for (oct, local) in split_region(region) {
+			self.trees[oct].for_each_node_in_region(local, |origin, size, is_leaf| f(join_region_origin(oct, origin, size), size, is_leaf));
+		}
+	}
+
 	pub fn for_each_occupied_tile_cover(&self, region: GridRegion, tile_size: i32, mut f: impl FnMut(IVec3)) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].for_each_occupied_tile_cover(local, tile_size, |tile| {
