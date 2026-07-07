@@ -18,7 +18,7 @@ use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, AsyncTaskPusher, Pr
 
 use crate::loader::{GeneratedChunkLoadRequest, GeneratedLodLoadRequest, PresenceLoadRequest, SourceRequest};
 
-use crate::handle::{SourceLodResult, SourceMessage, SourceResult};
+use crate::handle::{SourceLodResult, SourceMessage, SourceChunkResult};
 use crate::registry::{
 	cheapest, lod_sources_with_any_chunks, LodRequestKey, PendingLod, PendingLodJob, SharedSource,
 	SourceRegistry,
@@ -112,7 +112,7 @@ fn handle_chunk_request(
 			source.request_load(grid, chunk, generation);
 		}));
 	} else {
-		let _ = message_tx.send(SourceMessage::Chunk(SourceResult {
+		let _ = message_tx.send(SourceMessage::Chunk(SourceChunkResult {
 			grid: request.request.grid,
 			chunk: request.request.chunk,
 			generation: request.generation,

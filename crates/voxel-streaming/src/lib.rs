@@ -7,6 +7,8 @@ mod consumer;
 mod lod_index;
 mod presence;
 mod streaming;
+mod systems;
+mod edit;
 pub mod tile_index;
 
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
@@ -16,7 +18,8 @@ pub use tile_index::{TileIndex, TileIndexKey};
 pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaded, PresenceLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
 pub type LodLoadResult = voxel_sources::LodLoaded;
-pub use streaming::{InflightChunkPresence, apply_chunk_clears, apply_source_events, cleanup_released_lods, handle_dirty_chunks, receive_lod_results, receive_results, receive_chunk_presence_loaded, refresh_lod_uploads, request_lod_tiles, request_stalled_chunks, request_presence_for_new_grids, GridStreaming, RequestChunkPresence};
+pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
+pub use systems::{receive_lod_results, request_presence_for_new_grids};
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -84,10 +87,10 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(streaming::receive_chunk_presence_loaded, streaming::apply_source_events)
+					(systems::receive_chunk_presence_loaded,systems::apply_source_events)
 						.in_set(StreamingPhase::Ingest),
 					(
-						streaming::serve_saves,
+						systems::serve_saves,
 					)
 						.chain()
 						.in_set(StreamingPhase::Serve),
@@ -108,14 +111,14 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(streaming::request_presence_for_new_grids, streaming::handle_dirty_chunks, streaming::request_stalled_chunks, streaming::request_lod_tiles)
+					(systems::request_presence_for_new_grids, systems::handle_dirty_chunks, systems::request_stalled_chunks, systems::request_lod_tiles)
 						.in_set(StreamingPhase::Request),
-					(streaming::receive_results, streaming::receive_lod_results)
+					(systems::receive_results, systems::receive_lod_results)
 						.in_set(StreamingPhase::Receive),
 				),
 			)
-			.add_systems(Update, streaming::refresh_lod_uploads.after(voxel_gpu::GpuUploadSet::Upload))
-			.add_systems(StreamingMaintenance, (streaming::cleanup_released_lods, streaming::apply_chunk_clears).chain())
+			.add_systems(Update, systems::refresh_lod_uploads.after(voxel_gpu::GpuUploadSet::Upload))
+			.add_systems(StreamingMaintenance, (systems::cleanup_released_lods, systems::apply_chunk_clears).chain())
 			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain());
 	}
 }

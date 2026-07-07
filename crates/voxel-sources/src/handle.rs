@@ -13,7 +13,7 @@ pub enum SourceEvent {
 	Unavailable { grid: GridId, min: IVec3, size: IVec3 },
 }
 
-pub struct SourceResult {
+pub struct SourceChunkResult {
 	pub grid: GridId,
 	pub chunk: IVec3,
 	pub generation: u64,
@@ -34,7 +34,7 @@ pub enum SourceMessage {
 	Event(SourceEvent),
 	ChunkChanged(crate::ChunkChanged),
 	PresenceLoaded(ChunkPresenceLoaded),
-	Chunk(SourceResult),
+	Chunk(SourceChunkResult),
 	Lod(SourceLodResult),
 }
 
@@ -49,9 +49,8 @@ impl SourceHandle {
 		self.id
 	}
 
-	/// Finished a load. `None` voxels = confirmed empty.
 	pub fn loaded(&self, grid: GridId, chunk: IVec3, generation: u64, voxels: Option<Voxels>) {
-		let _ = self.messages.send(SourceMessage::Chunk(SourceResult { grid, chunk, generation, voxels }));
+		let _ = self.messages.send(SourceMessage::Chunk(SourceChunkResult { grid, chunk, generation, voxels }));
 	}
 
 	pub fn loaded_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, voxels: Option<Voxels>) {

@@ -10,7 +10,7 @@ use bevy::ecs::message::Message;
 use bevy::prelude::*;
 use crate::registry::SourceRegistry;
 
-pub use handle::{SourceEvent, SourceHandle, SourceLodResult, SourceResult};
+pub use handle::{SourceEvent, SourceHandle, SourceLodResult, SourceChunkResult};
 pub use loader::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, PresenceLoadRequest};
 pub use requests::{VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub use source::{ChunkSource, SourceId, VoxelLodGenerator};
