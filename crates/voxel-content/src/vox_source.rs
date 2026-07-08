@@ -109,11 +109,11 @@ impl VoxFileSource {
 				dot_vox::SceneNode::Transform { frames, child, .. } => {
 					let Some(frame) = frames.first() else { continue };
 					let pos = frame.position().unwrap_or(dot_vox::Position { x: 0, y: 0, z: 0 });
-					let (rot, flip_vec) = frame.orientation().and_then(|q| {
+					let (rot, flip_vec) = frame.orientation().map(|q| {
 						let (qarr, varr) = q.to_quat_scale();
 						let q = Quat::from_array(qarr);
 						let q = Quat::from_xyzw(q.x, q.z, -q.y, q.w);
-						Some((q, Vec3::from_array(varr).as_ivec3()))
+						(q, Vec3::from_array(varr).as_ivec3())
 					}).unwrap_or((Quat::IDENTITY, IVec3::ONE));
 					stack.push((*child, Frame {
 						translation: pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32),

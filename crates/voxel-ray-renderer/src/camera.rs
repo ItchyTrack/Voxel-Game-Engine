@@ -36,7 +36,7 @@ impl CameraUniform {
 	pub fn get_bind_group_layout(device: &wgpu::Device, binding: u32) -> GpuBindGroupLayout {
 		WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 				entries: &[wgpu::BindGroupLayoutEntry {
-					binding: binding,
+					binding,
 					visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
 					ty: wgpu::BindingType::Buffer {
 						ty: wgpu::BufferBindingType::Uniform,
@@ -55,7 +55,7 @@ impl CameraUniform {
 				usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 				mapped_at_creation: false,
 			}));
-		let bind_group_layout = Self::get_bind_group_layout(&device, binding);
+		let bind_group_layout = Self::get_bind_group_layout(device, binding);
 		let bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &bind_group_layout,
 			entries: &[wgpu::BindGroupEntry {

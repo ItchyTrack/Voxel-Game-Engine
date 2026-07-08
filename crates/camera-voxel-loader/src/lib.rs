@@ -24,12 +24,8 @@ pub struct CameraVoxelRenderState {
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct FreezeCameraVoxelLoader(pub bool);
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Default, Debug, Clone)]
 pub struct CameraVoxelLoaderDefaultSettings(pub CameraVoxelLoaderSettings);
-
-impl Default for CameraVoxelLoaderDefaultSettings {
-	fn default() -> Self { Self(CameraVoxelLoaderSettings::default()) }
-}
 
 fn ensure_camera_voxel_loader_components(
 	mut commands: Commands, default_settings: Res<CameraVoxelLoaderDefaultSettings>,

@@ -145,8 +145,8 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 					}
 					leaf.contents[cell_i] = C::data(op.data);
 				}
-				for i in 0..SIZE_USIZE_CUBED {
-					if leaves[i].used_cell_count == 0 {
+				for (i, leaf) in leaves.iter_mut().enumerate().take(SIZE_USIZE_CUBED) {
+					if leaf.used_cell_count == 0 {
 						continue;
 					}
 					let child_index = self.nodes.len() as u32;
@@ -156,8 +156,8 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 					}
 					self.nodes[0].contents[i] = C::node(child_index);
 					self.nodes[0].used_cell_count += 1;
-					leaves[i].parent_offset = offset as u16;
-					self.nodes.push(leaves[i].clone());
+					leaf.parent_offset = offset as u16;
+					self.nodes.push(leaf.clone());
 				}
 				true
 			}

@@ -21,7 +21,7 @@ pub struct CollisionConstraint {
 impl CollisionConstraint {
 	pub fn new(collision: collision::Collision, old_penalty: &Vec3, old_lambda: &Vec3) -> Self {
 		Self {
-			collision: collision,
+			collision,
 			friction: 0.5,
 			basis: Mat3::ZERO,
 			c0: Vec3::ZERO,

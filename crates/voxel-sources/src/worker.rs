@@ -179,14 +179,13 @@ fn handle_lod_request(
 						false
 					}
 					None => {
-						pending.insert(lod_key, PendingLodJob::Direct { requests: vec![request.clone()] });
+						pending.insert(lod_key, PendingLodJob::Direct { requests: vec![request] });
 						true
 					}
 				}
 			};
 			if should_request {
 				let source = sources[id.0].clone();
-				let request = request.clone();
 				let grid = request.request.grid;
 				let generation = request.generation;
 				pusher.push(PriorityTask::new(request.request.priority, async move {
@@ -206,18 +205,18 @@ fn handle_lod_request(
 				let mut pending = pending_lod.lock().unwrap();
 				match pending.get_mut(&lod_key) {
 					Some(PendingLodJob::Composite { requests, .. }) => {
-						requests.push(request.clone());
+						requests.push(request);
 						false
 					}
 					Some(PendingLodJob::Direct { requests }) => {
-						requests.push(request.clone());
+						requests.push(request);
 						false
 					}
 					None => {
 						pending.insert(
 							lod_key,
 							PendingLodJob::Composite {
-								requests: vec![request.clone()],
+								requests: vec![request],
 								expected: source_ids.iter().copied().collect(),
 								received: Default::default(),
 								final_lod: request.request.key.lod as f32,
@@ -231,7 +230,6 @@ fn handle_lod_request(
 			if should_request {
 				for id in source_ids {
 					let source = sources[id.0].clone();
-					let request = request.clone();
 					let grid = request.request.grid;
 					let generation = request.generation;
 					pusher.push(PriorityTask::new(request.request.priority, async move {

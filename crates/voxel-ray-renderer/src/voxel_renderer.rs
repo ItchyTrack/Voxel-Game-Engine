@@ -377,7 +377,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &*self.bvh_beam_textured_storage_bind_group, &[]);
 			compute_pass.set_pipeline(&self.bvh_beam_pipeline);
-			compute_pass.dispatch_workgroups((view_width / BVH_BEAM_TEXTURE_FACTOR + 7) / 4, (view_height / BVH_BEAM_TEXTURE_FACTOR + 3) / 4, 1);
+			compute_pass.dispatch_workgroups((view_width / BVH_BEAM_TEXTURE_FACTOR).div_ceil(4), (view_height / BVH_BEAM_TEXTURE_FACTOR).div_ceil(4), 1);
 		}
 		{
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Ray Pass"), timestamp_writes: None });
@@ -386,7 +386,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &*self.ray_marching_bind_group, &[]);
 			compute_pass.set_pipeline(&self.ray_marching_pipeline);
-			compute_pass.dispatch_workgroups((view_width + 7) / 8, (view_height + 3) / 4, 1);
+			compute_pass.dispatch_workgroups(view_width.div_ceil(8), view_height.div_ceil(4), 1);
 		}
 		let voxels_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &self.voxel_bind_group_layout,

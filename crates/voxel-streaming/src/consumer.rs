@@ -76,5 +76,5 @@ impl VoxelStreamingAppExt for App {
 }
 
 pub fn chunks_ready<T: ChunkConsumer + Component>(query: Option<Single<&T>>) -> bool {
-	query.map_or(true, |consumer| consumer.outstanding() == 0)
+	query.is_none_or(|consumer| consumer.outstanding() == 0)
 }

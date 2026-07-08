@@ -281,9 +281,7 @@ impl BVHNode {
 				}
 				indices.swap(left, right);
 				left += 1;
-				if right > 0 {
-					right -= 1;
-				}
+				right = right.saturating_sub(1);
 			}
 			left.max(1).min(indices.len() - 1)
 		};

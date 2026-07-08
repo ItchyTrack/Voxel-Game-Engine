@@ -294,8 +294,6 @@ fn apply_ray_upload(
 	if let Some(raster) = existing.as_ref().and_then(|state| state.raster) {
 		free_raster_buffer(&mut gpu_data, raster);
 	}
-	drop(gpu_data);
-
 	if let Some(new_state) = new_state {
 		let mut next = existing.unwrap_or_default();
 		next.clear_raster();
@@ -330,7 +328,6 @@ fn apply_raster_upload(
 		let Some(old) = next.raster else { return; };
 		let Some(mut gpu_data) = world.get_resource_mut::<WorldGpuData>() else { return; };
 		free_raster_buffer(&mut gpu_data, old);
-		drop(gpu_data);
 		next.clear_raster();
 		if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
 			if next.is_empty() {
@@ -350,8 +347,6 @@ fn apply_raster_upload(
 	if let Some(ray) = existing.as_ref().and_then(|state| state.ray) {
 		free_ray_buffers(&mut gpu_data, ray);
 	}
-	drop(gpu_data);
-
 	if let Some(new_state) = new_state {
 		let mut next = existing.unwrap_or_default();
 		next.clear_ray();

@@ -54,7 +54,7 @@ impl Solver {
 			if let Some(physics_body_1) = physics_bodies.get(&joint.body_1) {
 				if let Some(physics_body_2) = physics_bodies.get(&joint.body_2) {
 					let mut avbd_constraint = avbd_constraint;
-					avbd_constraint.update_attachment_com(&joint, &physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
+					avbd_constraint.update_attachment_com(joint, &physics_body_1.local_center_of_mass(), &physics_body_2.local_center_of_mass());
 					constraint_map.insert(entity, ((joint.body_1, joint.body_2), avbd_constraint));
 				}
 			}
@@ -91,7 +91,7 @@ impl Solver {
 					)
 				}).unwrap_or(&(Vec3::ZERO, Vec3::ZERO));
 				let mut collision_constraint = CollisionConstraint::new(collision, old_penalty, old_lambda);
-				collision_constraint.init(&initial_all.get(&c.part1.body_id).unwrap(), &initial_all.get(&c.part2.body_id).unwrap());
+				collision_constraint.init(initial_all.get(&c.part1.body_id).unwrap(), &initial_all.get(&c.part2.body_id).unwrap());
 				collision_constraint
 			}
 		).collect();
@@ -283,7 +283,7 @@ impl Solver {
 						}
 					});
 				}
-				for (_joint_entity, ((physics_body_id_1, physics_body_id_2), avbd_constraint)) in constraint_map.iter_mut() {
+				for ((physics_body_id_1, physics_body_id_2), avbd_constraint) in constraint_map.values_mut() {
 					avbd_constraint.update_dual(
 						&x_guess[physics_body_id_1], &initial_all[physics_body_id_1],
 						&x_guess[physics_body_id_2], &initial_all[physics_body_id_2],

@@ -145,7 +145,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> 
 	// 	}
 	// };
 
-	let best_plane: Option<(u32, u32, u32, u32)> = None; /*if solid_cells.is_empty() {
+	let best_plane: Option<(u8, u8, u8, u8)> = None; /*if solid_cells.is_empty() {
 		None
 	} else {
 		// (wrong_empty_count, nxe, nye, nze, m_encoded)

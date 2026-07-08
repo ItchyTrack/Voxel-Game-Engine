@@ -32,7 +32,7 @@ impl TaskQueueResource {
 
 	pub fn push(&self, command: impl Command<Out = ()>) {
 		let mut queue = CommandQueue::default();
-		let _ = queue.push(command);
+		queue.push(command);
 		let _ = self.sender.send(queue);
 	}
 
@@ -145,6 +145,10 @@ impl AsyncTaskPriorityQueueResource {
 
 	pub fn len(&self) -> usize {
 		self.queue.len()
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.len() == 0
 	}
 }
 

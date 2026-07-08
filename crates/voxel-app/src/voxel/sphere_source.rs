@@ -230,7 +230,7 @@ fn spawn_sphere_grid(mut commands: Commands, grid: Res<SphereGrid>) {
 	let size = IVec3::splat(radius_chunks * 2 + 1);
 
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present_area(min, size);
+	streaming.mark_present_area(min, size);
 
 	let body = commands
 		.spawn((

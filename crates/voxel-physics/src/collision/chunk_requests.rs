@@ -124,7 +124,7 @@ pub fn request_collision_chunks(
 		let Ok((_, _, _, streaming, _, _)) = grids.get(req.entity) else { continue };
 		let want = desired.entry(req.entity).or_default();
 		if !req.is_static {
-			want.extend(present_chunks(&streaming));
+			want.extend(present_chunks(streaming));
 			continue;
 		}
 

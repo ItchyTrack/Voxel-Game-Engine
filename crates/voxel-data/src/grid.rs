@@ -192,7 +192,7 @@ impl Grid {
 		let mut areas = Vec::new();
 		slot.voxels.grid_tree().for_each_in_region(crate::grid_tree::GridRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_ivec3()).unwrap(), |pos, run, id| {
 			let run_lo = pos.max(region_lo);
-			let run_hi = (pos + U16Vec3::splat(run as u16)).min(region_hi);
+			let run_hi = (pos + U16Vec3::splat(run)).min(region_hi);
 			let out_extent = run_hi - run_lo;
 			if out_extent == U16Vec3::ZERO { return; }
 			let world = sub_grid_pos + run_lo.as_ivec3();

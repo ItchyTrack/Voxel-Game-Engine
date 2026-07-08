@@ -1,5 +1,6 @@
 use bevy::ecs::message::Messages;
 use bevy::prelude::*;
+use bevy_ecs::system;
 use voxel_data::grid::Grid;
 use voxel_edit::GridEdits;
 use voxel_sources::{ChunkChangeKind, ChunkChanged, ChunkLoaded};
@@ -11,13 +12,13 @@ fn present_chunk_that_loads_none_emits_not_visible_resolution() {
 	app.add_message::<ChunkLoadResolved>()
 		.add_message::<ChunkAvailabilityChanged>()
 		.add_message::<ChunkLoaded>()
-		.add_systems(Update, voxel_streaming::receive_results);
+		.add_systems(Update, systems::receive_results);
 
 	let grid = app.world_mut().spawn((Grid::new(), GridStreaming::default(), GridEdits::default())).id();
 	let chunk = IVec3::new(3, 0, -2);
 	{
 		let mut streaming = app.world_mut().get_mut::<GridStreaming>(grid).unwrap();
-		streaming.presence_mut().mark_present(chunk);
+		streaming.mark_present(chunk);
 		streaming.presence_mut().set_state(chunk, ChunkState::InFlight);
 	}
 
@@ -36,13 +37,13 @@ fn stale_inflight_chunk_result_is_ignored() {
 		.add_message::<ChunkAvailabilityChanged>()
 		.add_message::<ChunkLoaded>()
 		.add_message::<ChunkChanged>()
-		.add_systems(Update, (voxel_streaming::apply_source_events, voxel_streaming::receive_results).chain());
+		.add_systems(Update, (systems::apply_source_events, systems::receive_results).chain());
 
 	let grid = app.world_mut().spawn((Grid::new(), GridStreaming::default(), GridEdits::default())).id();
 	let chunk = IVec3::new(1, 2, 3);
 	{
 		let mut streaming = app.world_mut().get_mut::<GridStreaming>(grid).unwrap();
-		streaming.presence_mut().mark_present(chunk);
+		streaming.mark_present(chunk);
 		streaming.presence_mut().set_state(chunk, ChunkState::InFlight);
 	}
 
@@ -71,13 +72,13 @@ fn fresh_inflight_chunk_result_is_applied() {
 		.add_message::<ChunkAvailabilityChanged>()
 		.add_message::<ChunkLoaded>()
 		.add_message::<ChunkChanged>()
-		.add_systems(Update, (voxel_streaming::apply_source_events, voxel_streaming::receive_results).chain());
+		.add_systems(Update, (systems::apply_source_events, systems::receive_results).chain());
 
 	let grid = app.world_mut().spawn((Grid::new(), GridStreaming::default(), GridEdits::default())).id();
 	let chunk = IVec3::new(4, 5, 6);
 	{
 		let mut streaming = app.world_mut().get_mut::<GridStreaming>(grid).unwrap();
-		streaming.presence_mut().mark_present(chunk);
+		streaming.mark_present(chunk);
 		streaming.presence_mut().set_state(chunk, ChunkState::InFlight);
 	}
 

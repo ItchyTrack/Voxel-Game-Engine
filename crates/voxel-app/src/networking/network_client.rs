@@ -41,7 +41,7 @@ fn start_client(mut commands: Commands, client_id: Res<SelectedClientId>) {
 			},
 		)
 		.expect("create netcode client"),
-		ReplicationReceiver::default(),
+		ReplicationReceiver,
 	)).id();
 	commands.trigger(LinkStart { entity: client });
 	commands.trigger(Connect { entity: client });

@@ -150,10 +150,10 @@ pub use region::GridRegion;
 
 impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	pub fn len(&self) -> u64 {
-		return self.item_count;
+		self.item_count
 	}
 	pub fn is_empty(&self) -> bool {
-		return self.item_count == 0;
+		self.item_count == 0
 	}
 	pub fn iter(&self) -> GridTreeIterator<'_, C, Co> {
 		GridTreeIterator::new(self)

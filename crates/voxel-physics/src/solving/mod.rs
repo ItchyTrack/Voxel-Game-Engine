@@ -34,7 +34,7 @@ impl Impulses {
 		self.map.entry(body).or_default().push(Impulse::RotationalImpulse { rotational_impulse: impulse });
 	}
 	pub fn apply_impulse(&mut self, body: PhysicsBodyId, pos: Vec3, impulse: Vec3) {
-		self.map.entry(body).or_default().push(Impulse::Impulse { impulse: impulse, impulse_pos: pos });
+		self.map.entry(body).or_default().push(Impulse::Impulse { impulse, impulse_pos: pos });
 	}
 }
 

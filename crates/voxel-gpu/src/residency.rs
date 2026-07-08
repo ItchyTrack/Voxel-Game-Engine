@@ -98,7 +98,7 @@ impl FromWorld for ResidencyBuffers {
 		let queue = WgpuWrapper::new(bevy::render::renderer::WgpuWrapper::clone(&**render_queue).into_inner());
 		let tree_alignment = align_up(TREE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
 		let voxel_alignment = align_up(VOXEL_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
-		let binding_limit = raw_device.limits().max_storage_buffer_binding_size as u64;
+		let binding_limit = raw_device.limits().max_storage_buffer_binding_size;
 
 		let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
 		Self {

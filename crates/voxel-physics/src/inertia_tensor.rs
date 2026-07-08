@@ -26,7 +26,7 @@ impl InertiaTensor {
 
 	pub const fn from_mat3(mat: DMat3) -> Self {
 		Self {
-			mat: mat
+			mat
 		}
 	}
 

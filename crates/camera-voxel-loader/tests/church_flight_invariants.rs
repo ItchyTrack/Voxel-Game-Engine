@@ -134,7 +134,7 @@ fn church_flight_never_waits_on_empty_lod_tile_that_will_not_request_again() {
 	let size = max - min + IVec3::ONE;
 
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present_area(min, size);
+	streaming.mark_present_area(min, size);
 
 	let mut loader = CameraVoxelLoader::default();
 	let mut tile_records = HashMap::<TileKey, SimTileStatus>::new();

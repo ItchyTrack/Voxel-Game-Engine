@@ -58,7 +58,7 @@ fn near_chunks_only_include_present_chunks() {
 	let controller = CameraVoxelLoader { settings };
 	let mut streaming = GridStreaming::default();
 	let present_chunk = IVec3::new(1, 0, 0);
-	streaming.presence_mut().mark_present(present_chunk);
+	streaming.mark_present(present_chunk);
 
 	let mut desired_chunks = HashSet::<TileKey>::new();
 	add_near_tiles(&mut desired_chunks, grid, IVec3::ZERO, &controller, &streaming);
@@ -72,7 +72,7 @@ fn minimal_delta_misses_lod3_tile_when_inner_ring_boundary_moves_one_chunk() {
 	let settings = CameraVoxelLoaderSettings { max_lod: 4, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present_area(IVec3::splat(-160), IVec3::splat(321));
+	streaming.mark_present_area(IVec3::splat(-160), IVec3::splat(321));
 
 	let old_center = IVec3::ZERO;
 	let new_center = IVec3::new(1, 0, 0);
@@ -103,7 +103,7 @@ fn lod_policy_must_not_assign_multiple_lod_tiles_to_same_present_chunk() {
 	let lod3_tile = TileKey { grid, lod: 3, min: IVec3::new(-16, 0, 8) };
 
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present(chunk.min);
+	streaming.mark_present(chunk.min);
 
 	let mut desired_chunks = HashSet::<TileKey>::new();
 	let mut desired_tiles = HashSet::<TileKey>::new();
@@ -144,7 +144,7 @@ fn lod2_tile_is_missing_when_presence_appears_without_camera_movement() {
 	add_lod_tiles(&mut incremental_tiles, grid, center, &controller, &streaming);
 	assert!(!incremental_tiles.contains(&expected_tile), "control setup should start with no LOD2 tile because no chunks are present");
 
-	streaming.presence_mut().mark_present(new_present_chunk);
+	streaming.mark_present(new_present_chunk);
 	update_tiles_delta(&mut incremental_tiles, grid, center, center, &settings, &streaming);
 	// New presence events are handled outside movement deltas: the changed chunk maps
 	// to its covering LOD tiles, and currently-wanted tiles are inserted/requested.
@@ -171,7 +171,7 @@ fn lod2_tile_is_not_requeued_when_existing_lod0_chunk_is_edited_then_camera_flie
 
 	// The chunk already exists. Editing it does not change presence, so movement-only
 	// policy deltas will not know that any old LOD result covering it is stale.
-	streaming.presence_mut().mark_present(edited_chunk);
+	streaming.mark_present(edited_chunk);
 
 	// Simulate a past visit where this LOD2 tile resolved empty/stale before the
 	// player edited the now-loaded LOD0 chunk.
@@ -220,7 +220,7 @@ fn editing_chunk_inside_active_lod2_tile_should_dirty_tile_and_wait_to_unload_ol
 	let dirty_tile = TileKey { grid, lod: 2, min: IVec3::new(12, 0, 0) };
 
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present(edited_chunk);
+	streaming.mark_present(edited_chunk);
 
 	let mut desired_tiles = HashSet::<TileKey>::new();
 	add_lod_tiles(&mut desired_tiles, grid, center, &controller, &streaming);
@@ -256,7 +256,7 @@ fn full_lod_policy_covers_every_present_chunk_inside_streaming_domain() {
 	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present_area(IVec3::splat(-48), IVec3::splat(97));
+	streaming.mark_present_area(IVec3::splat(-48), IVec3::splat(97));
 
 	for center in [IVec3::ZERO, IVec3::new(1, 0, 0), IVec3::new(12, 0, -4), IVec3::new(-17, 3, 9)] {
 		let mut desired_chunks = HashSet::<TileKey>::new();
@@ -292,7 +292,7 @@ fn lod_policy_assigns_exactly_one_owner_to_present_chunks_for_explicit_settings(
 		let centers = sample_centers(&settings);
 		let present_chunks = sample_present_chunks(&settings);
 		for chunk in &present_chunks {
-			streaming.presence_mut().mark_present(*chunk);
+			streaming.mark_present(*chunk);
 		}
 
 		for center in centers {
@@ -336,7 +336,7 @@ fn lod_policy_lod_tiles_must_not_cover_present_near_chunks_for_explicit_settings
 			IVec3::new(-near, -near, -near),
 		];
 		for chunk in present_chunks {
-			streaming.presence_mut().mark_present(chunk);
+			streaming.mark_present(chunk);
 		}
 
 		let mut desired_chunks = HashSet::<TileKey>::new();
@@ -362,7 +362,7 @@ fn lod_policy_generated_tiles_match_is_tile_wanted_for_explicit_settings() {
 		let grid: GridId = Entity::PLACEHOLDER;
 		let controller = CameraVoxelLoader { settings: settings.clone() };
 		let mut streaming = GridStreaming::default();
-		streaming.presence_mut().mark_present_area(IVec3::splat(-32), IVec3::splat(65));
+		streaming.mark_present_area(IVec3::splat(-32), IVec3::splat(65));
 
 		for center in sample_centers(&settings) {
 			let mut desired_tiles = HashSet::<TileKey>::new();
@@ -395,7 +395,7 @@ fn incremental_lod_policy_matches_full_rebuild_for_explicit_settings_and_targete
 		let grid: GridId = Entity::PLACEHOLDER;
 		let controller = CameraVoxelLoader { settings: settings.clone() };
 		let mut streaming = GridStreaming::default();
-		streaming.presence_mut().mark_present_area(IVec3::splat(-48), IVec3::splat(97));
+		streaming.mark_present_area(IVec3::splat(-48), IVec3::splat(97));
 		let centers = sample_centers(&settings);
 		let deltas = [IVec3::X, -IVec3::X, IVec3::Y, -IVec3::Y, IVec3::Z, -IVec3::Z, IVec3::ONE, -IVec3::ONE];
 		for old_center in centers {
@@ -412,7 +412,7 @@ fn incremental_lod_policy_matches_full_rebuild_for_systematic_one_chunk_boundary
 	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present_area(IVec3::splat(-80), IVec3::splat(161));
+	streaming.mark_present_area(IVec3::splat(-80), IVec3::splat(161));
 
 	let deltas = [
 		IVec3::new(1, 0, 0),
@@ -455,7 +455,7 @@ fn incremental_lod_policy_matches_full_rebuild_for_deterministic_flight_stress()
 	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present_area(IVec3::splat(-80), IVec3::splat(161));
+	streaming.mark_present_area(IVec3::splat(-80), IVec3::splat(161));
 
 	let mut incremental_chunks = HashSet::<TileKey>::new();
 	let mut incremental_tiles = HashSet::<TileKey>::new();
@@ -492,7 +492,7 @@ fn incremental_lod_policy_matches_full_rebuild_while_camera_flies() {
 	let settings = CameraVoxelLoaderSettings { max_lod: 4, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 };
 	let controller = CameraVoxelLoader { settings: settings.clone() };
 	let mut streaming = GridStreaming::default();
-	streaming.presence_mut().mark_present_area(IVec3::splat(-160), IVec3::splat(321));
+	streaming.mark_present_area(IVec3::splat(-160), IVec3::splat(321));
 
 	let centers = flying_camera_path();
 	let mut incremental_chunks = HashSet::<TileKey>::new();

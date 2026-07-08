@@ -64,3 +64,6 @@ web-time = "1.1.0"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[lints]
+workspace = true

@@ -44,7 +44,7 @@ pub fn prepare_voxel_view_bind_groups(
 	};
 
 	render_queue.write_buffer(&voxel_resource.camera_buffer, 0, bytemuck::bytes_of(&cam_uniform));
-	let settings = RenderSettingsUniform::from_graphics_settings(&*graphics_settings);
+	let settings = RenderSettingsUniform::from_graphics_settings(&graphics_settings);
 	render_queue.write_buffer(&voxel_resource.render_settings_buffer, 0, bytemuck::bytes_of(&settings));
 
 	bind_groups.ready = true;

@@ -45,7 +45,7 @@ fn chunk_request_releases_cleanly_after_load_when_no_longer_needed() {
 	let mut streaming = GridStreaming::default();
 	let mut consumer = TestConsumer::default();
 
-	streaming.presence_mut().mark_present(chunk);
+	streaming.mark_present(chunk);
 	streaming.fetch_needed(grid, &mut consumer, &requests, chunk);
 
 	assert_eq!(requests.chunk_requests_sent(), 1);
@@ -67,7 +67,7 @@ fn fetch_needed_for_already_loaded_chunk_does_not_enqueue_another_source_request
 	let mut streaming = GridStreaming::default();
 	let mut consumer = TestConsumer::default();
 
-	streaming.presence_mut().mark_present(chunk);
+	streaming.mark_present(chunk);
 	streaming.presence_mut().set_state(chunk, voxel_streaming::ChunkState::Loaded);
 	streaming.fetch_needed(grid, &mut consumer, &requests, chunk);
 

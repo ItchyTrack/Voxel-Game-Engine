@@ -266,9 +266,9 @@ fn get_collision_1x1x1_voxel(
 					if (v2 - v1).normalize().dot(best.1) * axis_neg < 0.9 { return; }
 					collisions.push((
 						v1,
-						CubeFeature::Edge { vertex_vertex: (1 << index_1 as u8) + (get_bit(i, 0) * not_axes_xyz_u8_1.0 + get_bit(i, 1) * not_axes_xyz_u8_1.1) * 9 },
+						CubeFeature::Edge { vertex_vertex: (1 << index_1) + (get_bit(i, 0) * not_axes_xyz_u8_1.0 + get_bit(i, 1) * not_axes_xyz_u8_1.1) * 9 },
 						v2,
-						CubeFeature::Edge { vertex_vertex: (1 << index_2 as u8) + (get_bit(j, 0) * not_axes_xyz_u8_2.0 + get_bit(j, 1) * not_axes_xyz_u8_2.1) * 9 },
+						CubeFeature::Edge { vertex_vertex: (1 << index_2) + (get_bit(j, 0) * not_axes_xyz_u8_2.0 + get_bit(j, 1) * not_axes_xyz_u8_2.1) * 9 },
 					));
 				});
 			});

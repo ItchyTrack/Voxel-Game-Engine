@@ -63,7 +63,12 @@ pub struct InflightChunkPresence;
 
 impl GridStreaming {
 	pub fn presence(&self) -> &ChunkPresence { &self.presence }
+	#[cfg(test)]
 	pub fn presence_mut(&mut self) -> &mut ChunkPresence { &mut self.presence }
+
+
+	pub fn mark_present(&mut self, chunk: IVec3) { self.presence.mark_present(chunk); }
+	pub fn mark_present_area(&mut self, min: IVec3, size: IVec3) { self.presence.mark_present_area(min, size); }
 
 	pub fn state(&self, chunk: IVec3) -> Option<ChunkState> {
 		self.presence.state(chunk)
@@ -92,33 +97,6 @@ impl GridStreaming {
 
 	pub fn fetch(&mut self, grid: GridId, requests: &impl VoxelSourceRequestApi, chunk: IVec3) {
 		self.start_request(grid, requests, chunk);
-	}
-
-	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {
-		if !valid_lod_key(key) { return false; }
-		if !self.lods.contains_key(&key) { self.lod_index.insert(key); }
-		let state = self.lods.entry(key).or_insert_with(|| LodTileState {
-			requesters: HashMap::new(),
-			status: LodStatus::Requested,
-			upload: LodUploadState::None,
-			stale_entities: Vec::new(),
-		});
-		state.requesters.insert(requester, priority);
-		if matches!(state.status, LodStatus::Requested | LodStatus::ExternalDirty) { self.pending_lod_requests.insert(key); }
-		true
-	}
-
-	pub(crate) fn current_chunk_generation(&self, chunk: IVec3) -> u64 {
-		self.dirty_generations.get(&chunk).copied().unwrap_or(0)
-	}
-
-	pub fn release_lod(&mut self, requester: Entity, key: LodKey) {
-		let Some(state) = self.lods.get_mut(&key) else { return; };
-		state.requesters.remove(&requester);
-		if state.requesters.is_empty() {
-			self.pending_lod_requests.remove(&key);
-			self.lod_index.remove(key);
-		}
 	}
 
 	pub fn fetch_needed<C: ChunkConsumer>(
@@ -158,6 +136,33 @@ impl GridStreaming {
 			*consumer.outstanding_mut() = consumer.outstanding().saturating_sub(1);
 		}
 		self.release(chunk);
+	}
+
+	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {
+		if !valid_lod_key(key) { return false; }
+		if !self.lods.contains_key(&key) { self.lod_index.insert(key); }
+		let state = self.lods.entry(key).or_insert_with(|| LodTileState {
+			requesters: HashMap::new(),
+			status: LodStatus::Requested,
+			upload: LodUploadState::None,
+			stale_entities: Vec::new(),
+		});
+		state.requesters.insert(requester, priority);
+		if matches!(state.status, LodStatus::Requested | LodStatus::ExternalDirty) { self.pending_lod_requests.insert(key); }
+		true
+	}
+
+	pub fn release_lod(&mut self, requester: Entity, key: LodKey) {
+		let Some(state) = self.lods.get_mut(&key) else { return; };
+		state.requesters.remove(&requester);
+		if state.requesters.is_empty() {
+			self.pending_lod_requests.remove(&key);
+			self.lod_index.remove(key);
+		}
+	}
+
+	pub(crate) fn current_chunk_generation(&self, chunk: IVec3) -> u64 {
+		self.dirty_generations.get(&chunk).copied().unwrap_or(0)
 	}
 
 	pub(crate) fn mark_loaded(&mut self, chunk: IVec3) {

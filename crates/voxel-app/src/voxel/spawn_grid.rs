@@ -16,11 +16,11 @@ pub fn spawn_grid(
 	let child = commands
 		.spawn((transform, Grid::new(), GridEdits::default(), ReplicateVoxels, extra))
 		.id();
-	if parent.is_some() { commands.entity(parent.unwrap()).add_child(child); }
+	if let Some(parent) = parent { commands.entity(parent).add_child(child); }
 
 	let mut streaming = GridStreaming::default();
 	for chunk in voxels.chunk_positions() {
-		streaming.presence_mut().mark_present(chunk);
+		streaming.mark_present(chunk);
 	}
 	store.insert_chunk_data(child, voxels.into_chunk_data());
 	commands.entity(child).insert(streaming);

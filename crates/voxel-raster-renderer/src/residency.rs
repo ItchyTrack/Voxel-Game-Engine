@@ -96,7 +96,7 @@ impl FromWorld for RasterResidencyBuffers {
 		let queue = WgpuWrapper::new(bevy::render::renderer::WgpuWrapper::clone(&**render_queue).into_inner());
 		let face_alignment = align_up(RASTER_FACE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
 		let palette_alignment = align_up(RASTER_PALETTE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
-		let binding_limit = raw_device.limits().max_storage_buffer_binding_size as u64;
+		let binding_limit = raw_device.limits().max_storage_buffer_binding_size;
 		let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
 		Self {
 			face_slots: create_slots(&device, INITIAL_CAPACITY, usage),

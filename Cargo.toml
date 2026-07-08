@@ -36,3 +36,8 @@ tokio = "1"
 wesl = "0.4.0"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+
+[workspace.lints.clippy]
+type_complexity = "allow"
+too_many_arguments = "allow"
+collapsible_if = "allow"

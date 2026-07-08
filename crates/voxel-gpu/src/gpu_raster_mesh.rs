@@ -85,19 +85,19 @@ pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -
 		let position = [pos.x as u32, pos.y as u32, pos.z as u32];
 		let palette_index = palette_index_for_color(voxel.color, &mut palette_map, &mut palette_vec, &mut palette_overflowed);
 
-		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::X * (size as u16)), IVec3::new(1, size_i32, size_i32)) {
+		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::X * size), IVec3::new(1, size_i32, size_i32)) {
 			faces.push(MeshFace::new(position, size_u32, palette_index, 0));
 		}
 		if pos.x == 0 || !grid_tree.is_area_filled(&(pos - bevy::math::U16Vec3::X), IVec3::new(1, size_i32, size_i32)) {
 			faces.push(MeshFace::new(position, size_u32, palette_index, 1));
 		}
-		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::Y * (size as u16)), IVec3::new(size_i32, 1, size_i32)) {
+		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::Y * size), IVec3::new(size_i32, 1, size_i32)) {
 			faces.push(MeshFace::new(position, size_u32, palette_index, 2));
 		}
 		if pos.y == 0 || !grid_tree.is_area_filled(&(pos - bevy::math::U16Vec3::Y), IVec3::new(size_i32, 1, size_i32)) {
 			faces.push(MeshFace::new(position, size_u32, palette_index, 3));
 		}
-		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::Z * (size as u16)), IVec3::new(size_i32, size_i32, 1)) {
+		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::Z * size), IVec3::new(size_i32, size_i32, 1)) {
 			faces.push(MeshFace::new(position, size_u32, palette_index, 4));
 		}
 		if pos.z == 0 || !grid_tree.is_area_filled(&(pos - bevy::math::U16Vec3::Z), IVec3::new(size_i32, size_i32, 1)) {

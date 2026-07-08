@@ -24,3 +24,6 @@ getrandom_0_3 = { workspace = true }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[lints]
+workspace = true
