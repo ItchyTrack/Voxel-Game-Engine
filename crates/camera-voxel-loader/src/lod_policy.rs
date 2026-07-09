@@ -7,13 +7,9 @@ use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
 use crate::lod_bands::{run_over_diff, BandBounds, LodBand};
 use crate::types::TileKey;
 
-pub(crate) struct SetDelta<T> {
-	pub(crate) added: Vec<T>,
-	pub(crate) removed: Vec<T>,
-}
-
 pub(crate) struct DesiredSourceDelta {
-	pub(crate) tiles: SetDelta<TileKey>,
+	pub(crate) added: Vec<TileKey>,
+	pub(crate) removed: Vec<TileKey>,
 }
 
 pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
@@ -45,7 +41,7 @@ pub(crate) fn update_desired_sources_delta(
 	});
 
 	loader.bands.insert(grid, new_bands);
-	DesiredSourceDelta { tiles: SetDelta { added, removed } }
+	DesiredSourceDelta { added, removed }
 }
 
 pub(crate) fn tile_has_present_source(streaming: &GridStreaming, key: TileKey) -> bool {

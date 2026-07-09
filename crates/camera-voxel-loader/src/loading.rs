@@ -36,8 +36,8 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			let local = grid_global.affine().inverse().transform_point3(camera_world);
 			let camera_chunk = nearest_chunk_center(local);
 			let source_delta = update_desired_sources_delta(&mut camera_voxel_loader, grid, camera_chunk, &settings, streaming.as_ref());
-			add_tiles.extend(source_delta.tiles.added);
-			remove_tiles.extend(source_delta.tiles.removed);
+			add_tiles.extend(source_delta.added);
+			remove_tiles.extend(source_delta.removed);
 		}
 
 		apply_desired_delta(
