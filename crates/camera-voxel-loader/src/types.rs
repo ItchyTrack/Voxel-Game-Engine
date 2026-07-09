@@ -29,3 +29,9 @@ impl TileRecord {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TileStatus { Queued, Loading, Ready, Retiring }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SourceResolution { Requested, Visible(Entity), Empty }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SourceState { Desired(SourceResolution), RetiringVisible(Entity) }

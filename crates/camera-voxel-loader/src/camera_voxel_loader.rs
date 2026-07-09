@@ -4,10 +4,9 @@ use bevy::ecs::component::Component;
 use voxel_data::grid::GridId;
 use voxel_streaming::TileIndex;
 
-use crate::coverage::SourceState;
 use crate::lod_bands::LodBand;
 use crate::replacement_graph::ReplacementGraph;
-use crate::types::{TileKey, TileRecord};
+use crate::types::{SourceState, TileKey, TileRecord};
 use crate::unresolved_tile_index::UnresolvedTileIndex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,5 +73,9 @@ impl CameraVoxelLoader {
 			index.for_each_overlapping(min, size, self.settings.max_lod, None, |key| out.push(key));
 		}
 		out
+	}
+
+	pub(crate) fn retiring_visible_chunks(&self) -> Vec<TileKey> {
+		self.coverage_sources.iter().filter_map(|(&source, record)| matches!(record, SourceState::RetiringVisible(_)).then_some(source).filter(|key| key.lod == 0)).collect()
 	}
 }

@@ -5,7 +5,7 @@ use voxel_gpu::{VoxelGpuFormat, VoxelGpuState};
 use voxel_data::{grid::{Grid, GridId}, subgrid::SubGrid};
 use voxel_streaming::CHUNK_SIZE;
 
-use crate::{camera_voxel_loader::CameraVoxelLoader, coverage::{resolve_empty, resolve_visible, retiring_visible_chunks}, types::TileKey};
+use crate::{camera_voxel_loader::CameraVoxelLoader, loading::{resolve_empty, resolve_visible}, types::TileKey};
 
 pub(crate) fn chunks_in_bounds(grid: GridId, min: IVec3, max: IVec3) -> Vec<TileKey> {
 	let min = min.div_euclid(IVec3::splat(CHUNK_SIZE));
@@ -18,12 +18,11 @@ pub(crate) fn chunks_in_bounds(grid: GridId, min: IVec3, max: IVec3) -> Vec<Tile
 pub(crate) fn resolve_chunk_source_if_ready(
 	loader: &mut CameraVoxelLoader,
 	format: VoxelGpuFormat,
-	grids: &Query<&Grid>,
+	grid: &Grid,
 	subgrids: &Query<&SubGrid>,
 	gpu_state: &Query<&VoxelGpuState>,
 	chunk: TileKey,
 ) -> Vec<TileKey> {
-	let Ok(grid) = grids.get(chunk.grid) else { return Vec::new() };
 	let mut ready = Vec::new();
 	let mut found = false;
 	for entity in grid.subgrid_entities_in_area(chunk.min * CHUNK_SIZE, IVec3::splat(CHUNK_SIZE)) {
@@ -46,7 +45,7 @@ pub(crate) fn collect_subgrids_to_render(
 ) -> Vec<Entity> {
 	let mut out = Vec::new();
 	let mut seen = HashSet::new();
-	for chunk in loader.desired_tiles.iter().copied().filter(|key| key.is_chunk()).chain(retiring_visible_chunks(loader)) {
+	for chunk in loader.desired_tiles.iter().copied().filter(|key| key.is_chunk()).chain(loader.retiring_visible_chunks()) {
 		let Ok(grid) = grids.get(chunk.grid) else { continue };
 		for entity in grid.subgrid_entities_in_area(chunk.min * CHUNK_SIZE, IVec3::splat(CHUNK_SIZE)) {
 			let ready = gpu_state.get(entity).is_ok_and(|state| state.matches(format));

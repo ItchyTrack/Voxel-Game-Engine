@@ -32,6 +32,44 @@ impl Box3 {
 	}
 }
 
+/// Runs `f(lod, tile_min)` for every tile that lies within a band and overlaps the area
+/// `[area_min, area_min + area_size)`.
+pub(crate) fn for_each_tile_in_bands(bands: &[LodBand], area_min: IVec3, area_size: IVec3, mut f: impl FnMut(u8, IVec3)) {
+	let area_max = area_min + area_size;
+	for band in bands {
+		let tile_size = 1i32 << band.lod;
+		let overlap_min = area_min.max(band.outer.min);
+		let overlap_max = area_max.min(band.outer.max);
+		if overlap_min.cmpge(overlap_max).any() {
+			continue;
+		}
+		let mut x = overlap_min.x.div_euclid(tile_size) * tile_size;
+		while x < overlap_max.x {
+			let mut y = overlap_min.y.div_euclid(tile_size) * tile_size;
+			while y < overlap_max.y {
+				let mut z = overlap_min.z.div_euclid(tile_size) * tile_size;
+				while z < overlap_max.z {
+					let tile_min = IVec3::new(x, y, z);
+					if is_tile_in_band(*band, tile_min) {
+						f(band.lod, tile_min);
+					}
+					z += tile_size;
+				}
+				y += tile_size;
+			}
+			x += tile_size;
+		}
+	}
+}
+
+fn is_tile_in_band(band: LodBand, min: IVec3) -> bool {
+	let tile_size = 1i32 << band.lod;
+	let tile_max = min + IVec3::splat(tile_size);
+	let in_outer = min.cmpge(band.outer.min).all() && tile_max.cmple(band.outer.max).all();
+	let outside_inner = band.inner.is_none_or(|inner| !(min.cmpge(inner.min).all() && tile_max.cmple(inner.max).all()));
+	in_outer && outside_inner
+}
+
 pub(crate) fn run_over_diff(
 	old_bands: &[LodBand],
 	new_bands: &[LodBand],

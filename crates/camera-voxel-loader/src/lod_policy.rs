@@ -102,18 +102,125 @@ fn align_up_pow2(v: IVec3, size: i32) -> IVec3 {
 mod tests {
 	use super::*;
 
+	// The center is only the reference point the LOD bands are built around, so it snaps to the
+	// nearest chunk: the detail box recenters when the camera crosses a chunk's midpoint, keeping it
+	// centered on the camera rather than biased toward the origin-side chunk.
 	#[test]
-	fn nearest_chunk_center_does_not_advance_to_next_chunk_at_half_chunk() {
+	fn nearest_chunk_center_snaps_to_the_nearest_chunk_at_the_half_chunk_point() {
 		assert_eq!(nearest_chunk_center(Vec3::new(0.0, 0.0, 0.0)), IVec3::ZERO);
 		assert_eq!(nearest_chunk_center(Vec3::new((CHUNK_SIZE / 2 - 1) as f32, 0.0, 0.0)), IVec3::ZERO);
-		assert_eq!(nearest_chunk_center(Vec3::new((CHUNK_SIZE / 2) as f32, 0.0, 0.0)), IVec3::ZERO);
-		assert_eq!(nearest_chunk_center(Vec3::new((CHUNK_SIZE - 1) as f32, 0.0, 0.0)), IVec3::ZERO);
+		assert_eq!(nearest_chunk_center(Vec3::new((CHUNK_SIZE / 2) as f32, 0.0, 0.0)), IVec3::new(1, 0, 0));
+		assert_eq!(nearest_chunk_center(Vec3::new((CHUNK_SIZE - 1) as f32, 0.0, 0.0)), IVec3::new(1, 0, 0));
 	}
 
 	#[test]
-	fn nearest_chunk_center_uses_flooring_for_negative_positions() {
-		assert_eq!(nearest_chunk_center(Vec3::new(-0.1, 0.0, 0.0)), IVec3::new(-1, 0, 0));
+	fn nearest_chunk_center_rounds_symmetrically_for_negative_positions() {
+		assert_eq!(nearest_chunk_center(Vec3::new(-0.1, 0.0, 0.0)), IVec3::ZERO);
 		assert_eq!(nearest_chunk_center(Vec3::new(-(CHUNK_SIZE as f32) * 0.5, 0.0, 0.0)), IVec3::new(-1, 0, 0));
 		assert_eq!(nearest_chunk_center(Vec3::new(-(CHUNK_SIZE as f32), 0.0, 0.0)), IVec3::new(-1, 0, 0));
+	}
+
+	fn policy_settings() -> CameraVoxelLoaderSettings {
+		CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 }
+	}
+
+	// The desired set computed from scratch at `center`: a fresh loader has empty bands, so a
+	// single delta emits the whole set.
+	fn desired_at(settings: &CameraVoxelLoaderSettings, grid: GridId, streaming: &GridStreaming, center: IVec3) -> std::collections::HashSet<TileKey> {
+		let mut loader = CameraVoxelLoader::default();
+		loader.settings = settings.clone();
+		update_desired_sources_delta(&mut loader, grid, center, settings, streaming);
+		loader.desired_tiles.clone()
+	}
+
+	fn flight_path() -> Vec<IVec3> {
+		let steps = [
+			IVec3::new(1, 0, 0), IVec3::new(1, 0, 1), IVec3::new(0, 1, 1), IVec3::new(-1, 1, 0),
+			IVec3::new(-1, 0, -1), IVec3::new(0, -1, -1), IVec3::new(2, 0, 1), IVec3::new(-2, 1, 0),
+		];
+		let mut centers = vec![IVec3::ZERO];
+		let mut p = IVec3::ZERO;
+		for i in 0..40 {
+			p += steps[i % steps.len()];
+			centers.push(p);
+		}
+		centers
+	}
+
+	// The incremental delta (diffing new bands against the loader's stored old bands) must leave the
+	// desired set identical to recomputing it from scratch at each center. This is the core
+	// correctness property of `run_over_diff`.
+	#[test]
+	fn incremental_desired_delta_converges_to_fresh_rebuild_while_flying() {
+		let grid: GridId = Entity::PLACEHOLDER;
+		let settings = policy_settings();
+		let mut streaming = GridStreaming::default();
+		streaming.mark_present_area(IVec3::splat(-80), IVec3::splat(161));
+
+		let mut flying = CameraVoxelLoader::default();
+		flying.settings = settings.clone();
+		for center in flight_path() {
+			update_desired_sources_delta(&mut flying, grid, center, &settings, &streaming);
+			let fresh = desired_at(&settings, grid, &streaming, center);
+			assert_eq!(flying.desired_tiles, fresh, "incremental desired set diverged from fresh rebuild at {center:?}");
+		}
+	}
+
+	// Presence-gated: the policy only desires tiles that actually cover loaded source data.
+	#[test]
+	fn every_desired_tile_covers_at_least_one_present_chunk() {
+		let grid: GridId = Entity::PLACEHOLDER;
+		let settings = policy_settings();
+		let mut streaming = GridStreaming::default();
+		streaming.mark_present_area(IVec3::splat(-40), IVec3::splat(81));
+
+		let desired = desired_at(&settings, grid, &streaming, IVec3::new(3, -2, 5));
+		assert!(!desired.is_empty(), "control setup produced no desired tiles");
+		for tile in &desired {
+			let max = tile.min + tile.size();
+			let mut covers_present = false;
+			'scan: for x in tile.min.x..max.x {
+				for y in tile.min.y..max.y {
+					for z in tile.min.z..max.z {
+						if streaming.presence().is_present(IVec3::new(x, y, z)) {
+							covers_present = true;
+							break 'scan;
+						}
+					}
+				}
+			}
+			assert!(covers_present, "desired tile {tile:?} covers no present chunk");
+		}
+	}
+
+	// Concentric, tile-aligned LOD bands must tile space without overlap: no present chunk may be
+	// owned by more than one desired tile, or coverage would double up / retire ambiguously.
+	#[test]
+	fn no_present_chunk_has_more_than_one_desired_owner() {
+		let grid: GridId = Entity::PLACEHOLDER;
+		let settings = policy_settings();
+		let mut streaming = GridStreaming::default();
+		streaming.mark_present_area(IVec3::splat(-60), IVec3::splat(121));
+
+		for center in [IVec3::ZERO, IVec3::new(1, 0, 0), IVec3::new(12, 0, -4), IVec3::new(-17, 3, 9)] {
+			let desired = desired_at(&settings, grid, &streaming, center);
+			let mut owners: std::collections::HashMap<IVec3, u32> = std::collections::HashMap::new();
+			for tile in &desired {
+				let max = tile.min + tile.size();
+				for x in tile.min.x..max.x {
+					for y in tile.min.y..max.y {
+						for z in tile.min.z..max.z {
+							let chunk = IVec3::new(x, y, z);
+							if streaming.presence().is_present(chunk) {
+								*owners.entry(chunk).or_default() += 1;
+							}
+						}
+					}
+				}
+			}
+			if let Some((chunk, count)) = owners.iter().find(|&(_, &count)| count > 1) {
+				panic!("center {center:?}: present chunk {chunk:?} owned by {count} desired tiles");
+			}
+		}
 	}
 }
