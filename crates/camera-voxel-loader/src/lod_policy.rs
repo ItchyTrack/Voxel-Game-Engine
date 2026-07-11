@@ -121,7 +121,7 @@ mod tests {
 	}
 
 	fn policy_settings() -> CameraVoxelLoaderSettings {
-		CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3, requests_per_frame: 512 }
+		CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 4, rings_per_lod: 3 }
 	}
 
 	// The desired set computed from scratch at `center`: a fresh loader has empty bands, so a

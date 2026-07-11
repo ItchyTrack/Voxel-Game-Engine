@@ -18,12 +18,6 @@ pub use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSetting
 
 voxel_streaming::chunk_consumer!(pub CameraVoxelLoaderConsumer);
 
-#[derive(Component, Debug, Clone, Default)]
-pub struct CameraVoxelRenderState {
-	pub subgrids_to_render: Vec<Entity>,
-	pub lods_to_render: Vec<Entity>,
-}
-
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct FreezeCameraVoxelLoader(pub bool);
 
@@ -32,13 +26,12 @@ pub struct CameraVoxelLoaderDefaultSettings(pub CameraVoxelLoaderSettings);
 
 fn ensure_camera_voxel_loader_components(
 	mut commands: Commands, default_settings: Res<CameraVoxelLoaderDefaultSettings>,
-	cameras: Query<(Entity, Option<&CameraVoxelLoader>, Option<&CameraVoxelLoaderConsumer>, Option<&CameraVoxelRenderState>), With<Camera3d>>,
+	cameras: Query<(Entity, Option<&CameraVoxelLoader>, Option<&CameraVoxelLoaderConsumer>), With<Camera3d>>,
 ) {
-	for (entity, loader, consumer, render_state) in &cameras {
+	for (entity, loader, consumer) in &cameras {
 		let mut entity_commands = commands.entity(entity);
 		if loader.is_none() { entity_commands.insert(CameraVoxelLoader::with_settings(default_settings.0.clone())); }
 		if consumer.is_none() { entity_commands.insert(CameraVoxelLoaderConsumer::default()); }
-		if render_state.is_none() { entity_commands.insert(CameraVoxelRenderState::default()); }
 	}
 }
 

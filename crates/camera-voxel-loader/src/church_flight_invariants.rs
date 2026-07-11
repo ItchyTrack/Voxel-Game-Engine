@@ -24,7 +24,7 @@ const LOAD_LATENCY: u8 = 2;
 // Small radii force the church to span several LOD bands at orbit distance, so flying it exercises
 // coarse-tile-to-finer-tile replacement rather than keeping everything at LOD 0.
 fn flight_settings() -> CameraVoxelLoaderSettings {
-	CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 1, rings_per_lod: 1, requests_per_frame: 4096 }
+	CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 1, rings_per_lod: 1 }
 }
 
 #[test]

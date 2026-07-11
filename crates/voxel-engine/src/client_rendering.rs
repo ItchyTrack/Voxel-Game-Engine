@@ -1,6 +1,6 @@
 use bevy::app::{PluginGroup, PluginGroupBuilder};
 use bevy::prelude::*;
-use camera_voxel_loader::{CameraVoxelLoaderPlugin, CameraVoxelLoaderSet, CameraVoxelRenderState};
+use camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderPlugin, CameraVoxelLoaderSet};
 use voxel_gpu::VoxelGpuFormat;
 use voxel_raster_renderer::{VoxelRasterRendererPlugin, voxel_camera::VoxelRasterCamera};
 use voxel_ray_renderer::{VoxelRayRendererPlugin, voxel_camera::VoxelCamera};
@@ -55,15 +55,20 @@ fn sync_voxel_camera_components(
 	mut cameras: Query<(
 		Entity,
 		&VoxelCameraMode,
-		Option<&CameraVoxelRenderState>,
+		Option<&CameraVoxelLoader>,
 		Option<&mut VoxelCamera>,
 		Option<&mut VoxelRasterCamera>,
 		Option<&VoxelGpuFormat>,
 	), With<Camera3d>>,
 ) {
-	for (entity, mode, render_state, ray_camera, raster_camera, format) in &mut cameras {
-		let (subgrids_to_render, lods_to_render) = render_state
-			.map(|state| (state.subgrids_to_render.clone(), state.lods_to_render.clone()))
+	for (entity, mode, loader, ray_camera, raster_camera, format) in &mut cameras {
+		let (subgrids_to_render, lods_to_render) = loader
+			.map(|loader| {
+				(
+					loader.subgrids_to_render().collect::<Vec<_>>(),
+					loader.lods_to_render().iter().copied().collect::<Vec<_>>(),
+				)
+			})
 			.unwrap_or_default();
 
 		let desired_format = match mode {

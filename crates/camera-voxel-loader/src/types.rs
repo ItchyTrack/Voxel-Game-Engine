@@ -17,18 +17,6 @@ impl TileIndexKey for TileKey {
 	fn size(self) -> IVec3 { self.size() }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TileRecord {
-	pub(crate) status: TileStatus,
-	pub(crate) entity: Option<Entity>,
-}
-
-impl TileRecord {
-	pub(crate) fn queued() -> Self { Self { status: TileStatus::Queued, entity: None } }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TileStatus { Queued, Loading, Ready, Retiring }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SourceResolution { Requested, Visible(Entity), Empty }
