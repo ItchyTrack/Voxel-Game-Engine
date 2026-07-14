@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, atomic::{AtomicU64, Ordering}};
 
 use bevy::prelude::*;
 use voxel_data::grid::GridId;
@@ -25,18 +25,18 @@ impl ChunkConsumer for TestConsumer {
 #[derive(Default)]
 struct TestRequests {
 	chunk_sent: AtomicU64,
-	chunk_cancelled: AtomicU64,
+	last_chunk_cancellation: Mutex<Option<voxel_sources::CancellationToken>>,
 }
 
 impl VoxelSourceRequestApi for TestRequests {
 	fn request_presence(&self, _request: PresenceLoadRequest) {}
-	fn request_chunk(&self, _request: ChunkLoadRequest) {
+	fn request_chunk(&self, _request: ChunkLoadRequest) -> voxel_sources::CancellationToken {
 		self.chunk_sent.fetch_add(1, Ordering::Relaxed);
+		let cancellation = voxel_sources::CancellationToken::new();
+		*self.last_chunk_cancellation.lock().unwrap() = Some(cancellation.clone());
+		cancellation
 	}
-	fn cancel_chunk(&self, _request: ChunkLoadRequest) {
-		self.chunk_cancelled.fetch_add(1, Ordering::Relaxed);
-	}
-	fn request_lod(&self, _request: LodLoadRequest) {}
+	fn request_lod(&self, _request: LodLoadRequest) -> voxel_sources::LodCancellation { unimplemented!() }
 	fn chunk_requests_sent(&self) -> u64 { self.chunk_sent.load(Ordering::Relaxed) }
 	fn lod_requests_sent(&self) -> u64 { 0 }
 }
@@ -57,11 +57,11 @@ fn chunk_request_releases_cleanly_after_load_when_no_longer_needed() {
 	assert!(consumer.needed().get(&grid).is_some_and(|chunks| chunks.contains(&chunk)));
 
 	streaming.presence_mut().set_state(chunk, voxel_streaming::ChunkState::Loaded);
-	streaming.release_needed(grid, &mut consumer, &requests, chunk);
+	streaming.release_needed(grid, &mut consumer, chunk);
 
 	assert_eq!(streaming.presence().request_count(chunk), 0);
 	assert!(!consumer.needed().get(&grid).is_some_and(|chunks| chunks.contains(&chunk)));
-	assert_eq!(requests.chunk_cancelled.load(Ordering::Relaxed), 0);
+	assert!(!requests.last_chunk_cancellation.lock().unwrap().as_ref().unwrap().is_cancelled());
 }
 
 #[test]
@@ -74,9 +74,9 @@ fn releasing_the_last_inflight_request_cancels_the_source_job() {
 
 	streaming.mark_present(chunk);
 	streaming.fetch_needed(grid, &mut consumer, &requests, chunk);
-	streaming.release_needed(grid, &mut consumer, &requests, chunk);
+	streaming.release_needed(grid, &mut consumer, chunk);
 
-	assert_eq!(requests.chunk_cancelled.load(Ordering::Relaxed), 1);
+	assert!(requests.last_chunk_cancellation.lock().unwrap().as_ref().unwrap().is_cancelled());
 	assert_eq!(streaming.state(chunk), Some(voxel_streaming::ChunkState::Available));
 	assert_eq!(consumer.outstanding(), 0);
 }

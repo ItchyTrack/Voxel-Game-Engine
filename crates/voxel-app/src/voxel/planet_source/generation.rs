@@ -34,6 +34,7 @@ pub(super) fn build_planet_lod_region(
 	min_chunk: IVec3,
 	size_chunks: IVec3,
 	lod: f32,
+	cancellation: &CancellationToken,
 ) -> Option<Voxels> {
 	let _zone = span!("planet build lod region");
 	let tile = planet_tiles().get(tile_index)?;
@@ -54,9 +55,10 @@ pub(super) fn build_planet_lod_region(
 		step,
 		sample_offset,
 		false,
-		None,
+		Some(cancellation),
 		&mut points,
 	);
+	if cancellation.is_cancelled() { return None; }
 	tracy_client::plot!("planet lod emitted voxels", points.len() as f64);
 	points_to_voxels(points)
 }

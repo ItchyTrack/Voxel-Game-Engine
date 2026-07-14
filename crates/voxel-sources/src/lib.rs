@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use crate::registry::SourceRegistry;
 
 pub use handle::{SourceEvent, SourceHandle, SourceLodResult, SourceChunkResult};
-pub use loader::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, PresenceLoadRequest};
+pub use loader::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodCancellation, LodKey, LodLoadRequest, PresenceLoadRequest};
 pub use requests::{VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub use source::{ChunkSource, SourceId, VoxelLodGenerator};
 pub use voxel_tasks::CancellationToken;

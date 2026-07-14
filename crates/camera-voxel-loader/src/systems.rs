@@ -39,7 +39,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			let delta = update_desired_sources_delta(&mut loader, grid_id, nearest_chunk_center(camera_local), &settings, streaming.as_ref());
 			let streaming = streaming.into_inner();
 			loader.tiles.apply_delta(&delta.added, &delta.removed, &mut acquire, &mut release);
-			release_sources(streaming, &requests, camera_entity, release.drain(..));
+			release_sources(streaming, camera_entity, release.drain(..));
 
 			for &key in &acquire {
 				let center_local = ((key.min + key.size() / 2) * CHUNK_SIZE).as_vec3();
@@ -53,7 +53,6 @@ pub(crate) fn update_camera_voxel_loader_requests(
 }
 
 pub(crate) fn receive_camera_voxel_loader_results(
-	requests: VoxelSourceRequests,
 	mut loaders: Query<&mut CameraVoxelLoader>, mut consumers: Query<&mut CameraVoxelLoaderConsumer>, mut grids: Query<&mut GridStreaming>,
 ) {
 	for mut consumer in &mut consumers {
@@ -64,7 +63,7 @@ pub(crate) fn receive_camera_voxel_loader_results(
 			let Ok(streaming) = grids.get_mut(result.grid) else { continue };
 			let streaming = streaming.into_inner();
 			let resolution = result.entity.map_or(ResolvedTile::Empty, ResolvedTile::Lod);
-			release_sources(streaming, &requests, result.requester, loader.tiles.resolve(key, resolution));
+			release_sources(streaming, result.requester, loader.tiles.resolve(key, resolution));
 		}
 	}
 }
@@ -104,7 +103,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 						}
 					});
 					loader.tiles.apply_delta(&changed, &[], &mut acquire, &mut release);
-					release_sources(streaming, &requests, camera_entity, release.drain(..));
+					release_sources(streaming, camera_entity, release.drain(..));
 					for &key in &acquire {
 						acquire_source(
 							&mut loader.tiles, &requests, camera_entity, key, 0.0, grid, streaming, format, &subgrids, &gpu_state,
@@ -117,7 +116,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 					loader.tiles.desired_in_area(event.grid, event.min, event.size, loader.settings.max_lod, &mut changed);
 					changed.retain(|&key| !tile_has_present_source(streaming, key));
 					loader.tiles.apply_delta(&[], &changed, &mut acquire, &mut release);
-					release_sources(streaming, &requests, camera_entity, release.drain(..));
+					release_sources(streaming, camera_entity, release.drain(..));
 				}
 			}
 		}
@@ -128,7 +127,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 			let key = TileKey::chunk(event.grid, event.chunk);
 			if !loader.tiles.contains_source(key) { continue; }
 			let Ok((_, streaming)) = grids.get_mut(event.grid) else { continue };
-			release_sources(streaming.into_inner(), &requests, camera_entity, loader.tiles.resolve(key, ResolvedTile::Empty));
+			release_sources(streaming.into_inner(), camera_entity, loader.tiles.resolve(key, ResolvedTile::Empty));
 		}
 
 		// Completed uploads replace the full chunk render snapshot atomically.
@@ -146,7 +145,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 						if !loader.tiles.contains_source(key) { continue; }
 						let Ok((grid, streaming)) = grids.get_mut(key.grid) else { continue };
 						let Some(resolution) = chunk_resolution(grid, key, format, &subgrids, &gpu_state) else { continue };
-						release_sources(streaming.into_inner(), &requests, camera_entity, loader.tiles.resolve(key, resolution));
+						release_sources(streaming.into_inner(), camera_entity, loader.tiles.resolve(key, resolution));
 					}
 				}
 			}

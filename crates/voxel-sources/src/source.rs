@@ -36,7 +36,15 @@ pub trait ChunkSource: Send + Sync {
 
 	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Option<u32>;
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64);
+	fn request_load_lod(
+		&self,
+		grid: GridId,
+		min: IVec3,
+		size: IVec3,
+		lod: f32,
+		generation: u64,
+		cancellation: CancellationToken,
+	);
 
 	fn request_available_area(&self, grid: GridId) {
 		let _ = grid;

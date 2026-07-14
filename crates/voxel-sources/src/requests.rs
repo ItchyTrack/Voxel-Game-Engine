@@ -4,17 +4,15 @@ use bevy::prelude::*;
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
+use voxel_tasks::CancellationToken;
 
-use crate::loader::{ChunkLoadRequest, LodLoadRequest, PresenceLoadRequest};
+use crate::loader::{ChunkLoadRequest, LodCancellation, LodLoadRequest, PresenceLoadRequest};
 use crate::registry::SourceRegistry;
 
 pub trait VoxelSourceRequestApi {
 	fn request_presence(&self, request: PresenceLoadRequest);
-	fn request_chunk(&self, request: ChunkLoadRequest);
-	fn cancel_chunk(&self, request: ChunkLoadRequest) {
-		let _ = request;
-	}
-	fn request_lod(&self, request: LodLoadRequest);
+	fn request_chunk(&self, request: ChunkLoadRequest) -> CancellationToken;
+	fn request_lod(&self, request: LodLoadRequest) -> LodCancellation;
 	fn chunk_requests_sent(&self) -> u64;
 	fn lod_requests_sent(&self) -> u64;
 }
@@ -24,16 +22,12 @@ impl VoxelSourceRequestApi for SourceRegistry {
 		self.request_presence(request);
 	}
 
-	fn request_chunk(&self, request: ChunkLoadRequest) {
-		self.request_chunk(request);
+	fn request_chunk(&self, request: ChunkLoadRequest) -> CancellationToken {
+		self.request_chunk(request)
 	}
 
-	fn cancel_chunk(&self, request: ChunkLoadRequest) {
-		self.cancel_chunk(request);
-	}
-
-	fn request_lod(&self, request: LodLoadRequest) {
-		self.request_lod(request);
+	fn request_lod(&self, request: LodLoadRequest) -> LodCancellation {
+		self.request_lod(request)
 	}
 
 	fn chunk_requests_sent(&self) -> u64 {
@@ -70,16 +64,12 @@ impl VoxelSourceRequestApi for VoxelSourceRequests<'_> {
 		self.registry.request_presence(request);
 	}
 
-	fn request_chunk(&self, request: ChunkLoadRequest) {
-		self.registry.request_chunk(request);
+	fn request_chunk(&self, request: ChunkLoadRequest) -> CancellationToken {
+		self.registry.request_chunk(request)
 	}
 
-	fn cancel_chunk(&self, request: ChunkLoadRequest) {
-		self.registry.cancel_chunk(request);
-	}
-
-	fn request_lod(&self, request: LodLoadRequest) {
-		self.registry.request_lod(request);
+	fn request_lod(&self, request: LodLoadRequest) -> LodCancellation {
+		self.registry.request_lod(request)
 	}
 
 	fn chunk_requests_sent(&self) -> u64 {
@@ -96,16 +86,12 @@ impl VoxelSourceRequestApi for VoxelSources<'_> {
 		self.registry.request_presence(request);
 	}
 
-	fn request_chunk(&self, request: ChunkLoadRequest) {
-		self.registry.request_chunk(request);
+	fn request_chunk(&self, request: ChunkLoadRequest) -> CancellationToken {
+		self.registry.request_chunk(request)
 	}
 
-	fn cancel_chunk(&self, request: ChunkLoadRequest) {
-		self.registry.cancel_chunk(request);
-	}
-
-	fn request_lod(&self, request: LodLoadRequest) {
-		self.registry.request_lod(request);
+	fn request_lod(&self, request: LodLoadRequest) -> LodCancellation {
+		self.registry.request_lod(request)
 	}
 
 	fn chunk_requests_sent(&self) -> u64 {

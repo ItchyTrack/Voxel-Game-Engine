@@ -77,12 +77,14 @@ impl ChunkSource for ProceduralPlanetSource {
 		size: IVec3,
 		lod: f32,
 		generation: u64,
+		cancellation: CancellationToken,
 	) {
 		let _zone = span!("planet source request_load_lod");
 		tracy_client::plot!("planet lod level", lod as f64);
 		let voxels = self
 			.tile_index(grid_id)
-			.and_then(|tile_index| build_planet_lod_region(tile_index, min, size, lod));
+			.and_then(|tile_index| build_planet_lod_region(tile_index, min, size, lod, &cancellation));
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
 			let _zone = span!("planet source publish lod");
 			handle.loaded_lod(grid_id, min, size, lod, generation, voxels);

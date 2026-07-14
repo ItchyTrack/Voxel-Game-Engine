@@ -264,11 +264,13 @@ impl ChunkSource for VoxFileSource {
 		region_has_data.then_some(COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64) {
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+		if cancellation.is_cancelled() { return; }
 		let voxels = self.binding(grid).and_then(|binding| {
 			let region = downsample_region(min, size, lod, |chunk| self.translated_chunk(&binding, chunk));
 			(!region.is_empty()).then_some(region)
 		});
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, generation, voxels);
 		}

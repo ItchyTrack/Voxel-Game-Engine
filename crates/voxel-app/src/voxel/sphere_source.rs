@@ -123,7 +123,7 @@ fn quantize_channel(value: u8, levels: u8) -> u8 {
 	((level / max_level) * 255.0).round() as u8
 }
 
-fn build_lod_region(min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {
+fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &CancellationToken) -> Option<Voxels> {
 	let _zone = tracy_client::span!("sphere direct LOD region");
 	let step = 1i32 << lod.max(0.0).floor() as u32;
 	let sample_offset = step / 2;
@@ -134,6 +134,7 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {
 	let mut areas = Vec::new();
 
 	for z in 0..extent.z {
+		if cancellation.is_cancelled() { return None; }
 		let sample_z = (z * step + sample_offset).min(max_source.z);
 		let world_z = origin.z + sample_z;
 		let z2 = world_z as i64 * world_z as i64;
@@ -203,8 +204,9 @@ impl ChunkSource for SphereSource {
 		region_intersects(lo, hi).then_some(COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64) {
-		let voxels = build_lod_region(min, size, lod);
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+		let voxels = build_lod_region(min, size, lod, &cancellation);
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, generation, voxels);
 		}

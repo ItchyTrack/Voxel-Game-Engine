@@ -19,7 +19,7 @@ impl ChunkSource for AreaSource {
 			.any(|chunk| chunk.cmpge(min).all() && chunk.cmplt(min + size).all())
 			.then_some(0)
 	}
-	fn request_load_lod(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _generation: u64) {}
+	fn request_load_lod(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _generation: u64, _cancellation: CancellationToken) {}
 }
 
 struct MarkerGenerator;

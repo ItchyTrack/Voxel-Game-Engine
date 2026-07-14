@@ -49,7 +49,8 @@ impl ChunkSource for ClientChunkSource {
 		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64) {
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+		if cancellation.is_cancelled() { return; }
 		let key = LodKey { min, size, lod: lod.max(0.0).floor() as u8 };
 		let mut remote_generations = self.state.remote_generations.lock().unwrap();
 		let mut requests = self.state.lod_requests.lock().unwrap();

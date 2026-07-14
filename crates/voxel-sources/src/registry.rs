@@ -9,7 +9,7 @@ use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
 use voxel_tasks::CancellationToken;
 
-use crate::loader::{ChunkLoadRequest, GeneratedLodLoadRequest, LodLoadRequest, PresenceLoadRequest, SourceRequestChannel};
+use crate::loader::{ChunkLoadRequest, GeneratedLodLoadRequest, LodCancellation, LodLoadRequest, PresenceLoadRequest, SourceRequestChannel};
 
 use crate::handle::{SourceLodResult, SourceMessage};
 use crate::source::{ChunkSource, SourceId, VoxelLodGenerator};
@@ -40,6 +40,8 @@ impl LodRequestKey {
 pub(crate) enum PendingLodJob {
 	Direct {
 		requests: Vec<GeneratedLodLoadRequest>,
+		generation: u64,
+		cancellation: CancellationToken,
 	},
 	Composite {
 		requests: Vec<GeneratedLodLoadRequest>,
@@ -47,6 +49,8 @@ pub(crate) enum PendingLodJob {
 		received: HashMap<SourceId, Option<Voxels>>,
 		final_lod: f32,
 		intermediate_lod: f32,
+		generation: u64,
+		cancellation: CancellationToken,
 	},
 }
 
@@ -107,7 +111,7 @@ impl SourceRegistry {
 		self.requests.request_presence(request);
 	}
 
-	pub fn request_chunk(&self, request: ChunkLoadRequest) {
+	pub fn request_chunk(&self, request: ChunkLoadRequest) -> CancellationToken {
 		let generation = self.next_generation(request.grid);
 		let cancellation = CancellationToken::new();
 		let key = (request.grid, request.chunk);
@@ -117,28 +121,24 @@ impl SourceRegistry {
 		}) {
 			previous.cancellation.cancel();
 		}
-		self.requests.request_chunk(request, generation, cancellation);
-	}
-
-	pub fn cancel_chunk(&self, request: ChunkLoadRequest) {
-		if let Some(active) = self.active_chunk_loads.lock().unwrap().remove(&(request.grid, request.chunk)) {
-			active.cancellation.cancel();
-		}
+		self.requests.request_chunk(request, generation, cancellation.clone());
+		cancellation
 	}
 
 	pub(crate) fn complete_chunk(&self, grid: GridId, chunk: IVec3, generation: u64) -> bool {
 		let mut active = self.active_chunk_loads.lock().unwrap();
 		let key = (grid, chunk);
-		if !active.get(&key).is_some_and(|load| load.generation == generation) {
+		if !active.get(&key).is_some_and(|load| load.generation == generation && !load.cancellation.is_cancelled()) {
 			return false;
 		}
 		active.remove(&key);
 		true
 	}
 
-	pub fn request_lod(&self, request: LodLoadRequest) {
+	pub fn request_lod(&self, request: LodLoadRequest) -> LodCancellation {
 		let generation = self.next_generation(request.grid);
-		self.requests.request_lod(request, generation);
+		let cancellation = CancellationToken::new();
+		self.requests.request_lod(request, generation, cancellation)
 	}
 
 	pub fn chunk_requests_sent(&self) -> u64 {
@@ -157,17 +157,21 @@ impl SourceRegistry {
 		let mut pending_lod = self.pending_lod.lock().unwrap();
 		let job = pending_lod.get_mut(&key)?;
 		match job {
-			PendingLodJob::Direct { requests } => {
-				let requests = std::mem::take(requests);
+			PendingLodJob::Direct { requests, generation, .. } => {
+				if result.generation != *generation { return None; }
+				let mut requests = std::mem::take(requests);
+				requests.retain(|request| !request.cancellation.is_cancelled());
 				pending_lod.remove(&key);
 				Some((requests, result.lod, result.voxels))
 			}
-			PendingLodJob::Composite { requests, expected, received, final_lod, intermediate_lod } => {
+			PendingLodJob::Composite { requests, expected, received, final_lod, intermediate_lod, generation, .. } => {
+				if result.generation != *generation { return None; }
 				received.insert(result.source, result.voxels);
 				if !expected.iter().all(|source| received.contains_key(source)) {
 					None
 				} else {
-					let requests = std::mem::take(requests);
+					let mut requests = std::mem::take(requests);
+					requests.retain(|request| !request.cancellation.is_cancelled());
 					let final_lod = *final_lod;
 					let intermediate_lod = *intermediate_lod;
 					let parts: Vec<_> = received.values().filter_map(Clone::clone).collect();
@@ -289,8 +293,7 @@ mod tests {
 		let registry = SourceRegistry::default();
 		let request = ChunkLoadRequest { grid: GridId::PLACEHOLDER, chunk: IVec3::new(1, 2, 3) };
 
-		registry.request_chunk(request);
-		registry.cancel_chunk(request);
+		registry.request_chunk(request).cancel();
 		assert!(!registry.complete_chunk(request.grid, request.chunk, 1));
 
 		registry.request_chunk(request);

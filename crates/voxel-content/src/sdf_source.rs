@@ -172,8 +172,10 @@ impl ChunkSource for SdfSource {
 		Self::might_intersect_region(&binding, min, size).then_some(binding.options.cost)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64) {
-		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, min, size, lod, None));
+	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+		if cancellation.is_cancelled() { return; }
+		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, min, size, lod, Some(&cancellation)));
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, generation, voxels);
 		}

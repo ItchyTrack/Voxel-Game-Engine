@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::math::IVec3;
 use bevy::prelude::*;
-use voxel_sources::VoxelSourceRequestApi;
+use voxel_sources::{CancellationToken, LodCancellation, VoxelSourceRequestApi};
 
 use voxel_data::grid::GridId;
 use voxel_edit::GridEdit;
@@ -15,7 +15,7 @@ use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct LodTileState {
 	pub(crate) requesters: HashMap<Entity, f32>,
 	pub(crate) status: LodStatus,
@@ -23,13 +23,13 @@ pub(crate) struct LodTileState {
 	pub(crate) stale_entities: Vec<Entity>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum LodStatus {
 	Requested,
-	InFlight,
+	InFlight { cancellation: LodCancellation },
 	Loaded,
 	ExternalDirty,
-	ExternalDirtyInFlight { generation: u64 },
+	ExternalDirtyInFlight { generation: u64, cancellation: LodCancellation },
 	Empty,
 }
 
@@ -44,6 +44,7 @@ pub(crate) enum LodUploadState {
 pub struct GridStreaming {
 	pub(crate) presence: ChunkPresence,
 	pub(crate) dirty_generations: HashMap<IVec3, u64>,
+	pub(crate) inflight_chunk_cancellations: HashMap<IVec3, CancellationToken>,
 	pub(crate)pending_clears: Vec<(IVec3, u8)>,
 	pub(crate) stalled_edits: HashMap<IVec3, Vec<GridEdit>>,
 	pub(crate) stalled_pinned: HashSet<IVec3>,
@@ -83,11 +84,13 @@ impl GridStreaming {
 			None => return false,
 			Some(ChunkState::Available) => {
 				self.presence.set_state(chunk, ChunkState::InFlight);
-				requests.request_chunk(ChunkLoadRequest { grid, chunk });
+				let cancellation = requests.request_chunk(ChunkLoadRequest { grid, chunk });
+				self.inflight_chunk_cancellations.insert(chunk, cancellation);
 			}
 			Some(ChunkState::ExternalDirty) => {
 				self.presence.set_state(chunk, ChunkState::ExternalDirtyInFlight);
-				requests.request_chunk(ChunkLoadRequest { grid, chunk });
+				let cancellation = requests.request_chunk(ChunkLoadRequest { grid, chunk });
+				self.inflight_chunk_cancellations.insert(chunk, cancellation);
 			}
 			_ => {}
 		}
@@ -113,16 +116,16 @@ impl GridStreaming {
 		}
 	}
 
-	pub fn release(&mut self, grid: GridId, requests: &impl VoxelSourceRequestApi, chunk: IVec3) {
+	pub fn release(&mut self, chunk: IVec3) {
 		if self.presence.remove_request(chunk) > 0 { return; }
 		match self.presence.state(chunk) {
 			Some(ChunkState::InFlight) => {
 				self.presence.set_state(chunk, ChunkState::Available);
-				requests.cancel_chunk(ChunkLoadRequest { grid, chunk });
+				if let Some(cancellation) = self.inflight_chunk_cancellations.remove(&chunk) { cancellation.cancel(); }
 			}
 			Some(ChunkState::ExternalDirtyInFlight) => {
 				self.presence.set_state(chunk, ChunkState::ExternalDirty);
-				requests.cancel_chunk(ChunkLoadRequest { grid, chunk });
+				if let Some(cancellation) = self.inflight_chunk_cancellations.remove(&chunk) { cancellation.cancel(); }
 			}
 			Some(ChunkState::Loaded | ChunkState::InternalDirty) => {
 				self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES));
@@ -143,7 +146,6 @@ impl GridStreaming {
 		&mut self,
 		grid: GridId,
 		consumer: &mut C,
-		requests: &impl VoxelSourceRequestApi,
 		chunk: IVec3,
 	) {
 		let resident = matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty));
@@ -154,7 +156,7 @@ impl GridStreaming {
 		if removed && !resident {
 			*consumer.outstanding_mut() = consumer.outstanding().saturating_sub(1);
 		}
-		self.release(grid, requests, chunk);
+		self.release(chunk);
 	}
 
 	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {
@@ -167,7 +169,7 @@ impl GridStreaming {
 			stale_entities: Vec::new(),
 		});
 		state.requesters.insert(requester, priority);
-		if matches!(state.status, LodStatus::Requested | LodStatus::ExternalDirty) { self.pending_lod_requests.insert(key); }
+		if matches!(&state.status, LodStatus::Requested | LodStatus::ExternalDirty) { self.pending_lod_requests.insert(key); }
 		true
 	}
 
@@ -177,7 +179,17 @@ impl GridStreaming {
 		if state.requesters.is_empty() {
 			self.pending_lod_requests.remove(&key);
 			self.lod_index.remove(key);
+			let status = std::mem::replace(&mut state.status, LodStatus::Requested);
+			match status {
+				LodStatus::InFlight { cancellation }
+				| LodStatus::ExternalDirtyInFlight { cancellation, .. } => cancellation.cancel(),
+				other => state.status = other,
+			}
 		}
+	}
+
+	pub(crate) fn finish_chunk_request(&mut self, chunk: IVec3) {
+		self.inflight_chunk_cancellations.remove(&chunk);
 	}
 
 	pub(crate) fn current_chunk_generation(&self, chunk: IVec3) -> u64 {
@@ -235,7 +247,8 @@ impl GridStreaming {
 		if self.presence.request_count(chunk) == 0 { return; }
 		if matches!(self.presence.state(chunk), Some(ChunkState::ExternalDirty)) {
 			self.presence.set_state(chunk, ChunkState::ExternalDirtyInFlight);
-			requests.request_chunk(ChunkLoadRequest { grid, chunk });
+			let cancellation = requests.request_chunk(ChunkLoadRequest { grid, chunk });
+			self.inflight_chunk_cancellations.insert(chunk, cancellation);
 		}
 	}
 
@@ -243,14 +256,17 @@ impl GridStreaming {
 		for key in self.lod_index.lods_covering_chunk(chunk) {
 			let Some(state) = self.lods.get_mut(&key) else { continue };
 			if state.requesters.is_empty() { continue; }
-			state.status = match (state.status, generation) {
-				(LodStatus::InFlight, Some(generation)) => LodStatus::ExternalDirtyInFlight { generation },
-				(LodStatus::ExternalDirtyInFlight { generation: current }, Some(generation)) => LodStatus::ExternalDirtyInFlight { generation: current.max(generation) },
+			let status = std::mem::replace(&mut state.status, LodStatus::Requested);
+			state.status = match (status, generation) {
+				(LodStatus::InFlight { cancellation }, Some(generation)) => LodStatus::ExternalDirtyInFlight { generation, cancellation },
+				(LodStatus::ExternalDirtyInFlight { generation: current, cancellation }, Some(generation)) => {
+					LodStatus::ExternalDirtyInFlight { generation: current.max(generation), cancellation }
+				}
 				(LodStatus::Loaded, _) | (LodStatus::Empty, _) | (LodStatus::ExternalDirty, _) => LodStatus::ExternalDirty,
 				(LodStatus::Requested, _) => LodStatus::Requested,
 				(other, None) => other,
 			};
-			if matches!(state.status, LodStatus::ExternalDirty) {
+			if matches!(&state.status, LodStatus::ExternalDirty) {
 				self.pending_lod_requests.insert(key);
 			}
 		}

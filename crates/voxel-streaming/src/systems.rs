@@ -140,6 +140,7 @@ pub fn receive_results(
 			let state = streaming.presence.state(result.chunk);
 			match state {
 				Some(ChunkState::InFlight) | Some(ChunkState::ExternalDirtyInFlight) => {
+					streaming.finish_chunk_request(result.chunk);
 					let stale = result.generation < streaming.current_chunk_generation(result.chunk);
 					if stale {
 						streaming.presence.set_state(result.chunk, ChunkState::ExternalDirty);
@@ -228,12 +229,15 @@ pub fn receive_lod_results(
 	for mut result in channel.read().cloned() {
 		let Ok(mut streaming) = grids.get_mut(result.grid) else { continue };
 		let Some(state) = streaming.lods.get_mut(&result.key) else { continue };
-		if let LodStatus::ExternalDirtyInFlight { generation } = state.status {
-			if result.generation < generation {
+		let status = std::mem::replace(&mut state.status, LodStatus::Requested);
+		match status {
+			LodStatus::ExternalDirtyInFlight { generation, .. } if result.generation < generation => {
 				state.status = LodStatus::ExternalDirty;
 				streaming.pending_lod_requests.insert(result.key);
 				continue;
 			}
+			LodStatus::InFlight { .. } | LodStatus::ExternalDirtyInFlight { .. } => {}
+			other => state.status = other,
 		}
 		let prior_upload = state.upload;
 		let requesters: Vec<_> = state.requesters.iter().map(|(&requester, &priority)| (requester, priority)).collect();
@@ -347,11 +351,11 @@ pub fn request_lod_tiles(
 		for key in pending {
 			let Some(state) = streaming.lods.get_mut(&key) else { continue };
 			if state.requesters.is_empty() { continue; }
-			if !matches!(state.status, LodStatus::Requested | LodStatus::ExternalDirty) { continue; }
+			if !matches!(&state.status, LodStatus::Requested | LodStatus::ExternalDirty) { continue; }
 			let requester = *state.requesters.keys().next().unwrap();
 			let priority = state.requesters.values().copied().fold(f32::NEG_INFINITY, f32::max);
-			state.status = LodStatus::InFlight;
-			requests.request_lod(LodLoadRequest { grid, requester, key, priority });
+			let cancellation = requests.request_lod(LodLoadRequest { grid, requester, key, priority });
+			state.status = LodStatus::InFlight { cancellation };
 		}
 	}
 }

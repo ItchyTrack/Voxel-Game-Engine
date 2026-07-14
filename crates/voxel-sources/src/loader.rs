@@ -77,10 +77,26 @@ pub(crate) struct GeneratedChunkLoadRequest {
 	pub cancellation: CancellationToken,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct GeneratedLodLoadRequest {
 	pub request: LodLoadRequest,
 	pub generation: u64,
+	pub cancellation: CancellationToken,
+}
+
+#[derive(Debug)]
+pub struct LodCancellation {
+	grid: GridId,
+	key: LodKey,
+	cancellation: CancellationToken,
+	sender: Sender<SourceRequest>,
+}
+
+impl LodCancellation {
+	pub fn cancel(self) {
+		self.cancellation.cancel();
+		let _ = self.sender.send(SourceRequest::CancelLod { grid: self.grid, key: self.key });
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +104,7 @@ pub(crate) enum SourceRequest {
 	Presence(PresenceLoadRequest),
 	Chunk(GeneratedChunkLoadRequest),
 	Lod(GeneratedLodLoadRequest),
+	CancelLod { grid: GridId, key: LodKey },
 }
 
 #[derive(Resource)]
@@ -125,10 +142,11 @@ impl SourceRequestChannel {
 		}
 	}
 
-	pub(crate) fn request_lod(&self, request: LodLoadRequest, generation: u64) {
-		if self.sender.send(SourceRequest::Lod(GeneratedLodLoadRequest { request, generation })).is_ok() {
+	pub(crate) fn request_lod(&self, request: LodLoadRequest, generation: u64, cancellation: CancellationToken) -> LodCancellation {
+		if self.sender.send(SourceRequest::Lod(GeneratedLodLoadRequest { request, generation, cancellation: cancellation.clone() })).is_ok() {
 			self.lod_sent.fetch_add(1, Ordering::Relaxed);
 		}
+		LodCancellation { grid: request.grid, key: request.key, cancellation, sender: self.sender.clone() }
 	}
 
 	pub(crate) fn receiver(&self) -> Receiver<SourceRequest> {
