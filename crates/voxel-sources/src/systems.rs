@@ -61,7 +61,9 @@ pub(crate) fn publish_source_messages(
 				}
 			}
 			SourceMessage::Chunk(result) => {
-				chunk_writer.write(ChunkLoaded { grid: result.grid, chunk: result.chunk, generation: result.generation, voxels: result.voxels });
+				if registry.complete_chunk(result.grid, result.chunk, result.generation) {
+					chunk_writer.write(ChunkLoaded { grid: result.grid, chunk: result.chunk, generation: result.generation, voxels: result.voxels });
+				}
 			}
 			SourceMessage::Lod(result) => {
 				let Some((requests, lod, voxels)) = registry.take_pending_lod_completion(result) else { continue };

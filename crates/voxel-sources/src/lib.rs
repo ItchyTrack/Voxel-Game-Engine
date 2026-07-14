@@ -14,6 +14,7 @@ pub use handle::{SourceEvent, SourceHandle, SourceLodResult, SourceChunkResult};
 pub use loader::{ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, PresenceLoadRequest};
 pub use requests::{VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
 pub use source::{ChunkSource, SourceId, VoxelLodGenerator};
+pub use voxel_tasks::CancellationToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChunkChangeKind {

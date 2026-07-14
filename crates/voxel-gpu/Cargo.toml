@@ -20,6 +20,7 @@ tracy-client = { workspace = true }
 bevy = { workspace = true }
 orderly-allocator = "0.2.2"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["console"] }

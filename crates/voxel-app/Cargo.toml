@@ -38,6 +38,7 @@ camera-voxel-loader = { version = "0.1.0", path = "../camera-voxel-loader" }
 voxel-ray-renderer = { version = "0.1.0", path = "../voxel-ray-renderer", features = ["shader_hot_reload"] }
 voxel-raster-renderer = { version = "0.1.0", path = "../voxel-raster-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }

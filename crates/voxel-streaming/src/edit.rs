@@ -18,7 +18,7 @@ impl GridStreaming {
 			}
 		}
 		if self.stalled_pinned.remove(&chunk) {
-			self.release(chunk);
+			self.release_completed(chunk);
 		}
 	}
 }

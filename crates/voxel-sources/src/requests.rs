@@ -11,6 +11,9 @@ use crate::registry::SourceRegistry;
 pub trait VoxelSourceRequestApi {
 	fn request_presence(&self, request: PresenceLoadRequest);
 	fn request_chunk(&self, request: ChunkLoadRequest);
+	fn cancel_chunk(&self, request: ChunkLoadRequest) {
+		let _ = request;
+	}
 	fn request_lod(&self, request: LodLoadRequest);
 	fn chunk_requests_sent(&self) -> u64;
 	fn lod_requests_sent(&self) -> u64;
@@ -23,6 +26,10 @@ impl VoxelSourceRequestApi for SourceRegistry {
 
 	fn request_chunk(&self, request: ChunkLoadRequest) {
 		self.request_chunk(request);
+	}
+
+	fn cancel_chunk(&self, request: ChunkLoadRequest) {
+		self.cancel_chunk(request);
 	}
 
 	fn request_lod(&self, request: LodLoadRequest) {
@@ -67,6 +74,10 @@ impl VoxelSourceRequestApi for VoxelSourceRequests<'_> {
 		self.registry.request_chunk(request);
 	}
 
+	fn cancel_chunk(&self, request: ChunkLoadRequest) {
+		self.registry.cancel_chunk(request);
+	}
+
 	fn request_lod(&self, request: LodLoadRequest) {
 		self.registry.request_lod(request);
 	}
@@ -87,6 +98,10 @@ impl VoxelSourceRequestApi for VoxelSources<'_> {
 
 	fn request_chunk(&self, request: ChunkLoadRequest) {
 		self.registry.request_chunk(request);
+	}
+
+	fn cancel_chunk(&self, request: ChunkLoadRequest) {
+		self.registry.cancel_chunk(request);
 	}
 
 	fn request_lod(&self, request: LodLoadRequest) {

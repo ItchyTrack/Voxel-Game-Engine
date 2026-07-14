@@ -9,7 +9,7 @@ use voxel_edit::GridEdits;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
 use voxel_data::grid::GridId;
-use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
 use voxel_lightyear::ReplicateVoxels;
 
@@ -72,13 +72,14 @@ fn sphere_voxel_unchecked(world: IVec3, mass: u32) -> Voxel {
 	Voxel { color, mass }
 }
 
-fn build_chunk(chunk: IVec3) -> Option<Voxels> {
+fn build_chunk(chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels> {
 	let _zone = tracy_client::span!("sphere chunk columns");
 	let origin = chunk_origin(chunk);
 	let r2 = radius2();
 	let mut points = Vec::with_capacity((CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE / 2) as usize);
 
 	for z in 0..CHUNK_SIZE {
+		if cancellation.is_cancelled() { return None; }
 		let world_z = origin.z + z;
 		let z2 = world_z as i64 * world_z as i64;
 		for x in 0..CHUNK_SIZE {
@@ -185,8 +186,9 @@ impl ChunkSource for SphereSource {
 		region_intersects(min, min + Vec3::splat(CHUNK_SIZE as f32)).then_some(COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64) {
-		let voxels = build_chunk(chunk);
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
+		let voxels = build_chunk(chunk, &cancellation);
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
 			handle.loaded(grid, chunk, generation, voxels);
 		}

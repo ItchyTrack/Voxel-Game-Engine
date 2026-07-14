@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use bevy::prelude::*;
 use voxel_data::grid::GridId;
-use voxel_sources::{ChunkSource, LodKey, SourceHandle};
+use voxel_sources::{CancellationToken, ChunkSource, LodKey, SourceHandle};
 
 use super::remote_generations::RemoteGenerations;
 use crate::chunks::{ChunkRequest, LodRequest, PresenceRequest};
@@ -38,7 +38,8 @@ impl ChunkSource for ClientChunkSource {
 		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64) {
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
+		if cancellation.is_cancelled() { return; }
 		let mut remote_generations = self.state.remote_generations.lock().unwrap();
 		let mut requests = self.state.chunk_requests.lock().unwrap();
 		remote_generations.request_chunk(&mut requests, grid, chunk, generation);

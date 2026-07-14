@@ -7,7 +7,7 @@ use bevy::math::{IVec2, IVec3, Vec3};
 use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{Voxel, Voxels};
-use voxel_sources::{ChunkSource, SourceHandle};
+use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::CHUNK_SIZE;
 
 /// Procedural SDF contract used by [`SdfSource`].
@@ -99,7 +99,14 @@ impl SdfSource {
 		region_min.cmplt(bounds_max).all() && region_max.cmpgt(bounds_min).all()
 	}
 
-	fn build_region(&self, binding: &GridBinding, min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {
+	fn build_region(
+		&self,
+		binding: &GridBinding,
+		min: IVec3,
+		size: IVec3,
+		lod: f32,
+		cancellation: Option<&CancellationToken>,
+	) -> Option<Voxels> {
 		if size.cmple(IVec3::ZERO).any() || !Self::might_intersect_region(binding, min, size) {
 			return None;
 		}
@@ -114,7 +121,13 @@ impl SdfSource {
 		let sample_radius = sample_radius(binding.options, step);
 		let step_f32 = step as f32;
 		let origin = base_origin.as_vec3();
-		let local_sdf = |p: Vec3| (binding.sdf.sample(origin + p * step_f32) - sample_radius) / step_f32;
+		let local_sdf = |p: Vec3| {
+			if cancellation.is_some_and(CancellationToken::is_cancelled) {
+				f32::MAX
+			} else {
+				(binding.sdf.sample(origin + p * step_f32) - sample_radius) / step_f32
+			}
+		};
 
 		let mut voxels = Voxels::new();
 		voxels.apply_sdf(
@@ -145,8 +158,10 @@ impl ChunkSource for SdfSource {
 		Self::might_intersect_region(&binding, chunk, IVec3::ONE).then_some(binding.options.cost)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64) {
-		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, 0.0));
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
+		if cancellation.is_cancelled() { return; }
+		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, 0.0, Some(&cancellation)));
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded(grid, chunk, generation, voxels);
 		}
@@ -158,7 +173,7 @@ impl ChunkSource for SdfSource {
 	}
 
 	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64) {
-		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, min, size, lod));
+		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, min, size, lod, None));
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, generation, voxels);
 		}

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
+use voxel_tasks::CancellationToken;
 
 #[derive(Debug)]
 pub struct ChunkSaveRequest {
@@ -69,10 +70,11 @@ pub struct LodLoadRequest {
 	pub priority: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct GeneratedChunkLoadRequest {
 	pub request: ChunkLoadRequest,
 	pub generation: u64,
+	pub cancellation: CancellationToken,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -81,7 +83,7 @@ pub(crate) struct GeneratedLodLoadRequest {
 	pub generation: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) enum SourceRequest {
 	Presence(PresenceLoadRequest),
 	Chunk(GeneratedChunkLoadRequest),
@@ -117,8 +119,8 @@ impl SourceRequestChannel {
 		}
 	}
 
-	pub(crate) fn request_chunk(&self, request: ChunkLoadRequest, generation: u64) {
-		if self.sender.send(SourceRequest::Chunk(GeneratedChunkLoadRequest { request, generation })).is_ok() {
+	pub(crate) fn request_chunk(&self, request: ChunkLoadRequest, generation: u64, cancellation: CancellationToken) {
+		if self.sender.send(SourceRequest::Chunk(GeneratedChunkLoadRequest { request, generation, cancellation })).is_ok() {
 			self.chunk_sent.fetch_add(1, Ordering::Relaxed);
 		}
 	}

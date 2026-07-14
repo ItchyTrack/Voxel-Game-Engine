@@ -4,6 +4,6 @@ This crate manages the voxel sources to serve the requests save and load request
 
 Deps:
 - voxel-data
-- voxel-streaming
+- voxel-tasks
 
 Use this crate by implementing a ChunkSource.

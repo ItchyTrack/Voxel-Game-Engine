@@ -1,0 +1,17 @@
+[package]
+name = "voxel-tasks"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-priority-queue = "0.1.1"
+crossbeam-channel = "0.5.15"
+futures = "0.3.32"
+bevy = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.114"
+wasm_thread = { version = "0.3", features = ["es_modules"] }
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@ use bevy::math::{I16Vec3, IVec3};
 use bevy::prelude::Entity;
 use voxel_data::voxels::{Voxel, Voxels};
 use voxel_data::grid::GridId;
-use voxel_sources::{ChunkSource, SourceHandle, VoxelLodGenerator};
+use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelLodGenerator};
 
 #[derive(Default)]
 struct AreaSource {
@@ -12,7 +12,7 @@ struct AreaSource {
 impl ChunkSource for AreaSource {
 	fn init(&self, _handle: SourceHandle) {}
 	fn cost(&self, _grid: GridId, chunk: IVec3) -> Option<u32> { self.chunks.contains(&chunk).then_some(0) }
-	fn request_load(&self, _grid: GridId, _chunk: IVec3, _generation: u64) {}
+	fn request_load(&self, _grid: GridId, _chunk: IVec3, _generation: u64, _cancellation: CancellationToken) {}
 	fn cost_lod(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
 		self.chunks
 			.iter()

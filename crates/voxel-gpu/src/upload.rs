@@ -8,7 +8,7 @@ use tracy_client::span;
 
 use voxel_data::grid::Grid;
 use voxel_data::subgrid::SubGrid;
-use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, PriorityTask, TaskQueueResource};
+use voxel_tasks::{AsyncTaskPriorityQueueResource, PriorityTask, TaskQueueResource};
 
 use crate::gpu_grid_tree::make_gpu_grid_tree;
 use crate::gpu_raster_mesh::make_gpu_raster_mesh;

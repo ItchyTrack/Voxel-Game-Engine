@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
-use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
 
 use crate::GridStore;
 
@@ -46,8 +46,10 @@ impl ChunkSource for VoxelStoreSource {
 		self.inner.grids.read().unwrap().get(&grid)?.contains_chunk(chunk).then_some(LOAD_COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64) {
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
+		if cancellation.is_cancelled() { return; }
 		let voxels = self.inner.grids.read().unwrap().get(&grid).and_then(|store| store.load_chunk(chunk));
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded(grid, chunk, generation, voxels);
 		}

@@ -63,7 +63,7 @@ pub struct InflightChunkPresence;
 
 impl GridStreaming {
 	pub fn presence(&self) -> &ChunkPresence { &self.presence }
-	#[cfg(test)]
+	#[doc(hidden)]
 	pub fn presence_mut(&mut self) -> &mut ChunkPresence { &mut self.presence }
 
 
@@ -113,9 +113,27 @@ impl GridStreaming {
 		}
 	}
 
-	pub fn release(&mut self, chunk: IVec3) {
+	pub fn release(&mut self, grid: GridId, requests: &impl VoxelSourceRequestApi, chunk: IVec3) {
 		if self.presence.remove_request(chunk) > 0 { return; }
-		if let Some(ChunkState::Loaded | ChunkState::InternalDirty) = self.presence.state(chunk) {
+		match self.presence.state(chunk) {
+			Some(ChunkState::InFlight) => {
+				self.presence.set_state(chunk, ChunkState::Available);
+				requests.cancel_chunk(ChunkLoadRequest { grid, chunk });
+			}
+			Some(ChunkState::ExternalDirtyInFlight) => {
+				self.presence.set_state(chunk, ChunkState::ExternalDirty);
+				requests.cancel_chunk(ChunkLoadRequest { grid, chunk });
+			}
+			Some(ChunkState::Loaded | ChunkState::InternalDirty) => {
+				self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES));
+			}
+			_ => {}
+		}
+	}
+
+	pub(crate) fn release_completed(&mut self, chunk: IVec3) {
+		if self.presence.remove_request(chunk) > 0 { return; }
+		if matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty)) {
 			self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES));
 		}
 	}
@@ -125,6 +143,7 @@ impl GridStreaming {
 		&mut self,
 		grid: GridId,
 		consumer: &mut C,
+		requests: &impl VoxelSourceRequestApi,
 		chunk: IVec3,
 	) {
 		let resident = matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty));
@@ -135,7 +154,7 @@ impl GridStreaming {
 		if removed && !resident {
 			*consumer.outstanding_mut() = consumer.outstanding().saturating_sub(1);
 		}
-		self.release(chunk);
+		self.release(grid, requests, chunk);
 	}
 
 	pub fn fetch_lod(&mut self, requester: Entity, key: LodKey, priority: f32) -> bool {

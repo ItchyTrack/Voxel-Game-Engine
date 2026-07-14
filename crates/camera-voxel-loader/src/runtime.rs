@@ -51,17 +51,22 @@ pub(crate) fn acquire_source(
 			return;
 		}
 		if let Some(resolution) = chunk_resolution(grid, key, format, subgrids, gpu_state) {
-			release_sources(streaming, camera, lifecycle.resolve(key, resolution));
+			release_sources(streaming, requests, camera, lifecycle.resolve(key, resolution));
 		}
 	} else if !streaming.fetch_lod(camera, LodKey { min: key.min, size: key.size(), lod: key.lod }, lod_priority) {
-		release_sources(streaming, camera, lifecycle.resolve(key, ResolvedTile::Empty));
+		release_sources(streaming, requests, camera, lifecycle.resolve(key, ResolvedTile::Empty));
 	}
 }
 
-pub(crate) fn release_sources(streaming: &mut GridStreaming, camera: Entity, sources: impl IntoIterator<Item = TileKey>) {
+pub(crate) fn release_sources(
+	streaming: &mut GridStreaming,
+	requests: &VoxelSourceRequests,
+	camera: Entity,
+	sources: impl IntoIterator<Item = TileKey>,
+) {
 	for source in sources {
 		if source.is_chunk() {
-			streaming.release(source.min);
+			streaming.release(source.grid, requests, source.min);
 		} else {
 			streaming.release_lod(camera, LodKey { min: source.min, size: source.size(), lod: source.lod });
 		}

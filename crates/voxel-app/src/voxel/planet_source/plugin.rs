@@ -7,7 +7,7 @@ use voxel_data::grid::{Grid, GridId};
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
-use voxel_sources::{ChunkSource, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::GridStreaming;
 
 use super::config::PLANET_COST;
@@ -53,11 +53,12 @@ impl ChunkSource for ProceduralPlanetSource {
 		tile_has_chunk(tile, chunk).then_some(PLANET_COST)
 	}
 
-	fn request_load(&self, grid_id: GridId, chunk: IVec3, generation: u64) {
+	fn request_load(&self, grid_id: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
 		let _zone = span!("planet source request_load chunk");
 		let voxels = self
 			.tile_index(grid_id)
-			.and_then(|tile_index| build_planet_chunk(tile_index, chunk));
+			.and_then(|tile_index| build_planet_chunk(tile_index, chunk, &cancellation));
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
 			let _zone = span!("planet source publish chunk");
 			handle.loaded(grid_id, chunk, generation, voxels);

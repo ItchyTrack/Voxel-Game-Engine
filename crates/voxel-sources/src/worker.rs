@@ -14,20 +14,22 @@ use bevy::ecs::resource::Resource;
 use crossbeam_channel::{Receiver, Sender};
 
 use tracy_client::span;
-use voxel_data::task_queue::{AsyncTaskPriorityQueueResource, AsyncTaskPusher, PriorityTask};
+use voxel_tasks::{AsyncTaskPriorityQueueResource, AsyncTaskPusher, PriorityTask};
 
 use crate::loader::{GeneratedChunkLoadRequest, GeneratedLodLoadRequest, PresenceLoadRequest, SourceRequest};
 
 use crate::handle::{SourceLodResult, SourceMessage, SourceChunkResult};
 use crate::registry::{
-	cheapest, lod_sources_with_any_chunks, LodRequestKey, PendingLod, PendingLodJob, SharedSource,
-	SourceRegistry,
+	cheapest, lod_sources_with_any_chunks, ActivePresenceLoads, LodRequestKey, PendingLod,
+	PendingLodJob, SharedSource, SourceRegistry,
 };
 
 #[cfg(target_arch = "wasm32")]
 static WASM_SOURCES: OnceLock<Arc<[SharedSource]>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 static WASM_PENDING_LOD: OnceLock<PendingLod> = OnceLock::new();
+#[cfg(target_arch = "wasm32")]
+static WASM_ACTIVE_PRESENCE_LOADS: OnceLock<ActivePresenceLoads> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 static WASM_MESSAGE_TX: OnceLock<Sender<SourceMessage>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
@@ -51,6 +53,7 @@ pub(crate) fn spawn_workers(
 		let sources: Arc<[SharedSource]> = registry.sources.clone().into();
 		let _ = WASM_SOURCES.set(sources);
 		let _ = WASM_PENDING_LOD.set(registry.pending_lod.clone());
+		let _ = WASM_ACTIVE_PRESENCE_LOADS.set(registry.active_presence_loads.clone());
 		let _ = WASM_MESSAGE_TX.set(registry.message_tx.clone());
 		let _ = WASM_REQUEST_RX.set(registry.requests.receiver());
 		let _ = WASM_PUSHER.set(async_queue.pusher());
@@ -81,7 +84,7 @@ pub(crate) fn spawn_workers(
 fn handle_presence_request(
 	request: PresenceLoadRequest,
 	sources: &[SharedSource],
-	active_presence_loads: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<voxel_data::grid::GridId, u32>>>,
+	active_presence_loads: &ActivePresenceLoads,
 	pusher: &AsyncTaskPusher,
 ) {
 	let count = sources.len() as u32;
@@ -102,16 +105,19 @@ fn handle_chunk_request(
 	pusher: &AsyncTaskPusher,
 	message_tx: &Sender<SourceMessage>,
 ) {
+	if request.cancellation.is_cancelled() { return; }
 	if let Some(id) = cheapest(sources, request.request.grid, request.request.chunk) {
 		let source = sources[id.0].clone();
 		let grid = request.request.grid;
 		let chunk = request.request.chunk;
 		let generation = request.generation;
+		let cancellation = request.cancellation;
 		pusher.push(PriorityTask::new(0.0, async move {
+			if cancellation.is_cancelled() { return; }
 			let _zone = span!("source request_load chunk");
-			source.request_load(grid, chunk, generation);
+			source.request_load(grid, chunk, generation, cancellation);
 		}));
-	} else {
+	} else if !request.cancellation.is_cancelled() {
 		let _ = message_tx.send(SourceMessage::Chunk(SourceChunkResult {
 			grid: request.request.grid,
 			chunk: request.request.chunk,
@@ -125,7 +131,7 @@ fn serve_requests(
 	requests: Receiver<SourceRequest>,
 	sources: Arc<[SharedSource]>,
 	pending_lod: PendingLod,
-	active_presence_loads: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<voxel_data::grid::GridId, u32>>>,
+	active_presence_loads: ActivePresenceLoads,
 	pusher: AsyncTaskPusher,
 	message_tx: Sender<SourceMessage>,
 ) {
@@ -258,11 +264,14 @@ pub fn voxel_sources_request_worker_loop(_worker_id: u32) {
 	let pending_lod = loop {
 		if let Some(v) = WASM_PENDING_LOD.get() { break v.clone(); }
 	};
+	let active_presence_loads = loop {
+		if let Some(v) = WASM_ACTIVE_PRESENCE_LOADS.get() { break v.clone(); }
+	};
 	let pusher = loop {
 		if let Some(v) = WASM_PUSHER.get() { break v.clone(); }
 	};
 	let message_tx = loop {
 		if let Some(v) = WASM_MESSAGE_TX.get() { break v.clone(); }
 	};
-	serve_requests(requests, sources, pending_lod, pusher, message_tx);
+	serve_requests(requests, sources, pending_lod, active_presence_loads, pusher, message_tx);
 }

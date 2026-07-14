@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use camera_voxel_loader::{CameraVoxelLoader, CoverageDebugState, FreezeCameraVoxelLoader};
-use voxel_data::task_queue::AsyncTaskPriorityQueueResource;
+use voxel_tasks::AsyncTaskPriorityQueueResource;
 use voxel_physics::{
 	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
 };

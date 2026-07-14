@@ -4,6 +4,7 @@ use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
 
 use crate::handle::SourceHandle;
+use voxel_tasks::CancellationToken;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct SourceId(pub usize);
@@ -23,7 +24,15 @@ pub trait ChunkSource: Send + Sync {
 	/// Cost of serving `chunk`, or `None` if this source can't. Lowest wins.
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32>;
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64);
+	/// Start loading a chunk. Expensive implementations should check
+	/// `cancellation` periodically and return without publishing when cancelled.
+	fn request_load(
+		&self,
+		grid: GridId,
+		chunk: IVec3,
+		generation: u64,
+		cancellation: CancellationToken,
+	);
 
 	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Option<u32>;
 

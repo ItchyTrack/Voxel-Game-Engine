@@ -7,7 +7,7 @@ use bevy::math::{IVec3, Quat, U16Vec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{Voxel, Voxels};
-use voxel_sources::{ChunkSource, SourceHandle};
+use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::{CHUNK_SIZE, chunk_of};
 
 use crate::lod_downsample::downsample_region;
@@ -247,8 +247,10 @@ impl ChunkSource for VoxFileSource {
 		self.translated_chunk(&binding, chunk).map(|_| COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64) {
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
+		if cancellation.is_cancelled() { return; }
 		let voxels = self.binding(grid).and_then(|binding| self.translated_chunk(&binding, chunk));
+		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded(grid, chunk, generation, voxels);
 		}

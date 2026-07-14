@@ -7,6 +7,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::Voxels;
+use voxel_tasks::CancellationToken;
 
 use crate::loader::{ChunkLoadRequest, GeneratedLodLoadRequest, LodLoadRequest, PresenceLoadRequest, SourceRequestChannel};
 
@@ -14,6 +15,13 @@ use crate::handle::{SourceLodResult, SourceMessage};
 use crate::source::{ChunkSource, SourceId, VoxelLodGenerator};
 
 pub(crate) type SharedSource = Arc<dyn ChunkSource>;
+
+type ChunkRequestKey = (GridId, IVec3);
+
+struct ActiveChunkLoad {
+	generation: u64,
+	cancellation: CancellationToken,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LodRequestKey {
@@ -44,6 +52,7 @@ pub(crate) enum PendingLodJob {
 
 /// LOD requests awaiting results, shared with the serve worker threads.
 pub(crate) type PendingLod = Arc<Mutex<HashMap<LodRequestKey, PendingLodJob>>>;
+pub(crate) type ActivePresenceLoads = Arc<Mutex<HashMap<GridId, u32>>>;
 
 #[derive(Resource)]
 pub(crate) struct SourceRegistry {
@@ -53,7 +62,8 @@ pub(crate) struct SourceRegistry {
 	pub(crate) message_tx: Sender<SourceMessage>,
 	pub(crate) message_rx: Receiver<SourceMessage>,
 	pub(crate) pending_lod: PendingLod,
-	pub(crate) active_presence_loads: Arc<Mutex<HashMap<GridId, u32>>>,
+	pub(crate) active_presence_loads: ActivePresenceLoads,
+	active_chunk_loads: Mutex<HashMap<ChunkRequestKey, ActiveChunkLoad>>,
 	pub(crate) generations: Arc<Mutex<HashMap<GridId, u64>>>,
 	pub(crate) requests: SourceRequestChannel,
 }
@@ -68,6 +78,7 @@ impl Default for SourceRegistry {
 			message_rx,
 			pending_lod: Arc::new(Mutex::new(HashMap::new())),
 			active_presence_loads: Arc::new(Mutex::new(HashMap::new())),
+			active_chunk_loads: Mutex::new(HashMap::new()),
 			generations: Arc::new(Mutex::new(HashMap::new())),
 			requests: SourceRequestChannel::default(),
 		}
@@ -98,7 +109,31 @@ impl SourceRegistry {
 
 	pub fn request_chunk(&self, request: ChunkLoadRequest) {
 		let generation = self.next_generation(request.grid);
-		self.requests.request_chunk(request, generation);
+		let cancellation = CancellationToken::new();
+		let key = (request.grid, request.chunk);
+		if let Some(previous) = self.active_chunk_loads.lock().unwrap().insert(key, ActiveChunkLoad {
+			generation,
+			cancellation: cancellation.clone(),
+		}) {
+			previous.cancellation.cancel();
+		}
+		self.requests.request_chunk(request, generation, cancellation);
+	}
+
+	pub fn cancel_chunk(&self, request: ChunkLoadRequest) {
+		if let Some(active) = self.active_chunk_loads.lock().unwrap().remove(&(request.grid, request.chunk)) {
+			active.cancellation.cancel();
+		}
+	}
+
+	pub(crate) fn complete_chunk(&self, grid: GridId, chunk: IVec3, generation: u64) -> bool {
+		let mut active = self.active_chunk_loads.lock().unwrap();
+		let key = (grid, chunk);
+		if !active.get(&key).is_some_and(|load| load.generation == generation) {
+			return false;
+		}
+		active.remove(&key);
+		true
 	}
 
 	pub fn request_lod(&self, request: LodLoadRequest) {
@@ -243,6 +278,26 @@ fn merge_voxels(parts: Vec<Voxels>) -> Voxels {
 		merged.add_palette_areas(&areas, voxels.palette());
 	}
 	merged
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn cancelled_and_replaced_chunk_results_are_rejected() {
+		let registry = SourceRegistry::default();
+		let request = ChunkLoadRequest { grid: GridId::PLACEHOLDER, chunk: IVec3::new(1, 2, 3) };
+
+		registry.request_chunk(request);
+		registry.cancel_chunk(request);
+		assert!(!registry.complete_chunk(request.grid, request.chunk, 1));
+
+		registry.request_chunk(request);
+		registry.request_chunk(request);
+		assert!(!registry.complete_chunk(request.grid, request.chunk, 2));
+		assert!(registry.complete_chunk(request.grid, request.chunk, 3));
+	}
 }
 
 struct IdentityVoxelLodGenerator;

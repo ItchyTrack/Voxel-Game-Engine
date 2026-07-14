@@ -2,13 +2,14 @@ use bevy::math::U16Vec3;
 use bevy::prelude::*;
 use tracy_client::span;
 use voxel_data::voxels::{Voxel, Voxels};
+use voxel_sources::CancellationToken;
 use voxel_streaming::{CHUNK_SIZE, chunk_origin};
 
 use super::config::{PLANET_RADIUS, TILE_INWARD_DEPTH, TILE_OUTWARD_HEIGHT, TILE_SHAPE_EPSILON};
 use super::terrain::{terrain_color, terrain_sample};
 use super::tiles::{PlanetTile, planet_tiles};
 
-pub(super) fn build_planet_chunk(tile_index: usize, chunk: IVec3) -> Option<Voxels> {
+pub(super) fn build_planet_chunk(tile_index: usize, chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels> {
 	let _zone = span!("planet build chunk");
 	let tile = planet_tiles().get(tile_index)?;
 	let origin = chunk_origin(chunk);
@@ -20,8 +21,10 @@ pub(super) fn build_planet_chunk(tile_index: usize, chunk: IVec3) -> Option<Voxe
 		1,
 		0,
 		true,
+		Some(cancellation),
 		&mut points,
 	);
+	if cancellation.is_cancelled() { return None; }
 	tracy_client::plot!("planet chunk emitted voxels", points.len() as f64);
 	points_to_voxels(points)
 }
@@ -51,6 +54,7 @@ pub(super) fn build_planet_lod_region(
 		step,
 		sample_offset,
 		false,
+		None,
 		&mut points,
 	);
 	tracy_client::plot!("planet lod emitted voxels", points.len() as f64);
@@ -76,6 +80,7 @@ fn append_planet_samples(
 	step: i32,
 	sample_offset: i32,
 	full_mass: bool,
+	cancellation: Option<&CancellationToken>,
 	points: &mut Vec<(U16Vec3, Voxel)>,
 ) {
 	let _zone = span!("planet append samples");
@@ -94,6 +99,7 @@ fn append_planet_samples(
 	tracy_client::plot!("planet sample extent z", extent.z as f64);
 
 	for y in 0..extent.y {
+		if cancellation.is_some_and(CancellationToken::is_cancelled) { return; }
 		let sample_y = (origin.y + y * step + sample_offset) as f32 + 0.5;
 		for x in 0..extent.x {
 			columns_tested += 1;
