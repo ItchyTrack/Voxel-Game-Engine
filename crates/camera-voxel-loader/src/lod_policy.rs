@@ -32,10 +32,8 @@ pub(crate) fn update_desired_sources_delta(
 	run_over_diff(&old_bands, &new_bands, streaming, |lod, min, is_added| {
 		let key = TileKey { grid, lod, min };
 		if is_added {
-			if loader.insert_desired_tile(key) {
-				added.push(key);
-			}
-		} else if loader.remove_desired_tile(key) {
+			added.push(key);
+		} else {
 			removed.push(key);
 		}
 	});
@@ -129,8 +127,9 @@ mod tests {
 	fn desired_at(settings: &CameraVoxelLoaderSettings, grid: GridId, streaming: &GridStreaming, center: IVec3) -> std::collections::HashSet<TileKey> {
 		let mut loader = CameraVoxelLoader::default();
 		loader.settings = settings.clone();
-		update_desired_sources_delta(&mut loader, grid, center, settings, streaming);
-		loader.desired_tiles.clone()
+		let delta = update_desired_sources_delta(&mut loader, grid, center, settings, streaming);
+		loader.tiles.apply_delta(&delta.added, &delta.removed, &mut Vec::new(), &mut Vec::new());
+		loader.tiles.desired_set().clone()
 	}
 
 	fn flight_path() -> Vec<IVec3> {
@@ -160,9 +159,10 @@ mod tests {
 		let mut flying = CameraVoxelLoader::default();
 		flying.settings = settings.clone();
 		for center in flight_path() {
-			update_desired_sources_delta(&mut flying, grid, center, &settings, &streaming);
+			let delta = update_desired_sources_delta(&mut flying, grid, center, &settings, &streaming);
+			flying.tiles.apply_delta(&delta.added, &delta.removed, &mut Vec::new(), &mut Vec::new());
 			let fresh = desired_at(&settings, grid, &streaming, center);
-			assert_eq!(flying.desired_tiles, fresh, "incremental desired set diverged from fresh rebuild at {center:?}");
+			assert_eq!(flying.tiles.desired_set(), &fresh, "incremental desired set diverged from fresh rebuild at {center:?}");
 		}
 	}
 

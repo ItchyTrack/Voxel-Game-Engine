@@ -1,4 +1,4 @@
-use bevy::{ecs::entity::Entity, math::IVec3};
+use bevy::math::IVec3;
 use voxel_data::grid::GridId;
 use voxel_streaming::TileIndexKey;
 
@@ -16,10 +16,3 @@ impl TileIndexKey for TileKey {
 	fn min(self) -> IVec3 { self.min }
 	fn size(self) -> IVec3 { self.size() }
 }
-
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SourceResolution { Requested, Visible(Entity), Empty }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SourceState { Desired(SourceResolution), RetiringVisible(Entity) }

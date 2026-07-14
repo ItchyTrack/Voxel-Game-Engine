@@ -1,13 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use bevy::ecs::{component::Component, entity::Entity};
 use voxel_data::grid::GridId;
-use voxel_streaming::TileIndex;
 
 use crate::lod_bands::LodBand;
-use crate::replacement_graph::ReplacementGraph;
-use crate::types::{SourceState, TileKey};
-use crate::unresolved_tile_index::UnresolvedTileIndex;
+use crate::tile_lifecycle::{TileLifecycle, TileResolution};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CameraVoxelLoaderSettings {
@@ -26,54 +23,60 @@ impl Default for CameraVoxelLoaderSettings {
 	}
 }
 
-#[derive(Component, Default, Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoverageDebugState {
+	Pending,
+	Loaded,
+	Empty,
+	Waiting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoverageDebugTile {
+	pub grid: Entity,
+	pub min: bevy::math::IVec3,
+	pub size: bevy::math::IVec3,
+	pub lod: u8,
+	pub state: CoverageDebugState,
+}
+
+#[derive(Component, Default, Debug)]
 pub struct CameraVoxelLoader {
 	pub(crate) settings: CameraVoxelLoaderSettings,
-	pub(crate) desired_tiles: HashSet<TileKey>,
-	pub(crate) desired_tile_index: HashMap<GridId, TileIndex<TileKey>>,
 	pub(crate) bands: HashMap<GridId, Vec<LodBand>>,
-	pub(crate) coverage_sources: HashMap<TileKey, SourceState>,
-	pub(crate) unresolved_tiles: UnresolvedTileIndex,
-	pub(crate) replacement_graph: ReplacementGraph,
-	pub(crate) chunk_render_entities: HashMap<TileKey, HashSet<Entity>>,
-	pub(crate) subgrid_render_refs: HashMap<Entity, usize>,
-	pub(crate) lods_to_render: HashSet<Entity>,
+	pub(crate) tiles: TileLifecycle,
 }
 
 impl CameraVoxelLoader {
 	pub fn with_settings(settings: CameraVoxelLoaderSettings) -> Self { Self { settings, ..Default::default() } }
 	pub fn settings(&self) -> &CameraVoxelLoaderSettings { &self.settings }
 	pub fn set_settings(&mut self, settings: CameraVoxelLoaderSettings) { self.settings = settings; }
-	pub fn subgrids_to_render(&self) -> impl Iterator<Item = Entity> + '_ { self.subgrid_render_refs.keys().copied() }
-	pub fn lods_to_render(&self) -> &HashSet<Entity> { &self.lods_to_render }
-
-	pub(crate) fn insert_desired_tile(&mut self, key: TileKey) -> bool {
-		if !self.desired_tiles.insert(key) {
-			return false;
+	pub fn subgrids_to_render(&self) -> impl Iterator<Item = Entity> + '_ { self.tiles.subgrids_to_render() }
+	pub fn lods_to_render(&self) -> &std::collections::HashSet<Entity> { self.tiles.lods_to_render() }
+	pub fn coverage_debug_tiles(&self) -> Vec<CoverageDebugTile> {
+		let mut states = HashMap::new();
+		for (key, _, retained) in self.tiles.coverage_debug_tiles() {
+			states.insert(key, if retained { CoverageDebugState::Waiting } else { CoverageDebugState::Pending });
 		}
-		self.desired_tile_index.entry(key.grid).or_default().insert(key);
-		true
+		for (key, entry) in self.tiles.entries() {
+			let state = if !self.tiles.contains_desired(key) {
+				CoverageDebugState::Waiting
+			} else {
+				match &entry.resolution {
+					TileResolution::Requested => CoverageDebugState::Pending,
+					TileResolution::Empty => CoverageDebugState::Empty,
+					TileResolution::Chunk(_) | TileResolution::Lod(_) => CoverageDebugState::Loaded,
+				}
+			};
+			states.entry(key).and_modify(|current| {
+				if !matches!(current, CoverageDebugState::Waiting) { *current = state; }
+			}).or_insert(state);
+		}
+		let mut tiles: Vec<_> = states
+			.into_iter()
+			.map(|(key, state)| CoverageDebugTile { grid: key.grid, min: key.min, size: key.size(), lod: key.lod, state })
+			.collect();
+		tiles.sort_by_key(|tile| (tile.grid.to_bits(), tile.lod, tile.min.x, tile.min.y, tile.min.z));
+		tiles
 	}
-
-	pub(crate) fn remove_desired_tile(&mut self, key: TileKey) -> bool {
-		if !self.desired_tiles.remove(&key) {
-			return false;
-		}
-		if let Some(index) = self.desired_tile_index.get_mut(&key.grid) {
-			index.remove(key);
-			if index.is_empty() {
-				self.desired_tile_index.remove(&key.grid);
-			}
-		}
-		true
-	}
-
-	pub(crate) fn desired_tiles_in_area(&self, grid: GridId, min: bevy::math::IVec3, size: bevy::math::IVec3) -> Vec<TileKey> {
-		let mut out = Vec::new();
-		if let Some(index) = self.desired_tile_index.get(&grid) {
-			index.for_each_overlapping(min, size, self.settings.max_lod, None, |key| out.push(key));
-		}
-		out
-	}
-
 }

@@ -2,7 +2,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
-use camera_voxel_loader::FreezeCameraVoxelLoader;
+use camera_voxel_loader::{CameraVoxelLoader, CoverageDebugState, FreezeCameraVoxelLoader};
 use voxel_data::task_queue::AsyncTaskPriorityQueueResource;
 use voxel_physics::{
 	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
@@ -18,6 +18,9 @@ pub struct InertiaBoxes(pub bool);
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct ChunkPresenceBoxes(pub bool);
+
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct CoverageBoxes(pub bool);
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct ConstraintDebugRender(pub bool);
@@ -39,6 +42,7 @@ impl Plugin for DebugUiPlugin {
 		}
 		app.init_resource::<InertiaBoxes>()
 			.init_resource::<ChunkPresenceBoxes>()
+			.init_resource::<CoverageBoxes>()
 			.init_resource::<ConstraintDebugRender>()
 			.init_gizmo_group::<ChunkGizmos>()
 			.add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
@@ -47,7 +51,8 @@ impl Plugin for DebugUiPlugin {
 			.add_systems(EguiPrimaryContextPass, debug_window)
 			.add_systems(Update, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0))
 			.add_systems(Update, draw_ball_joint_constraints.run_if(|b: Res<ConstraintDebugRender>| b.0))
-			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0));
+			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0))
+			.add_systems(Update, draw_coverage.run_if(|b: Res<CoverageBoxes>| b.0));
 	}
 }
 
@@ -62,6 +67,7 @@ fn debug_window(
 	mut inertia_boxes: ResMut<InertiaBoxes>,
 	mut constraint_debug_render: ResMut<ConstraintDebugRender>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
+	mut coverage_boxes: ResMut<CoverageBoxes>,
 	mut camera_modes: Query<&mut VoxelCameraMode, With<Camera3d>>,
 	_requests: VoxelSourceRequests,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
@@ -120,6 +126,7 @@ fn debug_window(
 			ui.checkbox(&mut inertia_boxes.0, "inertia boxes");
 			ui.checkbox(&mut constraint_debug_render.0, "constraints");
 			ui.checkbox(&mut chunk_presence_boxes.0, "chunk presence");
+			ui.checkbox(&mut coverage_boxes.0, "camera coverage");
 		});
 
 	if let Some(mut mode) = camera_modes.iter_mut().next() {
@@ -267,6 +274,28 @@ fn draw_chunk_presence(
 			let lo = (origin * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
 			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
 			draw_box_edges(&mut gizmos, gt, lo, hi, chunk_state_color(state));
+		}
+	}
+}
+
+fn draw_coverage(
+	mut gizmos: Gizmos<ChunkGizmos>,
+	loaders: Query<&CameraVoxelLoader>,
+	transforms: Query<&GlobalTransform>,
+) {
+	const INSET: f32 = 1.5;
+	for loader in &loaders {
+		for tile in loader.coverage_debug_tiles() {
+			let Ok(gt) = transforms.get(tile.grid) else { continue };
+			let lo = (tile.min * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
+			let hi = ((tile.min + tile.size) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
+			let color = match tile.state {
+				CoverageDebugState::Pending => chunk_state_color(ChunkState::InFlight),
+				CoverageDebugState::Loaded => chunk_state_color(ChunkState::Loaded),
+				CoverageDebugState::Empty => chunk_state_color(ChunkState::Available),
+				CoverageDebugState::Waiting => chunk_state_color(ChunkState::ExternalDirty),
+			};
+			draw_box_edges(&mut gizmos, gt, lo, hi, color);
 		}
 	}
 }

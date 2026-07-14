@@ -168,6 +168,18 @@ mod tests {
 	}
 
 	#[test]
+	fn occupied_tile_cover_does_not_report_occupancy_from_an_adjacent_tile() {
+		let mut t = VoxelGridTree::new();
+		t.add_area(&p(2, 0, 0), IVec3::splat(2), 1);
+		let region = GridRegion::from_min_size(IVec3::ZERO, IVec3::ONE).unwrap();
+		let mut actual = Vec::new();
+
+		t.for_each_occupied_tile_cover(region, 2, |tile| actual.push(tile));
+
+		assert!(actual.is_empty(), "query returned phantom tiles: {actual:?}");
+	}
+
+	#[test]
 	fn raycast_hits() {
 		let mut t = VoxelGridTree::new();
 		t.insert(&p(0, 0, 10), 1);

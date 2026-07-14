@@ -1,20 +1,20 @@
 mod camera_voxel_loader;
-mod replacement_graph;
-mod loading;
-mod scheduling;
+mod coverage;
 mod lod_bands;
 mod lod_policy;
-mod subgrid_interface;
+mod runtime;
+mod systems;
+mod tile_lifecycle;
 mod types;
 mod unresolved_tile_index;
 
 #[cfg(test)]
-mod church_flight_invariants;
+mod system_invariants;
 
 use bevy::prelude::*;
 use voxel_streaming::{StreamingPhase, StreamingSchedule, VoxelStreamingAppExt};
 
-pub use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
+pub use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings, CoverageDebugState, CoverageDebugTile};
 
 voxel_streaming::chunk_consumer!(pub CameraVoxelLoaderConsumer);
 
@@ -49,8 +49,19 @@ impl Plugin for CameraVoxelLoaderPlugin {
 			.init_resource::<CameraVoxelLoaderDefaultSettings>()
 			.register_chunk_consumer::<CameraVoxelLoaderConsumer>()
 			.add_systems(Update, ensure_camera_voxel_loader_components)
-			.add_systems(Update, scheduling::update_camera_voxel_loader_requests.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0).in_set(StreamingPhase::Request))
-			.add_systems(StreamingSchedule, loading::receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive))
-			.add_systems(Update, scheduling::refresh_camera_voxel_loader_visibility.after(voxel_gpu::GpuUploadSet::Upload).in_set(CameraVoxelLoaderSet::RefreshVisibility));
+			.add_systems(
+				Update,
+				systems::update_camera_voxel_loader_requests
+					.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0)
+					.in_set(StreamingPhase::Request)
+					.before(CameraVoxelLoaderSet::RefreshVisibility),
+			)
+			.add_systems(StreamingSchedule, systems::receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive))
+			.add_systems(
+				Update,
+				systems::refresh_camera_voxel_loader_visibility
+					.after(voxel_gpu::GpuUploadSet::Upload)
+					.in_set(CameraVoxelLoaderSet::RefreshVisibility),
+			);
 	}
 }

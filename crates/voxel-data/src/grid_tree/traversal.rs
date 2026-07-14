@@ -166,6 +166,14 @@ pub fn for_each_occupied_tile_cover<C, Co, F>(
 		return;
 	}
 	let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
+	let first = min.div_euclid(IVec3::splat(tile_size));
+	let last = max.div_euclid(IVec3::splat(tile_size));
+	if first == last {
+		if region_any_recurse(view, view.root(), min, max) {
+			f(first * tile_size);
+		}
+		return;
+	}
 	let mut seen = HashSet::new();
 	occupied_tile_cover_recurse(view, view.root(), min, max, tile_size, &mut seen, &mut f);
 }
@@ -188,18 +196,6 @@ fn occupied_tile_cover_recurse<C, Co, F>(
 	if node.origin.cmpgt(max).any() || node_end.cmple(min).any() {
 		return;
 	}
-	let overlap_min = node.origin.max(min);
-	let overlap_max = (node_end - IVec3::ONE).min(max);
-	let first = overlap_min.div_euclid(IVec3::splat(tile_size));
-	let last = overlap_max.div_euclid(IVec3::splat(tile_size));
-	if first == last {
-		let tile_min = first * tile_size;
-		if seen.insert(tile_min) {
-			f(tile_min);
-		}
-		return;
-	}
-
 	for child in view.occupied_children(node) {
 		let child_end = child.origin + IVec3::splat(child.size as i32);
 		if child.origin.cmpgt(max).any() || child_end.cmple(min).any() {

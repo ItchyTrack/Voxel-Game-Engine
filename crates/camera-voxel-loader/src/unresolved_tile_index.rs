@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use voxel_data::{
 	grid::GridId,
@@ -31,6 +31,11 @@ impl Default for PerGridIndex {
 }
 
 impl UnresolvedTileIndex {
+	pub(crate) fn contains(&self, key: TileKey) -> bool {
+		key.lod <= MAX_SAFE_TILE_LOD
+			&& self.by_grid.get(&key.grid).is_some_and(|grid| grid.trees[key.lod as usize].get(&key.min).is_some())
+	}
+
 	pub(crate) fn insert(&mut self, key: TileKey) {
 		if key.lod > MAX_SAFE_TILE_LOD {
 			return;
@@ -40,11 +45,11 @@ impl UnresolvedTileIndex {
 		grid.lod_mask |= lod_bit(key.lod);
 	}
 
-	pub(crate) fn remove(&mut self, key: TileKey) {
-		if key.lod > MAX_SAFE_TILE_LOD {
-			return;
+	pub(crate) fn remove(&mut self, key: TileKey) -> bool {
+		if !self.contains(key) {
+			return false;
 		}
-		let Some(grid) = self.by_grid.get_mut(&key.grid) else { return };
+		let Some(grid) = self.by_grid.get_mut(&key.grid) else { return false };
 		grid.trees[key.lod as usize].remove_area(&key.min, key.size());
 		if grid.trees[key.lod as usize].is_empty() {
 			grid.lod_mask &= !lod_bit(key.lod);
@@ -52,6 +57,30 @@ impl UnresolvedTileIndex {
 		if grid.lod_mask == 0 {
 			self.by_grid.remove(&key.grid);
 		}
+		true
+	}
+
+	pub(crate) fn keys(&self) -> Vec<TileKey> {
+		let mut keys = HashSet::new();
+		for (&grid, index) in &self.by_grid {
+			for lod in 0..=MAX_SAFE_TILE_LOD {
+				if index.lod_mask & lod_bit(lod) == 0 { continue; }
+				let tile_size = 1i32 << lod;
+				for (origin, region_size, _) in index.trees[lod as usize].iter() {
+					let region_size = region_size as i32;
+					let first = origin.div_euclid(bevy::math::IVec3::splat(tile_size)) * tile_size;
+					let end = origin + bevy::math::IVec3::splat(region_size);
+					for x in (first.x..end.x).step_by(tile_size as usize) {
+						for y in (first.y..end.y).step_by(tile_size as usize) {
+							for z in (first.z..end.z).step_by(tile_size as usize) {
+								keys.insert(TileKey { grid, lod, min: bevy::math::IVec3::new(x, y, z) });
+							}
+						}
+					}
+				}
+			}
+		}
+		keys.into_iter().collect()
 	}
 
 	pub(crate) fn for_each_in_region(
@@ -93,6 +122,8 @@ fn lod_mask_through(max_lod: u8) -> u32 {
 
 #[cfg(test)]
 mod tests {
+	use std::collections::HashSet;
+
 	use bevy::prelude::*;
 	use voxel_data::grid_tree::GridRegion;
 
@@ -101,6 +132,38 @@ mod tests {
 
 	fn tile(grid: Entity, lod: u8, min: IVec3) -> TileKey {
 		TileKey { grid, lod, min }
+	}
+
+	#[test]
+	fn keys_reconstructs_indexed_tiles() {
+		let grid = Entity::from_bits(1);
+		let expected = HashSet::from([
+			tile(grid, 1, IVec3::ZERO),
+			tile(grid, 1, IVec3::new(2, 0, 0)),
+			tile(grid, 0, IVec3::new(-1, 0, 0)),
+		]);
+		let mut index = UnresolvedTileIndex::default();
+		for key in &expected { index.insert(*key); }
+
+		assert_eq!(index.keys().into_iter().collect::<HashSet<_>>(), expected);
+	}
+
+	#[test]
+	fn query_does_not_report_an_empty_tile_next_to_pending_coverage() {
+		let grid = Entity::from_bits(1);
+		let mut index = UnresolvedTileIndex::default();
+		index.insert(tile(grid, 1, IVec3::new(2, 0, 0)));
+		let mut actual = Vec::new();
+
+		index.for_each_in_region(
+			grid,
+			GridRegion::from_min_size(IVec3::ZERO, IVec3::ONE).unwrap(),
+			1,
+			Some(0),
+			|key| actual.push(key),
+		);
+
+		assert!(actual.is_empty(), "query returned phantom replacement tiles: {actual:?}");
 	}
 
 	#[test]
