@@ -5,8 +5,9 @@ use bevy::prelude::*;
 use voxel_data::grid::GridId;
 use voxel_sources::{CancellationToken, ChunkSource, LodKey, SourceHandle};
 
-use super::remote_generations::RemoteGenerations;
-use crate::chunks::{ChunkRequest, LodRequest, PresenceRequest};
+use super::presence::PresenceRequest;
+use super::voxel_load::ClientLoadRegistry;
+use crate::ReplicateVoxels;
 
 const REMOTE_COST: u32 = 100;
 
@@ -14,9 +15,7 @@ const REMOTE_COST: u32 = 100;
 pub(super) struct ClientChunkSourceState {
 	pub handle: OnceLock<SourceHandle>,
 	pub presence_requests: Mutex<VecDeque<PresenceRequest>>,
-	pub chunk_requests: Mutex<VecDeque<ChunkRequest>>,
-	pub lod_requests: Mutex<VecDeque<LodRequest>>,
-	pub remote_generations: Mutex<RemoteGenerations>,
+	pub loads: Mutex<ClientLoadRegistry>,
 	pub remote_grids: Mutex<HashSet<GridId>>,
 }
 
@@ -40,9 +39,7 @@ impl ChunkSource for ClientChunkSource {
 
 	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let mut remote_generations = self.state.remote_generations.lock().unwrap();
-		let mut requests = self.state.chunk_requests.lock().unwrap();
-		remote_generations.request_chunk(&mut requests, grid, chunk, generation);
+		self.state.loads.lock().unwrap().request_chunk(grid, chunk, generation, cancellation);
 	}
 
 	fn cost_lod(&self, grid: GridId, _min: IVec3, _size: IVec3, _lod: f32) -> Option<u32> {
@@ -52,8 +49,16 @@ impl ChunkSource for ClientChunkSource {
 	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
 		let key = LodKey { min, size, lod: lod.max(0.0).floor() as u8 };
-		let mut remote_generations = self.state.remote_generations.lock().unwrap();
-		let mut requests = self.state.lod_requests.lock().unwrap();
-		remote_generations.request_lod(&mut requests, grid, key, generation);
+		self.state.loads.lock().unwrap().request_lod(grid, key, 0.0, generation, cancellation);
+	}
+}
+
+pub(super) fn register_remote_voxel_grids(
+	source: Res<ClientChunkSource>,
+	grids: Query<GridId, With<ReplicateVoxels>>,
+) {
+	let mut remote_grids = source.state.remote_grids.lock().unwrap();
+	for grid in &grids {
+		remote_grids.insert(grid);
 	}
 }
