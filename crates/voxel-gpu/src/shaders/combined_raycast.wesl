@@ -1,7 +1,9 @@
 import package::bvh::data::{ BVHItem, bvh_items };
 import package::bvh::raycast::{ bvh_iter_new, bvh_iter_next };
 import package::direction_feedback::{ record_bvh_item_directions };
-import package::dda::raycast::{ dda_raycast };
+import package::dda::data::{ DDAHit };
+import package::generated::dda::raycast_main::{ dda_raycast_main };
+import package::generated::dda::raycast_residency::{ dda_raycast_residency };
 
 fn quat_inv_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 	let t = 2.0 * cross(q.xyz, v);
@@ -35,8 +37,15 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
 		let local_pos = quat_inv_rotate(transform_quat, entry_world - transform_pos) / item.scale;
 		let local_dir = quat_inv_rotate(transform_quat, ray_dir);
 		record_bvh_item_directions(candidate.bvh_item_idx, local_dir);
+		let data_source = item.aabb_size >> 24u;
+		if data_source == 0u { continue; }
 		let remaining = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
-		let dda_hit = dda_raycast(local_pos, local_dir, remaining / item.scale, item.item_index);
+		var dda_hit: DDAHit;
+		if data_source == 2u {
+			dda_hit = dda_raycast_main(local_pos, local_dir, remaining / item.scale, item.item_index);
+		} else {
+			dda_hit = dda_raycast_residency(local_pos, local_dir, remaining / item.scale, item.item_index);
+		}
 
 		if dda_hit.normal != 0 {
 			let total = candidate.dist + dda_hit.dist * item.scale;

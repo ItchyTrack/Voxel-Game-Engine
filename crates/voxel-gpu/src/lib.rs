@@ -6,6 +6,8 @@ pub mod voxel_gpu_state;
 pub mod lod_voxels;
 pub mod residency;
 pub mod residency_packing;
+pub mod shader_codegen;
+pub mod shader_sources;
 pub mod incoming_ray_directions;
 pub mod upload;
 

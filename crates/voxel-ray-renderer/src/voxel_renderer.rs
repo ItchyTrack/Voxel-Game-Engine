@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use bevy::ecs::entity::Entity;
 use bevy::render::renderer::WgpuWrapper;
-use bevy::transform::components::Transform;
 use voxel_data::bvh;
 
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
@@ -16,23 +15,6 @@ use crate::gpu_bvh::GpuBvh;
 use crate::shader_sources::VoxelShaderSources;
 
 pub const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
-
-impl VoxelShaderSources {
-	pub fn embedded() -> Self {
-		Self {
-			beam: include_str!(concat!(env!("OUT_DIR"), "/beam.wgsl")).to_string(),
-			raycasting: include_str!(concat!(env!("OUT_DIR"), "/raycasting.wgsl")).to_string(),
-			coloring: include_str!(concat!(env!("OUT_DIR"), "/coloring_shader.wgsl")).to_string(),
-		}
-	}
-
-	#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
-	pub fn load_from_disk() -> crate::shader_sources::ShaderSourceResult<Self> {
-		let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-		let [local_shader_dir, shared_shader_dir] = crate::shader_common::voxel_shader_watch_roots(manifest_dir);
-		crate::shader_sources::compile_voxel_shader_sources(&local_shader_dir, &shared_shader_dir)
-	}
-}
 
 pub struct VoxelRenderer {
 	pub color_format: wgpu::TextureFormat,
@@ -87,29 +69,53 @@ impl VoxelRenderer {
 		struct Cfg { width: u32, height: u32 }
 		let config = Cfg { width, height };
 		let tree_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[wgpu::BindGroupLayoutEntry {
-				binding: 0,
-				visibility: wgpu::ShaderStages::COMPUTE,
-				ty: wgpu::BindingType::Buffer {
-					ty: wgpu::BufferBindingType::Storage { read_only: true },
-					has_dynamic_offset: false,
-					min_binding_size: None,
+			entries: &[
+				wgpu::BindGroupLayoutEntry {
+					binding: 0,
+					visibility: wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Storage { read_only: true },
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
 				},
-				count: None,
-			}],
+				wgpu::BindGroupLayoutEntry {
+					binding: 1,
+					visibility: wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Storage { read_only: true },
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
+				},
+			],
 			label: Some("tree_bind_group_layout"),
 		}));
 		let voxel_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[wgpu::BindGroupLayoutEntry {
-				binding: 0,
-				visibility: wgpu::ShaderStages::FRAGMENT,
-				ty: wgpu::BindingType::Buffer {
-					ty: wgpu::BufferBindingType::Storage { read_only: true },
-					has_dynamic_offset: false,
-					min_binding_size: None,
+			entries: &[
+				wgpu::BindGroupLayoutEntry {
+					binding: 0,
+					visibility: wgpu::ShaderStages::FRAGMENT,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Storage { read_only: true },
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
 				},
-				count: None,
-			}],
+				wgpu::BindGroupLayoutEntry {
+					binding: 1,
+					visibility: wgpu::ShaderStages::FRAGMENT,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Storage { read_only: true },
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
+				},
+			],
 			label: Some("voxels_bind_group_layout"),
 		}));
 
@@ -358,15 +364,20 @@ impl VoxelRenderer {
 		view_height: u32,
 		camera_transform_bind_group: &GpuBindGroup,
 		bvh: &bvh::BVH<Entity>,
-		gpu_grid_tree_id_to_id_transforms: &HashMap<Entity, (u32, u32, Transform)>,
+		bvh_item_data: &HashMap<Entity, crate::gpu_bvh::BvhItemData>,
 		tree_buffer: &GpuBuffer,
 		voxel_buffer: &GpuBuffer,
+		main_tree_buffer: &GpuBuffer,
+		main_voxel_buffer: &GpuBuffer,
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
 	) -> GpuBvh<Entity> {
-		let gpu_bvh = GpuBvh::from_bvh(device, bvh, gpu_grid_tree_id_to_id_transforms);
+		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
 		let tree_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &self.tree_bind_group_layout,
-			entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: tree_buffer, offset: 0, size: None }) }],
+			entries: &[
+				wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: tree_buffer, offset: 0, size: None }) },
+				wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: main_tree_buffer, offset: 0, size: None }) },
+			],
 			label: Some("tree_bind_group"),
 		}));
 
@@ -390,7 +401,10 @@ impl VoxelRenderer {
 		}
 		let voxels_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &self.voxel_bind_group_layout,
-			entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: voxel_buffer, offset: 0, size: None }) }],
+			entries: &[
+				wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: voxel_buffer, offset: 0, size: None }) },
+				wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: main_voxel_buffer, offset: 0, size: None }) },
+			],
 			label: Some("voxel_bind_group"),
 		}));
 		{

@@ -1,7 +1,9 @@
 import package::dda::data::{
 	DDA_SIZE, DDAHit, DDA_LOG_SIZE, DDA_SLOT_BYTES, dda_bitmap_has, dda_data_index,
-	dda_get_child_contents_index, dda_node_byte_off, dda_node_entry, dda_node_size,
-	dda_nodes_base, dda_parent_offset, dda_u32, dda_voxel_data_offset,
+	dda_get_child_contents_index, dda_node_byte_off, dda_node_size, dda_nodes_base,
+};
+import package::generated::dda::__DATA_MODULE__::{
+	__DDA_NODE_ENTRY__, __DDA_PARENT_OFFSET__, __DDA_U32__, __DDA_VOXEL_DATA_OFFSET__,
 };
 
 fn dda_initial_hit_normal(
@@ -60,13 +62,13 @@ fn dda_make_hit(
 	return hit_result;
 }
 
-fn dda_raycast(
+fn __DDA_RAYCAST__(
 	origin:     vec3<f32>,
 	dir:        vec3<f32>,
 	max_length: f32,
 	tree_base:  u32,
 ) -> DDAHit {
-	let tree_header = dda_u32(tree_base);
+	let tree_header = __DDA_U32__(tree_base);
 	let root_size = dda_node_size(tree_header & 0xFFu);
 	let root_min = vec3<f32>(0.0);
 	let root_max = vec3<f32>(f32(root_size));
@@ -158,11 +160,11 @@ fn dda_raycast(
 	let nodes_base = dda_nodes_base(tree_base);
 	var node_size = root_size;
 	var node_byte_off = dda_node_byte_off(nodes_base, 0u);
-	var bitmap_status = dda_parent_offset(node_byte_off) >> 14;
+	var bitmap_status = __DDA_PARENT_OFFSET__(node_byte_off) >> 14;
 	var bitmap_low = 0u;
 	var bitmap_high = 0u;
-	if (bitmap_status & 1) != 0 { bitmap_low = dda_u32(node_byte_off + 4); }
-	if (bitmap_status & 2) != 0 { bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
+	if (bitmap_status & 1) != 0 { bitmap_low = __DDA_U32__(node_byte_off + 4); }
+	if (bitmap_status & 2) != 0 { bitmap_high = __DDA_U32__(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
 
 	loop {
 		let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
@@ -212,15 +214,15 @@ fn dda_raycast(
 						no_hit.normal = 0u;
 						return no_hit;
 					}
-					node_byte_off -= (dda_parent_offset(node_byte_off) & 0x3FFF) * DDA_SLOT_BYTES;
+					node_byte_off -= (__DDA_PARENT_OFFSET__(node_byte_off) & 0x3FFF) * DDA_SLOT_BYTES;
 					node_size = node_size << DDA_LOG_SIZE;
 					if root_relative_grid_pos[last_step_axis] / node_size == u32(new_pos_signed) / node_size {
-						bitmap_status = dda_parent_offset(node_byte_off) >> 14;
+						bitmap_status = __DDA_PARENT_OFFSET__(node_byte_off) >> 14;
 						break;
 					}
 				}
-				if (bitmap_status & 1) != 0 { bitmap_low = dda_u32(node_byte_off + 4); }
-				if (bitmap_status & 2) != 0 { bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
+				if (bitmap_status & 1) != 0 { bitmap_low = __DDA_U32__(node_byte_off + 4); }
+				if (bitmap_status & 2) != 0 { bitmap_high = __DDA_U32__(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
 			}
 			root_relative_grid_pos[last_step_axis] = u32(new_pos_signed);
 		} else {
@@ -235,12 +237,12 @@ fn dda_raycast(
 					delta,
 					root_relative_grid_pos,
 					node_size,
-					dda_voxel_data_offset(node_byte_off),
+					__DDA_VOXEL_DATA_OFFSET__(node_byte_off),
 					data_idx,
 				);
 			}
 
-			let entry_val = dda_node_entry(node_byte_off, bitmap_status, data_idx, node_size);
+			let entry_val = __DDA_NODE_ENTRY__(node_byte_off, bitmap_status, data_idx, node_size);
 			if entry_val == 0u {
 				return dda_make_hit(
 					post_aabb_origin_clamped,
@@ -251,15 +253,15 @@ fn dda_raycast(
 					delta,
 					root_relative_grid_pos,
 					node_size,
-					dda_voxel_data_offset(node_byte_off),
+					__DDA_VOXEL_DATA_OFFSET__(node_byte_off),
 					data_idx,
 				);
 			} else {
 				node_byte_off += entry_val * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;
-				bitmap_status = dda_parent_offset(node_byte_off) >> 14;
-				if (bitmap_status & 1) != 0 { bitmap_low = dda_u32(node_byte_off + 4); }
-				if (bitmap_status & 2) != 0 { bitmap_high = dda_u32(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
+				bitmap_status = __DDA_PARENT_OFFSET__(node_byte_off) >> 14;
+				if (bitmap_status & 1) != 0 { bitmap_low = __DDA_U32__(node_byte_off + 4); }
+				if (bitmap_status & 2) != 0 { bitmap_high = __DDA_U32__(node_byte_off + 4 + (bitmap_status & 1) * 4u); }
 			}
 		}
 	}

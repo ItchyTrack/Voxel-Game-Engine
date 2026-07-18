@@ -5,6 +5,8 @@ use bevy::render::renderer::{RenderDevice, WgpuWrapper};
 use crate::camera::CameraUniform;
 use crate::model::ModelUniform;
 use crate::voxel_raster_renderer::VoxelRasterRenderer;
+#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+use crate::shader_hot_reload::RasterShaderHotReload;
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
@@ -24,6 +26,9 @@ pub struct VoxelRasterRendererResource {
 	pub model_bind_group_layout: GpuBindGroupLayout,
 	pub model_stride: u64,
 	model_buffer_size: u64,
+	shader_source: String,
+	#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+	hot_reload: Option<RasterShaderHotReload>,
 }
 
 impl FromWorld for VoxelRasterRendererResource {
@@ -44,6 +49,14 @@ impl FromWorld for VoxelRasterRendererResource {
 		}));
 		let model_bind_group = ModelUniform::get_bind_group(device, &model_bind_group_layout, &model_buffer, 0);
 
+		#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+		let shader_source = crate::shader_sources::load_from_disk()
+			.or_else(|_| crate::shader_sources::embedded())
+			.expect("embedded voxel raster shader must compile");
+		#[cfg(not(all(feature = "shader_hot_reload", not(target_arch = "wasm32"))))]
+		let shader_source = crate::shader_sources::embedded()
+			.expect("embedded voxel raster shader must compile");
+
 		Self {
 			renderer: None,
 			size: (0, 0),
@@ -57,6 +70,12 @@ impl FromWorld for VoxelRasterRendererResource {
 			model_bind_group_layout,
 			model_stride,
 			model_buffer_size,
+			shader_source,
+			#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+			hot_reload: RasterShaderHotReload::new().map_err(|error| {
+				log::error!("Failed to initialize raster shader hot reload: {error}");
+				error
+			}).ok(),
 		}
 	}
 }
@@ -64,7 +83,8 @@ impl FromWorld for VoxelRasterRendererResource {
 impl VoxelRasterRendererResource {
 	pub fn ensure(&mut self, device: &wgpu::Device, width: u32, height: u32, format: wgpu::TextureFormat) {
 		if width == 0 || height == 0 { return; }
-		let need_rebuild = self.renderer.is_none() || self.size != (width, height) || self.format != Some(format);
+		let shaders_changed = self.refresh_shader_source_if_needed();
+		let need_rebuild = self.renderer.is_none() || self.size != (width, height) || self.format != Some(format) || shaders_changed;
 		if !need_rebuild { return; }
 
 		match VoxelRasterRenderer::new(
@@ -74,6 +94,7 @@ impl VoxelRasterRendererResource {
 			format,
 			&self.camera_bind_group_layout,
 			&self.model_bind_group_layout,
+			&self.shader_source,
 		) {
 			Ok(renderer) => {
 				self.renderer = Some(renderer);
@@ -85,6 +106,26 @@ impl VoxelRasterRendererResource {
 			}
 		}
 	}
+
+	#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+	fn refresh_shader_source_if_needed(&mut self) -> bool {
+		let Some(hot_reload) = self.hot_reload.as_ref() else { return false; };
+		if !hot_reload.take_dirty() { return false; }
+		match crate::shader_sources::load_from_disk() {
+			Ok(shader_source) => {
+				self.shader_source = shader_source;
+				log::info!("Reloaded voxel raster shader from disk");
+				true
+			}
+			Err(error) => {
+				log::error!("Failed to hot reload voxel raster shader: {error}");
+				false
+			}
+		}
+	}
+
+	#[cfg(not(all(feature = "shader_hot_reload", not(target_arch = "wasm32"))))]
+	fn refresh_shader_source_if_needed(&mut self) -> bool { false }
 
 	pub fn ensure_model_buffer_capacity(&mut self, device: &wgpu::Device, draw_count: usize) {
 		let needed_size = (draw_count.max(1) as u64) * self.model_stride;

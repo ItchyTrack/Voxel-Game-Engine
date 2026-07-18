@@ -9,13 +9,14 @@ use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
 
 use voxel_gpu::lod_voxels::LodVoxels;
-use voxel_gpu::incoming_ray_directions::IncomingRayDirections;
-use voxel_gpu::residency::{ResidentVoxels, ResidencyBuffers};
+use voxel_gpu::residency::{ResidentVoxels, ResidencyBuffers, ResidencyDirections};
 use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_gpu::VoxelGpuState;
 use voxel_data::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
 
+use crate::direction_feedback::DirectionFeedback;
+use crate::gpu_bvh::{BvhDataSource, BvhItemData};
 use crate::voxel_camera::VoxelCamera;
 use bevy::render::renderer::WgpuWrapper;
 
@@ -26,10 +27,12 @@ pub struct ExtractedVoxelScene {
 	pub camera_transform: Transform,
 	pub camera_projection: Option<Projection>,
 	pub bvh: Option<BVH<SubGridId>>,
-	pub id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)>,
+	pub bvh_item_data: HashMap<SubGridId, BvhItemData>,
 	pub has_camera: bool,
 	pub tree_buffer: Option<GpuBuffer>,
 	pub voxel_buffer: Option<GpuBuffer>,
+	pub main_tree_buffer: Option<GpuBuffer>,
+	pub main_voxel_buffer: Option<GpuBuffer>,
 }
 
 struct RenderItem {
@@ -58,6 +61,7 @@ fn bucket_push(buckets: &mut Vec<Vec<RenderItem>>, priority: f32, item: RenderIt
 pub fn extract_voxel_scene(
 	mut extracted: ResMut<ExtractedVoxelScene>,
 	mut residency: ResMut<ResidencyBuffers>,
+	direction_feedback: Res<DirectionFeedback>,
 	cameras: Extract<Query<(&VoxelCamera, &Camera, &Projection, &GlobalTransform)>>,
 	sub_grids: Extract<Query<(&SubGrid, &VoxelGpuState)>>,
 	lod_voxels: Extract<Query<(&LodVoxels, &VoxelGpuState, &GlobalTransform)>>,
@@ -66,7 +70,7 @@ pub fn extract_voxel_scene(
 ) {
 	extracted.has_camera = false;
 	extracted.bvh = None;
-	extracted.id_to_offsets.clear();
+	extracted.bvh_item_data.clear();
 
 	let mut buckets: Vec<Vec<RenderItem>> = Vec::new();
 
@@ -128,48 +132,43 @@ pub fn extract_voxel_scene(
 	let tree_alignment = residency.tree_alignment();
 	let voxel_alignment = residency.voxel_alignment();
 
-	let items_len: usize = buckets.iter().map(Vec::len).sum();
-	let mut items = Vec::with_capacity(items_len);
+	let items: Vec<RenderItem> = buckets.into_iter().flatten().collect();
 
 	let limit = residency.binding_limit();
 	let mut tree_total = 0u64;
 	let mut voxel_total = 0u64;
-	let mut resident: Vec<ResidentVoxels> = Vec::with_capacity(items_len);
+	let mut resident: Vec<ResidentVoxels> = Vec::with_capacity(items.len());
 	let mut dropped = 0usize;
-	for bucket in &buckets {
-		for item in bucket {
-			let Some(tree_held) = world_gpu.packed_64_tree_dynamic_buffer.held_buffer(item.tree_id) else { continue; };
-			let Some(voxel_held) = world_gpu.packed_voxel_data_dynamic_buffer.held_buffer(item.voxels_id) else { continue; };
-			let next_tree = tree_total + tree_held.size().next_multiple_of(tree_alignment) as u64;
-			let next_voxel = voxel_total + voxel_held.size().next_multiple_of(voxel_alignment) as u64;
-			if next_tree > limit || next_voxel > limit {
-				dropped += 1;
-				continue;
-			}
-			tree_total = next_tree;
-			voxel_total = next_voxel;
-			resident.push(ResidentVoxels {
-				entity: item.entity,
-				tree_id: item.tree_id,
-				voxels_id: item.voxels_id,
-				generation: item.generation,
-				loaded_directions: IncomingRayDirections::all(),
-			});
-			items.push(RenderItem {
-				entity: item.entity,
-				tree_id: item.tree_id,
-				voxels_id: item.voxels_id,
-				generation: item.generation,
-				aabb: item.aabb,
-				dda_transform: item.dda_transform,
-			});
+	for item in &items {
+		if !direction_feedback
+			.0
+			.get(&item.entity)
+			.is_some_and(|directions| !directions.is_empty())
+		{
+			continue;
 		}
+		let Some(tree_held) = world_gpu.packed_64_tree_dynamic_buffer.held_buffer(item.tree_id) else { continue; };
+		let Some(voxel_held) = world_gpu.packed_voxel_data_dynamic_buffer.held_buffer(item.voxels_id) else { continue; };
+		let next_tree = tree_total + tree_held.size().next_multiple_of(tree_alignment) as u64;
+		let next_voxel = voxel_total + voxel_held.size().next_multiple_of(voxel_alignment) as u64;
+		if next_tree > limit || next_voxel > limit {
+			dropped += 1;
+			continue;
+		}
+		tree_total = next_tree;
+		voxel_total = next_voxel;
+		resident.push(ResidentVoxels {
+			entity: item.entity,
+			tree_id: item.tree_id,
+			voxels_id: item.voxels_id,
+			generation: item.generation,
+			loaded_directions: ResidencyDirections::Unculled,
+		});
 	}
 
 	if dropped > 0 {
 		log::warn!(
-			"residency budget hit: {dropped} of {} sub-grids dropped this frame ({} resident)",
-			items.len(),
+			"residency budget hit: {dropped} feedback-selected sub-grids dropped ({} resident)",
 			resident.len()
 		);
 	}
@@ -178,19 +177,37 @@ pub fn extract_voxel_scene(
 	residency.upload(&world_gpu, &resident);
 
 	let offsets = residency.offsets();
-	let mut bvh_items: Vec<(SubGridId, (Vec3, Vec3))> = Vec::new();
-	let mut id_to_offsets: HashMap<SubGridId, (u32, u32, Transform)> = HashMap::new();
+	let mut bvh_items: Vec<(SubGridId, (Vec3, Vec3))> = Vec::with_capacity(items.len());
+	let mut bvh_item_data = HashMap::with_capacity(items.len());
 	for item in &items {
-		let Some(&(tree_offset, voxel_offset)) = offsets.get(&item.entity) else { continue; };
 		bvh_items.push((item.entity, item.aabb));
-		id_to_offsets.insert(item.entity, (tree_offset, voxel_offset, item.dda_transform));
+		let data_source = if let Some(&(tree_offset, voxel_offset)) = offsets.get(&item.entity) {
+			BvhDataSource::Residency { tree_offset, voxel_offset }
+		} else {
+			match (
+				world_gpu.packed_64_tree_dynamic_buffer.held_buffer(item.tree_id),
+				world_gpu.packed_voxel_data_dynamic_buffer.held_buffer(item.voxels_id),
+			) {
+				(Some(tree_held), Some(voxel_held)) => BvhDataSource::MainBuffer {
+					tree_offset: tree_held.offset(),
+					voxel_offset: voxel_held.offset(),
+				},
+				_ => BvhDataSource::FeedbackOnly,
+			}
+		};
+		bvh_item_data.insert(item.entity, BvhItemData {
+			data_source,
+			transform: item.dda_transform,
+		});
 	}
 
 	if !bvh_items.is_empty() {
 		extracted.bvh = Some(BVH::new(bvh_items));
 	}
-	extracted.id_to_offsets = id_to_offsets;
+	extracted.bvh_item_data = bvh_item_data;
 
 	extracted.tree_buffer = Some(residency.tree_buffer().clone());
 	extracted.voxel_buffer = Some(residency.voxel_buffer().clone());
+	extracted.main_tree_buffer = Some(world_gpu.packed_64_tree_dynamic_buffer.buffer().clone());
+	extracted.main_voxel_buffer = Some(world_gpu.packed_voxel_data_dynamic_buffer.buffer().clone());
 }

@@ -5,6 +5,9 @@ pub mod voxel_camera;
 mod extract;
 mod model;
 mod residency;
+#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+mod shader_hot_reload;
+mod shader_sources;
 mod voxel_raster_renderer;
 mod voxel_raster_renderer_resource;
 

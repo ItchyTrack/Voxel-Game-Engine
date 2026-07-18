@@ -62,10 +62,12 @@ pub fn voxel_render_pass(
 
 	let extracted = world.resource::<ExtractedVoxelScene>();
 	let Some(bvh) = extracted.bvh.as_ref() else { return };
-	if extracted.id_to_offsets.is_empty() { return }
-	let (Some(tree_buffer), Some(voxel_buffer)) =
-		(extracted.tree_buffer.as_ref(), extracted.voxel_buffer.as_ref())
-	else { return };
+	let (Some(tree_buffer), Some(voxel_buffer), Some(main_tree_buffer), Some(main_voxel_buffer)) = (
+		extracted.tree_buffer.as_ref(),
+		extracted.voxel_buffer.as_ref(),
+		extracted.main_tree_buffer.as_ref(),
+		extracted.main_voxel_buffer.as_ref(),
+	) else { return };
 
 	let view_target = view.into_inner();
 	let device = render_context.render_device().wgpu_device().clone();
@@ -80,9 +82,11 @@ pub fn voxel_render_pass(
 		main_texture.height(),
 		&voxel_resource.camera_bind_group,
 		bvh,
-		&extracted.id_to_offsets,
+		&extracted.bvh_item_data,
 		tree_buffer,
 		voxel_buffer,
+		main_tree_buffer,
+		main_voxel_buffer,
 		color_attachment,
 	);
 

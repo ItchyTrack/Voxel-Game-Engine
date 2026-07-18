@@ -20,6 +20,14 @@ fn align_up(value: u32, alignment: u32) -> u32 {
 	value.next_multiple_of(alignment)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResidencyDirections {
+	/// The complete, non-directionally-culled voxel data is resident.
+	Unculled,
+	/// Only the specified incoming directions are resident.
+	Culled(IncomingRayDirections),
+}
+
 /// Render-only compact copy of the sub-grids needed this frame. The render world
 /// binds this instead of the large [`WorldGpuData`] buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,7 +36,7 @@ pub struct ResidentVoxels {
 	pub tree_id: u32,
 	pub voxels_id: u32,
 	pub generation: u64,
-	pub loaded_directions: IncomingRayDirections,
+	pub loaded_directions: ResidencyDirections,
 }
 
 fn record_copy_runs(encoder: &mut wgpu::CommandEncoder, src: &GpuBuffer, dst: &GpuBuffer, regions: &[CopyRegion]) {
@@ -59,7 +67,7 @@ pub struct ResidencyBuffers {
 	voxel_capacity: u64,
 	binding_limit: u64,
 	offsets: HashMap<Entity, (u32, u32)>,
-	loaded_directions: HashMap<Entity, IncomingRayDirections>,
+	loaded_directions: HashMap<Entity, ResidencyDirections>,
 	tree_entries: Vec<SlotEntry>,
 	tree_entry_indices: HashMap<Entity, usize>,
 	voxel_entries: Vec<SlotEntry>,
@@ -218,20 +226,21 @@ impl ResidencyBuffers {
 			.enumerate()
 			.map(|(index, entry)| (entry.entity, index))
 			.collect();
-		self.offsets = resident
-			.iter()
-			.filter_map(|item| {
-				Some((
-					item.entity,
-					(*tree_plan.offsets.get(&item.entity)?, *voxel_plan.offsets.get(&item.entity)?),
-				))
-			})
-			.collect();
-		self.loaded_directions = resident
-			.iter()
-			.filter(|item| self.offsets.contains_key(&item.entity))
-			.map(|item| (item.entity, item.loaded_directions))
-			.collect();
+		self.offsets.clear();
+		self.loaded_directions.clear();
+		self.offsets.reserve(resident.len());
+		self.loaded_directions.reserve(resident.len());
+		for item in resident {
+			let (Some(&tree_offset), Some(&voxel_offset)) = (
+				tree_plan.offsets.get(&item.entity),
+				voxel_plan.offsets.get(&item.entity),
+			) else {
+				continue;
+			};
+
+			self.offsets.insert(item.entity, (tree_offset, voxel_offset));
+			self.loaded_directions.insert(item.entity, item.loaded_directions);
+		}
 	}
 
 	fn ensure_tree_capacity(&mut self, bytes: u64) {
@@ -256,7 +265,7 @@ impl ResidencyBuffers {
 		&self.offsets
 	}
 
-	pub fn loaded_directions(&self) -> &HashMap<Entity, IncomingRayDirections> {
+	pub fn loaded_directions(&self) -> &HashMap<Entity, ResidencyDirections> {
 		&self.loaded_directions
 	}
 

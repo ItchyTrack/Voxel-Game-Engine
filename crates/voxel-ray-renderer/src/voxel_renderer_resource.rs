@@ -79,9 +79,11 @@ impl FromWorld for VoxelRendererResource {
 
 		#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
 		let shader_sources = VoxelShaderSources::load_from_disk()
-			.unwrap_or_else(|_| VoxelShaderSources::embedded());
+			.or_else(|_| VoxelShaderSources::embedded())
+			.expect("embedded voxel ray shaders must compile");
 		#[cfg(not(all(feature = "shader_hot_reload", not(target_arch = "wasm32"))))]
-		let shader_sources = VoxelShaderSources::embedded();
+		let shader_sources = VoxelShaderSources::embedded()
+			.expect("embedded voxel ray shaders must compile");
 
 		Self {
 			voxel_renderer: None,

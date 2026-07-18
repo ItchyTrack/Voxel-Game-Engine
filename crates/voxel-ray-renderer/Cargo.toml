@@ -6,7 +6,7 @@ edition = "2024"
 [features]
 default = []
 gpu_profiling = []
-shader_hot_reload = ["dep:notify", "dep:wesl"]
+shader_hot_reload = ["dep:notify"]
 
 [dependencies]
 anyhow = "1.0"
@@ -17,12 +17,8 @@ bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 
-[build-dependencies]
-wesl = { workspace = true }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 notify = { version = "8", optional = true }
-wesl = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["console"] }

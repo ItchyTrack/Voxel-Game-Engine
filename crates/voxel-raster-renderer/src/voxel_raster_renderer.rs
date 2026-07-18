@@ -19,6 +19,7 @@ impl VoxelRasterRenderer {
 		color_format: wgpu::TextureFormat,
 		camera_bind_group_layout: &GpuBindGroupLayout,
 		model_bind_group_layout: &GpuBindGroupLayout,
+		shader_source: &str,
 	) -> anyhow::Result<Self> {
 		let face_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[
@@ -48,7 +49,7 @@ impl VoxelRasterRenderer {
 
 		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: Some("Raster Voxel Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("shaders/raster_voxel.wgsl").into()),
+			source: wgpu::ShaderSource::Wgsl(shader_source.to_owned().into()),
 		});
 		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("Raster Voxel Pipeline Layout"),

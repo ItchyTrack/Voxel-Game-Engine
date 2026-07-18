@@ -1,11 +1,18 @@
-use std::error::Error;
 use std::path::Path;
 
-pub type ShaderSourceResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+use voxel_gpu::shader_codegen::{EmbeddedWeslModule, ShaderResult};
 
-const BEAM_MODULE: &str = "package::beam";
-const RAYCASTING_MODULE: &str = "package::raycasting";
-const COLORING_MODULE: &str = "package::coloring_shader";
+const ENTRY_MODULES: &[&str] = &[
+	"package::beam",
+	"package::raycasting",
+	"package::coloring_shader",
+];
+
+const LOCAL_MODULES: &[EmbeddedWeslModule] = voxel_gpu::embedded_wesl_modules![
+	"package::beam" => "shaders/beam.wesl",
+	"package::raycasting" => "shaders/raycasting.wesl",
+	"package::coloring_shader" => "shaders/coloring_shader.wesl",
+];
 
 #[derive(Clone)]
 pub struct VoxelShaderSources {
@@ -14,13 +21,30 @@ pub struct VoxelShaderSources {
 	pub coloring: String,
 }
 
-#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
-pub fn compile_voxel_shader_sources(local_shader_dir: &Path, shared_shader_dir: &Path) -> ShaderSourceResult<VoxelShaderSources> {
-	let compiler = crate::shader_common::voxel_shader_compiler(local_shader_dir, shared_shader_dir);
+impl VoxelShaderSources {
+	pub fn embedded() -> ShaderResult<Self> {
+		Self::from_compiled(voxel_gpu::shader_sources::compile_embedded(LOCAL_MODULES, ENTRY_MODULES)?)
+	}
 
-	Ok(VoxelShaderSources {
-		beam: compiler.compile(&BEAM_MODULE.parse()?)?.to_string(),
-		raycasting: compiler.compile(&RAYCASTING_MODULE.parse()?)?.to_string(),
-		coloring: compiler.compile(&COLORING_MODULE.parse()?)?.to_string(),
-	})
+	#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+	pub fn load_from_disk() -> ShaderResult<Self> {
+		let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let local_shader_dir = manifest_dir.join("src/shaders");
+		let shared_shader_dir = manifest_dir.join("../voxel-gpu/src/shaders");
+		Self::from_compiled(voxel_gpu::shader_sources::compile_from_disk(
+			&local_shader_dir,
+			&shared_shader_dir,
+			ENTRY_MODULES,
+		)?)
+	}
+
+	fn from_compiled(mut shaders: Vec<String>) -> ShaderResult<Self> {
+		if shaders.len() != 3 {
+			return Err(std::io::Error::other("expected three compiled voxel ray shaders").into());
+		}
+		let coloring = shaders.pop().unwrap();
+		let raycasting = shaders.pop().unwrap();
+		let beam = shaders.pop().unwrap();
+		Ok(Self { beam, raycasting, coloring })
+	}
 }

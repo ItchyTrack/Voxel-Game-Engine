@@ -1,7 +1,9 @@
 import package::dda::data::{
 	DDA_LOG_SIZE, DDA_SLOT_BYTES, dda_bitmap_has, dda_data_index,
-	dda_get_child_contents_index, dda_node_byte_off, dda_node_entry, dda_node_size,
-	dda_nodes_base, dda_parent_offset, dda_u32,
+	dda_get_child_contents_index, dda_node_byte_off, dda_node_size, dda_nodes_base,
+};
+import package::generated::dda::__DATA_MODULE__::{
+	__DDA_NODE_ENTRY__, __DDA_PARENT_OFFSET__, __DDA_U32__,
 };
 import package::helpers::raycast::{ ray_aabb };
 
@@ -26,7 +28,7 @@ fn beam_conservative_cell_hit_distance(
 	return max(0.0, min(hit_distance, conservative_hit.x));
 }
 
-fn beam_dda_raycast(
+fn __BEAM_DDA_RAYCAST__(
 	origin:     vec3<f32>,
 	dir:        vec3<f32>,
 	max_length: f32,
@@ -35,7 +37,7 @@ fn beam_dda_raycast(
 	beam_expand_k: f32,
 	item_scale: f32,
 ) -> f32 {
-	let tree_header = dda_u32(tree_base);
+	let tree_header = __DDA_U32__(tree_base);
 	let root_size = dda_node_size(tree_header & 0xFFu);
 	let root_min = vec3<f32>(0.0);
 	let root_max = vec3<f32>(f32(root_size));
@@ -105,11 +107,11 @@ fn beam_dda_raycast(
 	let nodes_base = dda_nodes_base(tree_base);
 	var node_size = root_size;
 	var node_byte_offset = dda_node_byte_off(nodes_base, 0u);
-	var bitmap_status = dda_parent_offset(node_byte_offset) >> 14;
+	var bitmap_status = __DDA_PARENT_OFFSET__(node_byte_offset) >> 14;
 	var bitmap_low_bits = 0u;
 	var bitmap_high_bits = 0u;
-	if (bitmap_status & 1u) != 0u { bitmap_low_bits = dda_u32(node_byte_offset + 4u); }
-	if (bitmap_status & 2u) != 0u { bitmap_high_bits = dda_u32(node_byte_offset + 4u + (bitmap_status & 1u) * 4u); }
+	if (bitmap_status & 1u) != 0u { bitmap_low_bits = __DDA_U32__(node_byte_offset + 4u); }
+	if (bitmap_status & 2u) != 0u { bitmap_high_bits = __DDA_U32__(node_byte_offset + 4u + (bitmap_status & 1u) * 4u); }
 
 	loop {
 		let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
@@ -164,15 +166,15 @@ fn beam_dda_raycast(
 			if root_relative_grid_pos[last_step_axis] / node_size != u32(next_pos_signed) / node_size {
 				loop {
 					if node_size == root_size { return 1e38; }
-					node_byte_offset -= (dda_parent_offset(node_byte_offset) & 0x3FFFu) * DDA_SLOT_BYTES;
+					node_byte_offset -= (__DDA_PARENT_OFFSET__(node_byte_offset) & 0x3FFFu) * DDA_SLOT_BYTES;
 					node_size = node_size << DDA_LOG_SIZE;
 					if root_relative_grid_pos[last_step_axis] / node_size == u32(next_pos_signed) / node_size {
-						bitmap_status = dda_parent_offset(node_byte_offset) >> 14;
+						bitmap_status = __DDA_PARENT_OFFSET__(node_byte_offset) >> 14;
 						break;
 					}
 				}
-				if (bitmap_status & 1u) != 0u { bitmap_low_bits = dda_u32(node_byte_offset + 4u); }
-				if (bitmap_status & 2u) != 0u { bitmap_high_bits = dda_u32(node_byte_offset + 4u + (bitmap_status & 1u) * 4u); }
+				if (bitmap_status & 1u) != 0u { bitmap_low_bits = __DDA_U32__(node_byte_offset + 4u); }
+				if (bitmap_status & 2u) != 0u { bitmap_high_bits = __DDA_U32__(node_byte_offset + 4u + (bitmap_status & 1u) * 4u); }
 			}
 			root_relative_grid_pos[last_step_axis] = u32(next_pos_signed);
 		} else {
@@ -188,15 +190,15 @@ fn beam_dda_raycast(
 			);
 			if node_size == 4u { return conservative_hit_distance; }
 
-			let entry_value = dda_node_entry(node_byte_offset, bitmap_status, data_index, node_size);
+			let entry_value = __DDA_NODE_ENTRY__(node_byte_offset, bitmap_status, data_index, node_size);
 			if entry_value == 0u {
 				return conservative_hit_distance;
 			} else {
 				node_byte_offset += entry_value * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;
-				bitmap_status = dda_parent_offset(node_byte_offset) >> 14;
-				if (bitmap_status & 1u) != 0u { bitmap_low_bits = dda_u32(node_byte_offset + 4u); }
-				if (bitmap_status & 2u) != 0u { bitmap_high_bits = dda_u32(node_byte_offset + 4u + (bitmap_status & 1u) * 4u); }
+				bitmap_status = __DDA_PARENT_OFFSET__(node_byte_offset) >> 14;
+				if (bitmap_status & 1u) != 0u { bitmap_low_bits = __DDA_U32__(node_byte_offset + 4u); }
+				if (bitmap_status & 2u) != 0u { bitmap_high_bits = __DDA_U32__(node_byte_offset + 4u + (bitmap_status & 1u) * 4u); }
 			}
 		}
 	}
