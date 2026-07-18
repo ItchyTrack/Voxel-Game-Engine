@@ -7,7 +7,7 @@ use bevy::render::view::ViewTarget;
 use crate::camera::CameraUniform;
 use crate::extract::ExtractedVoxelScene;
 use crate::graphics_settings::{GraphicsSettings, RenderSettingsUniform};
-use crate::hit_count_feedback::{LastGpuBvh, RenderStats};
+use crate::direction_feedback::{LastGpuBvh, RenderStats};
 use crate::voxel_renderer_resource::VoxelRendererResource;
 
 #[derive(Resource, Default)]
@@ -92,7 +92,7 @@ pub fn voxel_render_pass(
 	}
 
 	// Hold onto the GpuBvh so next frame's prepare can read back its
-	// item-hit-count staging buffer.
+	// item-direction-mask staging buffer.
 	if let Ok(mut slot) = world.resource::<LastGpuBvh>().0.lock() {
 		*slot = Some(gpu_bvh);
 	}

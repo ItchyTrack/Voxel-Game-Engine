@@ -1,7 +1,7 @@
 pub mod camera;
 pub mod graphics_settings;
 pub mod gpu_bvh;
-pub mod hit_count_feedback;
+pub mod direction_feedback;
 pub mod voxel_renderer;
 pub mod voxel_camera;
 pub mod voxel_renderer_resource;
@@ -25,7 +25,7 @@ use voxel_data::VoxelDataPlugin;
 use voxel_gpu::{GpuVoxelDataPlugin};
 
 use graphics_settings::GraphicsSettings;
-use hit_count_feedback::{HitCountFeedback, LastGpuBvh, RenderStats};
+use direction_feedback::{DirectionFeedback, LastGpuBvh, RenderStats};
 
 #[derive(Default)]
 pub struct VoxelRayRendererPlugin;
@@ -46,14 +46,14 @@ impl Plugin for VoxelRayRendererPlugin {
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
 			.insert_resource(render_stats)
-			.init_resource::<HitCountFeedback>()
+			.init_resource::<DirectionFeedback>()
 			.init_resource::<LastGpuBvh>()
 			.init_resource::<extract::ExtractedVoxelScene>()
 			.init_resource::<render_node::VoxelViewBindGroups>()
 			.add_systems(ExtractSchedule, extract::extract_voxel_scene)
 			.add_systems(
 				Render,
-				hit_count_feedback::read_back_hit_counts
+				direction_feedback::read_back_direction_masks
 					.in_set(RenderSystems::PrepareResources),
 			)
 			.add_systems(

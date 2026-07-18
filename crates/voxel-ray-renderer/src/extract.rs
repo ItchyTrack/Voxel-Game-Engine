@@ -9,13 +9,13 @@ use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
 
 use voxel_gpu::lod_voxels::LodVoxels;
+use voxel_gpu::incoming_ray_directions::IncomingRayDirections;
 use voxel_gpu::residency::{ResidentVoxels, ResidencyBuffers};
 use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_gpu::VoxelGpuState;
 use voxel_data::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
 
-use crate::hit_count_feedback::HitCountFeedback;
 use crate::voxel_camera::VoxelCamera;
 use bevy::render::renderer::WgpuWrapper;
 
@@ -58,7 +58,6 @@ fn bucket_push(buckets: &mut Vec<Vec<RenderItem>>, priority: f32, item: RenderIt
 pub fn extract_voxel_scene(
 	mut extracted: ResMut<ExtractedVoxelScene>,
 	mut residency: ResMut<ResidencyBuffers>,
-	hit_feedback: Res<HitCountFeedback>,
 	cameras: Extract<Query<(&VoxelCamera, &Camera, &Projection, &GlobalTransform)>>,
 	sub_grids: Extract<Query<(&SubGrid, &VoxelGpuState)>>,
 	lod_voxels: Extract<Query<(&LodVoxels, &VoxelGpuState, &GlobalTransform)>>,
@@ -85,11 +84,10 @@ pub fn extract_voxel_scene(
 			let placement = sub_grid_gpu_state.placement();
 			let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &sub_world);
 			let dda_transform = sub_world * Transform::from_translation(placement.tree_root_pos.as_vec3());
-			let hit_count = hit_feedback.0.get(entity).copied().unwrap_or(0);
 
 			bucket_push(
 				&mut buckets,
-				(global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) - hit_count as f32 * 0.001,
+				global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0,
 				RenderItem {
 					entity: *entity,
 					tree_id: sub_grid_gpu_state.tree_id(),
@@ -109,11 +107,10 @@ pub fn extract_voxel_scene(
 			let placement = lod_grid_gpu_state.placement();
 			let aabb = aabb_from_bounds(placement.bounds_min, placement.bounds_max, &area_world);
 			let dda_transform = area_world * Transform::from_translation(placement.tree_root_pos.as_vec3());
-			let hit_count = hit_feedback.0.get(entity).copied().unwrap_or(0);
 
 			bucket_push(
 				&mut buckets,
-				(global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0) - hit_count as f32 * 0.001,
+				global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0,
 				RenderItem {
 					entity: *entity,
 					tree_id: lod_grid_gpu_state.tree_id(),
@@ -156,6 +153,7 @@ pub fn extract_voxel_scene(
 				tree_id: item.tree_id,
 				voxels_id: item.voxels_id,
 				generation: item.generation,
+				loaded_directions: IncomingRayDirections::all(),
 			});
 			items.push(RenderItem {
 				entity: item.entity,

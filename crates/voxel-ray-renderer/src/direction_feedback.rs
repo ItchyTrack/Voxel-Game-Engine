@@ -7,11 +7,12 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::render::renderer::RenderDevice;
 
 use voxel_data::subgrid::SubGridId;
+use voxel_gpu::incoming_ray_directions::IncomingRayDirections;
 
 use crate::gpu_bvh::GpuBvh;
 
 #[derive(Resource, Clone, Default)]
-pub struct HitCountFeedback(pub HashMap<SubGridId, u32>);
+pub struct DirectionFeedback(pub HashMap<SubGridId, IncomingRayDirections>);
 
 #[derive(Resource, Default)]
 pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<SubGridId>>>);
@@ -30,11 +31,11 @@ pub struct RenderStatsData {
 
 const READBACK_TIMEOUT: Duration = Duration::from_millis(100);
 
-/// Read back the previous frame's per-item hit-count buffer.
-pub fn read_back_hit_counts(
+/// Read back the previous frame's packed per-item local direction masks.
+pub fn read_back_direction_masks(
 	render_device: Res<RenderDevice>,
 	last_gpu_bvh: ResMut<LastGpuBvh>,
-	mut feedback: ResMut<HitCountFeedback>,
+	mut feedback: ResMut<DirectionFeedback>,
 ) {
 	let Some(prev) = last_gpu_bvh.0.lock().ok().and_then(
 		|mut slot| slot.take()
@@ -42,7 +43,7 @@ pub fn read_back_hit_counts(
 
 	let (tx, rx) = std::sync::mpsc::channel();
 	{
-		let staging = prev.item_hit_count_staging_buffer.slice(..);
+		let staging = prev.item_direction_mask_staging_buffer.slice(..);
 		staging.map_async(wgpu::MapMode::Read, move |result| { let _ = tx.send(result); });
 	}
 
@@ -56,16 +57,18 @@ pub fn read_back_hit_counts(
 	}
 
 	{
-		let staging = prev.item_hit_count_staging_buffer.slice(..);
+		let staging = prev.item_direction_mask_staging_buffer.slice(..);
 		let view = staging.get_mapped_range();
-		let counts: &[u32] = bytemuck::cast_slice(&view);
-		let n = counts.len().min(prev.item_count).min(prev.item_ids.len());
+		let words: &[u32] = bytemuck::cast_slice(&view);
+		let n = prev.item_count.min(prev.item_ids.len());
 
 		feedback.0.clear();
-		for (id, count) in prev.item_ids.iter().zip(&counts[..n]) {
-			feedback.0.insert(*id, *count);
+		for (item_index, id) in prev.item_ids[..n].iter().enumerate() {
+			let word = words[item_index / 4];
+			let shift = (item_index % 4) * 8;
+			feedback.0.insert(*id, IncomingRayDirections::from_bits_truncate((word >> shift) as u8));
 		}
 		drop(view);
-		prev.item_hit_count_staging_buffer.unmap();
+		prev.item_direction_mask_staging_buffer.unmap();
 	}
 }

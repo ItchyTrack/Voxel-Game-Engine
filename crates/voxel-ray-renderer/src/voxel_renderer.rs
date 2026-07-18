@@ -411,11 +411,11 @@ impl VoxelRenderer {
 		}
 
 		encoder.copy_buffer_to_buffer(
-			&gpu_bvh.item_hit_count_buffer,
+			&gpu_bvh.item_direction_mask_buffer,
 			0,
-			&gpu_bvh.item_hit_count_staging_buffer,
+			&gpu_bvh.item_direction_mask_staging_buffer,
 			0,
-			gpu_bvh.item_hit_count_buffer.size(),
+			gpu_bvh.item_direction_mask_buffer.size(),
 		);
 
 		gpu_bvh

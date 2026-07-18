@@ -1,4 +1,4 @@
-import package::bvh::data::{ bvh, bvh_item_hit_counts, bvh_items };
+import package::bvh::data::{ bvh, bvh_items };
 import package::helpers::raycast::{ ray_aabb };
 
 const BEAM_BVH_RAYCAST_ITEM_FLAG:   u32 = 0x80000000u;
@@ -68,7 +68,6 @@ fn beam_bvh_iter_next(iter: ptr<function, BeamBVHRaycastIter>, max_dist: f32) ->
 			let expand = depth * expand_k;
 			let distances = ray_aabb(ray_pos, inv_dir, min_corner - vec3<f32>(expand), max_corner + vec3<f32>(expand));
 			if distances.x < max_dist {
-				atomicAdd(&bvh_item_hit_counts[item_index], 1u);
 				return BeamBVHRaycastHit(item_index, distances.x, distances.y - distances.x, true);
 			}
 			continue;

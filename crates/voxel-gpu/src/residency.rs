@@ -5,6 +5,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::FromWorld;
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 
+use crate::incoming_ray_directions::IncomingRayDirections;
 use crate::residency_packing::{plan_residency, CopyRegion, PendingUpload, SlotEntry};
 use crate::world_gpu_data::{WorldGpuData, TREE_BUFFER_ALIGNMENT, VOXEL_BUFFER_ALIGNMENT};
 
@@ -12,9 +13,6 @@ type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
 type GpuDevice = WgpuWrapper<wgpu::Device>;
 type GpuQueue = WgpuWrapper<wgpu::Queue>;
 
-// Pipelined rendering is one frame behind, so two slots keep the main world's
-// build off the slot the render thread is reading.
-const SLOTS: usize = 2;
 const INITIAL_CAPACITY: u64 = 1 << 20;
 const COMPACTION_MOVE_CALL_BUDGET: usize = 64;
 
@@ -23,14 +21,14 @@ fn align_up(value: u32, alignment: u32) -> u32 {
 }
 
 /// Render-only compact copy of the sub-grids needed this frame. The render world
-/// reads only these slots, never the big [`WorldGpuData`] buffers the main world
-/// mutates, which is what avoids the write-during-read race.
+/// binds this instead of the large [`WorldGpuData`] buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResidentVoxels {
 	pub entity: Entity,
 	pub tree_id: u32,
 	pub voxels_id: u32,
 	pub generation: u64,
+	pub loaded_directions: IncomingRayDirections,
 }
 
 fn record_copy_runs(encoder: &mut wgpu::CommandEncoder, src: &GpuBuffer, dst: &GpuBuffer, regions: &[CopyRegion]) {
@@ -55,38 +53,26 @@ pub struct ResidencyBuffers {
 	usage: wgpu::BufferUsages,
 	tree_alignment: u32,
 	voxel_alignment: u32,
-	tree_slots: Vec<GpuBuffer>,
-	voxel_slots: Vec<GpuBuffer>,
+	tree_buffer: GpuBuffer,
+	voxel_buffer: GpuBuffer,
 	tree_capacity: u64,
 	voxel_capacity: u64,
 	binding_limit: u64,
-	current: usize,
 	offsets: HashMap<Entity, (u32, u32)>,
-	tree_slot_entries: Vec<Vec<SlotEntry>>,
-	tree_slot_entry_indices: Vec<HashMap<Entity, usize>>,
-	voxel_slot_entries: Vec<Vec<SlotEntry>>,
-	voxel_slot_entry_indices: Vec<HashMap<Entity, usize>>,
+	loaded_directions: HashMap<Entity, IncomingRayDirections>,
+	tree_entries: Vec<SlotEntry>,
+	tree_entry_indices: HashMap<Entity, usize>,
+	voxel_entries: Vec<SlotEntry>,
+	voxel_entry_indices: HashMap<Entity, usize>,
 }
 
-fn create_slots(device: &GpuDevice, capacity: u64, usage: wgpu::BufferUsages) -> Vec<GpuBuffer> {
-	(0..SLOTS)
-		.map(|_| {
-			WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
-				label: Some("residency_slot"),
-				size: capacity,
-				usage,
-				mapped_at_creation: false,
-			}))
-		})
-		.collect()
-}
-
-fn create_slot_entry_lists() -> Vec<Vec<SlotEntry>> {
-	(0..SLOTS).map(|_| Vec::new()).collect()
-}
-
-fn create_slot_entry_index_maps() -> Vec<HashMap<Entity, usize>> {
-	(0..SLOTS).map(|_| HashMap::new()).collect()
+fn create_buffer(device: &GpuDevice, capacity: u64, usage: wgpu::BufferUsages) -> GpuBuffer {
+	WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
+		label: Some("residency_buffer"),
+		size: capacity,
+		usage,
+		mapped_at_creation: false,
+	}))
 }
 
 impl FromWorld for ResidencyBuffers {
@@ -102,19 +88,19 @@ impl FromWorld for ResidencyBuffers {
 
 		let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
 		Self {
-			tree_slots: create_slots(&device, INITIAL_CAPACITY, usage),
-			voxel_slots: create_slots(&device, INITIAL_CAPACITY, usage),
+			tree_buffer: create_buffer(&device, INITIAL_CAPACITY, usage),
+			voxel_buffer: create_buffer(&device, INITIAL_CAPACITY, usage),
 			tree_capacity: INITIAL_CAPACITY,
 			voxel_capacity: INITIAL_CAPACITY,
 			binding_limit,
 			tree_alignment,
 			voxel_alignment,
-			current: 0,
 			offsets: HashMap::new(),
-			tree_slot_entries: create_slot_entry_lists(),
-			tree_slot_entry_indices: create_slot_entry_index_maps(),
-			voxel_slot_entries: create_slot_entry_lists(),
-			voxel_slot_entry_indices: create_slot_entry_index_maps(),
+			loaded_directions: HashMap::new(),
+			tree_entries: Vec::new(),
+			tree_entry_indices: HashMap::new(),
+			voxel_entries: Vec::new(),
+			voxel_entry_indices: HashMap::new(),
 			device,
 			queue,
 			usage,
@@ -136,12 +122,10 @@ impl ResidencyBuffers {
 		self.voxel_alignment
 	}
 
-	/// Copy the resident sub-grids into the next slot and publish it. Caller
+	/// Copy the resident sub-grids into the residency slot and publish it. Caller
 	/// trims `resident` to [`Self::binding_limit`] and provides it in a stable
 	/// order.
 	pub fn upload(&mut self, world_gpu: &WorldGpuData, resident: &[ResidentVoxels]) {
-		self.current = (self.current + 1) % SLOTS;
-
 		let mut tree_entries = Vec::with_capacity(resident.len());
 		let mut voxel_entries = Vec::with_capacity(resident.len());
 		for item in resident {
@@ -170,8 +154,8 @@ impl ResidencyBuffers {
 		voxel_entries.sort_unstable_by_key(|entry| entry.src_offset);
 
 		let mut tree_plan = plan_residency(
-			&self.tree_slot_entries[self.current],
-			&self.tree_slot_entry_indices[self.current],
+			&self.tree_entries,
+			&self.tree_entry_indices,
 			&tree_entries,
 			self.tree_alignment,
 			COMPACTION_MOVE_CALL_BUDGET,
@@ -182,8 +166,8 @@ impl ResidencyBuffers {
 		if tree_plan.required_capacity > self.tree_capacity {
 			self.ensure_tree_capacity(tree_plan.required_capacity);
 			tree_plan = plan_residency(
-				&self.tree_slot_entries[self.current],
-				&self.tree_slot_entry_indices[self.current],
+				&self.tree_entries,
+				&self.tree_entry_indices,
 				&tree_entries,
 				self.tree_alignment,
 				COMPACTION_MOVE_CALL_BUDGET,
@@ -191,8 +175,8 @@ impl ResidencyBuffers {
 		}
 
 		let mut voxel_plan = plan_residency(
-			&self.voxel_slot_entries[self.current],
-			&self.voxel_slot_entry_indices[self.current],
+			&self.voxel_entries,
+			&self.voxel_entry_indices,
 			&voxel_entries,
 			self.voxel_alignment,
 			COMPACTION_MOVE_CALL_BUDGET,
@@ -203,8 +187,8 @@ impl ResidencyBuffers {
 		if voxel_plan.required_capacity > self.voxel_capacity {
 			self.ensure_voxel_capacity(voxel_plan.required_capacity);
 			voxel_plan = plan_residency(
-				&self.voxel_slot_entries[self.current],
-				&self.voxel_slot_entry_indices[self.current],
+				&self.voxel_entries,
+				&self.voxel_entry_indices,
 				&voxel_entries,
 				self.voxel_alignment,
 				COMPACTION_MOVE_CALL_BUDGET,
@@ -215,21 +199,21 @@ impl ResidencyBuffers {
 			let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("residency_pack") });
 			let src_tree = world_gpu.packed_64_tree_dynamic_buffer.buffer();
 			let src_voxel = world_gpu.packed_voxel_data_dynamic_buffer.buffer();
-			let dst_tree = &self.tree_slots[self.current];
-			let dst_voxel = &self.voxel_slots[self.current];
+			let dst_tree = &self.tree_buffer;
+			let dst_voxel = &self.voxel_buffer;
 			record_copy_runs(&mut encoder, src_tree, dst_tree, &tree_plan.copy_regions);
 			record_copy_runs(&mut encoder, src_voxel, dst_voxel, &voxel_plan.copy_regions);
 			self.queue.submit(std::iter::once(encoder.finish()));
 		}
 
-		self.tree_slot_entries[self.current] = tree_plan.slot_entries;
-		self.tree_slot_entry_indices[self.current] = self.tree_slot_entries[self.current]
+		self.tree_entries = tree_plan.slot_entries;
+		self.tree_entry_indices = self.tree_entries
 			.iter()
 			.enumerate()
 			.map(|(index, entry)| (entry.entity, index))
 			.collect();
-		self.voxel_slot_entries[self.current] = voxel_plan.slot_entries;
-		self.voxel_slot_entry_indices[self.current] = self.voxel_slot_entries[self.current]
+		self.voxel_entries = voxel_plan.slot_entries;
+		self.voxel_entry_indices = self.voxel_entries
 			.iter()
 			.enumerate()
 			.map(|(index, entry)| (entry.entity, index))
@@ -243,23 +227,28 @@ impl ResidencyBuffers {
 				))
 			})
 			.collect();
+		self.loaded_directions = resident
+			.iter()
+			.filter(|item| self.offsets.contains_key(&item.entity))
+			.map(|item| (item.entity, item.loaded_directions))
+			.collect();
 	}
 
 	fn ensure_tree_capacity(&mut self, bytes: u64) {
 		if bytes > self.tree_capacity {
 			self.tree_capacity = bytes.next_power_of_two().max(INITIAL_CAPACITY).min(self.binding_limit);
-			self.tree_slots = create_slots(&self.device, self.tree_capacity, self.usage);
-			self.tree_slot_entries = create_slot_entry_lists();
-			self.tree_slot_entry_indices = create_slot_entry_index_maps();
+			self.tree_buffer = create_buffer(&self.device, self.tree_capacity, self.usage);
+			self.tree_entries.clear();
+			self.tree_entry_indices.clear();
 		}
 	}
 
 	fn ensure_voxel_capacity(&mut self, bytes: u64) {
 		if bytes > self.voxel_capacity {
 			self.voxel_capacity = bytes.next_power_of_two().max(INITIAL_CAPACITY).min(self.binding_limit);
-			self.voxel_slots = create_slots(&self.device, self.voxel_capacity, self.usage);
-			self.voxel_slot_entries = create_slot_entry_lists();
-			self.voxel_slot_entry_indices = create_slot_entry_index_maps();
+			self.voxel_buffer = create_buffer(&self.device, self.voxel_capacity, self.usage);
+			self.voxel_entries.clear();
+			self.voxel_entry_indices.clear();
 		}
 	}
 
@@ -267,11 +256,15 @@ impl ResidencyBuffers {
 		&self.offsets
 	}
 
+	pub fn loaded_directions(&self) -> &HashMap<Entity, IncomingRayDirections> {
+		&self.loaded_directions
+	}
+
 	pub fn tree_buffer(&self) -> &GpuBuffer {
-		&self.tree_slots[self.current]
+		&self.tree_buffer
 	}
 
 	pub fn voxel_buffer(&self) -> &GpuBuffer {
-		&self.voxel_slots[self.current]
+		&self.voxel_buffer
 	}
 }

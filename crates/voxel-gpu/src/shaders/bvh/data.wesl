@@ -19,4 +19,3 @@ struct BVHItem {
 
 @group(1) @binding(0) var<storage, read> bvh:       array<BVHNode>;
 @group(1) @binding(1) var<storage, read> bvh_items: array<BVHItem>;
-@group(1) @binding(2) var<storage, read_write> bvh_item_hit_counts: array<atomic<u32>>;

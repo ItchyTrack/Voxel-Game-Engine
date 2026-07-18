@@ -1,5 +1,6 @@
 import package::bvh::data::{ BVHItem, bvh_items };
 import package::bvh::raycast::{ bvh_iter_new, bvh_iter_next };
+import package::direction_feedback::{ record_bvh_item_directions };
 import package::dda::raycast::{ dda_raycast };
 
 fn quat_inv_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
@@ -33,6 +34,7 @@ fn full_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, max_dist: f32) -> Raycas
 		let entry_world = ray_pos + ray_dir * candidate.dist;
 		let local_pos = quat_inv_rotate(transform_quat, entry_world - transform_pos) / item.scale;
 		let local_dir = quat_inv_rotate(transform_quat, ray_dir);
+		record_bvh_item_directions(candidate.bvh_item_idx, local_dir);
 		let remaining = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
 		let dda_hit = dda_raycast(local_pos, local_dir, remaining / item.scale, item.item_index);
 

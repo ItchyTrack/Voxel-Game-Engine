@@ -16,6 +16,7 @@ log = { workspace = true }
 wgpu = { workspace = true }
 num = { workspace = true }
 bytemuck = { workspace = true }
+bitflags = { workspace = true }
 tracy-client = { workspace = true }
 bevy = { workspace = true }
 orderly-allocator = "0.2.2"

@@ -1,6 +1,7 @@
 import package::bvh::beam_raycast::{ beam_bvh_iter_new, beam_bvh_iter_next };
 import package::bvh::data::{ BVHItem, bvh_items };
 import package::dda::beam_raycast::{ beam_dda_raycast };
+import package::direction_feedback::{ record_bvh_item_directions };
 
 fn quat_inv_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 	let t = 2.0 * cross(q.xyz, v);
@@ -22,6 +23,7 @@ fn beam_raycast(ray_pos: vec3<f32>, ray_dir: vec3<f32>, expand_k: f32) -> f32 {
 		let entry_world = ray_pos + ray_dir * candidate.dist;
 		let local_pos = quat_inv_rotate(transform_quat, entry_world - transform_pos) / item.scale;
 		let local_dir = quat_inv_rotate(transform_quat, ray_dir);
+		record_bvh_item_directions(candidate.bvh_item_idx, local_dir);
 		let remaining = min(best_total_dist - candidate.dist, candidate.aabb_internal_dist);
 
 		let dda_distance = beam_dda_raycast(

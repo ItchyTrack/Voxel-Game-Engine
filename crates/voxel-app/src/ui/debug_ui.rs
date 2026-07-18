@@ -10,7 +10,7 @@ use voxel_physics::{
 use voxel_engine::VoxelCameraMode;
 use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_ray_renderer::graphics_settings::GraphicsSettings;
-use voxel_ray_renderer::hit_count_feedback::RenderStats;
+use voxel_ray_renderer::direction_feedback::RenderStats;
 use voxel_streaming::{ChunkState, GridStreaming, VoxelSourceRequests, CHUNK_SIZE};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
