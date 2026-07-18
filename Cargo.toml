@@ -32,6 +32,7 @@ wgpu = "29.0.3"
 log = "0.4"
 num = "0.4.3"
 bytemuck = { version = "1.24", features = ["derive"] }
+bitflags = "2.13"
 tracy-client = { version = "0.18.4", default-features = false }
 tokio = "1"
 wesl = "0.4.0"
