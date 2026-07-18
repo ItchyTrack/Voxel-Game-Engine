@@ -5,8 +5,6 @@ import package::dda::data::{
 import package::generated::dda::__DATA_MODULE__::{
 	__DDA_NODE_ENTRY__, __DDA_PARENT_OFFSET__, __DDA_U32__,
 };
-import package::helpers::raycast::{ ray_aabb };
-
 fn beam_conservative_cell_hit_distance(
 	origin: vec3<f32>,
 	inv_dir: vec3<f32>,
@@ -19,13 +17,12 @@ fn beam_conservative_cell_hit_distance(
 	let child_cell_min_u32 = root_relative_grid_pos - (current_relative_pos & vec3<u32>(child_cell_size - 1u));
 	let child_cell_min = vec3<f32>(child_cell_min_u32);
 	let child_cell_max = child_cell_min + vec3<f32>(f32(child_cell_size));
-	let conservative_hit = ray_aabb(
-		origin,
-		inv_dir,
-		child_cell_min - vec3<f32>(beam_radius_local),
-		child_cell_max + vec3<f32>(beam_radius_local),
-	);
-	return max(0.0, min(hit_distance, conservative_hit.x));
+	let expanded_near_distances = min(
+		(child_cell_min - origin) * inv_dir,
+		(child_cell_max - origin) * inv_dir,
+	) - vec3<f32>(beam_radius_local) * abs(inv_dir);
+	let conservative_entry_distance = max(max(expanded_near_distances.x, expanded_near_distances.y), expanded_near_distances.z);
+	return max(0.0, min(hit_distance, conservative_entry_distance));
 }
 
 fn __BEAM_DDA_RAYCAST__(
@@ -101,6 +98,9 @@ fn __BEAM_DDA_RAYCAST__(
 	var root_relative_grid_pos = vec3<u32>(vec3<i32>(root_relative_post_aabb_origin));
 
 	var current_cell_entry_distance = starting_distance;
+	let safe_item_scale = max(item_scale, 1e-6);
+	let initial_beam_radius_local = beam_start_distance * beam_expand_k / safe_item_scale;
+	let beam_radius_growth_per_local_distance = item_scale * beam_expand_k / safe_item_scale;
 
 	if max_length_reduced < starting_distance { return 1e38; }
 
@@ -117,7 +117,7 @@ fn __BEAM_DDA_RAYCAST__(
 		let current_relative_pos = root_relative_grid_pos & vec3<u32>(node_size - 1u);
 		let child_cell_size = node_size >> DDA_LOG_SIZE;
 		let hit_distance = current_cell_entry_distance;
-		let beam_radius_local = (beam_start_distance + hit_distance * item_scale) * beam_expand_k / max(item_scale, 1e-6);
+		let beam_radius_local = initial_beam_radius_local + hit_distance * beam_radius_growth_per_local_distance;
 		let beam_diameter_local = beam_radius_local * 2.0;
 		if beam_diameter_local >= f32(child_cell_size) {
 			return beam_conservative_cell_hit_distance(
