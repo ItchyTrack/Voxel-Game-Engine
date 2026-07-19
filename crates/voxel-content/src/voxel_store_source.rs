@@ -55,7 +55,8 @@ impl ChunkSource for VoxelStoreSource {
 		}
 	}
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Option<u32> {
+		if lod > 0.0 { return None; }
 		self.inner.grids.read().unwrap().get(&grid)?.has_any_in_region(min, size).then_some(LOAD_COST)
 	}
 
@@ -98,6 +99,6 @@ impl Plugin for VoxelStoreSourcePlugin {
 	fn build(&self, app: &mut App) {
 		let source = VoxelStoreSource::default();
 		app.insert_resource(source.clone());
-		app.register_source(source);
+		app.register_voxel_source(source);
 	}
 }

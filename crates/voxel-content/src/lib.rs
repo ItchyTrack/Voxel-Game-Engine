@@ -1,6 +1,5 @@
 mod content_builder;
 mod grid_store;
-mod lod_downsample;
 mod sdf_source;
 mod voxel_store_source;
 mod vox_source;
@@ -9,4 +8,4 @@ pub use grid_store::GridStore;
 pub use voxel_store_source::{VoxelStoreSource, VoxelStoreSourcePlugin};
 pub use sdf_source::{SdfSource, SdfSourceOptions, VoxelSdf, sdf_source};
 pub use content_builder::StreamingVoxels;
-pub use vox_source::{VoxFileSource, vox_file_source};
+pub use vox_source::{VoxFileSource, VoxMaterial, VoxMaterialMapper, vox_file_source};

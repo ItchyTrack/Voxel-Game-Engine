@@ -1,36 +1,40 @@
 use std::time::Duration;
 
-use bevy::math::{I16Vec3, IVec3};
+use bevy::math::{IVec3, U16Vec3};
 use bevy::tasks::{ComputeTaskPool, TaskPoolBuilder};
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use voxel_data::grid::Grid;
 use voxel_data::splat::{splat_voxels_blocking, GridSplat};
-use voxel_data::voxels::{Voxel, Voxels};
+use voxel_data::voxels::{Voxel, VoxelTypeInfo, Voxels};
 
 const CHUNK: i32 = 64;
 
+fn test_type_info() -> VoxelTypeInfo {
+	VoxelTypeInfo { id: voxel_data::voxels::VoxelTypeId(1), size_bytes: 8 }
+}
+
 fn voxel(c: u8) -> Voxel {
-	Voxel { color: [c, c, c, 255], mass: 1 }
+	Voxel::new(test_type_info().id, [c, c, c, 255, 1, 0, 0, 0])
 }
 
 fn gradient_voxel(pos: IVec3) -> Voxel {
 	let c = ((pos.x * 17 + pos.y * 29 + pos.z * 43).rem_euclid(251)) as u8;
-	Voxel { color: [c, c.wrapping_mul(3), c.wrapping_mul(7), 255], mass: 1 }
+	Voxel::new(test_type_info().id, [c, c.wrapping_mul(3), c.wrapping_mul(7), 255, 1, 0, 0, 0])
 }
 
 fn uniform_chunk() -> Voxels {
-	let mut voxels = Voxels::new();
-	voxels.add_area(I16Vec3::ZERO, I16Vec3::splat(CHUNK as i16), voxel(7));
+	let mut voxels = Voxels::new_with_type(test_type_info());
+	voxels.add_area(U16Vec3::ZERO, U16Vec3::splat(CHUNK as u16), voxel(7));
 	voxels
 }
 
 fn gradient_chunk() -> Voxels {
-	let mut voxels = Voxels::new();
+	let mut voxels = Voxels::new_with_type(test_type_info());
 	for z in 0..CHUNK {
 		for y in 0..CHUNK {
 			for x in 0..CHUNK {
 				let pos = IVec3::new(x, y, z);
-				voxels.add_voxel(pos.as_i16vec3(), gradient_voxel(pos));
+				voxels.add_voxel(pos.as_u16vec3(), gradient_voxel(pos));
 			}
 		}
 	}
@@ -38,7 +42,7 @@ fn gradient_chunk() -> Voxels {
 }
 
 fn sphere_surface_chunk() -> Voxels {
-	let mut voxels = Voxels::new();
+	let mut voxels = Voxels::new_with_type(test_type_info());
 	let center = IVec3::splat(CHUNK / 2);
 	let radius_outer = 30 * 30;
 	let radius_inner = 24 * 24;
@@ -49,7 +53,7 @@ fn sphere_surface_chunk() -> Voxels {
 				let d = pos - center;
 				let dist2 = d.dot(d);
 				if dist2 <= radius_outer && dist2 >= radius_inner {
-					voxels.add_voxel(pos.as_i16vec3(), gradient_voxel(pos));
+					voxels.add_voxel(pos.as_u16vec3(), gradient_voxel(pos));
 				}
 			}
 		}
@@ -96,7 +100,7 @@ fn bench_grid_splat_voxels(c: &mut Criterion) {
 	group.bench_function("gradient_over_existing_uniform", |b| {
 		b.iter_batched(
 			|| {
-				let mut grid = Grid::new();
+				let mut grid = Grid::new_with_type(test_type_info());
 				grid.splat_voxels(IVec3::ZERO, &uniform);
 				grid
 			},
@@ -170,7 +174,7 @@ fn bench_splat_voxels_blocking(c: &mut Criterion) {
 	group.bench_function("gradient_over_existing_uniform", |b| {
 		b.iter_batched(
 			|| {
-				let mut grid = Grid::new();
+				let mut grid = Grid::new_with_type(test_type_info());
 				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &uniform }];
 				splat_voxels_blocking(std::slice::from_mut(&mut grid), &splats);
 				grid

@@ -4,9 +4,10 @@ use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 use std::path::PathBuf;
 
+use basic_voxel::{BasicVoxel, BasicVoxMaterialMapper};
 use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource};
 use voxel_data::grid::Grid;
-use voxel_data::voxels::Voxel;
+use voxel_data::voxels::{Voxel, VoxelType};
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
@@ -18,17 +19,19 @@ use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
 use crate::voxel::spawn_grid::spawn_grid;
 
+type SceneVoxFileSource = VoxFileSource<BasicVoxMaterialMapper>;
+
 pub struct ScenePlugin;
 
 impl Plugin for ScenePlugin {
 	fn build(&self, app: &mut App) {
-		let vox_source = VoxFileSource::new();
+		let vox_source = SceneVoxFileSource::new(BasicVoxMaterialMapper);
 		let sdf_source = SdfSource::new();
 		app
 			.insert_resource(vox_source.clone())
 			.insert_resource(sdf_source.clone())
-			.register_source(vox_source)
-			.register_source(sdf_source)
+			.register_voxel_source(vox_source)
+			.register_voxel_source(sdf_source)
 			.add_systems(Startup, setup_scene)
 			.add_physics_apply_systems(drive_orientation);
 	}
@@ -67,7 +70,7 @@ fn drive_orientation(
 fn setup_scene(
 	mut commands: Commands,
 	store: Res<VoxelStoreSource>,
-	vox_source: Res<VoxFileSource>,
+	vox_source: Res<SceneVoxFileSource>,
 	_sdf_source: Res<SdfSource>,
 ) {
 	spawn_church(&mut commands, &vox_source);
@@ -84,7 +87,7 @@ fn setup_scene(
 	// }
 }
 
-fn spawn_church(commands: &mut Commands, vox_source: &VoxFileSource) {
+fn spawn_church(commands: &mut Commands, vox_source: &SceneVoxFileSource) {
 	let Some(path) = church_vox_path() else { return };
 
 	let parent = commands
@@ -97,7 +100,7 @@ fn spawn_church(commands: &mut Commands, vox_source: &VoxFileSource) {
 	let grid = commands
 		.spawn((
 			Transform::IDENTITY,
-			Grid::new(),
+			Grid::new::<BasicVoxel>(),
 			GridEdits::default(),
 			GridStreaming::default(),
 			RequestChunkPresence,
@@ -152,16 +155,20 @@ fn spawn_ball_cluster(
 	}
 }
 
+fn voxel(color: [u8; 4], mass: u32) -> Voxel {
+	BasicVoxel { color, mass }.into_voxel()
+}
+
 fn spawn_bb8(
 	commands: &mut Commands,
 	store: &VoxelStoreSource,
 	position: Vec3,
 ) {
-	let mut base_grid = StreamingVoxels::new();
+	let mut base_grid = StreamingVoxels::new::<BasicVoxel>();
 	for x in -6..=6 { for y in 0..3 { for z in -6..=6 {
-		base_grid.add_voxel(&IVec3::new(x, y, z), &Voxel { color: [128, 128, 128, 255], mass: 200 });
+		base_grid.add_voxel(&IVec3::new(x, y, z), voxel([128, 128, 128, 255], 200).get_ref());
 	}}}
-	base_grid.add_voxel(&IVec3::new(0, 3, 0), &Voxel { color: [255, 0, 0, 255], mass: 200 });
+	base_grid.add_voxel(&IVec3::new(0, 3, 0), voxel([255, 0, 0, 255], 200).get_ref());
 
 	let base = commands.spawn((
 		RigidBody,
@@ -185,30 +192,24 @@ fn spawn_bb8(
 fn spawn_ball(commands: &mut Commands, store: &VoxelStoreSource, position: Vec3, radius: i32) -> Entity {
 	let radius_sq = (radius as f32 - 0.5).powi(2);
 
-	let mut top = StreamingVoxels::new();
+	let mut top = StreamingVoxels::new::<BasicVoxel>();
 	for x in -radius..=radius {
 		for y in 0..=radius {
 			for z in -radius..=radius {
 				let p = IVec3::new(x, y, z);
 				if p.as_vec3().length_squared() > radius_sq { continue; }
-				top.add_voxel(&p, &Voxel {
-					color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255],
-					mass: 100,
-				});
+				top.add_voxel(&p, voxel([(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], 100).get_ref());
 			}
 		}
 	}
 
-	let mut bottom = StreamingVoxels::new();
+	let mut bottom = StreamingVoxels::new::<BasicVoxel>();
 	for x in -radius..=radius {
 		for y in -radius..0 {
 			for z in -radius..=radius {
 				let p = IVec3::new(x, y, z);
 				if p.as_vec3().length_squared() > radius_sq { continue; }
-				bottom.add_voxel(&p, &Voxel {
-					color: [(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255],
-					mass: 100,
-				});
+				bottom.add_voxel(&p, voxel([(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], 100).get_ref());
 			}
 		}
 	}

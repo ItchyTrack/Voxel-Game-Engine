@@ -3,6 +3,7 @@ pub mod gpu_raster_mesh;
 pub mod packed_dynamic_buffer;
 pub mod world_gpu_data;
 pub mod voxel_gpu_state;
+pub mod voxel_color;
 pub mod lod_voxels;
 pub mod residency;
 pub mod residency_packing;
@@ -16,6 +17,7 @@ use bevy::{ecs::message::Message, prelude::*, render::RenderApp};
 use crate::world_gpu_data::WorldGpuData;
 
 pub use lod_voxels::LodVoxels;
+pub use voxel_color::{VoxelColorReaders, VoxelGpuAppExt};
 pub use voxel_gpu_state::{RasterGpuState, RayGpuState, SubGridPlacement, VoxelGpuBounds, VoxelGpuFormat, VoxelGpuState};
 
 #[doc(hidden)]
@@ -39,6 +41,7 @@ impl Plugin for GpuVoxelDataPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<upload::InFlightRayUploads>()
 			.init_resource::<upload::InFlightRasterUploads>()
+			.init_resource::<VoxelColorReaders>()
 			.add_message::<VoxelGpuUploadFinished>()
 			.configure_sets(Update, (GpuUploadSet::Clear, GpuUploadSet::Upload).chain())
 			.add_systems(Update, (upload::clear_inactive_formats, upload::flag_changed_sub_grids).chain().in_set(GpuUploadSet::Clear))

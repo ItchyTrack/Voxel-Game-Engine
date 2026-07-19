@@ -4,8 +4,9 @@ use tracy_client::span;
 
 use voxel_data::grid_tree::{self, GridCell, CellKind};
 use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
-use voxel_data::voxels::VoxelPalette;
+use voxel_data::voxels::{Voxel, VoxelPalette, VoxelTypeInfo};
 
+use crate::voxel_color::VoxelColorReaders;
 
 const SLOT_BYTES: usize = 4;
 
@@ -29,7 +30,7 @@ fn build_bitmap(node: &PackedNode) -> u64 {
 	bitmap
 }
 
-pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> (Vec<u8>, Vec<u8>) {
+pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, voxel_type: VoxelTypeInfo, color_readers: &VoxelColorReaders) -> (Vec<u8>, Vec<u8>) {
 	let _zone = span!("make GPU grid tree");
 	let view = grid_tree.view();
 	let nodes = view.nodes();
@@ -39,14 +40,16 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> 
 	// -- Palette ---------------------------------------------------------------
 	let mut palette_vec: Vec<[u8; 4]>   = Vec::new();
 	let mut palette_map: HashMap<u16, u8> = HashMap::new();
-	for (id, voxel) in &palette.palette {
+	for (id, raw) in palette.entries() {
 		if palette_vec.len() >= 254 {
 			log::warn!("ran out of palette space");
-			palette_map.insert(*id, 254);
+			palette_map.insert(id, 254);
 			continue;
 		}
-		palette_map.insert(*id, palette_vec.len() as u8);
-		palette_vec.push(voxel.color);
+		let voxel = Voxel::new(voxel_type.id, raw.to_vec());
+		let Some(color) = color_readers.color(&voxel) else { continue };
+		palette_map.insert(id, palette_vec.len() as u8);
+		palette_vec.push(color);
 	}
 	let palette_len_bytes = (palette_vec.len() as u8).to_le_bytes();
 	let palette_bytes: &[u8] = bytemuck::cast_slice(&palette_vec);

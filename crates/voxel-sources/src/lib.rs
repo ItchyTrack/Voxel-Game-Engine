@@ -56,18 +56,18 @@ pub struct LodLoaded {
 }
 
 pub trait VoxelSourcesAppExt {
-	fn register_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self;
-	fn set_voxel_lod_generator<G: VoxelLodGenerator + 'static>(&mut self, generator: G) -> &mut Self;
+	fn register_voxel_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self;
+	fn register_voxel_lod_generator<G: VoxelLodGenerator + 'static>(&mut self, generator: G) -> &mut Self;
 }
 
 impl VoxelSourcesAppExt for App {
-	fn register_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self {
+	fn register_voxel_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self {
 		self.world_mut().resource_mut::<SourceRegistry>().push(std::sync::Arc::new(source));
 		self
 	}
 
-	fn set_voxel_lod_generator<G: VoxelLodGenerator + 'static>(&mut self, generator: G) -> &mut Self {
-		self.world_mut().resource_mut::<SourceRegistry>().set_lod_generator(std::sync::Arc::new(generator));
+	fn register_voxel_lod_generator<D: VoxelLodGenerator + 'static>(&mut self, generator: D) -> &mut Self {
+		self.world_mut().resource_mut::<SourceRegistry>().register_lod_generator(std::sync::Arc::new(generator));
 		self
 	}
 }

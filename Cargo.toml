@@ -14,6 +14,7 @@ members = [
 	"crates/voxel-raster-renderer",
 	"crates/voxel-physics",
 	"crates/voxel-content",
+	"crates/basic-voxel",
 	"crates/voxel-app",
 	"crates/voxel-engine",
 	"crates/bevy-web-worker",

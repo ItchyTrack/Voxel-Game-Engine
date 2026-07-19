@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use bevy::math::IVec3;
 use voxel_data::voxel_grid_tree::VoxelGridTree;
-use voxel_data::voxels::VoxelPalette;
+use voxel_data::voxels::{Voxel, VoxelPalette, VoxelTypeInfo};
+
+use crate::voxel_color::VoxelColorReaders;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -72,18 +74,20 @@ fn palette_index_for_color(
 	nearest_palette_index(color, palette_vec)
 }
 
-pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, palette: &VoxelPalette) -> (Vec<u8>, Vec<u8>, u32) {
+pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, palette: &VoxelPalette, voxel_type: VoxelTypeInfo, color_readers: &VoxelColorReaders) -> (Vec<u8>, Vec<u8>, u32) {
 	let mut faces = Vec::new();
 	let mut palette_vec: Vec<[u8; 4]> = Vec::new();
 	let mut palette_map: HashMap<[u8; 4], u8> = HashMap::new();
 	let mut palette_overflowed = false;
 
 	for (pos, size, voxel_id) in grid_tree.iter() {
-		let Some(voxel) = palette.voxel(voxel_id) else { continue; };
+		let Some(raw) = palette.raw(voxel_id) else { continue; };
+		let voxel = Voxel::new(voxel_type.id, raw.to_vec());
+		let Some(color) = color_readers.color(&voxel) else { continue; };
 		let size_u32 = size as u32;
 		let size_i32 = size as i32;
 		let position = [pos.x as u32, pos.y as u32, pos.z as u32];
-		let palette_index = palette_index_for_color(voxel.color, &mut palette_map, &mut palette_vec, &mut palette_overflowed);
+		let palette_index = palette_index_for_color(color, &mut palette_map, &mut palette_vec, &mut palette_overflowed);
 
 		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::X * size), IVec3::new(1, size_i32, size_i32)) {
 			faces.push(MeshFace::new(position, size_u32, palette_index, 0));

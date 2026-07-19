@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use bevy::prelude::*;
+use basic_voxel::BasicVoxel;
 use tracy_client::span;
 use voxel_data::grid::{Grid, GridId};
 use voxel_edit::GridEdits;
@@ -20,7 +21,7 @@ impl Plugin for ProceduralPlanetPlugin {
 	fn build(&self, app: &mut App) {
 		let _ = planet_tiles();
 		let grids = Arc::new(OnceLock::new());
-		app.register_source(ProceduralPlanetSource {
+		app.register_voxel_source(ProceduralPlanetSource {
 			grids: grids.clone(),
 			handle: OnceLock::new(),
 		})
@@ -115,7 +116,7 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 		let grid_entity = commands
 			.spawn((
 				transform,
-				Grid::new(),
+				Grid::new::<BasicVoxel>(),
 				VoxelCollider,
 				GridEdits::default(),
 				ReplicateVoxels,

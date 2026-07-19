@@ -10,7 +10,9 @@ pub mod sparse_set;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
-use voxel_data::grid::Grid;
+use std::{collections::HashMap, sync::Arc};
+
+use voxel_data::{grid::Grid, voxels::{VoxelRef, VoxelType, VoxelTypeId}};
 
 pub use constraints::BallJoint;
 pub use collision::{Collisions, PhysicsConsumer};
@@ -50,7 +52,25 @@ pub enum PhysicsSet {
 	Solving,
 }
 
+type VoxelMassReader = Arc<dyn Fn(&VoxelRef) -> Option<f64> + Send + Sync>;
+
+#[derive(Resource, Default, Clone)]
+pub struct VoxelMassReaders {
+	readers: HashMap<VoxelTypeId, VoxelMassReader>,
+}
+
+impl VoxelMassReaders {
+	pub fn register<T: VoxelType>(&mut self, mass: impl Fn(&T) -> f64 + Send + Sync + 'static) {
+		self.readers.insert(T::TYPE_INFO.id, Arc::new(move |voxel| Some(mass(&T::from_voxel_ref(voxel)))));
+	}
+
+	pub fn mass(&self, voxel: &VoxelRef) -> Option<f64> {
+		self.readers.get(&voxel.type_id()).and_then(|reader| reader(voxel))
+	}
+}
+
 pub trait VoxelPhysicsAppExt {
+	fn register_voxel_mass<T: VoxelType>(&mut self, mass: impl Fn(&T) -> f64 + Send + Sync + 'static) -> &mut Self;
 	fn add_physics_apply_systems<M>(
 		&mut self,
 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
@@ -74,6 +94,14 @@ pub fn physics_not_frozen(freeze: Res<FreezePhysics>) -> bool {
 }
 
 impl VoxelPhysicsAppExt for App {
+	fn register_voxel_mass<T: VoxelType>(&mut self, mass: impl Fn(&T) -> f64 + Send + Sync + 'static) -> &mut Self {
+		if !self.world().contains_resource::<VoxelMassReaders>() {
+			self.init_resource::<VoxelMassReaders>();
+		}
+		self.world_mut().resource_mut::<VoxelMassReaders>().register::<T>(mass);
+		self
+	}
+
 	fn add_physics_apply_systems<M>(
 		&mut self,
 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
@@ -114,6 +142,7 @@ impl Plugin for VoxelPhysicsPlugin {
 	fn build(&self, app: &mut App) {
 		use voxel_streaming::VoxelStreamingAppExt;
 		app.init_resource::<FreezePhysics>()
+			.init_resource::<VoxelMassReaders>()
 			.insert_resource(Time::<Fixed>::from_hz(120.0))
 			.configure_sets(
 				FixedUpdate,
@@ -160,6 +189,7 @@ fn compute_mass_properties(
 	mut bodies: Query<(&Children, &mut Mass, &mut CenterOfMass, &mut RotationalInertia), With<RigidBody>>,
 	grids: Query<(&Transform, &Grid), (With<VoxelMass>, With<Grid>)>,
 	changed_grids: Query<(), (With<VoxelMass>, With<Grid>, Changed<Grid>)>,
+	mass_readers: Res<VoxelMassReaders>,
 ) {
 	if changed_grids.is_empty() { return; }
 
@@ -173,11 +203,10 @@ fn compute_mass_properties(
 		for child in children.iter() {
 			let Ok((grid_pose, grid)) = grids.get(child) else { continue };
 			for sub_grid in grid.subgrids() {
-				let palette = sub_grid.voxels().palette();
 				let sub_pos = sub_grid.sub_grid_pos().as_dvec3();
 				for (voxel_pos, count, palette_id) in sub_grid.voxels().grid_tree().iter() {
-					let Some(voxel) = palette.voxel(palette_id) else { continue };
-					let m = voxel.mass as f64;
+					let Some(voxel) = sub_grid.voxels().voxel_for_palette_id(palette_id) else { continue };
+					let Some(m) = mass_readers.mass(&voxel) else { continue };
 					let base = sub_pos + voxel_pos.as_dvec3();
 					let run = count as i32;
 					for dx in 0..run { for dy in 0..run { for dz in 0..run {

@@ -18,7 +18,7 @@ use crate::voxel_gpu_state::{
 	VoxelGpuBounds, VoxelGpuState,
 };
 use crate::world_gpu_data::WorldGpuData;
-use crate::{VoxelGpuFormat, VoxelGpuUploadFinished};
+use crate::{VoxelColorReaders, VoxelGpuFormat, VoxelGpuUploadFinished};
 
 #[derive(Resource, Default)]
 pub(crate) struct InFlightRayUploads(HashSet<Entity>);
@@ -117,6 +117,7 @@ pub(crate) fn manage_ray_gpu_uploads(
 	cameras: Query<(&Camera, &GlobalTransform, Option<&VoxelGpuFormat>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
+	color_readers: Res<VoxelColorReaders>,
 ) {
 	let _zone = span!("GPU uploads: schedule ray sub-grids");
 	let Some(camera_world) = active_camera_world_position(VoxelGpuFormat::Volume, &cameras) else { return; };
@@ -142,13 +143,15 @@ pub(crate) fn manage_ray_gpu_uploads(
 		in_flight.0.insert(entity);
 		commands.entity(entity).remove::<NeedsRayReupload>();
 
+		let voxel_type = view.voxels().voxel_type_info();
 		let palette = view.voxels().palette().clone();
 		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
+		let color_readers = color_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build ray sub-grid");
-			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette);
+			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, voxel_type, &color_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply ray sub-grid");
 				apply_ray_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
@@ -163,6 +166,7 @@ pub(crate) fn manage_ray_lod_uploads(
 	cameras: Query<(&Camera, &GlobalTransform, Option<&VoxelGpuFormat>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
+	color_readers: Res<VoxelColorReaders>,
 ) {
 	if active_camera_world_position(VoxelGpuFormat::Volume, &cameras).is_none() { return; }
 	let _zone = span!("GPU uploads: schedule ray LODs");
@@ -177,14 +181,16 @@ pub(crate) fn manage_ray_lod_uploads(
 
 		in_flight.0.insert(entity);
 
+		let voxel_type = lod_voxels.voxels.voxel_type_info();
 		let palette = lod_voxels.voxels.palette().clone();
 		let voxels = lod_voxels.voxels.grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let priority = lod_voxels.priority;
+		let color_readers = color_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build ray LOD");
-			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette);
+			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, voxel_type, &color_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply ray LOD");
 				apply_ray_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
@@ -202,6 +208,7 @@ pub(crate) fn manage_raster_gpu_uploads(
 	cameras: Query<(&Camera, &GlobalTransform, Option<&VoxelGpuFormat>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
+	color_readers: Res<VoxelColorReaders>,
 ) {
 	let _zone = span!("GPU uploads: schedule raster sub-grids");
 	let Some(camera_world) = active_camera_world_position(VoxelGpuFormat::Surface, &cameras) else { return; };
@@ -223,13 +230,15 @@ pub(crate) fn manage_raster_gpu_uploads(
 		in_flight.0.insert(entity);
 		commands.entity(entity).remove::<NeedsRasterReupload>();
 
+		let voxel_type = view.voxels().voxel_type_info();
 		let palette = view.voxels().palette().clone();
 		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
+		let color_readers = color_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build raster sub-grid");
-			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette);
+			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette, voxel_type, &color_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply raster sub-grid");
 				apply_raster_upload(world, entity, bounds, &face_buffer, &palette_buffer, face_count);
@@ -244,6 +253,7 @@ pub(crate) fn manage_raster_lod_uploads(
 	cameras: Query<(&Camera, &GlobalTransform, Option<&VoxelGpuFormat>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
+	color_readers: Res<VoxelColorReaders>,
 ) {
 	if active_camera_world_position(VoxelGpuFormat::Surface, &cameras).is_none() { return; }
 	let _zone = span!("GPU uploads: schedule raster LODs");
@@ -254,14 +264,16 @@ pub(crate) fn manage_raster_lod_uploads(
 
 		let Some((bounds_min, bounds_max)) = lod_voxels.voxels.bounding_box() else { continue; };
 		let bounds = VoxelGpuBounds { min: bounds_min, max: bounds_max };
+		let voxel_type = lod_voxels.voxels.voxel_type_info();
 		let palette = lod_voxels.voxels.palette().clone();
 		let voxels = lod_voxels.voxels.grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let priority = lod_voxels.priority;
+		let color_readers = color_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build raster LOD");
-			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette);
+			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette, voxel_type, &color_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply raster LOD");
 				apply_raster_upload(world, entity, bounds, &face_buffer, &palette_buffer, face_count);

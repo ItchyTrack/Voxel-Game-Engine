@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use basic_voxel::BasicVoxel;
 use voxel_content::{StreamingVoxels, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_edit::GridEdits;
@@ -14,7 +15,7 @@ pub fn spawn_grid(
 	extra: impl Bundle,
 ) {
 	let child = commands
-		.spawn((transform, Grid::new(), GridEdits::default(), ReplicateVoxels, extra))
+		.spawn((transform, Grid::new::<BasicVoxel>(), GridEdits::default(), ReplicateVoxels, extra))
 		.id();
 	if let Some(parent) = parent { commands.entity(parent).add_child(child); }
 

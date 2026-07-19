@@ -5,7 +5,7 @@ use bevy::tasks::ComputeTaskPool;
 use tracy_client::span;
 
 use crate::grid::{Grid, SubGridSlot};
-use crate::voxels::Voxels;
+use crate::voxels::{VoxelTypeInfo, Voxels};
 
 pub struct GridSplat<'a> {
 	pub grid: usize,
@@ -24,6 +24,7 @@ struct SourceSlice<'a> {
 struct SubGridSplatJob<'a> {
 	grid: usize,
 	sub_origin: IVec3,
+	voxel_type_info: VoxelTypeInfo,
 	existing: Option<Voxels>,
 	slices: Vec<SourceSlice<'a>>,
 }
@@ -89,6 +90,7 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 		.map(|group| SubGridSplatJob {
 			grid: group.grid,
 			sub_origin: group.sub_origin,
+			voxel_type_info: grids[group.grid].voxel_type_info(),
 			existing: grids[group.grid].subgrids.get(&group.sub_origin).map(|slot| slot.voxels.clone()),
 			slices: group.slices,
 		})
@@ -100,7 +102,7 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 		for job in jobs {
 			scope.spawn(async move {
 				let _zone = span!("build one subgrid splat");
-				let mut destination = job.existing.unwrap_or_else(Voxels::new);
+				let mut destination = job.existing.unwrap_or_else(|| Voxels::new_with_type(job.voxel_type_info));
 				for slice in job.slices {
 					let source_region = crate::grid_tree::GridRegion::from_min_size(slice.source_min.as_ivec3(), slice.source_size.as_ivec3()).unwrap();
 					destination.merge_region_from(slice.voxels, Some(source_region), slice.base - job.sub_origin);
@@ -118,7 +120,7 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 		if let Some(slot) = grid.subgrids.get_mut(&result.sub_origin) {
 			slot.voxels = result.voxels;
 		} else {
-			let mut slot = SubGridSlot::new_default(result.sub_origin);
+			let mut slot = SubGridSlot::new_default(result.sub_origin, grid.voxel_type_info());
 			slot.voxels = result.voxels;
 			grid.subgrids.insert(result.sub_origin, slot);
 		}

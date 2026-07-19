@@ -1,9 +1,11 @@
 use bevy::math::U16Vec3;
 use bevy::prelude::*;
 use tracy_client::span;
-use voxel_data::voxels::{Voxel, Voxels};
+use voxel_data::voxels::{Voxel, VoxelPalette, VoxelType, Voxels};
 use voxel_sources::CancellationToken;
 use voxel_streaming::{CHUNK_SIZE, chunk_origin};
+
+use basic_voxel::BasicVoxel;
 
 use super::config::{PLANET_RADIUS, TILE_INWARD_DEPTH, TILE_OUTWARD_HEIGHT, TILE_SHAPE_EPSILON};
 use super::terrain::{terrain_color, terrain_sample};
@@ -69,8 +71,10 @@ fn points_to_voxels(points: Vec<(U16Vec3, Voxel)>) -> Option<Voxels> {
 	if points.is_empty() {
 		None
 	} else {
-		let mut voxels = Voxels::new();
-		voxels.add_voxels(&points);
+		let mut palette = VoxelPalette::new::<BasicVoxel>();
+		let palette_points: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, palette.palette_id(voxel.get_ref()))).collect();
+		let mut voxels = Voxels::new::<BasicVoxel>();
+		voxels.add_voxels(&palette_points, &palette);
 		Some(voxels)
 	}
 }
@@ -134,15 +138,7 @@ fn append_planet_samples(
 
 				points.push((
 					IVec3::new(x, y, z).as_u16vec3(),
-					Voxel {
-						color: [
-							200,
-							100,
-							30,
-							255
-						],
-						mass,
-					},
+					BasicVoxel { color: [200, 100, 30, 255], mass }.into_voxel(),
 				));
 			}
 		}

@@ -15,7 +15,7 @@ use voxel_streaming::CHUNK_SIZE;
 /// Coordinates are grid-local voxel coordinates. Negative distances are solid,
 /// positive distances are empty, and zero is treated as solid.
 pub trait VoxelSdf: Sdf + Send + Sync + 'static {
-	fn voxel(&self, pos: Vec3) -> Voxel;
+	fn voxel(&self) -> &Voxel;
 
 	fn bounds(&self) -> Option<(Vec3, Vec3)> {
 		None
@@ -129,14 +129,15 @@ impl SdfSource {
 			}
 		};
 
-		let mut voxels = Voxels::new();
+		let voxel = binding.sdf.voxel();
+		let mut voxels = Voxels::new_with_type(voxel.type_info());
 		voxels.apply_sdf(
 			Vec3::ZERO,
 			extent.as_vec3(),
 			&local_sdf,
 			IVec2::splat(9),
 			8,
-			binding.sdf.voxel(origin),
+			voxel.get_ref(),
 		);
 		(!voxels.is_empty()).then_some(voxels)
 	}

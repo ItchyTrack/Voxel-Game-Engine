@@ -4,17 +4,16 @@ use std::{
 };
 
 use bevy::{math::U16Vec3, prelude::*};
+use basic_voxel::{BasicVoxel, downsample_region};
 use voxel_data::{
 	grid::{Grid, GridId},
-	voxels::{Voxel, Voxels},
+	voxels::{Voxel, VoxelPalette, VoxelType, Voxels},
 };
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{GridStreaming, chunk_of, chunk_origin};
-
-use super::lod_downsample::downsample_region;
 
 const SOURCE_COST: u32 = 2;
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
@@ -70,7 +69,7 @@ impl Plugin for TreeSourcePlugin {
 	fn build(&self, app: &mut App) {
 		let grid = Arc::new(OnceLock::new());
 		let bounds = estimated_chunk_bounds(self.settings);
-		app.register_source(TreeSource { grid: grid.clone(), settings: self.settings, bounds, model: OnceLock::new(), handle: OnceLock::new() })
+		app.register_voxel_source(TreeSource { grid: grid.clone(), settings: self.settings, bounds, model: OnceLock::new(), handle: OnceLock::new() })
 			.insert_resource(TreeGrid { grid, bounds, position: self.position })
 			.add_systems(Startup, spawn_tree);
 	}
@@ -146,7 +145,7 @@ impl ChunkSource for TreeSource {
 			return;
 		}
 		if let Some(handle) = self.handle.get() {
-			handle.loaded_lod(grid, min, size, lod, generation, (!voxels.is_empty()).then_some(voxels));
+			handle.loaded_lod(grid, min, size, lod, generation, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
 		}
 	}
 }
@@ -157,7 +156,7 @@ fn spawn_tree(mut commands: Commands, tree: Res<TreeGrid>) {
 	let mut streaming = GridStreaming::default();
 	streaming.mark_present_area(tree.bounds.min, tree.bounds.size());
 
-	let grid = commands.spawn((Transform::IDENTITY, Grid::new(), GridEdits::default(), ReplicateVoxels, VoxelCollider, streaming)).id();
+	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEdits::default(), ReplicateVoxels, VoxelCollider, streaming)).id();
 	let _ = tree.grid.set(grid);
 	commands.entity(body).add_child(grid);
 }
@@ -304,8 +303,10 @@ fn rasterize_tree_chunk(model: &TreeModel, chunk: IVec3, cancellation: &Cancella
 	let mut points = points.into_iter().collect::<Vec<_>>();
 	points.sort_unstable_by_key(|(position, _)| (position.z, position.y, position.x));
 	let points = points.into_iter().map(|(position, voxel)| ((position - origin).as_u16vec3(), voxel)).collect::<Vec<(U16Vec3, Voxel)>>();
-	let mut voxels = Voxels::new();
-	voxels.add_voxels(&points);
+	let mut palette = VoxelPalette::new::<BasicVoxel>();
+	let palette_points: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, palette.palette_id(voxel.get_ref()))).collect();
+	let mut voxels = Voxels::new::<BasicVoxel>();
+	voxels.add_voxels(&palette_points, &palette);
 	Some(voxels)
 }
 
@@ -412,10 +413,10 @@ fn rasterize_segment(voxels: &mut HashMap<IVec3, Voxel>, start: Vec3, end: Vec3,
 	let steps = (delta.length() * 2.0).ceil().max(1.0) as usize;
 	for step in 0..=steps {
 		let center = start.lerp(end, step as f32 / steps as f32);
-		rasterize_sphere(voxels, center, radius.max(1.0), bounds, |position| Voxel {
+		rasterize_sphere(voxels, center, radius.max(1.0), bounds, |position| BasicVoxel {
 			color: WOOD_COLORS[(point_hash(position, 0) % WOOD_COLORS.len() as u64) as usize],
 			mass: 100,
-		});
+		}.into_voxel());
 	}
 }
 
@@ -437,7 +438,7 @@ fn rasterize_leaves(voxels: &mut HashMap<IVec3, Voxel>, center: Vec3, radius: f3
 				if distance > radius - 1.0 && hash.is_multiple_of(5) {
 					continue;
 				}
-				voxels.entry(position).or_insert(Voxel { color: LEAF_COLORS[(hash % LEAF_COLORS.len() as u64) as usize], mass: 10 });
+				voxels.entry(position).or_insert(BasicVoxel { color: LEAF_COLORS[(hash % LEAF_COLORS.len() as u64) as usize], mass: 10 }.into_voxel());
 			}
 		}
 	}
@@ -502,8 +503,8 @@ mod tests {
 		assert!(model.primitive_index.keys().all(|&chunk| estimated_bounds.contains(chunk)));
 
 		let voxels = rasterize_tree_voxels(&model);
-		let leaves = voxels.values().filter(|voxel| LEAF_COLORS.contains(&voxel.color)).count();
-		let wood = voxels.values().filter(|voxel| WOOD_COLORS.contains(&voxel.color)).count();
+		let leaves = voxels.values().filter(|voxel| LEAF_COLORS.contains(&BasicVoxel::from_voxel(voxel).color)).count();
+		let wood = voxels.values().filter(|voxel| WOOD_COLORS.contains(&BasicVoxel::from_voxel(voxel).color)).count();
 		assert!(voxels.contains_key(&IVec3::ZERO));
 		assert!(leaves > wood);
 		assert!(voxels.keys().any(|position| position.y > 50));

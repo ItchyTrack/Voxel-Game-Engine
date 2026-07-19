@@ -41,7 +41,7 @@ impl GridEdit {
 	}
 	pub fn voxel(&self) -> Option<Voxel> {
 		match self {
-			GridEdit::Add { voxel, .. } => Some(*voxel),
+			GridEdit::Add { voxel, .. } => Some(voxel.clone()),
 			GridEdit::Remove { .. } | GridEdit::ApplySdf { .. } | GridEdit::ClearSdf { .. } => None,
 		}
 	}
@@ -54,7 +54,7 @@ pub struct GridEdits {
 
 impl GridEdits {
 	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) {
-		self.pending.push(GridEdit::Add { voxel_pos: *voxel_pos, voxel: *voxel });
+		self.pending.push(GridEdit::Add { voxel_pos: *voxel_pos, voxel: voxel.clone() });
 	}
 
 	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) {
@@ -132,13 +132,13 @@ pub fn apply_grid_edits(
 
 			match &edit {
 				GridEdit::Add { voxel_pos, voxel } => {
-					touched.insert(grid.set_voxel(*voxel_pos, Some(*voxel)));
+					touched.insert(grid.set_voxel(*voxel_pos, Some(voxel.get_ref())));
 				}
 				GridEdit::Remove { voxel_pos } => {
 					touched.insert(grid.set_voxel(*voxel_pos, None));
 				}
 				GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
-					touched.extend(grid.apply_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations, *voxel));
+					touched.extend(grid.apply_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations, voxel.get_ref()));
 				}
 				GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution, iterations, sdf } => {
 					touched.extend(grid.clear_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations));

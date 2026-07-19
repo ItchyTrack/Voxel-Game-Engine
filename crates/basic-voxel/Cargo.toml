@@ -1,0 +1,16 @@
+[package]
+name = "basic-voxel"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { workspace = true }
+voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-content = { version = "0.1.0", path = "../voxel-content" }
+voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
+voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
+voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
+voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
+
+[lints]
+workspace = true

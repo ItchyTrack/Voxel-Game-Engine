@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use voxel_data::grid::GridId;
-use voxel_data::voxels::Voxels;
+use voxel_data::voxels::{VoxelTypeId, Voxels};
 
 use crate::handle::SourceHandle;
 use voxel_tasks::CancellationToken;
@@ -10,7 +10,15 @@ use voxel_tasks::CancellationToken;
 pub struct SourceId(pub usize);
 
 pub trait VoxelLodGenerator: Send + Sync {
-	fn generate(&self, voxels: &Voxels, lod: f32) -> Option<Voxels>;
+	fn input_type_id(&self) -> VoxelTypeId;
+
+	fn generate(
+		&self,
+		min: IVec3,
+		size: IVec3,
+		lod: f32,
+		fetch: &dyn Fn(IVec3) -> Option<Voxels>,
+	) -> Option<Voxels>;
 }
 
 /// A source of voxel chunks. Methods take `&self` and are called concurrently from the

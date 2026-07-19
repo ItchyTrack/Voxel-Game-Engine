@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use basic_voxel::BasicVoxel;
 use lightyear::prelude::*;
 use lightyear::prelude::client::{ClientPlugins, Connect, NetcodeClient};
 use voxel_data::grid::Grid;
@@ -66,7 +67,7 @@ fn init_replicated_grids(
 ) {
 	for (entity, network_transform) in &grids {
 		commands.entity(entity).insert((
-			Grid::new(),
+			Grid::new::<BasicVoxel>(),
 			GridStreaming::default(),
 			GridEdits::default(),
 			RequestChunkPresence,

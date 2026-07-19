@@ -4,7 +4,7 @@ use bevy::math::{IVec3, U16Vec3, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
-use voxel_data::voxels::{Voxel, Voxels};
+use voxel_data::voxels::{Voxel, VoxelPalette, VoxelType, Voxels};
 use voxel_edit::GridEdits;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
@@ -12,7 +12,7 @@ use voxel_data::grid::GridId;
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
 use voxel_lightyear::ReplicateVoxels;
-
+use basic_voxel::BasicVoxel;
 
 const RADIUS: i32 = 2_000;
 const COST: u32 = 5;
@@ -63,13 +63,15 @@ fn region_intersects(min: Vec3, max: Vec3) -> bool {
 
 fn sphere_voxel_unchecked(world: IVec3, mass: u32) -> Voxel {
 	let normal = world.as_vec3().normalize_or_zero();
-	let color = [
-		((normal.x * 0.5 + 0.5) * 255.0) as u8,
-		((normal.y * 0.5 + 0.5) * 255.0) as u8,
-		((normal.z * 0.5 + 0.5) * 255.0) as u8,
-		255,
-	];
-	Voxel { color, mass }
+	BasicVoxel {
+		color: [
+			((normal.x * 0.5 + 0.5) * 255.0) as u8,
+			((normal.y * 0.5 + 0.5) * 255.0) as u8,
+			((normal.z * 0.5 + 0.5) * 255.0) as u8,
+			255,
+		],
+		mass: 0,
+	}.into_voxel()
 }
 
 fn build_chunk(chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels> {
@@ -99,14 +101,17 @@ fn build_chunk(chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels>
 	if points.is_empty() {
 		None
 	} else {
-		let mut voxels = Voxels::new();
-		voxels.add_voxels(&points);
+		let mut palette = VoxelPalette::new::<BasicVoxel>();
+		let palette_points: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, palette.palette_id(voxel.get_ref()))).collect();
+		let mut voxels = Voxels::new::<BasicVoxel>();
+		voxels.add_voxels(&palette_points, &palette);
 		Some(voxels)
 	}
 }
 
 fn quantized_lod_voxel(voxel: Voxel) -> Voxel {
-	Voxel {
+	let voxel = BasicVoxel::from_voxel(&voxel);
+	BasicVoxel {
 		color: [
 			quantize_channel(voxel.color[0], 6),
 			quantize_channel(voxel.color[1], 6),
@@ -114,7 +119,7 @@ fn quantized_lod_voxel(voxel: Voxel) -> Voxel {
 			255,
 		],
 		mass: 0,
-	}
+	}.into_voxel()
 }
 
 fn quantize_channel(value: u8, levels: u8) -> u8 {
@@ -131,6 +136,7 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &Cancellati
 	let origin = chunk_origin(min);
 	let max_source = size * CHUNK_SIZE - IVec3::ONE;
 	let r2 = radius2();
+	let mut palette = VoxelPalette::new::<BasicVoxel>();
 	let mut areas = Vec::new();
 
 	for z in 0..extent.z {
@@ -150,15 +156,16 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &Cancellati
 
 			let mid_y = ((y0 + y1) / 2 * step + sample_offset).min(max_source.y);
 			let voxel = quantized_lod_voxel(sphere_voxel_unchecked(origin + IVec3::new(sample_x, mid_y, sample_z), 0));
-			areas.push((U16Vec3::new(x as u16, y0 as u16, z as u16), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), voxel));
+			let palette_id = palette.palette_id(voxel.get_ref());
+			areas.push((U16Vec3::new(x as u16, y0 as u16, z as u16), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), palette_id));
 		}
 	}
 
 	if areas.is_empty() {
 		None
 	} else {
-		let mut voxels = Voxels::new();
-		voxels.add_areas(&areas);
+		let mut voxels = Voxels::new::<BasicVoxel>();
+		voxels.add_areas(&areas, &palette);
 		Some(voxels)
 	}
 }
@@ -221,7 +228,7 @@ pub struct SphereSourcePlugin;
 impl Plugin for SphereSourcePlugin {
 	fn build(&self, app: &mut App) {
 		let grid = Arc::new(OnceLock::new());
-		app.register_source(SphereSource { grid: grid.clone(), handle: OnceLock::new() });
+		app.register_voxel_source(SphereSource { grid: grid.clone(), handle: OnceLock::new() });
 		app.insert_resource(SphereGrid(grid));
 		app.add_systems(Startup, spawn_sphere_grid);
 	}
@@ -247,7 +254,7 @@ fn spawn_sphere_grid(mut commands: Commands, grid: Res<SphereGrid>) {
 	let grid_entity = commands
 		.spawn((
 			Transform::IDENTITY,
-			Grid::new(),
+			Grid::new::<BasicVoxel>(),
 			ReplicateVoxels,
 			VoxelCollider,
 			GridEdits::default(),

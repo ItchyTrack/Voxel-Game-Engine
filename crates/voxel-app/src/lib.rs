@@ -24,6 +24,7 @@ use ui::crosshair::CrosshairPlugin;
 use ui::debug_toggles::DebugTogglesPlugin;
 use ui::debug_ui::DebugUiPlugin;
 use scene::gravity::GravityPlugin;
+use basic_voxel::BasicVoxelPlugin;
 use voxel_content::VoxelStoreSourcePlugin;
 #[cfg(not(target_arch = "wasm32"))]
 use networking::network_client::NetworkClientPlugin;
@@ -32,20 +33,11 @@ use networking::network_server::NetworkServerPlugin;
 use scene::scene::ScenePlugin;
 use scene::skybox::SkyboxPlugin;
 use voxel_engine::{VoxelCameraMode, VoxelEngineMode, VoxelEnginePlugins};
-use voxel_sources::VoxelSourcesAppExt;
 use scene::world_interaction::WorldInteractionPlugin;
 
-use crate::voxel::lod_downsample::AverageVoxelLodGenerator;
+
 use crate::voxel::planet_source::ProceduralPlanetPlugin;
 use crate::voxel::tree_source::TreeSourcePlugin;
-
-struct VoxelLodGeneratorPlugin;
-
-impl Plugin for VoxelLodGeneratorPlugin {
-	fn build(&self, app: &mut App) {
-		app.set_voxel_lod_generator(AverageVoxelLodGenerator);
-	}
-}
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,7 +89,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 	app.insert_resource(SelectedClientId(selected_client_id()));
 
 	app.add_plugins(VoxelEnginePlugins { mode })
-		.add_plugins(VoxelLodGeneratorPlugin)
+		.add_plugins(BasicVoxelPlugin)
 		.add_plugins(GravityPlugin)
 		.add_systems(Startup, setup);
 

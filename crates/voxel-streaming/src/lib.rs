@@ -7,7 +7,7 @@ mod consumer;
 mod lod_index;
 mod presence;
 mod streaming;
-mod systems;
+pub mod systems;
 mod edit;
 pub mod tile_index;
 

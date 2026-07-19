@@ -28,7 +28,7 @@ impl Plugin for ChunkSourcePlugin {
 			use voxel_sources::VoxelSourcesAppExt;
 			let client_chunk_source = ClientChunkSource::default();
 			app.insert_resource(client_chunk_source.clone())
-				.register_source(client_chunk_source)
+				.register_voxel_source(client_chunk_source)
 				.add_systems(
 					Update,
 					client_source::register_remote_voxel_grids.before(voxel_streaming::request_presence_for_new_grids),

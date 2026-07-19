@@ -7,12 +7,13 @@ use bevy_egui::input::EguiWantsInput;
 
 use std::sync::Arc;
 
-use voxel_data::voxels::Voxel;
+use voxel_data::voxels::VoxelType;
 use voxel_data::world_query::VoxelWorldQueryParam;
 use voxel_edit::GridEdits;
 use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, Velocity, VoxelPhysicsAppExt};
 
 use crate::audio::plugin::PlaySfx;
+use basic_voxel::BasicVoxel;
 
 pub struct WorldInteractionPlugin;
 
@@ -36,8 +37,8 @@ const HOLD_DISTANCE: f32 = 40.0;
 const PUSH_IMPULSE: f32 = 1_600_000.0;
 const MAX_GRAB_ACCEL: f32 = 8_000.0;
 
-const PLACE_VOXEL: Voxel = Voxel { color: [180, 180, 180, 255], mass: 100 };
-const PLACE_SDF_VOXEL: Voxel = Voxel { color: [80, 180, 255, 255], mass: 100 };
+const PLACE_VOXEL: BasicVoxel = BasicVoxel { color: [180, 180, 180, 255], mass: 100 };
+const PLACE_SDF_VOXEL: BasicVoxel = BasicVoxel { color: [80, 180, 255, 255], mass: 100 };
 const PLACE_SDF_RADIUS: f32 = 5.0;
 
 fn voxel_place_break_system(
@@ -60,7 +61,7 @@ fn voxel_place_break_system(
 
 	if place {
 		let pos = hit.voxel_pos + hit.normal;
-		edits.add_voxel(&pos, &PLACE_VOXEL);
+		edits.add_voxel(&pos, &PLACE_VOXEL.into_voxel());
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 		}
@@ -119,7 +120,7 @@ fn sdf_place_system(
 		let capsule = d.max(Vec2::ZERO).length() + d.x.max(d.y).min(0.0);
 		blob.max(-capsule)
 	});
-	edits.apply_sdf(center - Vec3::splat(reach), center + Vec3::splat(reach), PLACE_SDF_VOXEL, sdf);
+	edits.apply_sdf(center - Vec3::splat(reach), center + Vec3::splat(reach), PLACE_SDF_VOXEL.into_voxel(), sdf);
 	if let Some(sfx) = &mut sfx {
 		sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(center)));
 	}

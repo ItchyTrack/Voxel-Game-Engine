@@ -7,7 +7,7 @@ use std::{
 };
 
 use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
-use voxel_data::{grid::Grid, voxels::Voxels};
+use voxel_data::{grid::Grid, voxels::{VoxelTypeId, VoxelTypeInfo, Voxels}};
 use voxel_gpu::VoxelGpuUploadFinished;
 use voxel_streaming::{
 	ChunkAvailabilityChangeKind,
@@ -47,6 +47,10 @@ struct RefreshSchedule;
 
 const LOAD_LATENCY: u8 = 2;
 
+fn test_type_info() -> VoxelTypeInfo {
+	VoxelTypeInfo { id: VoxelTypeId(1), size_bytes: 1 }
+}
+
 fn apply_tile_delta(loader: &mut CameraVoxelLoader, added: &[TileKey], removed: &[TileKey]) -> (Vec<TileKey>, Vec<TileKey>) {
 	let mut acquire = Vec::new();
 	let mut release = Vec::new();
@@ -72,7 +76,7 @@ fn run_randomized_coverage_stress(seed: u64) {
 		.add_systems(ReceiveSchedule, receive_camera_voxel_loader_results)
 		.add_systems(RefreshSchedule, refresh_camera_voxel_loader_visibility);
 
-	let grid = app.world_mut().spawn((Grid::default(), GridStreaming::default(), GlobalTransform::default())).id();
+	let grid = app.world_mut().spawn((Grid::new_with_type(test_type_info()), GridStreaming::default(), GlobalTransform::default())).id();
 	let settings = CameraVoxelLoaderSettings { max_lod: 2, near_radius_chunks: 1, rings_per_lod: 1 };
 	let camera = app.world_mut().spawn((Camera3d::default(), CameraVoxelLoader::with_settings(settings), CameraVoxelLoaderConsumer::default())).id();
 	let mut rng = StressRng(seed);
@@ -119,7 +123,7 @@ fn run_randomized_coverage_stress(seed: u64) {
 				grid: key.grid,
 				chunk: key.min,
 				generation: 0,
-				voxels: Some(Voxels::new()),
+				voxels: Some(Voxels::new_with_type(test_type_info())),
 			});
 		}
 		let completed_lods = tick_pending(&mut pending_lods);
@@ -227,7 +231,7 @@ fn newly_present_lod0_chunk_keeps_lod1_coverage_until_it_loads() {
 
 	let mut streaming = GridStreaming::default();
 	streaming.mark_present(IVec3::ZERO);
-	let grid = app.world_mut().spawn((Grid::default(), streaming, GlobalTransform::default())).id();
+	let grid = app.world_mut().spawn((Grid::new_with_type(test_type_info()), streaming, GlobalTransform::default())).id();
 	let settings = CameraVoxelLoaderSettings { max_lod: 1, near_radius_chunks: 0, rings_per_lod: 1 };
 	let camera = app
 		.world_mut()
@@ -278,7 +282,7 @@ fn newly_present_lod0_chunk_keeps_lod1_coverage_until_it_loads() {
 		grid,
 		chunk: IVec3::ZERO,
 		generation: 0,
-		voxels: Some(Voxels::new()),
+		voxels: Some(Voxels::new_with_type(test_type_info())),
 	});
 	app.world_mut().run_schedule(StreamingSchedule);
 	app.world_mut().run_schedule(RefreshSchedule);
@@ -293,7 +297,7 @@ fn newly_present_lod0_chunk_keeps_lod1_coverage_until_it_loads() {
 		grid,
 		chunk: newly_present,
 		generation: 0,
-		voxels: Some(Voxels::new()),
+		voxels: Some(Voxels::new_with_type(test_type_info())),
 	});
 	app.world_mut().run_schedule(StreamingSchedule);
 	app.world_mut().run_schedule(RefreshSchedule);
@@ -319,7 +323,7 @@ fn church_flyover_never_opens_a_hole_or_strands_a_request() {
 
 	let mut streaming = GridStreaming::default();
 	streaming.mark_present_area(min, max - min + IVec3::ONE);
-	let grid = app.world_mut().spawn((Grid::default(), streaming, GlobalTransform::default())).id();
+	let grid = app.world_mut().spawn((Grid::new_with_type(test_type_info()), streaming, GlobalTransform::default())).id();
 	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 1, rings_per_lod: 1 };
 	let camera = app.world_mut().spawn((Camera3d::default(), CameraVoxelLoader::with_settings(settings), CameraVoxelLoaderConsumer::default())).id();
 
@@ -402,7 +406,7 @@ fn availability_addition_requests_the_newly_present_tile() {
 		.add_systems(RequestSchedule, update_camera_voxel_loader_requests)
 		.add_systems(RefreshSchedule, refresh_camera_voxel_loader_visibility);
 
-	let grid = app.world_mut().spawn((Grid::default(), GridStreaming::default(), GlobalTransform::default())).id();
+	let grid = app.world_mut().spawn((Grid::new_with_type(test_type_info()), GridStreaming::default(), GlobalTransform::default())).id();
 	let settings = CameraVoxelLoaderSettings { max_lod: 1, near_radius_chunks: 0, rings_per_lod: 1 };
 	let camera = app.world_mut().spawn((Camera3d::default(), CameraVoxelLoader::with_settings(settings))).id();
 	app.world_mut().run_schedule(RequestSchedule);
@@ -440,7 +444,7 @@ fn unwanted_in_flight_chunk_releases_before_its_late_empty_result() {
 
 	let mut streaming = GridStreaming::default();
 	streaming.mark_present(IVec3::ZERO);
-	let grid = app.world_mut().spawn((Grid::default(), streaming, GlobalTransform::default())).id();
+	let grid = app.world_mut().spawn((Grid::new_with_type(test_type_info()), streaming, GlobalTransform::default())).id();
 	let settings = CameraVoxelLoaderSettings { max_lod: 1, near_radius_chunks: 0, rings_per_lod: 1 };
 	let camera = app.world_mut().spawn((Camera3d::default(), CameraVoxelLoader::with_settings(settings))).id();
 	app.world_mut().run_schedule(RequestSchedule);
@@ -486,7 +490,7 @@ fn shared_chunk_presence_balances_each_camera_request() {
 
 	let mut streaming = GridStreaming::default();
 	streaming.mark_present(IVec3::ZERO);
-	let grid = app.world_mut().spawn((Grid::default(), streaming, GlobalTransform::default())).id();
+	let grid = app.world_mut().spawn((Grid::new_with_type(test_type_info()), streaming, GlobalTransform::default())).id();
 	let settings = CameraVoxelLoaderSettings { max_lod: 1, near_radius_chunks: 0, rings_per_lod: 1 };
 	let first = app.world_mut().spawn((Camera3d::default(), CameraVoxelLoader::with_settings(settings.clone()))).id();
 	let second = app.world_mut().spawn((Camera3d::default(), CameraVoxelLoader::with_settings(settings))).id();
@@ -506,7 +510,7 @@ fn shared_chunk_presence_balances_each_camera_request() {
 		grid,
 		chunk: key.min,
 		generation: 0,
-		voxels: Some(Voxels::new()),
+		voxels: Some(Voxels::new_with_type(test_type_info())),
 	});
 	app.world_mut().run_schedule(StreamingSchedule);
 	assert_eq!(app.world().entity(grid).get::<GridStreaming>().unwrap().state(key.min), Some(ChunkState::Loaded));
@@ -535,7 +539,7 @@ fn invisible_chunk_result_is_kept_while_desired_and_retired_after_departure() {
 		.init_schedule(RefreshSchedule)
 		.add_systems(RefreshSchedule, refresh_camera_voxel_loader_visibility);
 
-	let grid = app.world_mut().spawn((Grid::default(), GridStreaming::default())).id();
+	let grid = app.world_mut().spawn((Grid::new_with_type(test_type_info()), GridStreaming::default())).id();
 	let key = TileKey::chunk(grid, IVec3::ZERO);
 	let mut loader = CameraVoxelLoader::default();
 	apply_tile_delta(&mut loader, &[key], &[]);
@@ -567,7 +571,7 @@ fn availability_removal_retires_visible_lod_and_render_entity() {
 		.init_schedule(RefreshSchedule)
 		.add_systems(RefreshSchedule, refresh_camera_voxel_loader_visibility);
 
-	let grid = app.world_mut().spawn((Grid::default(), GridStreaming::default())).id();
+	let grid = app.world_mut().spawn((Grid::new_with_type(test_type_info()), GridStreaming::default())).id();
 	let key = TileKey { grid, lod: 1, min: IVec3::ZERO };
 	let render_entity = app.world_mut().spawn_empty().id();
 	let mut loader = CameraVoxelLoader::default();

@@ -3,12 +3,12 @@ use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
 use voxel_data::sdf::Sdf;
-use voxel_data::voxels::Voxel;
+use voxel_data::voxels::{Voxel, VoxelType};
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::VoxelSourcesAppExt;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
+use basic_voxel::BasicVoxel;
 use voxel_content::{SdfSource, SdfSourceOptions, VoxelSdf};
 
 const POWER: f32 = 8.0;
@@ -20,8 +20,16 @@ const SCALE: f32 = 480.0;
 const BOUNDS_RADIUS: f32 = SCALE * 1.75;
 const COST: u32 = 20;
 
-#[derive(Clone, Copy, Debug)]
-struct MandelbulbSdf;
+#[derive(Clone, Debug)]
+struct MandelbulbSdf {
+	voxel: Voxel,
+}
+
+impl Default for MandelbulbSdf {
+	fn default() -> Self {
+		Self { voxel: BasicVoxel { color: [220, 128, 128, 255], mass: 0 }.into_voxel() }
+	}
+}
 
 impl MandelbulbSdf {
 	fn local(pos: Vec3) -> Vec3 {
@@ -71,8 +79,8 @@ impl Sdf for MandelbulbSdf {
 }
 
 impl VoxelSdf for MandelbulbSdf {
-	fn voxel(&self, _pos: Vec3) -> Voxel {
-		Voxel { color: [220, 128, 128, 255], mass: 0 }
+	fn voxel(&self) -> &Voxel {
+		&self.voxel
 	}
 
 	fn bounds(&self) -> Option<(Vec3, Vec3)> {
@@ -84,14 +92,14 @@ pub fn spawn_mandelbulb_grid(mut commands: Commands, source: Res<SdfSource>) {
 	let entity = commands
 		.spawn((
 			Transform::from_translation(Vec3::new(0.0, 0.0, -1000.0)),
-			Grid::new(),
+			Grid::new::<BasicVoxel>(),
 			GridEdits::default(),
 			GridStreaming::default(),
 			RequestChunkPresence,
 			ReplicateVoxels,
 		))
 		.id();
-	source.set_grid_sdf_with_options(entity, MandelbulbSdf, SdfSourceOptions {
+	source.set_grid_sdf_with_options(entity, MandelbulbSdf::default(), SdfSourceOptions {
 		cost: COST,
 		sample_radius_scale: 1.0,
 	});

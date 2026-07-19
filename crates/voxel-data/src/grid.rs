@@ -5,10 +5,10 @@ use bevy::prelude::*;
 
 use tracy_client::span;
 
-use crate::bvh::BVH;
+use crate::{bvh::BVH, voxels::VoxelRef};
 use crate::sdf::Sdf;
 use crate::subgrid::{SubGrid, SubGridId, SubGridRef};
-use crate::voxels::{Voxel, Voxels};
+use crate::voxels::{VoxelType, VoxelTypeInfo, Voxels};
 
 // Temporary default sub-grid extent. New sub-grids still start on this grid, but
 // ownership is stored per sub-grid so future optimization can grow/shrink owned
@@ -27,8 +27,8 @@ pub(crate) struct SubGridSlot {
 }
 
 impl SubGridSlot {
-	pub(crate) fn new_default(sub_grid_pos: IVec3) -> Self {
-		Self { voxels: Voxels::new(), entity: Entity::PLACEHOLDER, owned_min: sub_grid_pos, owned_size: IVec3::splat(SUB_GRID_SIZE) }
+	pub(crate) fn new_default(sub_grid_pos: IVec3, voxel_type_info: VoxelTypeInfo) -> Self {
+		Self { voxels: Voxels::new_with_type(voxel_type_info), entity: Entity::PLACEHOLDER, owned_min: sub_grid_pos, owned_size: IVec3::splat(SUB_GRID_SIZE) }
 	}
 
 	fn owned_hi(&self) -> IVec3 {
@@ -48,21 +48,22 @@ impl SubGridSlot {
 
 #[derive(Debug, Component)]
 pub struct Grid {
+	voxel_type_info: VoxelTypeInfo,
 	pub(crate) subgrids: HashMap<IVec3, SubGridSlot>,
 	subgrid_bvh: Mutex<Option<BVH<IVec3>>>,
 	subgrid_bvh_dirty: AtomicBool,
 }
 
-impl Default for Grid {
-	fn default() -> Self {
-		Self { subgrids: HashMap::new(), subgrid_bvh: Mutex::new(None), subgrid_bvh_dirty: AtomicBool::new(false) }
-	}
-}
-
 impl Grid {
-	pub fn new() -> Self {
-		Self::default()
+	pub fn new<T: VoxelType>() -> Self {
+		Self::new_with_type(T::TYPE_INFO)
 	}
+
+	pub fn new_with_type(voxel_type_info: VoxelTypeInfo) -> Self {
+		Self { voxel_type_info, subgrids: HashMap::new(), subgrid_bvh: Mutex::new(None), subgrid_bvh_dirty: AtomicBool::new(false) }
+	}
+
+	pub fn voxel_type_info(&self) -> VoxelTypeInfo { self.voxel_type_info }
 
 	fn default_sub_grid_pos_of(pos: IVec3) -> IVec3 {
 		pos.div_euclid(IVec3::splat(SUB_GRID_SIZE)) * SUB_GRID_SIZE
@@ -198,17 +199,17 @@ impl Grid {
 			let world = sub_grid_pos + run_lo.as_ivec3();
 			areas.push(((world - out_min).as_u16vec3(), out_extent, id));
 		});
-		out.add_palette_areas(&areas, slot.voxels.palette());
+		out.add_areas(&areas, slot.voxels.palette());
 	}
 
 	/// Write (`Some`) or remove (`None`) a single voxel. Returns the touched
 	/// sub-grid position for [`reconcile_subgrids`].
-	pub fn set_voxel(&mut self, voxel_pos: IVec3, voxel: Option<Voxel>) -> IVec3 {
+	pub fn set_voxel(&mut self, voxel_pos: IVec3, voxel: Option<VoxelRef>) -> IVec3 {
 		let sub_grid_pos = self.sub_grid_pos_of(voxel_pos);
 		let local = Self::local_of(sub_grid_pos, voxel_pos);
 		match voxel {
 			Some(voxel) => {
-				self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos)).voxels.add_voxel(local, voxel);
+				self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos, self.voxel_type_info)).voxels.add_voxel(local, voxel);
 			}
 			None => {
 				if let Some(slot) = self.subgrids.get_mut(&sub_grid_pos) {
@@ -232,7 +233,7 @@ impl Grid {
 			let local = Self::local_of(sub_grid_pos, cell_lo);
 			let extent = (cell_hi - cell_lo).as_u16vec3();
 			if cell_lo == slot.owned_min && cell_hi == slot.owned_hi() {
-				slot.voxels = Voxels::new();
+				slot.voxels = Voxels::new_with_type(self.voxel_type_info);
 			} else {
 				slot.voxels.remove_area(local, extent);
 			}
@@ -246,7 +247,7 @@ impl Grid {
 
 	pub fn read_clear_area(&mut self, min: IVec3, size: IVec3) -> (HashSet<IVec3>, Voxels) {
 		let mut touched = HashSet::new();
-		let mut out = Voxels::new();
+		let mut out = Voxels::new_with_type(self.voxel_type_info);
 		if size.cmple(IVec3::ZERO).any() {
 			return (touched, out);
 		}
@@ -259,7 +260,7 @@ impl Grid {
 			let local = Self::local_of(sub_grid_pos, cell_lo);
 			let extent = (cell_hi - cell_lo).as_u16vec3();
 			if cell_lo == slot.owned_min && cell_hi == slot.owned_hi() {
-				slot.voxels = Voxels::new();
+				slot.voxels = Voxels::new_with_type(self.voxel_type_info);
 			} else {
 				slot.voxels.remove_area(local, extent);
 			}
@@ -273,7 +274,7 @@ impl Grid {
 
 	pub fn read_area(&self, min: IVec3, size: IVec3) -> Voxels {
 		let _span = span!();
-		let mut out = Voxels::new();
+		let mut out = Voxels::new_with_type(self.voxel_type_info);
 		if size.cmple(IVec3::ZERO).any() {
 			return out;
 		}
@@ -300,7 +301,7 @@ impl Grid {
 			let source_min = cell_lo - base;
 			let source_size = cell_hi - cell_lo;
 			let Some(source_region) = crate::grid_tree::GridRegion::from_min_size(source_min, source_size) else { continue };
-			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos));
+			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos, self.voxel_type_info));
 			slot.voxels.merge_region_from(src, Some(source_region), base - sub_grid_pos);
 			touched.insert(sub_grid_pos);
 		}
@@ -310,7 +311,7 @@ impl Grid {
 		touched
 	}
 
-	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, voxel: Voxel) -> HashSet<IVec3> {
+	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, voxel: VoxelRef) -> HashSet<IVec3> {
 		let mut touched = HashSet::new();
 		let min = initial_min.floor().as_ivec3();
 		let hi = initial_max.ceil().as_ivec3();
@@ -318,8 +319,8 @@ impl Grid {
 			let local_min = (cell_lo - sub_grid_pos).as_vec3();
 			let local_max = (cell_hi - sub_grid_pos).as_vec3();
 			let local_sdf = |p: Vec3| sdf.sample(p + sub_grid_pos.as_vec3());
-			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos));
-			slot.voxels.apply_sdf(local_min, local_max, &local_sdf, face_resolution, iterations, voxel);
+			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos, self.voxel_type_info));
+			slot.voxels.apply_sdf(local_min, local_max, &local_sdf, face_resolution, iterations, voxel.clone());
 			touched.insert(sub_grid_pos);
 		}
 		if !touched.is_empty() {
@@ -346,7 +347,7 @@ impl Grid {
 		touched
 	}
 
-	pub fn voxel(&self, voxel_pos: &IVec3) -> Option<&Voxel> {
+	pub fn voxel(&self, voxel_pos: &IVec3) -> Option<VoxelRef<'_>> {
 		let sub_grid_pos = self.sub_grid_pos_of(*voxel_pos);
 		self.subgrids.get(&sub_grid_pos)?.voxels.voxel(&Self::local_of(sub_grid_pos, *voxel_pos))
 	}
@@ -454,18 +455,23 @@ pub fn reconcile_subgrids(
 mod tests {
 	use super::*;
 	use bevy::math::U16Vec3;
+	use crate::voxels::Voxel;
+
+	fn test_type_info() -> VoxelTypeInfo {
+		VoxelTypeInfo { id: crate::voxels::VoxelTypeId(1), size_bytes: 8 }
+	}
 
 	fn vox(c: u8) -> Voxel {
-		Voxel { color: [c, c, c, 255], mass: 1 }
+		Voxel::new(test_type_info().id, [c, c, c, 255, 1, 0, 0, 0])
 	}
 
 	#[test]
 	fn splat_voxels_blocking_uses_tree_merge_for_empty_single_subgrid() {
 		bevy::tasks::ComputeTaskPool::get_or_init(|| bevy::tasks::TaskPoolBuilder::new().build());
-		let mut src = Voxels::new();
-		src.add_area(U16Vec3::ZERO, U16Vec3::splat(16), vox(7));
+		let mut src = Voxels::new_with_type(test_type_info());
+		src.add_area(U16Vec3::ZERO, U16Vec3::splat(16), vox(7).get_ref());
 
-		let mut grid = Grid::new();
+		let mut grid = Grid::new_with_type(test_type_info());
 		let touched = crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::ZERO, voxels: &src }]);
 
 		assert_eq!(touched.get(&0).cloned().unwrap_or_default(), HashSet::from([IVec3::ZERO]));
@@ -475,10 +481,10 @@ mod tests {
 
 	#[test]
 	fn splat_voxels_uses_tree_merge_for_empty_single_subgrid() {
-		let mut src = Voxels::new();
-		src.add_area(U16Vec3::ZERO, U16Vec3::splat(16), vox(7));
+		let mut src = Voxels::new_with_type(test_type_info());
+		src.add_area(U16Vec3::ZERO, U16Vec3::splat(16), vox(7).get_ref());
 
-		let mut grid = Grid::new();
+		let mut grid = Grid::new_with_type(test_type_info());
 		let touched = grid.splat_voxels(IVec3::ZERO, &src);
 
 		assert_eq!(touched, HashSet::from([IVec3::ZERO]));
@@ -489,30 +495,30 @@ mod tests {
 	#[test]
 	fn splat_voxels_reproduces_source() {
 		// Negative, non-aligned base so cells straddle sub-grid boundaries.
-		let mut src = Voxels::new();
+		let mut src = Voxels::new_with_type(test_type_info());
 		for x in 0..40 {
 			for y in 0..40 {
 				for z in 0..40 {
-					src.add_voxel(U16Vec3::new(x as u16, y as u16, z as u16), vox(1));
+					src.add_voxel(U16Vec3::new(x as u16, y as u16, z as u16), vox(1).get_ref());
 				}
 			}
 		}
 		for &(x, y, z, c) in &[(5i16, 60i16, 3i16, 2u8), (70, 1, 70, 3), (33, 33, 33, 4)] {
-			src.add_voxel(U16Vec3::new(x as u16, y as u16, z as u16), vox(c));
+			src.add_voxel(U16Vec3::new(x as u16, y as u16, z as u16), vox(c).get_ref());
 		}
 
 		let base = IVec3::new(-17, 5, -70);
-		let mut grid = Grid::new();
+		let mut grid = Grid::new_with_type(test_type_info());
 		grid.splat_voxels(base, &src);
 
 		let mut count = 0u64;
 		for (pos, size, id) in src.grid_tree().iter() {
-			let voxel = *src.palette().voxel(id).unwrap();
+			let voxel = src.voxel_for_palette_id(id).unwrap();
 			for dx in 0..size as i32 {
 				for dy in 0..size as i32 {
 					for dz in 0..size as i32 {
 						let p = base + pos.as_ivec3() + IVec3::new(dx, dy, dz);
-						assert_eq!(grid.voxel(&p), Some(&voxel), "mismatch at {p:?}");
+						assert_eq!(grid.voxel(&p), Some(voxel.clone()), "mismatch at {p:?}");
 						count += 1;
 					}
 				}
@@ -524,17 +530,17 @@ mod tests {
 
 	#[test]
 	fn apply_sdf_places_single_voxel_from_exact_bounds() {
-		let mut grid = Grid::new();
+		let mut grid = Grid::new_with_type(test_type_info());
 		let sdf = |q: Vec3| if (q - Vec3::new(16.5, 0.5, 0.5)).length() < 0.1 { -1.0 } else { 1.0 };
-		grid.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, vox(9));
-		assert_eq!(grid.voxel(&IVec3::new(16, 0, 0)), Some(&vox(9)));
+		grid.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, vox(9).get_ref());
+		assert_eq!(grid.voxel(&IVec3::new(16, 0, 0)), Some(vox(9).get_ref()));
 	}
 
 	#[test]
 	fn subgrid_area_queries_use_occupied_bounds() {
-		let mut grid = Grid::new();
-		grid.set_voxel(IVec3::new(1, 1, 1), Some(vox(1)));
-		grid.set_voxel(IVec3::new(65, 1, 1), Some(vox(2)));
+		let mut grid = Grid::new_with_type(test_type_info());
+		grid.set_voxel(IVec3::new(1, 1, 1), Some(vox(1).get_ref()));
+		grid.set_voxel(IVec3::new(65, 1, 1), Some(vox(2).get_ref()));
 
 		assert_eq!(grid.subgrid_origins_in_area(IVec3::ZERO, IVec3::splat(64)), vec![IVec3::ZERO]);
 		assert_eq!(grid.subgrid_origins_in_area(IVec3::new(64, 0, 0), IVec3::splat(64)), vec![IVec3::new(64, 0, 0)]);
@@ -544,9 +550,9 @@ mod tests {
 	#[test]
 	fn subgrid_bvh_stays_in_sync_after_blocking_splat() {
 		bevy::tasks::ComputeTaskPool::get_or_init(|| bevy::tasks::TaskPoolBuilder::new().build());
-		let mut src = Voxels::new();
-		src.add_area(U16Vec3::ZERO, U16Vec3::splat(8), vox(7));
-		let mut grid = Grid::new();
+		let mut src = Voxels::new_with_type(test_type_info());
+		src.add_area(U16Vec3::ZERO, U16Vec3::splat(8), vox(7).get_ref());
+		let mut grid = Grid::new_with_type(test_type_info());
 
 		crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::new(64, 0, 0), voxels: &src }]);
 

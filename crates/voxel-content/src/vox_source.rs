@@ -6,20 +6,31 @@ use bevy::ecs::resource::Resource;
 use bevy::math::{IVec3, Quat, U16Vec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
-use voxel_data::voxels::{Voxel, Voxels};
+use voxel_data::grid_tree::GridRegion;
+use voxel_data::voxels::{Voxel, VoxelPalette, VoxelTypeInfo, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::{CHUNK_SIZE, chunk_of};
 
-use crate::lod_downsample::downsample_region;
-
 const COST: u32 = 10;
 
-#[derive(Resource, Clone)]
-pub struct VoxFileSource {
-	inner: Arc<VoxFileSourceInner>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VoxMaterial {
+	pub palette_index: u8,
+	pub color: [u8; 4],
 }
 
-struct VoxFileSourceInner {
+pub trait VoxMaterialMapper: Clone + Send + Sync + 'static {
+	fn voxel_type_info(&self) -> VoxelTypeInfo;
+	fn voxel(&self, material: VoxMaterial) -> Voxel;
+}
+
+#[derive(Resource, Clone)]
+pub struct VoxFileSource<M: VoxMaterialMapper> {
+	inner: Arc<VoxFileSourceInner<M>>,
+}
+
+struct VoxFileSourceInner<M: VoxMaterialMapper> {
+	mapper: M,
 	handle: OnceLock<SourceHandle>,
 	bindings: RwLock<HashMap<GridId, GridBinding>>,
 	files: RwLock<HashMap<PathBuf, FileCache>>,
@@ -39,10 +50,11 @@ struct FileCache {
 	load_failed: bool,
 }
 
-impl VoxFileSource {
-	pub fn new() -> Self {
+impl<M: VoxMaterialMapper> VoxFileSource<M> {
+	pub fn new(mapper: M) -> Self {
 		Self {
 			inner: Arc::new(VoxFileSourceInner {
+				mapper,
 				handle: OnceLock::new(),
 				bindings: RwLock::new(HashMap::new()),
 				files: RwLock::new(HashMap::new()),
@@ -147,10 +159,11 @@ impl VoxFileSource {
 							}
 							let local = source_pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_u16vec3();
 							let palette = dot_vox_data.palette[voxel.i as usize];
-							current_points.push((local, Voxel {
+							let material = VoxMaterial {
+								palette_index: voxel.i,
 								color: [palette.r, palette.g, palette.b, palette.a],
-								mass: 100,
-							}));
+							};
+							current_points.push((local, self.inner.mapper.voxel(material)));
 							touched_bounds = Some(match touched_bounds {
 								Some((min, max)) => (min.min(chunk), max.max(chunk)),
 								None => (chunk, chunk),
@@ -168,8 +181,11 @@ impl VoxFileSource {
 		cache.available_area = touched_bounds.map(|(min, max)| (min, max - min + IVec3::ONE));
 
 		for (chunk, points) in chunk_points {
-			let mut voxels = Voxels::new();
-			voxels.add_voxels(&points);
+			let type_info = self.inner.mapper.voxel_type_info();
+			let mut palette = VoxelPalette::new_with_type(type_info);
+			let palette_points: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, palette.palette_id(voxel.get_ref()))).collect();
+			let mut voxels = Voxels::new_with_type(type_info);
+			voxels.add_voxels(&palette_points, &palette);
 			if let Ok(compressed) = CompressedVoxels::new(&voxels, 0) {
 				cache.chunks.insert(chunk, compressed);
 			}
@@ -188,35 +204,40 @@ impl VoxFileSource {
 		let source_chunk_min = source_min.div_euclid(IVec3::splat(CHUNK_SIZE));
 		let source_chunk_max = (source_max_exclusive - IVec3::ONE).div_euclid(IVec3::splat(CHUNK_SIZE));
 
-		let mut points = Vec::new();
+		let mut out = Voxels::new_with_type(self.inner.mapper.voxel_type_info());
 		for z in source_chunk_min.z..=source_chunk_max.z {
 			for y in source_chunk_min.y..=source_chunk_max.y {
 				for x in source_chunk_min.x..=source_chunk_max.x {
 					let source_chunk = IVec3::new(x, y, z);
-					let Some(source_voxels) = self.source_chunk(&binding.path, source_chunk) else { continue };
 					let source_chunk_origin = source_chunk * CHUNK_SIZE;
-					for (pos, run, id) in source_voxels.grid_tree().iter() {
-						let Some(voxel) = source_voxels.palette().voxel(id).copied() else { continue };
-						let base = source_chunk_origin + IVec3::new(pos.x as i32, pos.y as i32, pos.z as i32) + binding.offset;
-						let run = run as i32;
-						for dx in 0..run { for dy in 0..run { for dz in 0..run {
-							let grid_voxel = base + IVec3::new(dx, dy, dz);
-							if grid_voxel.cmplt(grid_chunk_origin).any() || grid_voxel.cmpge(grid_chunk_origin + IVec3::splat(CHUNK_SIZE)).any() {
-								continue;
-							}
-							points.push(((grid_voxel - grid_chunk_origin).as_u16vec3(), voxel));
-						}}}
-					}
+					let local_min = source_min.max(source_chunk_origin) - source_chunk_origin;
+					let local_max = source_max_exclusive.min(source_chunk_origin + IVec3::splat(CHUNK_SIZE)) - source_chunk_origin;
+					let local_size = local_max - local_min;
+					if local_size.cmple(IVec3::ZERO).any() { continue; }
+					let Some(source_voxels) = self.source_chunk(&binding.path, source_chunk) else { continue };
+					out.merge_region_from(
+						&source_voxels,
+						GridRegion::from_min_size(local_min, local_size),
+						source_chunk_origin + binding.offset - grid_chunk_origin,
+					);
 				}
 			}
 		}
-		if points.is_empty() {
-			None
-		} else {
-			let mut out = Voxels::new();
-			out.add_voxels(&points);
-			Some(out)
+		if out.is_empty() { None } else { Some(out) }
+	}
+
+	fn load_lod0_region(&self, binding: &GridBinding, min: IVec3, size: IVec3) -> Option<Voxels> {
+		let mut out = Voxels::new_with_type(self.inner.mapper.voxel_type_info());
+		for z in 0..size.z {
+			for y in 0..size.y {
+				for x in 0..size.x {
+					let local = IVec3::new(x, y, z);
+					let Some(voxels) = self.translated_chunk(binding, min + local) else { continue };
+					out.merge_from(&voxels, local * CHUNK_SIZE);
+				}
+			}
 		}
+		(!out.is_empty()).then_some(out)
 	}
 
 	fn translated_available_area(&self, binding: &GridBinding) -> Option<(IVec3, IVec3)> {
@@ -231,13 +252,7 @@ impl VoxFileSource {
 	}
 }
 
-impl Default for VoxFileSource {
-	fn default() -> Self {
-		Self::new()
-	}
-}
-
-impl ChunkSource for VoxFileSource {
+impl<M: VoxMaterialMapper> ChunkSource for VoxFileSource<M> {
 	fn init(&self, handle: SourceHandle) {
 		let _ = self.inner.handle.set(handle);
 	}
@@ -256,7 +271,8 @@ impl ChunkSource for VoxFileSource {
 		}
 	}
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Option<u32> {
+		if lod > 0.0 { return None; }
 		let binding = self.binding(grid)?;
 		let region_has_data = (0..size.z).any(|z| (0..size.y).any(|y| (0..size.x).any(|x| {
 			self.translated_chunk(&binding, min + IVec3::new(x, y, z)).is_some()
@@ -266,10 +282,7 @@ impl ChunkSource for VoxFileSource {
 
 	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let voxels = self.binding(grid).and_then(|binding| {
-			let region = downsample_region(min, size, lod, |chunk| self.translated_chunk(&binding, chunk));
-			(!region.is_empty()).then_some(region)
-		});
+		let voxels = self.binding(grid).and_then(|binding| self.load_lod0_region(&binding, min, size));
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, generation, voxels);
@@ -286,13 +299,26 @@ impl ChunkSource for VoxFileSource {
 	}
 }
 
-pub fn vox_file_source() -> VoxFileSource {
-	VoxFileSource::new()
+pub fn vox_file_source<M: VoxMaterialMapper>(mapper: M) -> VoxFileSource<M> {
+	VoxFileSource::new(mapper)
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[derive(Clone, Copy)]
+	struct TestMapper;
+
+	impl VoxMaterialMapper for TestMapper {
+		fn voxel_type_info(&self) -> VoxelTypeInfo {
+			VoxelTypeInfo { id: voxel_data::voxels::VoxelTypeId(42), size_bytes: 4 }
+		}
+
+		fn voxel(&self, material: VoxMaterial) -> Voxel {
+			Voxel::new(self.voxel_type_info().id, material.color)
+		}
+	}
 
 	fn church_path() -> PathBuf {
 		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../res/Church_Of_St_Sophia.vox")
@@ -300,7 +326,7 @@ mod tests {
 
 	#[test]
 	fn zero_offset_translation_preserves_source_chunk_positions_for_church() {
-		let source = VoxFileSource::new();
+		let source = VoxFileSource::new(TestMapper);
 		let path = church_path();
 		source.ensure_file_loaded(&path);
 		let binding = GridBinding { path: path.clone(), offset: IVec3::ZERO };
@@ -315,12 +341,12 @@ mod tests {
 			let raw_voxels: std::collections::HashMap<_, _> = raw
 				.grid_tree()
 				.iter()
-				.map(|(pos, _size, id)| (pos, *raw.palette().voxel(id).expect("raw palette")))
+				.map(|(pos, _size, id)| (pos, raw.voxel_for_palette_id(id).expect("raw palette")))
 				.collect();
 			let translated_voxels: std::collections::HashMap<_, _> = translated
 				.grid_tree()
 				.iter()
-				.map(|(pos, _size, id)| (pos, *translated.palette().voxel(id).expect("translated palette")))
+				.map(|(pos, _size, id)| (pos, translated.voxel_for_palette_id(id).expect("translated palette")))
 				.collect();
 			assert_eq!(raw_voxels, translated_voxels, "chunk {chunk:?} changed under zero-offset translation");
 		}
@@ -328,7 +354,7 @@ mod tests {
 
 	#[test]
 	fn zero_offset_available_area_matches_source_chunk_bounds_for_church() {
-		let source = VoxFileSource::new();
+		let source = VoxFileSource::new(TestMapper);
 		let path = church_path();
 		source.ensure_file_loaded(&path);
 		let binding = GridBinding { path: path.clone(), offset: IVec3::ZERO };

@@ -1,27 +1,31 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use voxel_data::voxels::{Voxel, Voxels};
+use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeInfo, Voxels};
 use voxel_streaming::{CHUNK_SIZE, chunk_of};
 
 use crate::VoxelSdf;
 
-#[derive(Default)]
 pub struct StreamingVoxels {
+	voxel_type_info: VoxelTypeInfo,
 	chunks: HashMap<IVec3, Voxels>,
 }
 
 impl StreamingVoxels {
-	pub fn new() -> Self {
-		Self::default()
+	pub fn new<T: VoxelType>() -> Self {
+		Self::new_with_type(T::TYPE_INFO)
+	}
+
+	pub fn new_with_type(voxel_type_info: VoxelTypeInfo) -> Self {
+		Self { voxel_type_info, chunks: HashMap::new() }
 	}
 
 	pub fn reserve(&mut self, _additional: usize) {}
 
-	pub fn add_voxel(&mut self, pos: &IVec3, voxel: &Voxel) {
+	pub fn add_voxel(&mut self, pos: &IVec3, voxel: VoxelRef) {
 		let chunk = chunk_of(*pos);
 		let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_u16vec3();
-		self.chunks.entry(chunk).or_insert_with(Voxels::new).add_voxel(local, *voxel);
+		self.chunks.entry(chunk).or_insert_with(|| Voxels::new_with_type(self.voxel_type_info)).add_voxel(local, voxel);
 	}
 
 	pub fn add_sdf<S: VoxelSdf>(&mut self, min: IVec3, size: IVec3, sdf: &S) {
@@ -43,7 +47,7 @@ impl StreamingVoxels {
 						continue;
 					}
 
-					let mut chunk_voxels = Voxels::new();
+					let mut chunk_voxels = Voxels::new_with_type(self.voxel_type_info);
 					let local_sdf = |p: Vec3| sdf.sample(p + chunk_origin.as_vec3());
 					chunk_voxels.apply_sdf(
 						local_min.as_vec3(),
@@ -51,10 +55,10 @@ impl StreamingVoxels {
 						&local_sdf,
 						IVec2::splat(9),
 						8,
-						sdf.voxel((chunk_origin + local_min).as_vec3()),
+						sdf.voxel().get_ref(),
 					);
 					if !chunk_voxels.is_empty() {
-						self.chunks.entry(chunk).or_insert_with(Voxels::new).merge_from(&chunk_voxels, IVec3::ZERO);
+						self.chunks.entry(chunk).or_insert_with(|| Voxels::new_with_type(self.voxel_type_info)).merge_from(&chunk_voxels, IVec3::ZERO);
 					}
 				}
 			}

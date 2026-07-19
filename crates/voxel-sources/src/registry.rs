@@ -6,7 +6,7 @@ use bevy::math::IVec3;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use voxel_data::grid::GridId;
-use voxel_data::voxels::Voxels;
+use voxel_data::{grid_tree::GridRegion, voxels::{VoxelTypeId, VoxelTypeInfo, Voxels}};
 use voxel_tasks::CancellationToken;
 
 use crate::loader::{ChunkLoadRequest, GeneratedLodLoadRequest, LodCancellation, LodLoadRequest, PresenceLoadRequest, SourceRequestChannel};
@@ -15,6 +15,8 @@ use crate::handle::{SourceLodResult, SourceMessage};
 use crate::source::{ChunkSource, SourceId, VoxelLodGenerator};
 
 pub(crate) type SharedSource = Arc<dyn ChunkSource>;
+
+const CHUNK_SIZE: i32 = 64;
 
 type ChunkRequestKey = (GridId, IVec3);
 
@@ -40,6 +42,8 @@ impl LodRequestKey {
 pub(crate) enum PendingLodJob {
 	Direct {
 		requests: Vec<GeneratedLodLoadRequest>,
+		final_lod: f32,
+		source_lod: f32,
 		generation: u64,
 		cancellation: CancellationToken,
 	},
@@ -61,8 +65,8 @@ pub(crate) type ActivePresenceLoads = Arc<Mutex<HashMap<GridId, u32>>>;
 #[derive(Resource)]
 pub(crate) struct SourceRegistry {
 	pub(crate) sources: Vec<SharedSource>,
-	pub(crate) lod_generator: Arc<dyn VoxelLodGenerator>,
-	
+	pub(crate) generators: HashMap<VoxelTypeId, Arc<dyn VoxelLodGenerator>>,
+
 	pub(crate) message_tx: Sender<SourceMessage>,
 	pub(crate) message_rx: Receiver<SourceMessage>,
 	pub(crate) pending_lod: PendingLod,
@@ -77,7 +81,7 @@ impl Default for SourceRegistry {
 		let (message_tx, message_rx) = unbounded();
 		Self {
 			sources: Vec::new(),
-			lod_generator: Arc::new(IdentityVoxelLodGenerator),
+			generators: HashMap::new(),
 			message_tx,
 			message_rx,
 			pending_lod: Arc::new(Mutex::new(HashMap::new())),
@@ -94,17 +98,12 @@ impl SourceRegistry {
 		self.sources.push(source);
 	}
 
-	pub(crate) fn set_lod_generator(&mut self, generator: Arc<dyn VoxelLodGenerator>) {
-		self.lod_generator = generator;
+	pub(crate) fn register_lod_generator(&mut self, generator: Arc<dyn VoxelLodGenerator>) {
+		self.generators.insert(generator.input_type_id(), generator);
 	}
 
 	pub fn try_recv_message(&self) -> Option<SourceMessage> {
 		self.message_rx.try_recv().ok()
-	}
-
-	#[allow(unused)]
-	pub fn lod_generator(&self) -> &dyn VoxelLodGenerator {
-		self.lod_generator.as_ref()
 	}
 
 	pub fn request_presence(&self, request: PresenceLoadRequest) {
@@ -153,19 +152,32 @@ impl SourceRegistry {
 		&self,
 		result: SourceLodResult,
 	) -> Option<(Vec<GeneratedLodLoadRequest>, f32, Option<Voxels>)> {
-		let key = LodRequestKey::new(result.grid, result.min, result.size, result.lod);
 		let mut pending_lod = self.pending_lod.lock().unwrap();
+		let key = pending_lod
+			.iter()
+			.find_map(|(key, job)| {
+				let matches_region = key.grid == result.grid && key.min == result.min && key.size == result.size;
+				let matches_job = match job {
+					PendingLodJob::Direct { source_lod, generation, .. } => *source_lod == result.lod && *generation == result.generation,
+					PendingLodJob::Composite { intermediate_lod, generation, .. } => *intermediate_lod == result.lod && *generation == result.generation,
+				};
+				(matches_region && matches_job).then_some(*key)
+			})?;
 		let job = pending_lod.get_mut(&key)?;
 		match job {
-			PendingLodJob::Direct { requests, generation, .. } => {
-				if result.generation != *generation { return None; }
+			PendingLodJob::Direct { requests, final_lod, source_lod, generation, .. } => {
+				debug_assert_eq!(result.generation, *generation);
 				let mut requests = std::mem::take(requests);
 				requests.retain(|request| !request.cancellation.is_cancelled());
+				let final_lod = *final_lod;
+				let source_lod = *source_lod;
+				let size = key.size;
 				pending_lod.remove(&key);
-				Some((requests, result.lod, result.voxels))
+				let voxels = self.downsample_if_needed(result.voxels, source_lod, final_lod, size);
+				Some((requests, final_lod, voxels))
 			}
 			PendingLodJob::Composite { requests, expected, received, final_lod, intermediate_lod, generation, .. } => {
-				if result.generation != *generation { return None; }
+				debug_assert_eq!(result.generation, *generation);
 				received.insert(result.source, result.voxels);
 				if !expected.iter().all(|source| received.contains_key(source)) {
 					None
@@ -176,16 +188,22 @@ impl SourceRegistry {
 					let intermediate_lod = *intermediate_lod;
 					let parts: Vec<_> = received.values().filter_map(Clone::clone).collect();
 					pending_lod.remove(&key);
-					let merged = merge_voxels(parts);
-					let voxels = if final_lod <= intermediate_lod {
-						(!merged.is_empty()).then_some(merged)
-					} else {
-						self.lod_generator.generate(&merged, final_lod - intermediate_lod)
-					};
+					let voxels = parts.first().map(|first| first.voxel_type_info()).map(|voxel_type_info| merge_voxels(voxel_type_info, parts));
+					let voxels = self.downsample_if_needed(voxels, intermediate_lod, final_lod, key.size);
 					Some((requests, final_lod, voxels))
 				}
 			}
 		}
+	}
+
+	fn downsample_if_needed(&self, voxels: Option<Voxels>, source_lod: f32, final_lod: f32, size: IVec3) -> Option<Voxels> {
+		let voxels = voxels?;
+		if final_lod <= source_lod {
+			return (!voxels.is_empty()).then_some(voxels);
+		}
+		let generator = self.generators.get(&voxels.voxel_type_id())?;
+		let delta_lod = final_lod - source_lod;
+		generator.generate(IVec3::ZERO, size, delta_lod, &|chunk| chunk_from_region(&voxels, chunk))
 	}
 
 	pub(crate) fn next_generation(&self, grid: GridId) -> u64 {
@@ -271,15 +289,32 @@ pub(crate) fn lod_sources_with_any_chunks(sources: &[SharedSource], grid: GridId
 		.collect()
 }
 
-fn merge_voxels(parts: Vec<Voxels>) -> Voxels {
-	let mut merged = Voxels::new();
+fn chunk_from_region(voxels: &Voxels, chunk: IVec3) -> Option<Voxels> {
+	let min = chunk * CHUNK_SIZE;
+	let region = GridRegion::from_min_size(min, IVec3::splat(CHUNK_SIZE))?;
+	let mut areas = Vec::new();
+	voxels.grid_tree().for_each_in_region(region, |pos, run, id| {
+		let run_min = pos.as_ivec3().max(region.min);
+		let run_end = (pos + bevy::math::U16Vec3::splat(run)).as_ivec3().min(region.end);
+		let size = run_end - run_min;
+		if size.cmple(IVec3::ZERO).any() { return; }
+		areas.push(((run_min - min).as_u16vec3(), size.as_u16vec3(), id));
+	});
+	if areas.is_empty() { return None; }
+	let mut out = Voxels::new_with_type(voxels.voxel_type_info());
+	out.add_areas(&areas, voxels.palette());
+	Some(out)
+}
+
+fn merge_voxels(voxel_type_info: VoxelTypeInfo, parts: Vec<Voxels>) -> Voxels {
+	let mut merged = Voxels::new_with_type(voxel_type_info);
 	for voxels in parts {
 		let areas: Vec<_> = voxels
 			.grid_tree()
 			.iter()
 			.map(|(pos, size, id)| (pos, bevy::math::U16Vec3::splat(size), id))
 			.collect();
-		merged.add_palette_areas(&areas, voxels.palette());
+		merged.add_areas(&areas, voxels.palette());
 	}
 	merged
 }
@@ -303,11 +338,4 @@ mod tests {
 	}
 }
 
-struct IdentityVoxelLodGenerator;
-
-impl VoxelLodGenerator for IdentityVoxelLodGenerator {
-	fn generate(&self, voxels: &Voxels, _lod: f32) -> Option<Voxels> {
-		(!voxels.is_empty()).then(|| voxels.clone())
-	}
-}
 
