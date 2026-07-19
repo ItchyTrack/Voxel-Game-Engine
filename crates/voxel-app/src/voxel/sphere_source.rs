@@ -109,19 +109,6 @@ fn build_chunk(chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels>
 	}
 }
 
-fn quantized_lod_voxel(voxel: Voxel) -> Voxel {
-	let voxel = BasicVoxel::from_voxel(&voxel);
-	BasicVoxel {
-		color: [
-			quantize_channel(voxel.color[0], 6),
-			quantize_channel(voxel.color[1], 6),
-			quantize_channel(voxel.color[2], 6),
-			255,
-		],
-		mass: 0,
-	}.into_voxel()
-}
-
 fn quantize_channel(value: u8, levels: u8) -> u8 {
 	let max_level = (levels - 1) as f32;
 	let level = ((value as f32 / 255.0) * max_level).round();
@@ -155,7 +142,7 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &Cancellati
 			let Some((y0, y1)) = sample_y_span(origin.y, extent.y, step, sample_offset, max_y) else { continue };
 
 			let mid_y = ((y0 + y1) / 2 * step + sample_offset).min(max_source.y);
-			let voxel = quantized_lod_voxel(sphere_voxel_unchecked(origin + IVec3::new(sample_x, mid_y, sample_z), 0));
+			let voxel = sphere_voxel_unchecked(origin + IVec3::new(sample_x, mid_y, sample_z), 0);
 			let palette_id = palette.palette_id(voxel.get_ref());
 			areas.push((U16Vec3::new(x as u16, y0 as u16, z as u16), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), palette_id));
 		}
