@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-
 use tracy_client::span;
 
-use voxel_data::grid_tree::{self, GridCell, CellKind};
+use voxel_data::grid_tree::{self, CellKind};
 use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
-use voxel_data::voxels::{Voxel, VoxelPalette, VoxelTypeInfo};
+use voxel_data::voxels::{Voxel, VoxelTypeInfo};
 
 use crate::voxel_color::VoxelColorReaders;
 
 const SLOT_BYTES: usize = 4;
+const VOXEL_COLOR_BYTES: usize = 4;
+const VOXEL_OFFSET_UNIT_BYTES: u32 = 16;
 
 fn get_header_bytes(bitmap: u64) -> u32 {
 	4 * (1 + ((bitmap & 0xFFFFFFFF) != 0) as u32 + ((bitmap & 0xFFFFFFFF00000000) != 0) as u32)
@@ -20,39 +20,27 @@ fn slots_for_nonleaf(bitmap: u64, depth: u8) -> usize {
 	( get_header_bytes(bitmap) as usize + count * entry_bytes).div_ceil(SLOT_BYTES)
 }
 
-fn build_bitmap(node: &PackedNode) -> u64 {
+fn build_bitmap(node: &PackedNode<'_>) -> u64 {
 	let mut bitmap = 0u64;
-	for (i, cell) in node.contents.iter().enumerate() {
-		if cell.kind() != CellKind::Empty {
+	for i in 0..grid_tree::SIZE_CUBED {
+		if node.kind(i) != CellKind::Empty {
 			bitmap |= 1u64 << i;
 		}
 	}
 	bitmap
 }
 
-pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, voxel_type: VoxelTypeInfo, color_readers: &VoxelColorReaders) -> (Vec<u8>, Vec<u8>) {
+fn voxel_color(raw: &[u8], voxel_type: VoxelTypeInfo, color_readers: &VoxelColorReaders) -> [u8; 4] {
+	let voxel = Voxel::new(voxel_type.id, raw.to_vec());
+	color_readers.color(&voxel).unwrap_or([255, 0, 255, 255])
+}
+
+pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, color_readers: &VoxelColorReaders) -> (Vec<u8>, Vec<u8>) {
 	let _zone = span!("make GPU grid tree");
 	let view = grid_tree.view();
 	let nodes = view.nodes();
 	let root_depth = view.root_depth();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
-
-	// -- Palette ---------------------------------------------------------------
-	let mut palette_vec: Vec<[u8; 4]>   = Vec::new();
-	let mut palette_map: HashMap<u16, u8> = HashMap::new();
-	for (id, raw) in palette.entries() {
-		if palette_vec.len() >= 254 {
-			log::warn!("ran out of palette space");
-			palette_map.insert(id, 254);
-			continue;
-		}
-		let voxel = Voxel::new(voxel_type.id, raw.to_vec());
-		let Some(color) = color_readers.color(&voxel) else { continue };
-		palette_map.insert(id, palette_vec.len() as u8);
-		palette_vec.push(color);
-	}
-	let palette_len_bytes = (palette_vec.len() as u8).to_le_bytes();
-	let palette_bytes: &[u8] = bytemuck::cast_slice(&palette_vec);
 
 	// -- Pass 1: DFS pre-order → gpu_order ------------------------------------
 	let mut cpu_to_gpu: Vec<u32>       = vec![u32::MAX; nodes.len()];
@@ -64,9 +52,10 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, vox
 		cpu_to_gpu[cpu_idx as usize] = gpu_idx;
 		gpu_order.push((cpu_idx, depth));
 		if depth > 0 {
-			for cell in nodes[cpu_idx as usize].contents.iter() {
-				if cell.kind() == CellKind::Node {
-					let child_cpu = cell.node_index();
+			let node = nodes[cpu_idx as usize];
+			for i in 0..grid_tree::SIZE_CUBED {
+				if node.kind(i) == CellKind::Node {
+					let child_cpu = node.child_index(i).expect("node cell has child");
 					dfs_stack.push((child_cpu, depth - 1));
 				}
 			}
@@ -205,20 +194,14 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, vox
 		slot_indices[gpu_idx] = tree_cursor;
 		tree_cursor += if depth == 0 { get_header_bytes(bitmap) / 4 } else { slots_for_nonleaf(bitmap, depth) as u32 };
 
-		let mut voxel_data_size = 0;
-		let mut voxel_node_run = 0;
-		let mut hit_data = false;
+		let mut voxel_data_size = 0u32;
+		let mut voxel_node_run = 0u32;
 
-		for cell in node.contents {
-			match cell.kind() {
+		for i in 0..grid_tree::SIZE_CUBED {
+			match node.kind(i) {
 				CellKind::Empty => {}
 				CellKind::Data => {
-					if hit_data {
-						voxel_data_size += 1 + voxel_node_run;
-					} else {
-						voxel_data_size += 1 + voxel_node_run;
-						hit_data = true;
-					}
+					voxel_data_size += VOXEL_COLOR_BYTES as u32 * (1 + voxel_node_run);
 					voxel_node_run = 0;
 				}
 				CellKind::Node => {
@@ -228,12 +211,12 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, vox
 		}
 
 		if voxel_data_size > 0 {
-			let aligned = voxel_cursor.next_multiple_of(4);
+			let aligned = voxel_cursor.next_multiple_of(VOXEL_OFFSET_UNIT_BYTES);
 			debug_assert!(
-				aligned / 4 <= u16::MAX as u32,
-				"voxel_data_offset overflow at node {gpu_idx}: buffer 2 exceeds 256 KiB"
+				aligned / VOXEL_OFFSET_UNIT_BYTES <= u16::MAX as u32,
+				"voxel_data_offset overflow at node {gpu_idx}: buffer 2 exceeds 1 MiB"
 			);
-			voxel_offsets[gpu_idx] = (aligned / 4) as u16;
+			voxel_offsets[gpu_idx] = (aligned / VOXEL_OFFSET_UNIT_BYTES) as u16;
 			voxel_cursor = aligned + voxel_data_size;
 		}
 	}
@@ -251,10 +234,10 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, vox
 		let byte_base = my_slot as usize * SLOT_BYTES;
 		let bitmap = build_bitmap(node);
 
-		let parent_slot_offset: u16 = if node.parent_offset == 0 {
+		let parent_slot_offset: u16 = if node.parent_offset() == 0 {
 			0
 		} else {
-			let parent_cpu = cpu_idx - node.parent_offset as u32;
+			let parent_cpu = cpu_idx - node.parent_offset();
 			let parent_slot = slot_indices[cpu_to_gpu[parent_cpu as usize] as usize];
 			(my_slot - parent_slot) as u16
 		};
@@ -275,39 +258,37 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, vox
 			tree_bytes[bitmap_cursor..bitmap_cursor + 4].copy_from_slice(&((bitmap >> 32) as u32).to_le_bytes());
 		}
 
-		let mut vox_write = voxel_offsets[gpu_idx] as usize * 4;
+		let mut vox_write = voxel_offsets[gpu_idx] as usize * VOXEL_OFFSET_UNIT_BYTES as usize;
 
 		if depth == 0 {
 			for i in 0..grid_tree::SIZE_USIZE_CUBED {
 				if bitmap & (1u64 << i) == 0 { continue; }
-				let pal = match node.contents[i].kind() {
-					CellKind::Data => palette_map.get(&node.contents[i].data_value()).copied().unwrap_or(254),
+				let color = match node.kind(i as u8) {
+					CellKind::Data => voxel_color(node.cell_bytes(i as u8), voxel_type, color_readers),
 					_ => unreachable!("depth-0 cell must be DATA"),
 				};
-				voxel_bytes[vox_write] = pal;
-				vox_write += 1;
+				voxel_bytes[vox_write..vox_write + VOXEL_COLOR_BYTES].copy_from_slice(&color);
+				vox_write += VOXEL_COLOR_BYTES;
 			}
 		} else {
 			let mut entry_cursor = byte_base + get_header_bytes(bitmap) as usize;
-			let mut voxel_node_run = 0;
-			let mut hit_data = false;
+			let mut voxel_node_run = 0usize;
 
 			for i in 0..grid_tree::SIZE_USIZE_CUBED {
 				if bitmap & (1u64 << i) == 0 { continue; }
-				let cell = &node.contents[i];
+				let child_i = i as u8;
 
-				let entry_val: u16 = match cell.kind() {
+				let entry_val: u16 = match node.kind(child_i) {
 					CellKind::Data => {
-						if hit_data { vox_write += voxel_node_run; }
-						else { vox_write += voxel_node_run; hit_data = true; }
+						vox_write += voxel_node_run * VOXEL_COLOR_BYTES;
 						voxel_node_run = 0;
-						let pal = palette_map.get(&cell.data_value()).copied().unwrap_or(254);
-						voxel_bytes[vox_write] = pal;
-						vox_write += 1;
+						let color = voxel_color(node.cell_bytes(child_i), voxel_type, color_readers);
+						voxel_bytes[vox_write..vox_write + VOXEL_COLOR_BYTES].copy_from_slice(&color);
+						vox_write += VOXEL_COLOR_BYTES;
 						0x00
 					}
 					CellKind::Node => {
-						let child_cpu = cell.node_index();
+						let child_cpu = node.child_index(child_i).expect("node cell has child");
 						let child_slot = slot_indices[cpu_to_gpu[child_cpu as usize] as usize];
 						let offset = child_slot - my_slot;
 						voxel_node_run += 1;
@@ -348,11 +329,9 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, palette: &VoxelPalette, vox
 	tree_buffer.extend_from_slice(&tree_bytes);
 	tree_buffer.resize(tree_padded_len, 0);
 
-	let voxel_raw_len    = voxel_bytes.len() + palette_len_bytes.len() + palette_bytes.len();
+	let voxel_raw_len    = voxel_bytes.len();
 	let voxel_padded_len = voxel_raw_len.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT as usize);
 	let mut voxel_buffer = Vec::with_capacity(voxel_padded_len);
-	voxel_buffer.extend_from_slice(&palette_len_bytes);
-	voxel_buffer.extend_from_slice(palette_bytes);
 	voxel_buffer.extend_from_slice(&voxel_bytes);
 	voxel_buffer.resize(voxel_padded_len, 0);
 

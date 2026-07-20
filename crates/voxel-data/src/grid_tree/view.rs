@@ -2,19 +2,13 @@ use std::marker::PhantomData;
 
 use bevy::math::IVec3;
 
-use super::{CellKind, GridCell, GridCoord, GridTreeNode, MAX_TREE_DEPTH_USIZE, SIZE_CUBED, child_size, get_child_contents_pos};
+use super::{raw::RawGridTree, CellKind, GridCoord, GridTreeNode, GridType, MAX_TREE_DEPTH_USIZE, SIZE_CUBED, child_size, get_child_contents_pos};
 
 /// Borrowed, read-only view over a grid tree's raw node arena.
-///
-/// This is the low-level API algorithms should use when they need to traverse
-/// tree structure directly. It intentionally stores only references and small
-/// copyable metadata so callers pay the same cost as indexing the arena by hand.
-#[derive(Clone, Copy, Debug)]
-pub struct GridTreeView<'a, C: GridCell, Co: GridCoord> {
-	nodes: &'a [GridTreeNode<C>],
-	root_pos: IVec3,
-	root_depth: u8,
-	item_count: u64,
+#[derive(Debug)]
+pub struct GridTreeView<'a, G: GridType, Co: GridCoord> {
+	grid_type: &'a G,
+	raw: &'a RawGridTree,
 	_coord: PhantomData<Co>,
 }
 
@@ -27,140 +21,133 @@ pub struct NodeRef {
 }
 
 /// A concrete child cell location in a [`GridTreeView`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct CellRef<C: GridCell> {
+#[derive(Debug)]
+pub struct CellRef<'a, G: GridType> {
 	pub parent: NodeRef,
 	pub child_index: u8,
 	pub origin: IVec3,
 	pub size: u32,
-	pub cell: C,
+	kind: CellKind,
+	child_node_index: u32,
+	grid_type: &'a G,
+	bytes: &'a [u8],
 }
 
-impl<C: GridCell> CellRef<C> {
-	#[inline]
-	pub fn kind(self) -> CellKind {
-		self.cell.kind()
-	}
-
-	#[inline]
-	pub fn data_value(self) -> C::Data {
-		self.cell.data_value()
-	}
-
-	#[inline]
-	pub fn node_index(self) -> u32 {
-		self.cell.node_index()
-	}
+impl<'a, G: GridType, Co: GridCoord> Copy for GridTreeView<'a, G, Co> {}
+impl<'a, G: GridType, Co: GridCoord> Clone for GridTreeView<'a, G, Co> {
+	fn clone(&self) -> Self { *self }
+}
+impl<'a, G: GridType> Copy for CellRef<'a, G> {}
+impl<'a, G: GridType> Clone for CellRef<'a, G> {
+	fn clone(&self) -> Self { *self }
 }
 
-impl<'a, C: GridCell, Co: GridCoord> GridTreeView<'a, C, Co> {
+impl<'a, G: GridType> CellRef<'a, G> {
 	#[inline]
-	pub(crate) fn new(nodes: &'a [GridTreeNode<C>], root_pos: IVec3, root_depth: u8, item_count: u64) -> Self {
-		Self { nodes, root_pos, root_depth, item_count, _coord: PhantomData }
+	pub fn kind(self) -> CellKind { self.kind }
+
+	#[inline]
+	pub fn data_value(self) -> G::Data<'a> { self.grid_type.read_data(self.bytes) }
+
+	#[inline]
+	pub fn node_index(self) -> u32 { self.child_node_index }
+
+	#[inline]
+	pub fn data_bytes(self) -> &'a [u8] { &self.bytes[..self.grid_type.data_size_bytes()] }
+}
+
+impl<'a, G: GridType, Co: GridCoord> GridTreeView<'a, G, Co> {
+	#[inline]
+	pub(crate) fn new(grid_type: &'a G, raw: &'a RawGridTree) -> Self {
+		Self { grid_type, raw, _coord: PhantomData }
 	}
 
 	#[inline]
-	pub fn nodes(self) -> &'a [GridTreeNode<C>] {
-		self.nodes
+	pub fn grid_type(self) -> &'a G { self.grid_type }
+
+	#[inline]
+	pub fn raw(self) -> &'a RawGridTree { self.raw }
+
+	#[inline]
+	pub fn nodes(self) -> Vec<GridTreeNode<'a>> {
+		(0..self.raw.node_count() as u32).map(|index| GridTreeNode::new(self.raw, index)).collect()
 	}
 
 	#[inline]
 	pub fn root(self) -> NodeRef {
-		NodeRef { index: 0, depth: self.root_depth, origin: self.root_pos }
+		NodeRef { index: 0, depth: self.raw.root_depth(), origin: self.raw.root_pos() }
 	}
 
 	#[inline]
-	pub fn root_pos(self) -> Co::Pos {
-		Co::from_ivec3(self.root_pos)
-	}
+	pub fn root_pos(self) -> Co::Pos { Co::from_ivec3(self.raw.root_pos()) }
 
 	#[inline]
-	pub fn root_origin(self) -> IVec3 {
-		self.root_pos
-	}
+	pub fn root_origin(self) -> IVec3 { self.raw.root_pos() }
 
 	#[inline]
-	pub fn root_depth(self) -> u8 {
-		self.root_depth
-	}
+	pub fn root_depth(self) -> u8 { self.raw.root_depth() }
 
 	#[inline]
-	pub fn len(self) -> u64 {
-		self.item_count
-	}
+	pub fn len(self) -> u64 { self.raw.item_count() }
 
 	#[inline]
-	pub fn is_empty(self) -> bool {
-		self.item_count == 0
-	}
+	pub fn is_empty(self) -> bool { self.raw.item_count() == 0 }
 
 	#[inline]
-	pub fn node(self, node: NodeRef) -> &'a GridTreeNode<C> {
-		&self.nodes[node.index as usize]
-	}
+	pub fn node(self, node: NodeRef) -> GridTreeNode<'a> { GridTreeNode::new(self.raw, node.index) }
 
 	#[inline]
-	pub fn child(self, node: NodeRef, child_index: u8) -> CellRef<C> {
+	pub fn child(self, node: NodeRef, child_index: u8) -> CellRef<'a, G> {
 		let size = child_size(node.depth);
 		let origin = node.origin + (get_child_contents_pos(child_index).as_uvec3() * size).as_ivec3();
-		CellRef { parent: node, child_index, origin, size, cell: self.node(node).contents[child_index as usize] }
+		let kind = self.raw.cell_kind(node.index, child_index);
+		let child_node_index = if kind == CellKind::Node { self.raw.child_index(node.index, child_index) } else { 0 };
+		CellRef { parent: node, child_index, origin, size, kind, child_node_index, grid_type: self.grid_type, bytes: self.raw.cell_bytes(node.index, child_index) }
 	}
 
 	#[inline]
-	pub fn child_node(self, cell: CellRef<C>) -> Option<NodeRef> {
-		if cell.kind() != CellKind::Node {
-			return None;
-		}
+	pub fn child_node(self, cell: CellRef<'a, G>) -> Option<NodeRef> {
+		if cell.kind() != CellKind::Node { return None; }
 		Some(NodeRef { index: cell.node_index(), depth: cell.parent.depth.saturating_sub(1), origin: cell.origin })
 	}
 
 	#[inline]
-	pub fn children(self, node: NodeRef) -> ChildCells<'a, C, Co> {
-		ChildCells { view: self, node, next: 0, occupied_only: false, remaining_occupied: self.node(node).used_cell_count }
+	pub fn children(self, node: NodeRef) -> ChildCells<'a, G, Co> {
+		ChildCells { view: self, node, next: 0, occupied_only: false, remaining_occupied: self.raw.used_cell_count(node.index) }
 	}
 
 	#[inline]
-	pub fn occupied_children(self, node: NodeRef) -> ChildCells<'a, C, Co> {
-		ChildCells { view: self, node, next: 0, occupied_only: true, remaining_occupied: self.node(node).used_cell_count }
+	pub fn occupied_children(self, node: NodeRef) -> ChildCells<'a, G, Co> {
+		ChildCells { view: self, node, next: 0, occupied_only: true, remaining_occupied: self.raw.used_cell_count(node.index) }
 	}
 
 	#[inline]
-	pub fn leaves(self) -> LeafCells<'a, C, Co> {
-		LeafCells::new(self)
-	}
+	pub fn leaves(self) -> LeafCells<'a, G, Co> { LeafCells::new(self) }
 }
 
-/// Concrete iterator over a node's child cells.
-pub struct ChildCells<'a, C: GridCell, Co: GridCoord> {
-	view: GridTreeView<'a, C, Co>,
+pub struct ChildCells<'a, G: GridType, Co: GridCoord> {
+	view: GridTreeView<'a, G, Co>,
 	node: NodeRef,
 	next: u8,
 	occupied_only: bool,
 	remaining_occupied: u8,
 }
 
-impl<'a, C: GridCell, Co: GridCoord> Iterator for ChildCells<'a, C, Co> {
-	type Item = CellRef<C>;
+impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCells<'a, G, Co> {
+	type Item = CellRef<'a, G>;
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.occupied_only && self.remaining_occupied == 0 {
-			return None;
-		}
-		let size = child_size(self.node.depth);
+		if self.occupied_only && self.remaining_occupied == 0 { return None; }
 		while self.next < SIZE_CUBED {
 			let i = self.next;
 			self.next += 1;
-			let cell = self.view.node(self.node).contents[i as usize];
-			let kind = cell.kind();
-			if self.occupied_only && kind == CellKind::Empty {
-				continue;
-			}
+			let kind = self.view.raw.cell_kind(self.node.index, i);
+			if self.occupied_only && kind == CellKind::Empty { continue; }
 			if kind != CellKind::Empty {
 				self.remaining_occupied = self.remaining_occupied.saturating_sub(1);
 			}
-			let origin = self.node.origin + (get_child_contents_pos(i).as_uvec3() * size).as_ivec3();
-			return Some(CellRef { parent: self.node, child_index: i, origin, size, cell });
+			return Some(self.view.child(self.node, i));
 		}
 		None
 	}
@@ -172,24 +159,23 @@ struct LeafFrame {
 	next_child: u8,
 }
 
-/// Depth-first iterator over DATA leaves. Uses a fixed stack sized by the tree
-/// depth cap, avoiding per-iterator heap allocation.
-pub struct LeafCells<'a, C: GridCell, Co: GridCoord> {
-	view: GridTreeView<'a, C, Co>,
+/// Depth-first iterator over DATA leaves. Uses a fixed stack sized by the tree depth cap.
+pub struct LeafCells<'a, G: GridType, Co: GridCoord> {
+	view: GridTreeView<'a, G, Co>,
 	stack: [LeafFrame; MAX_TREE_DEPTH_USIZE + 1],
 	stack_len: usize,
 }
 
-impl<'a, C: GridCell, Co: GridCoord> LeafCells<'a, C, Co> {
+impl<'a, G: GridType, Co: GridCoord> LeafCells<'a, G, Co> {
 	#[inline]
-	fn new(view: GridTreeView<'a, C, Co>) -> Self {
+	fn new(view: GridTreeView<'a, G, Co>) -> Self {
 		let root = view.root();
-		Self { view, stack: [LeafFrame { node: root, next_child: 0 }; MAX_TREE_DEPTH_USIZE + 1], stack_len: (!view.nodes().is_empty()) as usize }
+		Self { view, stack: [LeafFrame { node: root, next_child: 0 }; MAX_TREE_DEPTH_USIZE + 1], stack_len: (view.raw.node_count() != 0) as usize }
 	}
 }
 
-impl<'a, C: GridCell, Co: GridCoord> Iterator for LeafCells<'a, C, Co> {
-	type Item = CellRef<C>;
+impl<'a, G: GridType, Co: GridCoord> Iterator for LeafCells<'a, G, Co> {
+	type Item = CellRef<'a, G>;
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {

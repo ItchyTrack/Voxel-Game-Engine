@@ -1,138 +1,138 @@
 use super::*;
 
-impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
-	pub(super) fn occupied_count_in_cell(&self, _node_index: u32, node_depth: u8, cell: C) -> u64 {
-		match cell.kind() {
+impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+	pub(super) fn occupied_count_in_cell(&self, node_depth: u8, node_index: u32, child_index: u8) -> u64 {
+		match self.raw.cell_kind(node_index, child_index) {
 			CellKind::Empty => 0,
 			CellKind::Data => {
 				let s = child_size(node_depth) as u64;
 				s * s * s
 			}
-			// A node at depth 0 can only stand for one voxel-sized cell.
 			CellKind::Node if node_depth == 0 => 1,
-			CellKind::Node => self.occupied_count_in_node(cell.node_index(), node_depth - 1),
+			CellKind::Node => self.occupied_count_in_node(self.raw.child_index(node_index, child_index), node_depth - 1),
 		}
 	}
 
 	pub(super) fn occupied_count_in_node(&self, node_index: u32, node_depth: u8) -> u64 {
-		self.nodes[node_index as usize].contents.iter().map(|cell| self.occupied_count_in_cell(node_index, node_depth, *cell)).sum()
+		(0..SIZE_CUBED).map(|child| self.occupied_count_in_cell(node_depth, node_index, child)).sum()
 	}
 
 	pub(super) fn mark_subtree_dead(&mut self, node_index: u32) {
 		for i in 0..SIZE_CUBED {
-			let cell = self.nodes[node_index as usize].contents[i as usize];
-			if cell.kind() == CellKind::Node {
-				self.mark_subtree_dead(cell.node_index());
+			if self.raw.cell_kind(node_index, i) == CellKind::Node {
+				self.mark_subtree_dead(self.raw.child_index(node_index, i));
 			}
 		}
 		self.remove_node(node_index);
 	}
 
-	pub(super) fn set_child_area_to_data(&mut self, node_index: u32, node_depth: u8, child_index: u8, data: C::Data) {
-		let old = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
-		let old_count = self.occupied_count_in_cell(node_index, node_depth, old);
-		if old.kind() == CellKind::Node {
-			self.mark_subtree_dead(old.node_index());
+	pub(super) fn set_child_area_to_data(&mut self, node_index: u32, node_depth: u8, child_index: u8, data: G::Data<'_>) {
+		let old_kind = self.raw.cell_kind(node_index, child_index);
+		let old_count = self.occupied_count_in_cell(node_depth, node_index, child_index);
+		if old_kind == CellKind::Node {
+			self.mark_subtree_dead(self.raw.child_index(node_index, child_index));
 		}
 
 		let s = child_size(node_depth) as u64;
 		let new_count = s * s * s;
-		let node = &mut self.nodes[node_index as usize];
-		if old.kind() == CellKind::Empty {
-			node.used_cell_count += 1;
-			assert!(node.used_cell_count <= 64);
+		if old_kind == CellKind::Empty {
+			self.raw.inc_used_cell_count(node_index);
 		}
-		node.set_child_cell_from_index(child_index, C::data(data));
-		self.item_count = self.item_count + new_count - old_count;
+		self.raw.set_data(&self.grid_type, node_index, child_index, data);
+		if new_count >= old_count { self.raw.add_item_count(new_count - old_count); }
+		else { self.raw.sub_item_count(old_count - new_count); }
 	}
 
 	pub(super) fn set_child_area_to_empty(&mut self, node_index: u32, node_depth: u8, child_index: u8) {
-		let old = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
-		if old.kind() == CellKind::Empty {
+		let old_kind = self.raw.cell_kind(node_index, child_index);
+		if old_kind == CellKind::Empty {
 			return;
 		}
-		let old_count = self.occupied_count_in_cell(node_index, node_depth, old);
-		if old.kind() == CellKind::Node {
-			self.mark_subtree_dead(old.node_index());
+		let old_count = self.occupied_count_in_cell(node_depth, node_index, child_index);
+		if old_kind == CellKind::Node {
+			self.mark_subtree_dead(self.raw.child_index(node_index, child_index));
 		}
 
-		let node = &mut self.nodes[node_index as usize];
-		node.used_cell_count -= 1;
-		node.set_child_cell_to_none_from_index(child_index);
-		self.item_count -= old_count;
+		self.raw.dec_used_cell_count(node_index);
+		self.raw.set_empty(node_index, child_index);
+		self.raw.sub_item_count(old_count);
 	}
 
-	pub(super) fn set_voxel_child_to_data(&mut self, node_index: u32, child_index: u8, data: C::Data) {
-		let old = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
-		let node = &mut self.nodes[node_index as usize];
-		match old.kind() {
+	pub(super) fn set_voxel_child_to_data(&mut self, node_index: u32, child_index: u8, data: G::Data<'_>) {
+		let old_kind = self.raw.cell_kind(node_index, child_index);
+		match old_kind {
 			CellKind::Empty => {
-				node.used_cell_count += 1;
-				assert!(node.used_cell_count <= 64);
-				self.item_count += 1;
+				self.raw.inc_used_cell_count(node_index);
+				self.raw.add_item_count(1);
 			}
 			CellKind::Data => {}
-			CellKind::Node => {
-				self.mark_subtree_dead(old.node_index());
-			}
+			CellKind::Node => self.mark_subtree_dead(self.raw.child_index(node_index, child_index)),
 		}
-		self.nodes[node_index as usize].set_child_cell_from_index(child_index, C::data(data));
+		self.raw.set_data(&self.grid_type, node_index, child_index, data);
 	}
 
-	pub(super) fn allocate_child_node(&mut self, parent_index: u32, child_index: u8, contents: C) -> Option<u32> {
-		let used_cell_count = if contents.kind() == CellKind::Empty { 0 } else { SIZE_CUBED };
-		let child_index_u32 = self.alloc_node_after_parent(parent_index, contents, used_cell_count)?;
-		let offset = child_index_u32;
-		let old = self.nodes[parent_index as usize].get_child_cell_from_index(child_index);
-		let parent = &mut self.nodes[parent_index as usize];
-		if old.kind() == CellKind::Empty {
-			parent.used_cell_count += 1;
-			assert!(parent.used_cell_count <= 64);
+	pub(super) fn allocate_empty_child_node(&mut self, parent_index: u32, child_index: u8) -> Option<u32> {
+		let child_index_u32 = self.alloc_empty_node_after_parent(parent_index)?;
+		let old = self.raw.cell_kind(parent_index, child_index);
+		if old == CellKind::Empty {
+			self.raw.inc_used_cell_count(parent_index);
 		}
-		parent.set_child_cell_to_node_from_index(child_index, offset);
+		self.raw.set_child_index(parent_index, child_index, child_index_u32);
+		Some(child_index_u32)
+	}
+
+	pub(super) fn allocate_data_child_node(&mut self, parent_index: u32, child_index: u8, data: G::Data<'_>) -> Option<u32> {
+		let child_index_u32 = self.alloc_node_after_parent_with_data(parent_index, data)?;
+		let old = self.raw.cell_kind(parent_index, child_index);
+		if old == CellKind::Empty {
+			self.raw.inc_used_cell_count(parent_index);
+		}
+		self.raw.set_child_index(parent_index, child_index, child_index_u32);
+		Some(child_index_u32)
+	}
+
+	pub(super) fn allocate_child_node_copying_cell(&mut self, parent_index: u32, child_index: u8) -> Option<u32> {
+		let child_index_u32 = self.alloc_node_after_parent_copying_cell(parent_index, parent_index, child_index)?;
+		let old = self.raw.cell_kind(parent_index, child_index);
+		if old == CellKind::Empty {
+			self.raw.inc_used_cell_count(parent_index);
+		}
+		self.raw.set_child_index(parent_index, child_index, child_index_u32);
 		Some(child_index_u32)
 	}
 
 	pub(super) fn collapse_child_node_if_possible(&mut self, parent_index: u32, child_index: u8) {
-		let cell = self.nodes[parent_index as usize].get_child_cell_from_index(child_index);
-		if cell.kind() != CellKind::Node {
+		if self.raw.cell_kind(parent_index, child_index) != CellKind::Node {
 			return;
 		}
-		let child_index_abs = cell.node_index();
-		let child = &self.nodes[child_index_abs as usize];
-		if child.used_cell_count == 0 {
+		let child_index_abs = self.raw.child_index(parent_index, child_index);
+		let used = self.raw.used_cell_count(child_index_abs);
+		if used == 0 {
 			self.remove_node(child_index_abs);
-			let parent = &mut self.nodes[parent_index as usize];
-			parent.used_cell_count -= 1;
-			parent.set_child_cell_to_none_from_index(child_index);
+			self.raw.dec_used_cell_count(parent_index);
+			self.raw.set_empty(parent_index, child_index);
 			return;
 		}
-		if child.used_cell_count != SIZE_CUBED {
+		if used != SIZE_CUBED || self.raw.cell_kind(child_index_abs, 0) != CellKind::Data {
 			return;
 		}
-		let first = child.contents[0];
-		if first.kind() != CellKind::Data || child.contents.iter().any(|cell| *cell != first) {
-			return;
+		for cell in 1..SIZE_CUBED {
+			if self.raw.cell_kind(child_index_abs, cell) != CellKind::Data || !self.data_cells_eq(child_index_abs, 0, child_index_abs, cell) {
+				return;
+			}
 		}
-		let data = first.data_value();
+		self.raw.copy_data_cell(child_index_abs, 0, parent_index, child_index);
 		self.remove_node(child_index_abs);
-		self.nodes[parent_index as usize].set_child_cell_from_index(child_index, C::data(data));
 	}
 
-	pub(super) fn add_areas_recurse(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, ops: &[AreaOp<C::Data>]) -> bool {
+	pub(super) fn add_areas_recurse<'a>(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, ops: &[AreaOp<'a, G>]) -> bool {
 		if ops.is_empty() {
 			return true;
 		}
 
 		let cell_size = child_size(node_depth);
-		let mut child_ops: [Vec<AreaOp<C::Data>>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
+		let mut child_ops: [Vec<AreaOp<'a, G>>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
 
-		// Spatially bucket the whole batch by this node's children while preserving
-		// input order inside each bucket, so overlapping writes retain sequential
-		// semantics but traversal is shared by neighbouring/sibling edits. Compute
-		// the intersected child index range directly instead of testing all 64
-		// children for every op; dense single-voxel batches hit exactly one child per
-		// level.
 		let node_end = node_origin + IVec3::splat(size(node_depth) as i32);
 		let cell_size_i = cell_size as i32;
 		for op in ops {
@@ -194,12 +194,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			}
 
 			if partial_run_start < bucket.len() {
-				if node_depth == 0 {
-					for op in &bucket[partial_run_start..] {
-						self.set_child_area_to_data(node_index, node_depth, i, op.data);
-					}
-					continue;
-				}
 				let child_node_index = match self.child_node_for_partial_area(node_index, i) {
 					Some(index) => index,
 					None => return false,
@@ -214,12 +208,10 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	}
 
 	pub(super) fn child_node_for_partial_area(&mut self, node_index: u32, child_index: u8) -> Option<u32> {
-		let cell = self.nodes[node_index as usize].get_child_cell_from_index(child_index);
-		match cell.kind() {
-			CellKind::Node => Some(cell.node_index()),
-			CellKind::Empty => self.allocate_child_node(node_index, child_index, C::EMPTY),
-			CellKind::Data => self.allocate_child_node(node_index, child_index, cell),
+		match self.raw.cell_kind(node_index, child_index) {
+			CellKind::Node => Some(self.raw.child_index(node_index, child_index)),
+			CellKind::Empty => self.allocate_empty_child_node(node_index, child_index),
+			CellKind::Data => self.allocate_child_node_copying_cell(node_index, child_index),
 		}
 	}
-
 }

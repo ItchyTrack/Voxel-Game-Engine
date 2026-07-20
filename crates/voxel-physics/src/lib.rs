@@ -204,8 +204,7 @@ fn compute_mass_properties(
 			let Ok((grid_pose, grid)) = grids.get(child) else { continue };
 			for sub_grid in grid.subgrids() {
 				let sub_pos = sub_grid.sub_grid_pos().as_dvec3();
-				for (voxel_pos, count, palette_id) in sub_grid.voxels().grid_tree().iter() {
-					let Some(voxel) = sub_grid.voxels().voxel_for_palette_id(palette_id) else { continue };
+				for (voxel_pos, count, voxel) in sub_grid.voxels().grid_tree().iter() {
 					let Some(m) = mass_readers.mass(&voxel) else { continue };
 					let base = sub_pos + voxel_pos.as_dvec3();
 					let run = count as i32;

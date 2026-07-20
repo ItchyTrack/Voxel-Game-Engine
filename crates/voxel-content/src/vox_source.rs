@@ -7,7 +7,7 @@ use bevy::math::{IVec3, Quat, U16Vec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::grid_tree::GridRegion;
-use voxel_data::voxels::{Voxel, VoxelPalette, VoxelTypeInfo, Voxels};
+use voxel_data::voxels::{Voxel, VoxelTypeInfo, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::{CHUNK_SIZE, chunk_of};
 
@@ -182,10 +182,9 @@ impl<M: VoxMaterialMapper> VoxFileSource<M> {
 
 		for (chunk, points) in chunk_points {
 			let type_info = self.inner.mapper.voxel_type_info();
-			let mut palette = VoxelPalette::new_with_type(type_info);
-			let palette_points: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, palette.palette_id(voxel.get_ref()))).collect();
+			let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 			let mut voxels = Voxels::new_with_type(type_info);
-			voxels.add_voxels(&palette_points, &palette);
+			voxels.add_voxels(&voxel_refs);
 			if let Ok(compressed) = CompressedVoxels::new(&voxels, 0) {
 				cache.chunks.insert(chunk, compressed);
 			}
@@ -341,12 +340,12 @@ mod tests {
 			let raw_voxels: std::collections::HashMap<_, _> = raw
 				.grid_tree()
 				.iter()
-				.map(|(pos, _size, id)| (pos, raw.voxel_for_palette_id(id).expect("raw palette")))
+				.map(|(pos, _size, voxel)| (pos, voxel))
 				.collect();
 			let translated_voxels: std::collections::HashMap<_, _> = translated
 				.grid_tree()
 				.iter()
-				.map(|(pos, _size, id)| (pos, translated.voxel_for_palette_id(id).expect("translated palette")))
+				.map(|(pos, _size, voxel)| (pos, voxel))
 				.collect();
 			assert_eq!(raw_voxels, translated_voxels, "chunk {chunk:?} changed under zero-offset translation");
 		}

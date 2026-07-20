@@ -144,14 +144,13 @@ pub(crate) fn manage_ray_gpu_uploads(
 		commands.entity(entity).remove::<NeedsRayReupload>();
 
 		let voxel_type = view.voxels().voxel_type_info();
-		let palette = view.voxels().palette().clone();
 		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let color_readers = color_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build ray sub-grid");
-			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, voxel_type, &color_readers);
+			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, voxel_type, &color_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply ray sub-grid");
 				apply_ray_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
@@ -182,7 +181,6 @@ pub(crate) fn manage_ray_lod_uploads(
 		in_flight.0.insert(entity);
 
 		let voxel_type = lod_voxels.voxels.voxel_type_info();
-		let palette = lod_voxels.voxels.palette().clone();
 		let voxels = lod_voxels.voxels.grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let priority = lod_voxels.priority;
@@ -190,7 +188,7 @@ pub(crate) fn manage_ray_lod_uploads(
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build ray LOD");
-			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, &palette, voxel_type, &color_readers);
+			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, voxel_type, &color_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply ray LOD");
 				apply_ray_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
@@ -231,14 +229,13 @@ pub(crate) fn manage_raster_gpu_uploads(
 		commands.entity(entity).remove::<NeedsRasterReupload>();
 
 		let voxel_type = view.voxels().voxel_type_info();
-		let palette = view.voxels().palette().clone();
 		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let color_readers = color_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build raster sub-grid");
-			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette, voxel_type, &color_readers);
+			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, voxel_type, &color_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply raster sub-grid");
 				apply_raster_upload(world, entity, bounds, &face_buffer, &palette_buffer, face_count);
@@ -265,7 +262,6 @@ pub(crate) fn manage_raster_lod_uploads(
 		let Some((bounds_min, bounds_max)) = lod_voxels.voxels.bounding_box() else { continue; };
 		let bounds = VoxelGpuBounds { min: bounds_min, max: bounds_max };
 		let voxel_type = lod_voxels.voxels.voxel_type_info();
-		let palette = lod_voxels.voxels.palette().clone();
 		let voxels = lod_voxels.voxels.grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let priority = lod_voxels.priority;
@@ -273,7 +269,7 @@ pub(crate) fn manage_raster_lod_uploads(
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build raster LOD");
-			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, &palette, voxel_type, &color_readers);
+			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, voxel_type, &color_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply raster LOD");
 				apply_raster_upload(world, entity, bounds, &face_buffer, &palette_buffer, face_count);

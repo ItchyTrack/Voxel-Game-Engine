@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use bevy::math::IVec3;
-use voxel_data::grid_tree::{child_size, size as node_span, CellKind, CellRef, GridCell, GridCoord, GridTreeView, NodeRef};
-use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeId, Voxels};
+use bevy::math::{IVec3, U16Vec3};
+use voxel_data::grid_tree::{child_size, size as node_span, CellKind, CellRef, GridTreeView, NodeRef, U16Coord};
+use voxel_data::voxel_grid_tree::VoxelGridType;
+use voxel_data::voxels::{Voxel, VoxelType, VoxelTypeId, Voxels};
 use voxel_sources::VoxelLodGenerator;
 use voxel_streaming::CHUNK_SIZE;
 
@@ -48,12 +48,9 @@ struct CoarseCell {
 	color: [u8; 3],
 }
 
-const MAX_PALETTE_COLORS: usize = 254; // leave 1 slot of headroom under the u8 index cap
-
 pub fn downsample_region(min: IVec3, size: IVec3, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 	let step = 1i32 << lod.max(0.0).floor() as u32;
 
-	// --- Pass 1: exact accumulation, collect finished cells instead of writing directly ---
 	let mut cells: Vec<CoarseCell> = Vec::new();
 	for chunk_z in 0..size.z {
 		for chunk_y in 0..size.y {
@@ -70,12 +67,12 @@ pub fn downsample_region(min: IVec3, size: IVec3, lod: f32, fetch: impl Fn(IVec3
 				};
 
 				if node_span(root.depth) as i32 <= step {
-					let accum = sum_node(view, &src, root);
+					let accum = sum_node(view, root);
 					if accum.weight > 0 {
 						emit(root.origin, accum);
 					}
 				} else {
-					process_node(view, &src, root, step, &mut emit);
+					process_node(view, root, step, &mut emit);
 				}
 			}
 		}
@@ -85,50 +82,33 @@ pub fn downsample_region(min: IVec3, size: IVec3, lod: f32, fetch: impl Fn(IVec3
 		return None;
 	}
 
-	// --- Build weighted histogram of distinct colors ---
-	let mut histogram: HashMap<[u8; 3], u64> = HashMap::new();
-	for cell in &cells {
-		*histogram.entry(cell.color).or_default() += 1;
-	}
-
-	// --- Pass 2: quantize only if the region genuinely exceeds the palette budget ---
-	let palette: Vec<[u8; 3]> = if histogram.len() <= MAX_PALETTE_COLORS {
-		histogram.keys().copied().collect()
-	} else {
-		weighted_median_cut(histogram, MAX_PALETTE_COLORS)
-	};
+	let points = cells.iter().map(|cell| {
+		let voxel = BasicVoxel { color: [cell.color[0], cell.color[1], cell.color[2], 255], mass: 0 }.into_voxel();
+		(cell.pos.as_u16vec3(), voxel)
+	}).collect::<Vec<(U16Vec3, Voxel)>>();
+	let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 
 	let mut out = Voxels::new::<BasicVoxel>();
-	for cell in &cells {
-		let color = nearest_palette_color(cell.color, &palette);
-		let voxel = BasicVoxel { color: [color[0], color[1], color[2], 255], mass: 0 };
-		let mut bytes = [0u8; BasicVoxel::TYPE_INFO.size_bytes as usize];
-		voxel.into_bytes(&mut bytes);
-		out.add_voxel(cell.pos.as_u16vec3(), VoxelRef::new(BasicVoxel::TYPE_INFO.id, &bytes));
-	}
+	out.add_voxels(&voxel_refs);
 
 	if out.is_empty() { None } else { Some(out) }
 }
 
-fn process_node<C, Co>(
-	view: GridTreeView<'_, C, Co>,
-	src: &Voxels,
+fn process_node(
+	view: GridTreeView<'_, VoxelGridType, U16Coord>,
 	node: NodeRef,
 	step: i32,
 	emit: &mut impl FnMut(IVec3, Accum),
-) where
-	C: GridCell<Data = u16>,
-	Co: GridCoord,
-{
+) {
 	let child_sz = child_size(node.depth) as i32;
 
 	if child_sz > step {
 		for child in view.occupied_children(node) {
-			process_cell(view, src, child, step, emit);
+			process_cell(view, child, step, emit);
 		}
 	} else if child_sz == step {
 		for child in view.occupied_children(node) {
-			let accum = sum_cell(view, src, child);
+			let accum = sum_cell(view, child);
 			if accum.weight > 0 {
 				emit(child.origin, accum);
 			}
@@ -140,7 +120,7 @@ fn process_node<C, Co>(
 		for child in view.occupied_children(node) {
 			let local = (child.origin - node.origin) / child_sz;
 			let block = ((local.x / 2) + (local.y / 2) * 2 + (local.z / 2) * 4) as usize;
-			blocks[block].add(sum_cell(view, src, child));
+			blocks[block].add(sum_cell(view, child));
 			occupied[block] = true;
 		}
 		for b in 0..8 {
@@ -151,60 +131,46 @@ fn process_node<C, Co>(
 	}
 }
 
-fn process_cell<C, Co>(
-	view: GridTreeView<'_, C, Co>,
-	src: &Voxels,
-	cell: CellRef<C>,
+fn process_cell(
+	view: GridTreeView<'_, VoxelGridType, U16Coord>,
+	cell: CellRef<'_, VoxelGridType>,
 	step: i32,
 	emit: &mut impl FnMut(IVec3, Accum),
-) where
-	C: GridCell<Data = u16>,
-	Co: GridCoord,
-{
+) {
 	match cell.kind() {
 		CellKind::Empty => {}
-		CellKind::Data => tile_uniform(src, cell, step, emit),
+		CellKind::Data => tile_uniform(cell, step, emit),
 		CellKind::Node => {
 			let node = view.child_node(cell).expect("Node kind implies child_node");
-			process_node(view, src, node, step, emit);
+			process_node(view, node, step, emit);
 		}
 	}
 }
 
-fn sum_cell<C, Co>(view: GridTreeView<'_, C, Co>, src: &Voxels, cell: CellRef<C>) -> Accum
-where
-	C: GridCell<Data = u16>,
-	Co: GridCoord,
-{
+fn sum_cell(view: GridTreeView<'_, VoxelGridType, U16Coord>, cell: CellRef<'_, VoxelGridType>) -> Accum {
 	match cell.kind() {
 		CellKind::Empty => Accum::default(),
 		CellKind::Data => {
-			let Some(voxel) = src.voxel_for_palette_id(cell.data_value()).map(|v| BasicVoxel::from_voxel_ref(&v)) else {
-				return Accum::default();
-			};
+			let voxel = BasicVoxel::from_voxel_ref(&cell.data_value());
 			Accum::from_leaf(&voxel, (cell.size as u64).pow(3))
 		}
 		CellKind::Node => {
 			let node = view.child_node(cell).expect("Node kind implies child_node");
-			sum_node(view, src, node)
+			sum_node(view, node)
 		}
 	}
 }
 
-fn sum_node<C, Co>(view: GridTreeView<'_, C, Co>, src: &Voxels, node: NodeRef) -> Accum
-where
-	C: GridCell<Data = u16>,
-	Co: GridCoord,
-{
+fn sum_node(view: GridTreeView<'_, VoxelGridType, U16Coord>, node: NodeRef) -> Accum {
 	let mut total = Accum::default();
 	for child in view.occupied_children(node) {
-		total.add(sum_cell(view, src, child));
+		total.add(sum_cell(view, child));
 	}
 	total
 }
 
-fn tile_uniform<C: GridCell<Data = u16>>(src: &Voxels, cell: CellRef<C>, step: i32, emit: &mut impl FnMut(IVec3, Accum)) {
-	let Some(voxel) = src.voxel_for_palette_id(cell.data_value()).map(|v| BasicVoxel::from_voxel_ref(&v)) else { return };
+fn tile_uniform(cell: CellRef<'_, VoxelGridType>, step: i32, emit: &mut impl FnMut(IVec3, Accum)) {
+	let voxel = BasicVoxel::from_voxel_ref(&cell.data_value());
 	let accum = Accum::from_leaf(&voxel, (step as u64).pow(3));
 	let n = cell.size as i32 / step;
 	for z in 0..n { for y in 0..n { for x in 0..n {
@@ -216,74 +182,3 @@ fn round_channel(sum: u64, weight: u64) -> u8 {
 	((sum + weight / 2) / weight).min(255) as u8
 }
 
-/// Weighted median-cut color quantization: repeatedly split the bucket with the
-/// largest weighted spread along its widest channel, until `target` buckets exist,
-/// then average each bucket (weighted) into one representative color.
-fn weighted_median_cut(histogram: HashMap<[u8; 3], u64>, target: usize) -> Vec<[u8; 3]> {
-	struct Bucket {
-		colors: Vec<([u8; 3], u64)>,
-	}
-	impl Bucket {
-		fn channel_range(&self, c: usize) -> u8 {
-			let (mut lo, mut hi) = (255u8, 0u8);
-			for (color, _) in &self.colors {
-				lo = lo.min(color[c]);
-				hi = hi.max(color[c]);
-			}
-			hi - lo
-		}
-		fn widest_channel(&self) -> usize {
-			(0..3).max_by_key(|&c| self.channel_range(c)).unwrap()
-		}
-		fn total_weight(&self) -> u64 {
-			self.colors.iter().map(|(_, w)| w).sum()
-		}
-		fn weighted_average(&self) -> [u8; 3] {
-			let total = self.total_weight().max(1);
-			std::array::from_fn(|c| {
-				let sum: u64 = self.colors.iter().map(|(color, w)| color[c] as u64 * w).sum();
-				((sum + total / 2) / total).min(255) as u8
-			})
-		}
-	}
-
-	let mut buckets = vec![Bucket { colors: histogram.into_iter().collect() }];
-
-	while buckets.len() < target {
-		// Split the bucket with the largest total weight (most impactful to refine).
-		let Some((idx, _)) = buckets.iter().enumerate()
-			.filter(|(_, b)| b.colors.len() > 1)
-			.max_by_key(|(_, b)| b.total_weight())
-		else { break }; // nothing left worth splitting
-
-		let mut bucket = buckets.swap_remove(idx);
-		let channel = bucket.widest_channel();
-		bucket.colors.sort_by_key(|(color, _)| color[channel]);
-
-		let total: u64 = bucket.total_weight();
-		let mut running = 0u64;
-		let mut split_at = bucket.colors.len() / 2; // fallback if weights are degenerate
-		for (i, (_, w)) in bucket.colors.iter().enumerate() {
-			running += w;
-			if running * 2 >= total {
-				split_at = (i + 1).clamp(1, bucket.colors.len() - 1);
-				break;
-			}
-		}
-
-		let second_half = bucket.colors.split_off(split_at);
-		buckets.push(bucket);
-		buckets.push(Bucket { colors: second_half });
-	}
-
-	buckets.iter().map(Bucket::weighted_average).collect()
-}
-
-fn nearest_palette_color(color: [u8; 3], palette: &[[u8; 3]]) -> [u8; 3] {
-	palette.iter().copied().min_by_key(|p| {
-		let dr = p[0] as i32 - color[0] as i32;
-		let dg = p[1] as i32 - color[1] as i32;
-		let db = p[2] as i32 - color[2] as i32;
-		dr * dr + dg * dg + db * db
-	}).unwrap_or(color)
-}

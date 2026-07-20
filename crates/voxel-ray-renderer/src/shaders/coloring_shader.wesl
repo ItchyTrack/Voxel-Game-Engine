@@ -1,6 +1,6 @@
 import shared::bvh::data::{ BVHItem, bvh_items };
-import shared::generated::voxel_reader_main::{ main_voxel_reader_palette_color };
-import shared::generated::voxel_reader_residency::{ residency_voxel_reader_palette_color };
+import shared::generated::voxel_reader_main::{ main_voxel_reader_color };
+import shared::generated::voxel_reader_residency::{ residency_voxel_reader_color };
 
 // main_shader.wgsl
 // 0 : camera uniform
@@ -111,9 +111,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let item_index_2 = item.item_index_2;
 	var base_color: vec3<f32>;
 	if (item.aabb_size >> 24u) == 2u {
-		base_color = main_voxel_reader_palette_color(item_index_2, voxel_data_index, voxel_index).xyz;
+		base_color = main_voxel_reader_color(item_index_2, voxel_data_index, voxel_index).xyz;
 	} else {
-		base_color = residency_voxel_reader_palette_color(item_index_2, voxel_data_index, voxel_index).xyz;
+		base_color = residency_voxel_reader_color(item_index_2, voxel_data_index, voxel_index).xyz;
 	}
 	var normal_vec = vec3<f32>(0.0);
 	normal_vec[(normal >> 3u) & 0xF] = -f32((normal & (1u << ((normal >> 3u) & 0xF))) != 0) * 2.0 + 1.0;

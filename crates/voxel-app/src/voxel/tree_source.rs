@@ -7,7 +7,7 @@ use bevy::{math::U16Vec3, prelude::*};
 use basic_voxel::{BasicVoxel, downsample_region};
 use voxel_data::{
 	grid::{Grid, GridId},
-	voxels::{Voxel, VoxelPalette, VoxelType, Voxels},
+	voxels::{Voxel, VoxelType, Voxels},
 };
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
@@ -303,10 +303,9 @@ fn rasterize_tree_chunk(model: &TreeModel, chunk: IVec3, cancellation: &Cancella
 	let mut points = points.into_iter().collect::<Vec<_>>();
 	points.sort_unstable_by_key(|(position, _)| (position.z, position.y, position.x));
 	let points = points.into_iter().map(|(position, voxel)| ((position - origin).as_u16vec3(), voxel)).collect::<Vec<(U16Vec3, Voxel)>>();
-	let mut palette = VoxelPalette::new::<BasicVoxel>();
-	let palette_points: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, palette.palette_id(voxel.get_ref()))).collect();
+	let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 	let mut voxels = Voxels::new::<BasicVoxel>();
-	voxels.add_voxels(&palette_points, &palette);
+	voxels.add_voxels(&voxel_refs);
 	Some(voxels)
 }
 

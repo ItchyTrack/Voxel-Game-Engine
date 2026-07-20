@@ -191,15 +191,18 @@ impl Grid {
 		let region_lo = Self::local_of(sub_grid_pos, cell_lo);
 		let region_hi = Self::local_of(sub_grid_pos, cell_hi);
 		let mut areas = Vec::new();
-		slot.voxels.grid_tree().for_each_in_region(crate::grid_tree::GridRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_ivec3()).unwrap(), |pos, run, id| {
+		let read_region = crate::grid_tree::GridRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_ivec3()).unwrap();
+		for (pos, run, voxel) in slot.voxels.grid_tree().iter() {
+			let leaf_region = crate::grid_tree::GridRegion { min: pos.as_ivec3(), end: pos.as_ivec3() + IVec3::splat(run as i32) };
+			if !leaf_region.intersects(read_region) { continue; }
 			let run_lo = pos.max(region_lo);
 			let run_hi = (pos + U16Vec3::splat(run)).min(region_hi);
 			let out_extent = run_hi - run_lo;
-			if out_extent == U16Vec3::ZERO { return; }
+			if out_extent == U16Vec3::ZERO { continue; }
 			let world = sub_grid_pos + run_lo.as_ivec3();
-			areas.push(((world - out_min).as_u16vec3(), out_extent, id));
-		});
-		out.add_areas(&areas, slot.voxels.palette());
+			areas.push(((world - out_min).as_u16vec3(), out_extent, voxel));
+		}
+		out.add_areas(&areas);
 	}
 
 	/// Write (`Some`) or remove (`None`) a single voxel. Returns the touched
@@ -512,8 +515,7 @@ mod tests {
 		grid.splat_voxels(base, &src);
 
 		let mut count = 0u64;
-		for (pos, size, id) in src.grid_tree().iter() {
-			let voxel = src.voxel_for_palette_id(id).unwrap();
+		for (pos, size, voxel) in src.grid_tree().iter() {
 			for dx in 0..size as i32 {
 				for dy in 0..size as i32 {
 					for dz in 0..size as i32 {

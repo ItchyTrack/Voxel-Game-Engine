@@ -1,33 +1,54 @@
-use crate::grid_tree::{CellKind, GridCell, GridTree, GridTreeNode, U16Coord};
+use crate::{grid_tree::{GridTree, GridType, U16Coord}, voxels::{VoxelRef, VoxelTypeId, VoxelTypeInfo}};
 use serde::{Deserialize, Serialize};
 
-// If value == 1<<16-1: EMPTY, else if bit 15 is 0: DATA, else: NODE.
-// A NODE offset can't be 0x7FFF because that aliases EMPTY.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct PackedCell { value: u16 }
+/// Fixed-width `u16` grid type for non-voxel trees that store compact ids.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub struct PackedCell;
 
-impl GridCell for PackedCell {
-	type Data = u16;
-	const EMPTY: Self = PackedCell { value: u16::MAX };
-	const MAX_DATA: u16 = (1 << 15) - 1;
-	const MAX_NODE_OFFSET: u32 = (1 << 15) - 2;
-	const DATA_SIZE: usize = std::mem::size_of::<u16>();
-	fn data(value: u16) -> Self { PackedCell { value } }
-	fn node(index: u32) -> Self { PackedCell { value: index as u16 | (1 << 15) } }
-	fn kind(self) -> CellKind {
-		if self.value == u16::MAX { CellKind::Empty }
-		else if self.value & (1 << 15) == 0 { CellKind::Data }
-		else { CellKind::Node }
+impl GridType for PackedCell {
+	type Data<'a> = u16;
+	const MAX_NODE_OFFSET: u32 = u32::MAX;
+	fn data_size_bytes(&self) -> usize { std::mem::size_of::<u16>() }
+	fn read_data<'a>(&self, bytes: &'a [u8]) -> Self::Data<'a> {
+		u16::from_le_bytes(bytes[..2].try_into().expect("PackedCell data bytes"))
 	}
-	fn data_value(self) -> u16 { self.value & ((1 << 15) - 1) }
-	fn node_index(self) -> u32 { (self.value & ((1 << 15) - 1)) as u32 }
-	fn write_data_bytes(value: u16, out: &mut Vec<u8>) {
-		out.extend_from_slice(&value.to_le_bytes());
+	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]) {
+		bytes[..2].copy_from_slice(&data.to_le_bytes());
 	}
-	fn read_data_bytes(bytes: &[u8]) -> u16 {
-		u16::from_le_bytes(bytes.try_into().expect("PackedCell::read_data_bytes length mismatch"))
+	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {
+		bytes[..2] == data.to_le_bytes()
 	}
 }
 
-pub type VoxelGridTree = GridTree<PackedCell, U16Coord>;
-pub type PackedNode = GridTreeNode<PackedCell>;
+/// Voxel grid storage type. The tree stores voxel bytes directly in each data slot.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct VoxelGridType {
+	type_info: VoxelTypeInfo,
+}
+
+impl VoxelGridType {
+	pub fn new(type_info: VoxelTypeInfo) -> Self { Self { type_info } }
+	pub fn type_info(self) -> VoxelTypeInfo { self.type_info }
+	pub fn type_id(self) -> VoxelTypeId { self.type_info.id }
+}
+
+impl GridType for VoxelGridType {
+	type Data<'a> = VoxelRef<'a>;
+	const MAX_NODE_OFFSET: u32 = u32::MAX;
+	fn data_size_bytes(&self) -> usize { self.type_info.size_bytes as usize }
+	fn read_data<'a>(&self, bytes: &'a [u8]) -> Self::Data<'a> {
+		VoxelRef::new(self.type_info.id, &bytes[..self.data_size_bytes()])
+	}
+	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]) {
+		self.type_info.id.assert_type(data.type_id());
+		assert_eq!(self.type_info.size_bytes, data.size());
+		bytes[..self.data_size_bytes()].copy_from_slice(data.bytes());
+	}
+	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {
+		data.type_id() == self.type_info.id && data.bytes() == &bytes[..self.data_size_bytes()]
+	}
+}
+
+pub type PackedGridTree = GridTree<PackedCell, U16Coord>;
+pub type VoxelGridTree = GridTree<VoxelGridType, U16Coord>;
+pub type PackedNode<'a> = crate::grid_tree::GridTreeNode<'a>;

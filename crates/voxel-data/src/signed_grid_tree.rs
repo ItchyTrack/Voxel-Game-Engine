@@ -1,20 +1,20 @@
 use bevy::math::{I8Vec3, IVec3, UVec3, Vec3};
 use bevy::transform::components::Transform;
 
-use crate::grid_tree::{GridCell, GridRegion, GridTree, U32Coord};
+use crate::grid_tree::{GridRegion, GridTree, GridType, U32Coord};
 
 #[derive(Clone, Debug)]
-pub struct SignedGridTree<C: GridCell> {
-	trees: [GridTree<C, U32Coord>; 8],
+pub struct SignedGridTree<G: GridType> {
+	trees: [GridTree<G, U32Coord>; 8],
 }
 
-impl<C: GridCell> Default for SignedGridTree<C> {
+impl<G: GridType + Default> Default for SignedGridTree<G> {
 	fn default() -> Self {
 		Self { trees: std::array::from_fn(|_| GridTree::new()) }
 	}
 }
 
-impl<C: GridCell> SignedGridTree<C> {
+impl<G: GridType + Default> SignedGridTree<G> {
 	pub fn new() -> Self { Self::default() }
 
 	pub fn len(&self) -> u64 {
@@ -25,22 +25,22 @@ impl<C: GridCell> SignedGridTree<C> {
 		self.trees.iter().all(GridTree::is_empty)
 	}
 
-	pub fn insert(&mut self, pos: &IVec3, data: C::Data) -> Option<C::Data> {
+	pub fn insert(&mut self, pos: &IVec3, data: G::Data<'_>) -> bool {
 		let (oct, local) = split_pos(*pos);
 		self.trees[oct].insert(&local, data)
 	}
 
-	pub fn get(&self, pos: &IVec3) -> Option<C::Data> {
+	pub fn get(&self, pos: &IVec3) -> Option<G::Data<'_>> {
 		let (oct, local) = split_pos(*pos);
 		self.trees[oct].get(&local)
 	}
 
-	pub fn remove(&mut self, pos: &IVec3) -> Option<C::Data> {
+	pub fn remove(&mut self, pos: &IVec3) -> bool {
 		let (oct, local) = split_pos(*pos);
 		self.trees[oct].remove(&local)
 	}
 
-	pub fn add_area(&mut self, pos: &IVec3, size: IVec3, data: C::Data) {
+	pub fn add_area(&mut self, pos: &IVec3, size: IVec3, data: G::Data<'_>) {
 		let Some(region) = GridRegion::from_min_size(*pos, size) else { return };
 		for (oct, local) in split_region(region) {
 			self.trees[oct].fill_region(local, data);
@@ -64,7 +64,7 @@ impl<C: GridCell> SignedGridTree<C> {
 		!parts.is_empty() && parts.into_iter().all(|(oct, local)| self.trees[oct].is_region_filled(local))
 	}
 
-	pub fn for_each_in_region(&self, region: GridRegion, mut f: impl FnMut(IVec3, u32, C::Data)) {
+	pub fn for_each_in_region(&self, region: GridRegion, mut f: impl FnMut(IVec3, u32, G::Data<'_>)) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].for_each_in_region(local, |origin, size, value| f(join_region_origin(oct, origin, size), size, value));
 		}
@@ -94,7 +94,7 @@ impl<C: GridCell> SignedGridTree<C> {
 		}).min_by(|a, b| a.2.total_cmp(&b.2))
 	}
 
-	pub fn iter(&self) -> std::vec::IntoIter<(IVec3, u32, C::Data)> {
+	pub fn iter(&self) -> std::vec::IntoIter<(IVec3, u32, G::Data<'_>)> {
 		let mut out = Vec::new();
 		for (oct, tree) in self.trees.iter().enumerate() {
 			out.extend(tree.iter().map(|(origin, size, value)| (join_region_origin(oct, origin, size), size, value)));

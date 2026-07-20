@@ -1,20 +1,19 @@
 use super::*;
 
-impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
-	pub fn fill_region(&mut self, region: GridRegion, data: C::Data) {
+impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+	pub fn fill_region(&mut self, region: GridRegion, data: G::Data<'_>) {
 		self.add_regions(&[(region, data)]);
 	}
 
-	pub fn add_area(&mut self, pos: &Co::Pos, size: IVec3, data: C::Data) {
+	pub fn add_area(&mut self, pos: &Co::Pos, size: IVec3, data: G::Data<'_>) {
 		let Some(region) = GridRegion::from_min_size(Co::to_ivec3(*pos), size) else { return };
 		self.fill_region(region, data);
 	}
 
-	pub fn add_regions(&mut self, regions: &[(GridRegion, C::Data)]) {
+	pub fn add_regions<'a>(&mut self, regions: &[(GridRegion, G::Data<'a>)]) {
 		let mut ops = Vec::with_capacity(regions.len());
 		let mut bounds: Option<GridRegion> = None;
 		for (region, data) in regions {
-			debug_assert!(*data <= C::MAX_DATA);
 			ops.push(AreaOp { min: region.min, end: region.end, data: *data });
 			bounds = Some(match bounds {
 				Some(bounds) => GridRegion { min: bounds.min.min(region.min), end: bounds.end.max(region.end) },
@@ -25,10 +24,9 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		self.apply_area_ops(&ops, bounds);
 	}
 
-	pub fn add_single_voxels(&mut self, voxels: &[(Co::Pos, C::Data)]) {
+	pub fn add_single_voxels<'a>(&mut self, voxels: &[(Co::Pos, G::Data<'a>)]) {
 		let mut bounds: Option<(IVec3, IVec3)> = None;
-		for (pos, data) in voxels {
-			debug_assert!(*data <= C::MAX_DATA);
+		for (pos, _) in voxels {
 			let pos = Co::to_ivec3(*pos);
 			bounds = Some(match bounds {
 				Some((lo, hi)) => (lo.min(pos), hi.max(pos)),
@@ -39,10 +37,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		self.add_single_voxels_in_bounds(voxels, min, max);
 	}
 
-	pub fn add_single_voxels_in_bounds(&mut self, voxels: &[(Co::Pos, C::Data)], min: IVec3, max: IVec3) {
-		for (_, data) in voxels {
-			debug_assert!(*data <= C::MAX_DATA);
-		}
+	pub fn add_single_voxels_in_bounds<'a>(&mut self, voxels: &[(Co::Pos, G::Data<'a>)], min: IVec3, max: IVec3) {
 		if self.is_empty() && self.build_single_voxel_pairs(min, max, voxels) {
 			return;
 		}
@@ -54,7 +49,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		}
 	}
 
-	pub fn add_areas(&mut self, areas: &[(Co::Pos, IVec3, C::Data)]) {
+	pub fn add_areas<'a>(&mut self, areas: &[(Co::Pos, IVec3, G::Data<'a>)]) {
 		let mut regions = Vec::with_capacity(areas.len());
 		for (pos, size, data) in areas {
 			let Some(region) = GridRegion::from_min_size(Co::to_ivec3(*pos), *size) else { continue };
@@ -63,7 +58,7 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		self.add_regions(&regions);
 	}
 
-	pub(super) fn apply_area_ops(&mut self, ops: &[AreaOp<C::Data>], bounds: GridRegion) {
+	pub(super) fn apply_area_ops<'a>(&mut self, ops: &[AreaOp<'a, G>], bounds: GridRegion) {
 		if ops.is_empty() {
 			return;
 		}
@@ -74,6 +69,6 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 			return;
 		}
 
-		let _ = self.add_areas_recurse(0, self.root_depth, self.root_pos, ops);
+		let _ = self.add_areas_recurse(0, self.raw.root_depth(), self.raw.root_pos(), ops);
 	}
 }

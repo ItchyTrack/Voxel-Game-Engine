@@ -292,29 +292,18 @@ pub(crate) fn lod_sources_with_any_chunks(sources: &[SharedSource], grid: GridId
 fn chunk_from_region(voxels: &Voxels, chunk: IVec3) -> Option<Voxels> {
 	let min = chunk * CHUNK_SIZE;
 	let region = GridRegion::from_min_size(min, IVec3::splat(CHUNK_SIZE))?;
-	let mut areas = Vec::new();
-	voxels.grid_tree().for_each_in_region(region, |pos, run, id| {
-		let run_min = pos.as_ivec3().max(region.min);
-		let run_end = (pos + bevy::math::U16Vec3::splat(run)).as_ivec3().min(region.end);
-		let size = run_end - run_min;
-		if size.cmple(IVec3::ZERO).any() { return; }
-		areas.push(((run_min - min).as_u16vec3(), size.as_u16vec3(), id));
-	});
-	if areas.is_empty() { return None; }
 	let mut out = Voxels::new_with_type(voxels.voxel_type_info());
-	out.add_areas(&areas, voxels.palette());
-	Some(out)
+	out.merge_region_from(voxels, Some(region), -min);
+	(!out.is_empty()).then_some(out)
 }
 
 fn merge_voxels(voxel_type_info: VoxelTypeInfo, parts: Vec<Voxels>) -> Voxels {
-	let mut merged = Voxels::new_with_type(voxel_type_info);
+	let mut parts = parts.into_iter();
+	let Some(mut merged) = parts.next() else {
+		return Voxels::new_with_type(voxel_type_info);
+	};
 	for voxels in parts {
-		let areas: Vec<_> = voxels
-			.grid_tree()
-			.iter()
-			.map(|(pos, size, id)| (pos, bevy::math::U16Vec3::splat(size), id))
-			.collect();
-		merged.add_areas(&areas, voxels.palette());
+		merged.merge_from(&voxels, IVec3::ZERO);
 	}
 	merged
 }

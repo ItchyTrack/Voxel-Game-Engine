@@ -15,6 +15,7 @@ pub trait GridCoord: Copy + Debug + 'static {
 	fn to_ivec3(pos: Self::Pos) -> IVec3;
 	fn from_ivec3(v: IVec3) -> Self::Pos;
 	fn size_from_u32(s: u32) -> Self::Size;
+	fn size_to_u32(s: Self::Size) -> u32;
 }
 
 /// `u16` coordinate system (world voxels).
@@ -33,6 +34,9 @@ impl GridCoord for U16Coord {
 	fn size_from_u32(s: u32) -> Self::Size {
 		s as u16
 	}
+	fn size_to_u32(s: Self::Size) -> u32 {
+		s as u32
+	}
 }
 
 /// `u32` coordinate system (chunk-space and other coarse grids).
@@ -49,6 +53,9 @@ impl GridCoord for U32Coord {
 		v.as_uvec3()
 	}
 	fn size_from_u32(s: u32) -> Self::Size {
+		s
+	}
+	fn size_to_u32(s: Self::Size) -> u32 {
 		s
 	}
 }

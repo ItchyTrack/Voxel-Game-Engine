@@ -1,15 +1,19 @@
 use std::marker::PhantomData;
 
-use bevy::math::{I8Vec3, IVec3, U8Vec3, UVec3};
+use bevy::math::{I8Vec3, IVec3, U8Vec3};
 use bevy::transform::components::Transform;
 
 mod cell;
 mod coord;
+mod data;
+mod raw;
 mod raycast;
 mod traversal;
 mod view;
-pub use cell::{CellKind, GridCell};
+pub use cell::CellKind;
 pub use coord::{GridCoord, U16Coord, U32Coord};
+pub use data::{GridData, GridType};
+pub use raw::GridTreeNode;
 pub use view::{CellRef, ChildCells, GridTreeView, LeafCells, NodeRef};
 
 pub const LOG_SIZE: u8 = 2;
@@ -28,13 +32,6 @@ pub fn child_size(node_depth: u8) -> u32 {
 	1 << (LOG_SIZE * node_depth)
 }
 
-#[derive(Debug, Clone)]
-pub struct GridTreeNode<C: GridCell> {
-	pub contents: [C; SIZE_USIZE_CUBED],
-	pub parent_offset: u16, // if parent_offset == 0 then no parent
-	pub used_cell_count: u8,
-}
-
 pub fn get_child_contents_index(contents_pos: U8Vec3) -> u8 {
 	contents_pos.x + contents_pos.y * SIZE + contents_pos.z * SIZE * SIZE
 }
@@ -43,74 +40,51 @@ pub fn get_child_contents_pos(contents_index: u8) -> U8Vec3 {
 	U8Vec3::new(contents_index % SIZE, (contents_index / SIZE) % SIZE, contents_index / (SIZE * SIZE))
 }
 
-impl<C: GridCell> GridTreeNode<C> {
-	fn new_root() -> Self {
-		Self::new(0)
-	}
-	fn new(parent_offset: u16) -> Self {
-		Self { contents: [C::EMPTY; SIZE_USIZE_CUBED], parent_offset, used_cell_count: 0 }
-	}
-	fn get_parent_offset(&self) -> Option<u16> {
-		if self.parent_offset == 0 {
-			None
-		} else {
-			Some(self.parent_offset)
-		}
-	}
-	fn get_child_cell_from_index(&self, contents_index: u8) -> C {
-		self.contents[contents_index as usize]
-	}
-	fn set_child_cell_from_index(&mut self, contents_index: u8, cell: C) {
-		self.contents[contents_index as usize] = cell;
-	}
-	fn set_child_cell(&mut self, contents_pos: U8Vec3, cell: C) {
-		self.set_child_cell_from_index(get_child_contents_index(contents_pos), cell)
-	}
-	fn set_child_cell_to_none_from_index(&mut self, contents_index: u8) {
-		self.set_child_cell_from_index(contents_index, C::EMPTY);
-	}
-	fn set_child_cell_to_none(&mut self, contents_pos: U8Vec3) {
-		self.set_child_cell_to_none_from_index(get_child_contents_index(contents_pos))
-	}
-	fn set_child_cell_to_data(&mut self, contents_pos: U8Vec3, data: C::Data) {
-		self.set_child_cell_from_index(get_child_contents_index(contents_pos), C::data(data));
-	}
-	fn set_child_cell_to_node_from_index(&mut self, contents_index: u8, node_index: u32) {
-		self.set_child_cell_from_index(contents_index, C::node(node_index));
-	}
-	fn set_child_cell_to_node(&mut self, contents_pos: U8Vec3, node_index: u32) {
-		self.set_child_cell_to_node_from_index(get_child_contents_index(contents_pos), node_index)
-	}
-}
-
 #[derive(Debug, Clone)]
-pub struct GridTree<C: GridCell, Co: GridCoord> {
-	nodes: Vec<GridTreeNode<C>>, // root at 0
-	root_pos: IVec3,
-	root_depth: u8,
-	item_count: u64,
-	dead_nodes: usize,
-	free_nodes: Vec<u32>,
+pub struct GridTree<G: GridType, Co: GridCoord> {
+	grid_type: G,
+	raw: raw::RawGridTree,
 	_coord: PhantomData<Co>,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct AreaOp<D: Copy> {
+#[derive(Debug)]
+struct AreaOp<'a, G: GridType> {
 	min: IVec3,
 	end: IVec3,
-	data: D,
+	data: G::Data<'a>,
 }
 
-impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
+impl<'a, G: GridType> Copy for AreaOp<'a, G> {}
+impl<'a, G: GridType> Clone for AreaOp<'a, G> { fn clone(&self) -> Self { *self } }
+
+#[derive(Debug)]
+enum CellWrite<'a, G: GridType> {
+	Empty,
+	Data(G::Data<'a>),
+}
+
+impl<'a, G: GridType> Copy for CellWrite<'a, G> {}
+impl<'a, G: GridType> Clone for CellWrite<'a, G> { fn clone(&self) -> Self { *self } }
+
+impl<G: GridType + Default, Co: GridCoord> GridTree<G, Co> {
 	pub fn new() -> Self {
-		Self { nodes: vec![GridTreeNode::new_root()], root_pos: IVec3::ZERO, root_depth: 0, item_count: 0, dead_nodes: 0, free_nodes: Vec::new(), _coord: PhantomData }
+		Self::new_with_type(G::default())
+	}
+}
+
+impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+	pub fn new_with_type(grid_type: G) -> Self {
+		let raw = raw::RawGridTree::new(grid_type.data_size_bytes());
+		Self { grid_type, raw, _coord: PhantomData }
 	}
 
-	pub fn view(&self) -> GridTreeView<'_, C, Co> {
-		GridTreeView::new(&self.nodes, self.root_pos, self.root_depth, self.item_count)
+	pub fn grid_type(&self) -> &G { &self.grid_type }
+
+	pub fn view(&self) -> GridTreeView<'_, G, Co> {
+		GridTreeView::new(&self.grid_type, &self.raw)
 	}
 
-	pub fn get(&self, pos: &Co::Pos) -> Option<C::Data> {
+	pub fn get(&self, pos: &Co::Pos) -> Option<G::Data<'_>> {
 		traversal::get(self.view(), *pos)
 	}
 
@@ -135,6 +109,32 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 		let max = min + size - IVec3::ONE;
 		self.make_sure_root_covers_area(min, max)
 	}
+
+	#[inline]
+	pub(crate) fn cell_kind(&self, node_index: u32, child_index: u8) -> CellKind {
+		self.raw.cell_kind(node_index, child_index)
+	}
+
+	#[inline]
+	pub(crate) fn child_index(&self, node_index: u32, child_index: u8) -> u32 {
+		self.raw.child_index(node_index, child_index)
+	}
+
+	#[inline]
+	pub(crate) fn cell_data(&self, node_index: u32, child_index: u8) -> G::Data<'_> {
+		self.grid_type.read_data(self.raw.cell_bytes(node_index, child_index))
+	}
+
+	#[inline]
+	pub(crate) fn cell_data_eq(&self, node_index: u32, child_index: u8, data: G::Data<'_>) -> bool {
+		self.grid_type.data_eq_bytes(data, self.raw.cell_bytes(node_index, child_index))
+	}
+
+	#[inline]
+	pub(crate) fn data_cells_eq(&self, first_node: u32, first_child: u8, second_node: u32, second_child: u8) -> bool {
+		let data_size = self.grid_type.data_size_bytes();
+		self.raw.cell_bytes(first_node, first_child)[..data_size] == self.raw.cell_bytes(second_node, second_child)[..data_size]
+	}
 }
 
 mod serialize;
@@ -148,19 +148,19 @@ mod surgery;
 
 pub use region::GridRegion;
 
-impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
+impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 	pub fn len(&self) -> u64 {
-		self.item_count
+		self.raw.item_count()
 	}
 	pub fn is_empty(&self) -> bool {
-		self.item_count == 0
+		self.raw.is_empty()
 	}
-	pub fn iter(&self) -> GridTreeIterator<'_, C, Co> {
+	pub fn iter(&self) -> GridTreeIterator<'_, G, Co> {
 		GridTreeIterator::new(self)
 	}
 
 	/// Visit every DATA leaf whose cell box intersects a half-open region.
-	pub fn for_each_in_region(&self, region: GridRegion, f: impl FnMut(Co::Pos, Co::Size, C::Data)) {
+	pub fn for_each_in_region(&self, region: GridRegion, f: impl FnMut(Co::Pos, Co::Size, G::Data<'_>)) {
 		traversal::for_each_in_region(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), f);
 	}
 
@@ -182,27 +182,27 @@ impl<C: GridCell, Co: GridCoord> GridTree<C, Co> {
 	}
 }
 
-impl<'a, C: GridCell, Co: GridCoord> IntoIterator for &'a GridTree<C, Co> {
-	type Item = (Co::Pos, Co::Size, C::Data);
-	type IntoIter = GridTreeIterator<'a, C, Co>;
+impl<'a, G: GridType, Co: GridCoord> IntoIterator for &'a GridTree<G, Co> {
+	type Item = (Co::Pos, Co::Size, G::Data<'a>);
+	type IntoIter = GridTreeIterator<'a, G, Co>;
 
 	fn into_iter(self) -> Self::IntoIter {
 		self.iter()
 	}
 }
 
-pub struct GridTreeIterator<'a, C: GridCell, Co: GridCoord> {
-	leaves: LeafCells<'a, C, Co>,
+pub struct GridTreeIterator<'a, G: GridType, Co: GridCoord> {
+	leaves: LeafCells<'a, G, Co>,
 }
 
-impl<'a, C: GridCell, Co: GridCoord> GridTreeIterator<'a, C, Co> {
-	pub fn new(tree: &'a GridTree<C, Co>) -> Self {
+impl<'a, G: GridType, Co: GridCoord> GridTreeIterator<'a, G, Co> {
+	pub fn new(tree: &'a GridTree<G, Co>) -> Self {
 		Self { leaves: tree.view().leaves() }
 	}
 }
 
-impl<'a, C: GridCell, Co: GridCoord> Iterator for GridTreeIterator<'a, C, Co> {
-	type Item = (Co::Pos, Co::Size, C::Data);
+impl<'a, G: GridType, Co: GridCoord> Iterator for GridTreeIterator<'a, G, Co> {
+	type Item = (Co::Pos, Co::Size, G::Data<'a>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.leaves.next().map(|leaf| (Co::from_ivec3(leaf.origin), Co::size_from_u32(leaf.size), leaf.data_value()))

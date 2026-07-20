@@ -4,7 +4,7 @@ use bevy::math::{IVec3, U16Vec3, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
-use voxel_data::voxels::{Voxel, VoxelPalette, VoxelType, Voxels};
+use voxel_data::voxels::{Voxel, VoxelType, Voxels};
 use voxel_edit::GridEdits;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
@@ -101,10 +101,9 @@ fn build_chunk(chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels>
 	if points.is_empty() {
 		None
 	} else {
-		let mut palette = VoxelPalette::new::<BasicVoxel>();
-		let palette_points: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, palette.palette_id(voxel.get_ref()))).collect();
+		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<BasicVoxel>();
-		voxels.add_voxels(&palette_points, &palette);
+		voxels.add_voxels(&voxel_refs);
 		Some(voxels)
 	}
 }
@@ -123,7 +122,6 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &Cancellati
 	let origin = chunk_origin(min);
 	let max_source = size * CHUNK_SIZE - IVec3::ONE;
 	let r2 = radius2();
-	let mut palette = VoxelPalette::new::<BasicVoxel>();
 	let mut areas = Vec::new();
 
 	for z in 0..extent.z {
@@ -143,16 +141,16 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &Cancellati
 
 			let mid_y = ((y0 + y1) / 2 * step + sample_offset).min(max_source.y);
 			let voxel = sphere_voxel_unchecked(origin + IVec3::new(sample_x, mid_y, sample_z), 0);
-			let palette_id = palette.palette_id(voxel.get_ref());
-			areas.push((U16Vec3::new(x as u16, y0 as u16, z as u16), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), palette_id));
+			areas.push((U16Vec3::new(x as u16, y0 as u16, z as u16), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), voxel));
 		}
 	}
 
 	if areas.is_empty() {
 		None
 	} else {
+		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, *size, voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<BasicVoxel>();
-		voxels.add_areas(&areas, &palette);
+		voxels.add_areas(&area_refs);
 		Some(voxels)
 	}
 }

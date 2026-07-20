@@ -1,8 +1,7 @@
 use bevy::math::{Quat, U16Vec3, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
-use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED, U16Coord};
-use voxel_data::voxel_grid_tree::PackedCell;
+use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, GridType, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED, U16Coord};
 use voxel_data::transform_ext::TransformExt;
 use voxel_data::voxels;
 
@@ -48,13 +47,13 @@ pub(super) fn get_collisions_between_subgrids(
 	collisions
 }
 
-fn descend(
+fn descend<G1: GridType, G2: GridType>(
 	collisions: &mut Vec<SubgridContact>,
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,
-	view_1: GridTreeView<'_, PackedCell, U16Coord>,
+	view_1: GridTreeView<'_, G1, U16Coord>,
 	box_1: DescendBox,
-	view_2: GridTreeView<'_, PackedCell, U16Coord>,
+	view_2: GridTreeView<'_, G2, U16Coord>,
 	box_2: DescendBox,
 ) {
 	let center_1 = *transform_of_1_in_2 * (box_1.origin.as_vec3() + Vec3::splat(box_1.size as f32 * 0.5));
@@ -82,7 +81,7 @@ fn descend(
 	}
 }
 
-fn collect_children(parent: &DescendBox, view: GridTreeView<'_, PackedCell, U16Coord>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
+fn collect_children<G: GridType>(parent: &DescendBox, view: GridTreeView<'_, G, U16Coord>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
 	let mut count = 0;
 	match parent.src {
 		BoxSrc::Node(node) => {
