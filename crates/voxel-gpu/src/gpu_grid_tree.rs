@@ -2,7 +2,7 @@ use tracy_client::span;
 
 use voxel_data::grid_tree::{self, CellKind};
 use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
-use voxel_data::voxels::{Voxel, VoxelTypeInfo};
+use voxel_data::voxels::{VoxelRef, VoxelTypeInfo};
 
 use crate::voxel_color::VoxelColorReaders;
 
@@ -31,7 +31,7 @@ fn build_bitmap(node: &PackedNode<'_>) -> u64 {
 }
 
 fn voxel_color(raw: &[u8], voxel_type: VoxelTypeInfo, color_readers: &VoxelColorReaders) -> [u8; 4] {
-	let voxel = Voxel::new(voxel_type.id, raw.to_vec());
+	let voxel = VoxelRef::new(voxel_type.id, raw);
 	color_readers.color(&voxel).unwrap_or([255, 0, 255, 255])
 }
 

@@ -8,10 +8,12 @@ use crate::{ChunkChangeKind, ChunkChanged, ChunkLoaded, ChunkPresenceLoaded, Lod
 
 pub(crate) fn init_sources(registry: ResMut<SourceRegistry>) {
 	let messages = registry.message_tx.clone();
+	let lod_generators = registry.generators.clone();
 	for (i, source) in registry.sources.iter().enumerate() {
 		source.init(SourceHandle {
 			id: SourceId(i),
 			messages: messages.clone(),
+			lod_generators: lod_generators.clone(),
 		});
 	}
 }

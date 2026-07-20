@@ -150,15 +150,8 @@ fn serve_requests(
 fn cancel_lod_request(grid: voxel_data::grid::GridId, key: crate::LodKey, pending_lod: &PendingLod) {
 	let direct = LodRequestKey::new(grid, key.min, key.size, key.lod as f32);
 	let intermediate = LodRequestKey::new(grid, key.min, key.size, (key.lod as f32).min(6.0));
-	let fallback = LodRequestKey::new(grid, key.min, key.size, 0.0);
 	let mut pending = pending_lod.lock().unwrap();
-	let mut candidates = Vec::new();
-	for candidate in [direct, intermediate, fallback] {
-		if !candidates.contains(&candidate) {
-			candidates.push(candidate);
-		}
-	}
-	for candidate in candidates {
+	for candidate in [direct, intermediate] {
 		let remove_job = if let Some(job) = pending.get_mut(&candidate) {
 			let (requests, cancellation) = match job {
 				PendingLodJob::Direct { requests, cancellation, .. }
@@ -177,6 +170,7 @@ fn cancel_lod_request(grid: voxel_data::grid::GridId, key: crate::LodKey, pendin
 		if remove_job {
 			pending.remove(&candidate);
 		}
+		if candidate == intermediate { break; }
 	}
 }
 
@@ -194,25 +188,20 @@ fn handle_lod_request(
 	let lod = request.request.key.lod as f32;
 	let priority = request.request.priority;
 	let generation = request.generation;
-	let mut source_lod = lod;
-	let mut source_ids = lod_sources_with_any_chunks(sources, grid, min, size, source_lod);
-	if source_ids.is_empty() && lod > 0.0 {
-		source_lod = 0.0;
-		source_ids = lod_sources_with_any_chunks(sources, grid, min, size, source_lod);
-	}
+	let source_ids = lod_sources_with_any_chunks(sources, grid, min, size, lod);
 	match source_ids.as_slice() {
 		[] => {
 			let cancellation = CancellationToken::new();
 			pending_lod.lock().unwrap().insert(
 				LodRequestKey::new(grid, min, size, lod),
-				PendingLodJob::Direct { requests: vec![request], final_lod: lod, source_lod, generation, cancellation },
+				PendingLodJob::Direct { requests: vec![request], generation, cancellation },
 			);
 			let _ = message_tx.send(SourceMessage::Lod(SourceLodResult {
 				source: crate::source::SourceId(usize::MAX),
 				grid,
 				min,
 				size,
-				lod: source_lod,
+				lod,
 				generation,
 				voxels: None,
 			}));
@@ -231,8 +220,6 @@ fn handle_lod_request(
 						let cancellation = CancellationToken::new();
 						pending.insert(lod_key, PendingLodJob::Direct {
 							requests: vec![request],
-							final_lod: lod,
-							source_lod,
 							generation,
 							cancellation: cancellation.clone(),
 						});
@@ -245,13 +232,13 @@ fn handle_lod_request(
 				pusher.push(PriorityTask::new(priority, async move {
 					if cancellation.is_cancelled() { return; }
 					let _zone = span!("source request_load_lod direct");
-					source.request_load_lod(grid, min, size, source_lod, generation, cancellation);
+					source.request_load_lod(grid, min, size, lod, generation, cancellation);
 				}));
 			}
 		}
 		_ => {
-			let intermediate_lod = source_lod.min(6.0);
-			let lod_key = LodRequestKey::new(grid, min, size, lod);
+			let intermediate_lod = lod.min(6.0);
+			let lod_key = LodRequestKey::new(grid, min, size, intermediate_lod);
 			let (should_request, cancellation) = {
 				let mut pending = pending_lod.lock().unwrap();
 				match pending.get_mut(&lod_key) {

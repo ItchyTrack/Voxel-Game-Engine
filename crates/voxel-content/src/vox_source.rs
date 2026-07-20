@@ -225,20 +225,6 @@ impl<M: VoxMaterialMapper> VoxFileSource<M> {
 		if out.is_empty() { None } else { Some(out) }
 	}
 
-	fn load_lod0_region(&self, binding: &GridBinding, min: IVec3, size: IVec3) -> Option<Voxels> {
-		let mut out = Voxels::new_with_type(self.inner.mapper.voxel_type_info());
-		for z in 0..size.z {
-			for y in 0..size.y {
-				for x in 0..size.x {
-					let local = IVec3::new(x, y, z);
-					let Some(voxels) = self.translated_chunk(binding, min + local) else { continue };
-					out.merge_from(&voxels, local * CHUNK_SIZE);
-				}
-			}
-		}
-		(!out.is_empty()).then_some(out)
-	}
-
 	fn translated_available_area(&self, binding: &GridBinding) -> Option<(IVec3, IVec3)> {
 		self.ensure_file_loaded(&binding.path);
 		let files = self.inner.files.read().unwrap();
@@ -270,8 +256,7 @@ impl<M: VoxMaterialMapper> ChunkSource for VoxFileSource<M> {
 		}
 	}
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Option<u32> {
-		if lod > 0.0 { return None; }
+	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
 		let binding = self.binding(grid)?;
 		let region_has_data = (0..size.z).any(|z| (0..size.y).any(|y| (0..size.x).any(|x| {
 			self.translated_chunk(&binding, min + IVec3::new(x, y, z)).is_some()
@@ -281,7 +266,11 @@ impl<M: VoxMaterialMapper> ChunkSource for VoxFileSource<M> {
 
 	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let voxels = self.binding(grid).and_then(|binding| self.load_lod0_region(&binding, min, size));
+		let voxels = self.binding(grid).and_then(|binding| {
+			let handle = self.inner.handle.get()?;
+			let generator = handle.voxel_lod_generator(self.inner.mapper.voxel_type_info().id)?;
+			generator.generate(min, size, lod, &|chunk| self.translated_chunk(&binding, chunk))
+		});
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, generation, voxels);

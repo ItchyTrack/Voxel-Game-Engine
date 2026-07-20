@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
 use bevy::prelude::*;
 
 use voxel_data::grid::GridId;
@@ -20,6 +23,8 @@ pub trait VoxelLodGenerator: Send + Sync {
 		fetch: &dyn Fn(IVec3) -> Option<Voxels>,
 	) -> Option<Voxels>;
 }
+
+pub type VoxelLodGenerators = Arc<RwLock<HashMap<VoxelTypeId, Arc<dyn VoxelLodGenerator>>>>;
 
 /// A source of voxel chunks. Methods take `&self` and are called concurrently from the
 /// async load workers, so mutable state must use interior mutability. This lets many

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bevy::math::IVec3;
 use voxel_data::compressed_voxels::CompressedVoxels;
-use voxel_data::voxels::Voxels;
+use voxel_data::voxels::{VoxelTypeId, Voxels};
 
 #[derive(Default)]
 pub struct GridStore {
@@ -33,6 +33,20 @@ impl GridStore {
 		(0..size.z).any(|z| (0..size.y).any(|y| (0..size.x).any(|x| {
 			self.chunks.contains_key(&(min + IVec3::new(x, y, z)))
 		})))
+	}
+
+	pub fn voxel_type_id_in_region(&self, min: IVec3, size: IVec3) -> Option<VoxelTypeId> {
+		for z in 0..size.z {
+			for y in 0..size.y {
+				for x in 0..size.x {
+					let chunk = min + IVec3::new(x, y, z);
+					if let Some(voxels) = self.load_chunk(chunk) {
+						return Some(voxels.voxel_type_id());
+					}
+				}
+			}
+		}
+		None
 	}
 
 	pub fn load_lod_region(&self, min: IVec3, size: IVec3, lod: f32) -> Option<Voxels> {

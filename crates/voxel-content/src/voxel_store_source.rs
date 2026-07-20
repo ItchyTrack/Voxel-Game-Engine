@@ -55,14 +55,22 @@ impl ChunkSource for VoxelStoreSource {
 		}
 	}
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Option<u32> {
-		if lod > 0.0 { return None; }
+	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
 		self.inner.grids.read().unwrap().get(&grid)?.has_any_in_region(min, size).then_some(LOAD_COST)
 	}
 
 	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let voxels = self.inner.grids.read().unwrap().get(&grid).and_then(|store| store.load_lod_region(min, size, lod));
+		let voxels = self.inner.handle.get().and_then(|handle| {
+			let grids = self.inner.grids.read().unwrap();
+			let store = grids.get(&grid)?;
+			if lod <= 0.0 {
+				return store.load_lod_region(min, size, lod);
+			}
+			let type_id = store.voxel_type_id_in_region(min, size)?;
+			let generator = handle.voxel_lod_generator(type_id)?;
+			generator.generate(min, size, lod, &|chunk| store.load_chunk(chunk))
+		});
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, generation, voxels);

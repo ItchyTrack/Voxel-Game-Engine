@@ -81,8 +81,7 @@ pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, _voxel_type: VoxelTypeInf
 	let mut palette_overflowed = false;
 
 	for (pos, size, voxel_ref) in grid_tree.iter() {
-		let voxel = voxel_ref.get_voxel();
-		let Some(color) = color_readers.color(&voxel) else { continue; };
+		let Some(color) = color_readers.color(&voxel_ref) else { continue; };
 		let size_u32 = size as u32;
 		let size_i32 = size as i32;
 		let position = [pos.x as u32, pos.y as u32, pos.z as u32];

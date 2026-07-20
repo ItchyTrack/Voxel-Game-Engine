@@ -1,10 +1,12 @@
 use bevy::math::IVec3;
 use crossbeam_channel::Sender;
 
-use voxel_data::grid::GridId;
-use voxel_data::voxels::Voxels;
+use std::sync::Arc;
 
-use crate::source::SourceId;
+use voxel_data::grid::GridId;
+use voxel_data::voxels::{VoxelTypeId, Voxels};
+
+use crate::source::{SourceId, VoxelLodGenerator, VoxelLodGenerators};
 use crate::ChunkPresenceLoaded;
 
 #[derive(bevy::ecs::message::Message, Debug, Clone, Copy)]
@@ -42,11 +44,16 @@ pub enum SourceMessage {
 pub struct SourceHandle {
 	pub(crate) id: SourceId,
 	pub(crate) messages: Sender<SourceMessage>,
+	pub(crate) lod_generators: VoxelLodGenerators,
 }
 
 impl SourceHandle {
 	pub fn id(&self) -> SourceId {
 		self.id
+	}
+
+	pub fn voxel_lod_generator(&self, type_id: VoxelTypeId) -> Option<Arc<dyn VoxelLodGenerator>> {
+		self.lod_generators.read().unwrap().get(&type_id).cloned()
 	}
 
 	pub fn loaded(&self, grid: GridId, chunk: IVec3, generation: u64, voxels: Option<Voxels>) {
