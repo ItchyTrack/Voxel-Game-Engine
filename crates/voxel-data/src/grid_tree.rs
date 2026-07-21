@@ -14,7 +14,7 @@ pub use cell::CellKind;
 pub use coord::{GridCoord, U16Coord, U32Coord};
 pub use data::{GridData, GridType};
 pub use raw::GridTreeNode;
-pub use view::{CellRef, ChildCells, GridTreeView, LeafCells, NodeRef};
+pub use view::{CellRef, ChildCells, ChildCellsInRegion, GridTreeView, LeafCells, NodeRef};
 
 pub const LOG_SIZE: u8 = 2;
 pub const SIZE: u8 = 1u8 << LOG_SIZE;
@@ -142,11 +142,13 @@ mod bulk;
 mod point_ops;
 mod region;
 mod region_ops;
+mod reduce;
 mod single_build;
 mod storage;
 mod surgery;
 
 pub use region::GridRegion;
+pub use reduce::{reduce_grid_trees, SourceOverlap, SourceOverlaps, SourceTree};
 
 impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 	pub fn len(&self) -> u64 {

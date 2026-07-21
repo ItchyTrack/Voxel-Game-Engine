@@ -39,12 +39,6 @@ impl GridEdit {
 			}
 		}
 	}
-	pub fn voxel(&self) -> Option<Voxel> {
-		match self {
-			GridEdit::Add { voxel, .. } => Some(voxel.clone()),
-			GridEdit::Remove { .. } | GridEdit::ApplySdf { .. } | GridEdit::ClearSdf { .. } => None,
-		}
-	}
 }
 
 #[derive(Component, Default)]
@@ -53,8 +47,8 @@ pub struct GridEdits {
 }
 
 impl GridEdits {
-	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: &Voxel) {
-		self.pending.push(GridEdit::Add { voxel_pos: *voxel_pos, voxel: voxel.clone() });
+	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: Voxel) {
+		self.pending.push(GridEdit::Add { voxel_pos: *voxel_pos, voxel: voxel });
 	}
 
 	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) {

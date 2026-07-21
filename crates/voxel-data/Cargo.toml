@@ -16,6 +16,7 @@ serde-big-array = "0.5"
 tracy-client = { workspace = true }
 zstd = "0.13"
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
+bytemuck = "1.25.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

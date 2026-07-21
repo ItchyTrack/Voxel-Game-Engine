@@ -24,7 +24,7 @@ fn gradient_voxel(pos: IVec3) -> Voxel {
 
 fn uniform_chunk() -> Voxels {
 	let mut voxels = Voxels::new_with_type(test_type_info());
-	voxels.add_area(U16Vec3::ZERO, U16Vec3::splat(CHUNK as u16), voxel(7));
+	voxels.add_area(U16Vec3::ZERO, U16Vec3::splat(CHUNK as u16), voxel(7).get_ref());
 	voxels
 }
 

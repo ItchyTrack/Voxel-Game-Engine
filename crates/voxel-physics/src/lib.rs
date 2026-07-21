@@ -60,8 +60,8 @@ pub struct VoxelMassReaders {
 }
 
 impl VoxelMassReaders {
-	pub fn register<T: VoxelType>(&mut self, mass: impl Fn(&T) -> f64 + Send + Sync + 'static) {
-		self.readers.insert(T::TYPE_INFO.id, Arc::new(move |voxel| Some(mass(&T::from_voxel_ref(voxel)))));
+	pub fn register<T: VoxelMassValue>(&mut self) {
+		self.readers.insert(T::TYPE_INFO.id, Arc::new(|voxel| Some(T::from_voxel_ref(voxel).voxel_mass())));
 	}
 
 	pub fn mass(&self, voxel: &VoxelRef) -> Option<f64> {
@@ -69,8 +69,12 @@ impl VoxelMassReaders {
 	}
 }
 
+pub trait VoxelMassValue: VoxelType {
+	fn voxel_mass(&self) -> f64;
+}
+
 pub trait VoxelPhysicsAppExt {
-	fn register_voxel_mass<T: VoxelType>(&mut self, mass: impl Fn(&T) -> f64 + Send + Sync + 'static) -> &mut Self;
+	fn register_voxel_mass<T: VoxelMassValue>(&mut self) -> &mut Self;
 	fn add_physics_apply_systems<M>(
 		&mut self,
 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
@@ -94,11 +98,11 @@ pub fn physics_not_frozen(freeze: Res<FreezePhysics>) -> bool {
 }
 
 impl VoxelPhysicsAppExt for App {
-	fn register_voxel_mass<T: VoxelType>(&mut self, mass: impl Fn(&T) -> f64 + Send + Sync + 'static) -> &mut Self {
+	fn register_voxel_mass<T: VoxelMassValue>(&mut self) -> &mut Self {
 		if !self.world().contains_resource::<VoxelMassReaders>() {
 			self.init_resource::<VoxelMassReaders>();
 		}
-		self.world_mut().resource_mut::<VoxelMassReaders>().register::<T>(mass);
+		self.world_mut().resource_mut::<VoxelMassReaders>().register::<T>();
 		self
 	}
 

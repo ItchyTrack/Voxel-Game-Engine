@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
@@ -7,7 +8,7 @@ use bevy::math::{IVec3, Quat, U16Vec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::grid_tree::GridRegion;
-use voxel_data::voxels::{Voxel, VoxelTypeInfo, Voxels};
+use voxel_data::voxels::{Voxel, VoxelType, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::{CHUNK_SIZE, chunk_of};
 
@@ -19,18 +20,17 @@ pub struct VoxMaterial {
 	pub color: [u8; 4],
 }
 
-pub trait VoxMaterialMapper: Clone + Send + Sync + 'static {
-	fn voxel_type_info(&self) -> VoxelTypeInfo;
-	fn voxel(&self, material: VoxMaterial) -> Voxel;
+pub trait VoxMaterialVoxel: VoxelType {
+	fn from_vox_material(material: VoxMaterial) -> Self;
 }
 
 #[derive(Resource, Clone)]
-pub struct VoxFileSource<M: VoxMaterialMapper> {
-	inner: Arc<VoxFileSourceInner<M>>,
+pub struct VoxFileSource<T: VoxMaterialVoxel> {
+	inner: Arc<VoxFileSourceInner<T>>,
 }
 
-struct VoxFileSourceInner<M: VoxMaterialMapper> {
-	mapper: M,
+struct VoxFileSourceInner<T: VoxMaterialVoxel> {
+	_voxel_type: PhantomData<T>,
 	handle: OnceLock<SourceHandle>,
 	bindings: RwLock<HashMap<GridId, GridBinding>>,
 	files: RwLock<HashMap<PathBuf, FileCache>>,
@@ -50,11 +50,11 @@ struct FileCache {
 	load_failed: bool,
 }
 
-impl<M: VoxMaterialMapper> VoxFileSource<M> {
-	pub fn new(mapper: M) -> Self {
+impl<T: VoxMaterialVoxel> VoxFileSource<T> {
+	pub fn new() -> Self {
 		Self {
 			inner: Arc::new(VoxFileSourceInner {
-				mapper,
+				_voxel_type: PhantomData,
 				handle: OnceLock::new(),
 				bindings: RwLock::new(HashMap::new()),
 				files: RwLock::new(HashMap::new()),
@@ -163,7 +163,7 @@ impl<M: VoxMaterialMapper> VoxFileSource<M> {
 								palette_index: voxel.i,
 								color: [palette.r, palette.g, palette.b, palette.a],
 							};
-							current_points.push((local, self.inner.mapper.voxel(material)));
+							current_points.push((local, T::from_vox_material(material).into_voxel()));
 							touched_bounds = Some(match touched_bounds {
 								Some((min, max)) => (min.min(chunk), max.max(chunk)),
 								None => (chunk, chunk),
@@ -181,9 +181,8 @@ impl<M: VoxMaterialMapper> VoxFileSource<M> {
 		cache.available_area = touched_bounds.map(|(min, max)| (min, max - min + IVec3::ONE));
 
 		for (chunk, points) in chunk_points {
-			let type_info = self.inner.mapper.voxel_type_info();
 			let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
-			let mut voxels = Voxels::new_with_type(type_info);
+			let mut voxels = Voxels::new::<T>();
 			voxels.add_voxels(&voxel_refs);
 			if let Ok(compressed) = CompressedVoxels::new(&voxels, 0) {
 				cache.chunks.insert(chunk, compressed);
@@ -203,7 +202,7 @@ impl<M: VoxMaterialMapper> VoxFileSource<M> {
 		let source_chunk_min = source_min.div_euclid(IVec3::splat(CHUNK_SIZE));
 		let source_chunk_max = (source_max_exclusive - IVec3::ONE).div_euclid(IVec3::splat(CHUNK_SIZE));
 
-		let mut out = Voxels::new_with_type(self.inner.mapper.voxel_type_info());
+		let mut out = Voxels::new::<T>();
 		for z in source_chunk_min.z..=source_chunk_max.z {
 			for y in source_chunk_min.y..=source_chunk_max.y {
 				for x in source_chunk_min.x..=source_chunk_max.x {
@@ -237,7 +236,7 @@ impl<M: VoxMaterialMapper> VoxFileSource<M> {
 	}
 }
 
-impl<M: VoxMaterialMapper> ChunkSource for VoxFileSource<M> {
+impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 	fn init(&self, handle: SourceHandle) {
 		let _ = self.inner.handle.set(handle);
 	}
@@ -268,7 +267,7 @@ impl<M: VoxMaterialMapper> ChunkSource for VoxFileSource<M> {
 		if cancellation.is_cancelled() { return; }
 		let voxels = self.binding(grid).and_then(|binding| {
 			let handle = self.inner.handle.get()?;
-			let generator = handle.voxel_lod_generator(self.inner.mapper.voxel_type_info().id)?;
+			let generator = handle.voxel_lod_generator(T::TYPE_ID)?;
 			generator.generate(min, size, lod, &|chunk| self.translated_chunk(&binding, chunk))
 		});
 		if cancellation.is_cancelled() { return; }
@@ -287,24 +286,33 @@ impl<M: VoxMaterialMapper> ChunkSource for VoxFileSource<M> {
 	}
 }
 
-pub fn vox_file_source<M: VoxMaterialMapper>(mapper: M) -> VoxFileSource<M> {
-	VoxFileSource::new(mapper)
+impl<T: VoxMaterialVoxel> Default for VoxFileSource<T> {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+pub fn vox_file_source<T: VoxMaterialVoxel>() -> VoxFileSource<T> {
+	VoxFileSource::new()
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 
-	#[derive(Clone, Copy)]
-	struct TestMapper;
+	#[repr(C)]
+	#[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
+	struct TestVoxel {
+		color: [u8; 4],
+	}
 
-	impl VoxMaterialMapper for TestMapper {
-		fn voxel_type_info(&self) -> VoxelTypeInfo {
-			VoxelTypeInfo { id: voxel_data::voxels::VoxelTypeId(42), size_bytes: 4 }
-		}
+	impl VoxelType for TestVoxel {
+		const TYPE_ID: voxel_data::voxels::VoxelTypeId = voxel_data::voxels::VoxelTypeId(42);
+	}
 
-		fn voxel(&self, material: VoxMaterial) -> Voxel {
-			Voxel::new(self.voxel_type_info().id, material.color)
+	impl VoxMaterialVoxel for TestVoxel {
+		fn from_vox_material(material: VoxMaterial) -> Self {
+			Self { color: material.color }
 		}
 	}
 
@@ -314,7 +322,7 @@ mod tests {
 
 	#[test]
 	fn zero_offset_translation_preserves_source_chunk_positions_for_church() {
-		let source = VoxFileSource::new(TestMapper);
+		let source = VoxFileSource::<TestVoxel>::new();
 		let path = church_path();
 		source.ensure_file_loaded(&path);
 		let binding = GridBinding { path: path.clone(), offset: IVec3::ZERO };
@@ -342,7 +350,7 @@ mod tests {
 
 	#[test]
 	fn zero_offset_available_area_matches_source_chunk_bounds_for_church() {
-		let source = VoxFileSource::new(TestMapper);
+		let source = VoxFileSource::<TestVoxel>::new();
 		let path = church_path();
 		source.ensure_file_loaded(&path);
 		let binding = GridBinding { path: path.clone(), offset: IVec3::ZERO };

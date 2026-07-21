@@ -41,7 +41,6 @@ impl GridType for VoxelGridType {
 	}
 	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]) {
 		self.type_info.id.assert_type(data.type_id());
-		assert_eq!(self.type_info.size_bytes, data.size());
 		bytes[..self.data_size_bytes()].copy_from_slice(data.bytes());
 	}
 	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {

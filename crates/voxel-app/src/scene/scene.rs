@@ -4,7 +4,7 @@ use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 use std::path::PathBuf;
 
-use basic_voxel::{BasicVoxel, BasicVoxMaterialMapper};
+use basic_voxel::BasicVoxel;
 use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_data::voxels::{Voxel, VoxelType};
@@ -19,13 +19,13 @@ use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
 use crate::voxel::spawn_grid::spawn_grid;
 
-type SceneVoxFileSource = VoxFileSource<BasicVoxMaterialMapper>;
+type SceneVoxFileSource = VoxFileSource<BasicVoxel>;
 
 pub struct ScenePlugin;
 
 impl Plugin for ScenePlugin {
 	fn build(&self, app: &mut App) {
-		let vox_source = SceneVoxFileSource::new(BasicVoxMaterialMapper);
+		let vox_source = SceneVoxFileSource::new();
 		let sdf_source = SdfSource::new();
 		app
 			.insert_resource(vox_source.clone())

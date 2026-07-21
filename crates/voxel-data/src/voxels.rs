@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{io::{self, Read, Write}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 
-use super::{grid_tree::GridRegion, sdf::Sdf, voxel_grid_tree::{VoxelGridTree, VoxelGridType}};
+use super::{grid_tree::{self, GridRegion, SourceOverlaps as GridSourceOverlaps, U16Coord}, sdf::Sdf, voxel_grid_tree::{VoxelGridTree, VoxelGridType}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VoxelTypeId(pub u16);
@@ -20,14 +20,30 @@ pub struct VoxelTypeInfo {
 	pub size_bytes: u16,
 }
 
-pub trait VoxelType: Sized + 'static {
-	const TYPE_INFO: VoxelTypeInfo;
-
-	fn into_voxel(self) -> Voxel;
-	fn from_voxel(voxel: &Voxel) -> Self;
-	fn from_voxel_ref(voxel: &VoxelRef) -> Self;
-	fn into_bytes(self, bytes: &mut [u8]);
-	fn from_bytes(bytes: &[u8]) -> Self;
+pub trait VoxelType: bytemuck::Pod + bytemuck::Zeroable + Sized + Send + Sync + 'static {
+	const TYPE_ID: VoxelTypeId;
+	const TYPE_INFO: VoxelTypeInfo = VoxelTypeInfo {
+			id: Self::TYPE_ID,
+			size_bytes: std::mem::size_of::<Self>() as u16,
+	};
+																		
+	fn get_ref(&self) -> VoxelRef<'_> {
+		VoxelRef::new(Self::TYPE_ID, bytemuck::bytes_of(self))
+	}
+																				
+	fn into_voxel(self) -> Voxel {
+		Voxel::new(Self::TYPE_ID, bytemuck::bytes_of(&self))
+	}
+																				
+	fn from_voxel_ref(voxel: &VoxelRef) -> Self {
+		Self::TYPE_ID.assert_type(voxel.type_id());
+		bytemuck::pod_read_unaligned(voxel.bytes())
+	}
+																				
+	fn from_voxel(voxel: &Voxel) -> Self {
+		Self::TYPE_ID.assert_type(voxel.type_id());															
+		bytemuck::pod_read_unaligned(voxel.bytes())
+	}
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -80,6 +96,45 @@ impl<'bytes> VoxelRef<'bytes> {
 	}
 }
 
+pub struct SourceTree<'a> {
+	pub voxels: &'a Voxels,
+
+	/// Source-local coordinates are divided by `1 << scale_down`.
+	pub scale_down: u8,
+
+	/// Added after scale-down to place source data in output space.
+	pub output_offset: IVec3,
+}
+
+pub struct SourceOverlap<'a> {
+	pub source_index: usize,
+
+	/// Source-local region contributing to the current output region.
+	pub source_region: GridRegion,
+
+	/// Projected/clipped region in output coordinates.
+	pub output_region: GridRegion,
+
+	pub data: VoxelRef<'a>,
+}
+
+pub struct SourceOverlaps<'overlaps, 'a> {
+	overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, U16Coord>,
+}
+
+impl<'overlaps, 'a> Iterator for SourceOverlaps<'overlaps, 'a> {
+	type Item = SourceOverlap<'a>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.overlaps.next().map(|overlap| SourceOverlap {
+			source_index: overlap.source_index,
+			source_region: overlap.source_region,
+			output_region: overlap.output_region,
+			data: overlap.data,
+		})
+	}
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Voxels {
 	voxels: VoxelGridTree,
@@ -109,6 +164,30 @@ impl Voxels {
 
 	pub fn new_with_type(voxel_type: VoxelTypeInfo) -> Self {
 		Self { voxels: VoxelGridTree::new_with_type(VoxelGridType::new(voxel_type)), bounding_box: Mutex::new(None), bounding_box_dirty: AtomicBool::new(false) }
+	}
+
+	pub fn reduce_voxels<'a, F>(output_region: GridRegion, sources: &[SourceTree<'a>], mut reduce: F) -> Option<Self>
+	where
+		F: for<'overlaps> FnMut(GridRegion, SourceOverlaps<'overlaps, 'a>) -> Option<VoxelRef<'a>>,
+	{
+		let source_trees: Vec<_> = sources
+			.iter()
+			.map(|source| grid_tree::SourceTree {
+				tree: source.voxels.grid_tree(),
+				scale_down: source.scale_down,
+				output_offset: source.output_offset,
+			})
+			.collect();
+		let voxels = grid_tree::reduce_grid_trees(
+			output_region,
+			&source_trees,
+			|region, overlaps| reduce(region, SourceOverlaps { overlaps }),
+		)?;
+		Some(Self {
+			voxels,
+			bounding_box: Mutex::new(None),
+			bounding_box_dirty: AtomicBool::new(true),
+		})
 	}
 
 	pub fn voxel_type_info(&self) -> VoxelTypeInfo { self.voxels.grid_type().type_info() }

@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use bevy::math::IVec3;
 
-use super::{raw::RawGridTree, CellKind, GridCoord, GridTreeNode, GridType, MAX_TREE_DEPTH_USIZE, SIZE_CUBED, child_size, get_child_contents_pos};
+use super::{raw::RawGridTree, CellKind, GridCoord, GridRegion, GridTreeNode, GridType, MAX_TREE_DEPTH_USIZE, SIZE, SIZE_CUBED, child_size, get_child_contents_index, get_child_contents_pos, size};
 
 /// Borrowed, read-only view over a grid tree's raw node arena.
 #[derive(Debug)]
@@ -122,6 +122,11 @@ impl<'a, G: GridType, Co: GridCoord> GridTreeView<'a, G, Co> {
 	}
 
 	#[inline]
+	pub fn occupied_children_in_region(self, node: NodeRef, region: GridRegion) -> ChildCellsInRegion<'a, G, Co> {
+		ChildCellsInRegion::new(self, node, region)
+	}
+
+	#[inline]
 	pub fn leaves(self) -> LeafCells<'a, G, Co> { LeafCells::new(self) }
 }
 
@@ -148,6 +153,77 @@ impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCells<'a, G, Co> {
 				self.remaining_occupied = self.remaining_occupied.saturating_sub(1);
 			}
 			return Some(self.view.child(self.node, i));
+		}
+		None
+	}
+}
+
+pub struct ChildCellsInRegion<'a, G: GridType, Co: GridCoord> {
+	view: GridTreeView<'a, G, Co>,
+	node: NodeRef,
+	region: GridRegion,
+	min: IVec3,
+	max: IVec3,
+	next: IVec3,
+	done: bool,
+	remaining_occupied: u8,
+}
+
+impl<'a, G: GridType, Co: GridCoord> Copy for ChildCellsInRegion<'a, G, Co> {}
+impl<'a, G: GridType, Co: GridCoord> Clone for ChildCellsInRegion<'a, G, Co> {
+	fn clone(&self) -> Self { *self }
+}
+
+impl<'a, G: GridType, Co: GridCoord> ChildCellsInRegion<'a, G, Co> {
+	#[inline]
+	fn new(view: GridTreeView<'a, G, Co>, node: NodeRef, region: GridRegion) -> Self {
+		let node_region = GridRegion { min: node.origin, end: node.origin + IVec3::splat(size(node.depth) as i32) };
+		let Some(overlap) = node_region.intersection(region) else {
+			return Self { view, node, region, min: IVec3::ZERO, max: IVec3::ZERO, next: IVec3::ZERO, done: true, remaining_occupied: 0 };
+		};
+		let cell_size = child_size(node.depth) as i32;
+		let min = (overlap.min - node.origin).div_euclid(IVec3::splat(cell_size));
+		let max = (overlap.end - node.origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		Self { view, node, region, min, max, next: min, done: false, remaining_occupied: view.raw.used_cell_count(node.index) }
+	}
+}
+
+impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCellsInRegion<'a, G, Co> {
+	type Item = (CellRef<'a, G>, GridRegion);
+
+	#[inline]
+	fn next(&mut self) -> Option<Self::Item> {
+		if self.done || self.remaining_occupied == 0 {
+			return None;
+		}
+		while !self.done {
+			let pos = self.next;
+			if self.next.x < self.max.x {
+				self.next.x += 1;
+			} else {
+				self.next.x = self.min.x;
+				if self.next.y < self.max.y {
+					self.next.y += 1;
+				} else {
+					self.next.y = self.min.y;
+					if self.next.z < self.max.z {
+						self.next.z += 1;
+					} else {
+						self.done = true;
+					}
+				}
+			}
+
+			debug_assert!(pos.cmpge(IVec3::ZERO).all() && pos.cmplt(IVec3::splat(SIZE as i32)).all());
+			let child_index = get_child_contents_index(pos.as_u8vec3());
+			if self.view.raw.cell_kind(self.node.index, child_index) == CellKind::Empty {
+				continue;
+			}
+			self.remaining_occupied = self.remaining_occupied.saturating_sub(1);
+			let child = self.view.child(self.node, child_index);
+			let child_region = GridRegion { min: child.origin, end: child.origin + IVec3::splat(child.size as i32) };
+			let clipped = child_region.intersection(self.region).expect("ranged child intersects region");
+			return Some((child, clipped));
 		}
 		None
 	}

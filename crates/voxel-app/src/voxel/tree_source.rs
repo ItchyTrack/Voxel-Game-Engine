@@ -3,11 +3,11 @@ use std::{
 	sync::{Arc, OnceLock},
 };
 
-use bevy::{math::U16Vec3, prelude::*};
+use bevy::{prelude::*};
 use basic_voxel::{BasicVoxel, downsample_region};
 use voxel_data::{
 	grid::{Grid, GridId},
-	voxels::{Voxel, VoxelType, Voxels},
+	voxels::{VoxelType, Voxels},
 };
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
@@ -296,13 +296,10 @@ fn rasterize_tree_chunk(model: &TreeModel, chunk: IVec3, cancellation: &Cancella
 		}
 		rasterize_leaves(&mut points, model.leaves[index], model.settings.leaf_radius, model.settings.seed, Some(bounds));
 	}
-
 	if points.is_empty() {
 		return None;
 	}
-	let mut points = points.into_iter().collect::<Vec<_>>();
-	points.sort_unstable_by_key(|(position, _)| (position.z, position.y, position.x));
-	let points = points.into_iter().map(|(position, voxel)| ((position - origin).as_u16vec3(), voxel)).collect::<Vec<(U16Vec3, Voxel)>>();
+	let points: Vec<_> = points.into_iter().map(|(position, voxel)| ((position - origin).as_u16vec3(), voxel)).collect();
 	let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 	let mut voxels = Voxels::new::<BasicVoxel>();
 	voxels.add_voxels(&voxel_refs);
@@ -310,10 +307,10 @@ fn rasterize_tree_chunk(model: &TreeModel, chunk: IVec3, cancellation: &Cancella
 }
 
 #[cfg(test)]
-fn generate_tree_voxels(settings: TreeSettings) -> HashMap<IVec3, Voxel> { rasterize_tree_voxels(&build_tree_model(settings)) }
+fn generate_tree_voxels(settings: TreeSettings) -> HashMap<IVec3, BasicVoxel> { rasterize_tree_voxels(&build_tree_model(settings)) }
 
 #[cfg(test)]
-fn rasterize_tree_voxels(model: &TreeModel) -> HashMap<IVec3, Voxel> {
+fn rasterize_tree_voxels(model: &TreeModel) -> HashMap<IVec3, BasicVoxel> {
 	let mut voxels = HashMap::new();
 	for branch in &model.branches {
 		rasterize_segment(&mut voxels, branch.start, branch.end, branch.radius, None);
@@ -407,7 +404,7 @@ fn grow_branches(settings: TreeSettings) -> Vec<BranchNode> {
 	nodes
 }
 
-fn rasterize_segment(voxels: &mut HashMap<IVec3, Voxel>, start: Vec3, end: Vec3, radius: f32, bounds: Option<VoxelBounds>) {
+fn rasterize_segment(voxels: &mut HashMap<IVec3, BasicVoxel>, start: Vec3, end: Vec3, radius: f32, bounds: Option<VoxelBounds>) {
 	let delta = end - start;
 	let steps = (delta.length() * 2.0).ceil().max(1.0) as usize;
 	for step in 0..=steps {
@@ -415,11 +412,11 @@ fn rasterize_segment(voxels: &mut HashMap<IVec3, Voxel>, start: Vec3, end: Vec3,
 		rasterize_sphere(voxels, center, radius.max(1.0), bounds, |position| BasicVoxel {
 			color: WOOD_COLORS[(point_hash(position, 0) % WOOD_COLORS.len() as u64) as usize],
 			mass: 100,
-		}.into_voxel());
+		});
 	}
 }
 
-fn rasterize_leaves(voxels: &mut HashMap<IVec3, Voxel>, center: Vec3, radius: f32, seed: u64, bounds: Option<VoxelBounds>) {
+fn rasterize_leaves(voxels: &mut HashMap<IVec3, BasicVoxel>, center: Vec3, radius: f32, seed: u64, bounds: Option<VoxelBounds>) {
 	let extent = radius.ceil() as i32;
 	let center_voxel = center.round().as_ivec3();
 	for z in -extent..=extent {
@@ -437,13 +434,13 @@ fn rasterize_leaves(voxels: &mut HashMap<IVec3, Voxel>, center: Vec3, radius: f3
 				if distance > radius - 1.0 && hash.is_multiple_of(5) {
 					continue;
 				}
-				voxels.entry(position).or_insert(BasicVoxel { color: LEAF_COLORS[(hash % LEAF_COLORS.len() as u64) as usize], mass: 10 }.into_voxel());
+				voxels.entry(position).or_insert(BasicVoxel { color: LEAF_COLORS[(hash % LEAF_COLORS.len() as u64) as usize], mass: 10 });
 			}
 		}
 	}
 }
 
-fn rasterize_sphere(voxels: &mut HashMap<IVec3, Voxel>, center: Vec3, radius: f32, bounds: Option<VoxelBounds>, voxel: impl Fn(IVec3) -> Voxel) {
+fn rasterize_sphere(voxels: &mut HashMap<IVec3, BasicVoxel>, center: Vec3, radius: f32, bounds: Option<VoxelBounds>, voxel: impl Fn(IVec3) -> BasicVoxel) {
 	let extent = radius.ceil() as i32;
 	let center_voxel = center.round().as_ivec3();
 	for z in -extent..=extent {
@@ -502,8 +499,8 @@ mod tests {
 		assert!(model.primitive_index.keys().all(|&chunk| estimated_bounds.contains(chunk)));
 
 		let voxels = rasterize_tree_voxels(&model);
-		let leaves = voxels.values().filter(|voxel| LEAF_COLORS.contains(&BasicVoxel::from_voxel(voxel).color)).count();
-		let wood = voxels.values().filter(|voxel| WOOD_COLORS.contains(&BasicVoxel::from_voxel(voxel).color)).count();
+		let leaves = voxels.values().filter(|voxel| LEAF_COLORS.contains(&voxel.color)).count();
+		let wood = voxels.values().filter(|voxel| WOOD_COLORS.contains(&voxel.color)).count();
 		assert!(voxels.contains_key(&IVec3::ZERO));
 		assert!(leaves > wood);
 		assert!(voxels.keys().any(|position| position.y > 50));

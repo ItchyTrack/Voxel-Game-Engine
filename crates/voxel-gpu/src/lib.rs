@@ -17,7 +17,7 @@ use bevy::{ecs::message::Message, prelude::*, render::RenderApp};
 use crate::world_gpu_data::WorldGpuData;
 
 pub use lod_voxels::LodVoxels;
-pub use voxel_color::{VoxelColorReaders, VoxelGpuAppExt};
+pub use voxel_color::{VoxelColor, VoxelColorReaders, VoxelGpuAppExt};
 pub use voxel_gpu_state::{RasterGpuState, RayGpuState, SubGridPlacement, VoxelGpuBounds, VoxelGpuFormat, VoxelGpuState};
 
 #[doc(hidden)]

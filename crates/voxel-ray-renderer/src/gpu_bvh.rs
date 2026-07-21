@@ -161,15 +161,15 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 		let direction_mask_size = (item_count.div_ceil(4) * std::mem::size_of::<u32>()) as u64;
 
 		let item_direction_mask_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
-			label:              Some("bvh_item_direction_mask_buffer"),
-			size:               direction_mask_size,
-			usage:              wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+			label: Some("bvh_item_direction_mask_buffer"),
+			size: direction_mask_size,
+			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
 		}));
 		let item_direction_mask_staging_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
-			label:              Some("bvh_item_direction_mask_staging_buffer"),
-			size:               direction_mask_size,
-			usage:              wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+			label: Some("bvh_item_direction_mask_staging_buffer"),
+			size: direction_mask_size,
+			usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
 			mapped_at_creation: false,
 		}));
 
@@ -191,19 +191,19 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 		WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[
 				wgpu::BindGroupLayoutEntry {
-					binding:    0,
+					binding: 0,
 					visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
 					ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
 					count: None,
 				},
 				wgpu::BindGroupLayoutEntry {
-					binding:    1,
+					binding: 1,
 					visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
 					ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
 					count: None,
 				},
 				wgpu::BindGroupLayoutEntry {
-					binding:    2,
+					binding: 2,
 					visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
 					ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
 					count: None,

@@ -1,7 +1,6 @@
-use bevy::math::{IVec3, U16Vec3};
-use voxel_data::grid_tree::{child_size, size as node_span, CellKind, CellRef, GridTreeView, NodeRef, U16Coord};
-use voxel_data::voxel_grid_tree::VoxelGridType;
-use voxel_data::voxels::{Voxel, VoxelType, VoxelTypeId, Voxels};
+use bevy::math::IVec3;
+use voxel_data::grid_tree::GridRegion;
+use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelRef, VoxelType, VoxelTypeId, Voxels};
 use voxel_sources::VoxelLodGenerator;
 use voxel_streaming::CHUNK_SIZE;
 
@@ -42,140 +41,66 @@ impl Accum {
 	}
 }
 
-/// One finished coarse cell, pending final color assignment.
-struct CoarseCell {
-	pos: IVec3,
-	color: [u8; 3],
-}
-
 pub fn downsample_region(min: IVec3, size: IVec3, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-	let step = 1i32 << lod.max(0.0).floor() as u32;
+	let scale_down = lod.max(0.0).floor() as u8;
+	let step = 1i32 << scale_down as u32;
 
-	let mut cells: Vec<CoarseCell> = Vec::new();
+	let mut loaded = Vec::new();
 	for chunk_z in 0..size.z {
 		for chunk_y in 0..size.y {
 			for chunk_x in 0..size.x {
 				let local = IVec3::new(chunk_x, chunk_y, chunk_z);
-				let Some(src) = fetch(min + local) else { continue };
-				let chunk_origin = local * CHUNK_SIZE;
-				let view = src.grid_tree().view();
-				let root = view.root();
-
-				let mut emit = |local_origin: IVec3, accum: Accum| {
-					if accum.weight == 0 { return; }
-					cells.push(CoarseCell { pos: (chunk_origin + local_origin) / step, color: accum.average() });
-				};
-
-				if node_span(root.depth) as i32 <= step {
-					let accum = sum_node(view, root);
-					if accum.weight > 0 {
-						emit(root.origin, accum);
-					}
-				} else {
-					process_node(view, root, step, &mut emit);
+				if let Some(voxels) = fetch(min + local) {
+					loaded.push((local, voxels));
 				}
 			}
 		}
 	}
-
-	if cells.is_empty() {
+	if loaded.is_empty() {
 		return None;
 	}
 
-	let points = cells.iter().map(|cell| {
-		let voxel = BasicVoxel { color: [cell.color[0], cell.color[1], cell.color[2], 255], mass: 0 }.into_voxel();
-		(cell.pos.as_u16vec3(), voxel)
-	}).collect::<Vec<(U16Vec3, Voxel)>>();
-	let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
-
-	let mut out = Voxels::new::<BasicVoxel>();
-	out.add_voxels(&voxel_refs);
-
-	if out.is_empty() { None } else { Some(out) }
+	let sources: Vec<_> = loaded
+		.iter()
+		.map(|(local, voxels)| SourceTree {
+			voxels,
+			scale_down,
+			output_offset: (*local * CHUNK_SIZE).div_euclid(IVec3::splat(step)),
+		})
+		.collect();
+	let output_size = div_ceil_ivec3(size * CHUNK_SIZE, step);
+	let output_region = GridRegion::from_min_size(IVec3::ZERO, output_size)?;
+	let mut generated = Vec::new();
+	Voxels::reduce_voxels(output_region, &sources, |_, overlaps| reduce_basic_voxel(overlaps, &mut generated))
 }
 
-fn process_node(
-	view: GridTreeView<'_, VoxelGridType, U16Coord>,
-	node: NodeRef,
-	step: i32,
-	emit: &mut impl FnMut(IVec3, Accum),
-) {
-	let child_sz = child_size(node.depth) as i32;
-
-	if child_sz > step {
-		for child in view.occupied_children(node) {
-			process_cell(view, child, step, emit);
-		}
-	} else if child_sz == step {
-		for child in view.occupied_children(node) {
-			let accum = sum_cell(view, child);
-			if accum.weight > 0 {
-				emit(child.origin, accum);
-			}
-		}
-	} else {
-		debug_assert_eq!(child_sz * 2, step);
-		let mut blocks = [Accum::default(); 8];
-		let mut occupied = [false; 8];
-		for child in view.occupied_children(node) {
-			let local = (child.origin - node.origin) / child_sz;
-			let block = ((local.x / 2) + (local.y / 2) * 2 + (local.z / 2) * 4) as usize;
-			blocks[block].add(sum_cell(view, child));
-			occupied[block] = true;
-		}
-		for b in 0..8 {
-			if !occupied[b] { continue; }
-			let offset = IVec3::new((b & 1) as i32, ((b >> 1) & 1) as i32, ((b >> 2) & 1) as i32);
-			emit(node.origin + offset * step, blocks[b]);
-		}
+fn reduce_basic_voxel<'a>(overlaps: impl Iterator<Item = SourceOverlap<'a>>, generated: &mut Vec<BasicVoxel>) -> Option<VoxelRef<'a>> {
+	let mut accum = Accum::default();
+	for overlap in overlaps {
+		let voxel = BasicVoxel::from_voxel_ref(&overlap.data);
+		accum.add(Accum::from_leaf(&voxel, region_volume(overlap.source_region)));
 	}
-}
-
-fn process_cell(
-	view: GridTreeView<'_, VoxelGridType, U16Coord>,
-	cell: CellRef<'_, VoxelGridType>,
-	step: i32,
-	emit: &mut impl FnMut(IVec3, Accum),
-) {
-	match cell.kind() {
-		CellKind::Empty => {}
-		CellKind::Data => tile_uniform(cell, step, emit),
-		CellKind::Node => {
-			let node = view.child_node(cell).expect("Node kind implies child_node");
-			process_node(view, node, step, emit);
-		}
+	if accum.weight == 0 {
+		return None;
 	}
+	let color = accum.average();
+	generated.push(BasicVoxel { color: [color[0], color[1], color[2], 255], mass: 0 });
+	let voxel = generated.last().expect("just pushed generated voxel").get_ref();
+	Some(unsafe { std::mem::transmute::<VoxelRef<'_>, VoxelRef<'a>>(voxel) })
 }
 
-fn sum_cell(view: GridTreeView<'_, VoxelGridType, U16Coord>, cell: CellRef<'_, VoxelGridType>) -> Accum {
-	match cell.kind() {
-		CellKind::Empty => Accum::default(),
-		CellKind::Data => {
-			let voxel = BasicVoxel::from_voxel_ref(&cell.data_value());
-			Accum::from_leaf(&voxel, (cell.size as u64).pow(3))
-		}
-		CellKind::Node => {
-			let node = view.child_node(cell).expect("Node kind implies child_node");
-			sum_node(view, node)
-		}
-	}
+fn region_volume(region: GridRegion) -> u64 {
+	let size = region.size().as_uvec3();
+	size.x as u64 * size.y as u64 * size.z as u64
 }
 
-fn sum_node(view: GridTreeView<'_, VoxelGridType, U16Coord>, node: NodeRef) -> Accum {
-	let mut total = Accum::default();
-	for child in view.occupied_children(node) {
-		total.add(sum_cell(view, child));
-	}
-	total
+fn div_ceil_ivec3(value: IVec3, divisor: i32) -> IVec3 {
+	IVec3::new(div_ceil(value.x, divisor), div_ceil(value.y, divisor), div_ceil(value.z, divisor))
 }
 
-fn tile_uniform(cell: CellRef<'_, VoxelGridType>, step: i32, emit: &mut impl FnMut(IVec3, Accum)) {
-	let voxel = BasicVoxel::from_voxel_ref(&cell.data_value());
-	let accum = Accum::from_leaf(&voxel, (step as u64).pow(3));
-	let n = cell.size as i32 / step;
-	for z in 0..n { for y in 0..n { for x in 0..n {
-		emit(cell.origin + IVec3::new(x, y, z) * step, accum);
-	}}}
+fn div_ceil(value: i32, divisor: i32) -> i32 {
+	let floor = value.div_euclid(divisor);
+	if value.rem_euclid(divisor) == 0 { floor } else { floor + 1 }
 }
 
 fn round_channel(sum: u64, weight: u64) -> u8 {
