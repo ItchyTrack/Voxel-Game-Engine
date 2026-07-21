@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use notify::{RecursiveMode, Watcher};
+use notify::{EventKind, RecursiveMode, Watcher};
 
 pub struct VoxelShaderHotReload {
 	dirty: Arc<AtomicBool>,
@@ -14,7 +14,13 @@ impl VoxelShaderHotReload {
 		let dirty = Arc::new(AtomicBool::new(false));
 		let dirty_flag = dirty.clone();
 		let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| match result {
-			Ok(event) if event.paths.iter().any(|path| is_shader_file(path)) => {
+			Ok(event)
+				if matches!(event.kind,
+					EventKind::Create(_) |
+					EventKind::Modify(_) |
+					EventKind::Remove(_)
+				) && event.paths.iter().any(|path| is_shader_file(path)) =>
+			{
 				dirty_flag.store(true, Ordering::Relaxed);
 			}
 			Ok(_) => {}
