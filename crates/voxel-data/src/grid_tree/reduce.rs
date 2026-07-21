@@ -224,6 +224,8 @@ where
 	let cell_size = child_size(node_depth) as i32;
 	let child_min = (region.min - node_origin).div_euclid(IVec3::splat(cell_size));
 	let child_max = (region.end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+	let mut child_active_sources: [Vec<SourceCursor>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
+	partition_source_cursors_by_child(sources, active_sources, region, node_origin, cell_size, &mut child_active_sources);
 
 	for z in child_min.z..=child_max.z {
 		for y in child_min.y..=child_max.y {
@@ -232,24 +234,24 @@ where
 				let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
 				let child_region = GridRegion { min: child_origin, end: child_origin + IVec3::splat(cell_size) };
 				let Some(work_region) = child_region.intersection(region) else { continue };
-				let child_active_sources = child_source_cursors(sources, active_sources, work_region);
+				let child_active_sources = &child_active_sources[child_index as usize];
 
 				if work_region == child_region {
-					if !reduce_output_child(child_region, sources, &child_active_sources, reduce, out, node_index, node_depth, node_origin, child_index) {
+					if !reduce_output_child(child_region, sources, child_active_sources, reduce, out, node_index, node_depth, node_origin, child_index) {
 						return false;
 					}
 					continue;
 				}
 
 				if node_depth == 0 {
-					if !reduce_output_child(child_region, sources, &child_active_sources, reduce, out, node_index, node_depth, node_origin, child_index) {
+					if !reduce_output_child(child_region, sources, child_active_sources, reduce, out, node_index, node_depth, node_origin, child_index) {
 						return false;
 					}
 					continue;
 				}
 
 				let Some(child_node_index) = out.child_node_for_partial_area(node_index, child_index) else { return false };
-				if !reduce_output_region(work_region, sources, &child_active_sources, reduce, out, child_node_index, node_depth - 1, child_origin) {
+				if !reduce_output_region(work_region, sources, child_active_sources, reduce, out, child_node_index, node_depth - 1, child_origin) {
 					return false;
 				}
 				out.collapse_child_node_if_possible(node_index, child_index);
@@ -413,15 +415,50 @@ where
 	refine_cursor(source, SourceCursor { source_index, node: root, query })
 }
 
+fn partition_source_cursors_by_child<G, Co>(
+	sources: &[SourceTree<'_, G, Co>],
+	active_sources: &[SourceCursor],
+	region: GridRegion,
+	node_origin: IVec3,
+	cell_size: i32,
+	child_active_sources: &mut [Vec<SourceCursor>; SIZE_USIZE_CUBED],
+) where
+	G: GridType,
+	Co: GridCoord,
+{
+	for &cursor in active_sources {
+		let source = &sources[cursor.source_index];
+		let Some(output_region) = project_source_region(cursor.query, source).and_then(|output_region| output_region.intersection(region)) else { continue };
+		let child_min = (output_region.min - node_origin).div_euclid(IVec3::splat(cell_size));
+		let child_max = (output_region.end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		for z in child_min.z..=child_max.z {
+			for y in child_min.y..=child_max.y {
+				for x in child_min.x..=child_max.x {
+					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
+					let child_region = GridRegion { min: child_origin, end: child_origin + IVec3::splat(cell_size) };
+					let Some(work_region) = child_region.intersection(region) else { continue };
+					if let Some(child_cursor) = child_cursor(source, cursor, work_region) {
+						child_active_sources[child_index as usize].push(child_cursor);
+					}
+				}
+			}
+		}
+	}
+}
+
 fn child_source_cursors<G, Co>(sources: &[SourceTree<'_, G, Co>], active_sources: &[SourceCursor], region: GridRegion) -> Vec<SourceCursor>
 where
 	G: GridType,
 	Co: GridCoord,
 {
-	active_sources
-		.iter()
-		.filter_map(|&cursor| child_cursor(&sources[cursor.source_index], cursor, region))
-		.collect()
+	let mut child_sources = Vec::new();
+	for &cursor in active_sources {
+		if let Some(child_cursor) = child_cursor(&sources[cursor.source_index], cursor, region) {
+			child_sources.push(child_cursor);
+		}
+	}
+	child_sources
 }
 
 fn child_cursor<G, Co>(source: &SourceTree<'_, G, Co>, cursor: SourceCursor, child_region: GridRegion) -> Option<SourceCursor>

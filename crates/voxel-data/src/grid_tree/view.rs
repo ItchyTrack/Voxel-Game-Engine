@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use bevy::math::IVec3;
 
-use super::{raw::RawGridTree, CellKind, GridCoord, GridRegion, GridTreeNode, GridType, MAX_TREE_DEPTH_USIZE, SIZE, SIZE_CUBED, child_size, get_child_contents_index, get_child_contents_pos, size};
+use super::{raw::RawGridTree, CellKind, GridCoord, GridRegion, GridTreeNode, GridType, MAX_TREE_DEPTH_USIZE, SIZE_CUBED, child_size, get_child_contents_index, get_child_contents_pos, size};
 
 /// Borrowed, read-only view over a grid tree's raw node arena.
 #[derive(Debug)]
@@ -113,12 +113,12 @@ impl<'a, G: GridType, Co: GridCoord> GridTreeView<'a, G, Co> {
 
 	#[inline]
 	pub fn children(self, node: NodeRef) -> ChildCells<'a, G, Co> {
-		ChildCells { view: self, node, next: 0, occupied_only: false, remaining_occupied: self.raw.used_cell_count(node.index) }
+		ChildCells::new(self, node, false)
 	}
 
 	#[inline]
 	pub fn occupied_children(self, node: NodeRef) -> ChildCells<'a, G, Co> {
-		ChildCells { view: self, node, next: 0, occupied_only: true, remaining_occupied: self.raw.used_cell_count(node.index) }
+		ChildCells::new(self, node, true)
 	}
 
 	#[inline]
@@ -135,7 +135,43 @@ pub struct ChildCells<'a, G: GridType, Co: GridCoord> {
 	node: NodeRef,
 	next: u8,
 	occupied_only: bool,
-	remaining_occupied: u8,
+	data_mask: u64,
+	node_mask: u64,
+	remaining_mask: u64,
+}
+
+impl<'a, G: GridType, Co: GridCoord> ChildCells<'a, G, Co> {
+	#[inline]
+	fn new(view: GridTreeView<'a, G, Co>, node: NodeRef, occupied_only: bool) -> Self {
+		let data_mask = view.raw.data_mask(node.index);
+		let node_mask = view.raw.node_mask(node.index);
+		Self { view, node, next: 0, occupied_only, data_mask, node_mask, remaining_mask: data_mask | node_mask }
+	}
+
+	#[inline]
+	fn child(&self, child_index: u8) -> CellRef<'a, G> {
+		let bit = 1u64 << child_index;
+		let size = child_size(self.node.depth);
+		let origin = self.node.origin + (get_child_contents_pos(child_index).as_uvec3() * size).as_ivec3();
+		let kind = if self.data_mask & bit != 0 {
+			CellKind::Data
+		} else if self.node_mask & bit != 0 {
+			CellKind::Node
+		} else {
+			CellKind::Empty
+		};
+		let child_node_index = if kind == CellKind::Node { self.view.raw.child_index(self.node.index, child_index) } else { 0 };
+		CellRef {
+			parent: self.node,
+			child_index,
+			origin,
+			size,
+			kind,
+			child_node_index,
+			grid_type: self.view.grid_type,
+			bytes: self.view.raw.cell_bytes(self.node.index, child_index),
+		}
+	}
 }
 
 impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCells<'a, G, Co> {
@@ -143,18 +179,20 @@ impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCells<'a, G, Co> {
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.occupied_only && self.remaining_occupied == 0 { return None; }
-		while self.next < SIZE_CUBED {
-			let i = self.next;
-			self.next += 1;
-			let kind = self.view.raw.cell_kind(self.node.index, i);
-			if self.occupied_only && kind == CellKind::Empty { continue; }
-			if kind != CellKind::Empty {
-				self.remaining_occupied = self.remaining_occupied.saturating_sub(1);
+		if self.occupied_only {
+			let child_index = self.remaining_mask.trailing_zeros() as u8;
+			if child_index >= SIZE_CUBED {
+				return None;
 			}
-			return Some(self.view.child(self.node, i));
+			self.remaining_mask &= self.remaining_mask - 1;
+			return Some(self.child(child_index));
 		}
-		None
+		if self.next >= SIZE_CUBED {
+			return None;
+		}
+		let child_index = self.next;
+		self.next += 1;
+		Some(self.child(child_index))
 	}
 }
 
@@ -162,11 +200,8 @@ pub struct ChildCellsInRegion<'a, G: GridType, Co: GridCoord> {
 	view: GridTreeView<'a, G, Co>,
 	node: NodeRef,
 	region: GridRegion,
-	min: IVec3,
-	max: IVec3,
-	next: IVec3,
-	done: bool,
-	remaining_occupied: u8,
+	data_mask: u64,
+	remaining_mask: u64,
 }
 
 impl<'a, G: GridType, Co: GridCoord> Copy for ChildCellsInRegion<'a, G, Co> {}
@@ -177,14 +212,25 @@ impl<'a, G: GridType, Co: GridCoord> Clone for ChildCellsInRegion<'a, G, Co> {
 impl<'a, G: GridType, Co: GridCoord> ChildCellsInRegion<'a, G, Co> {
 	#[inline]
 	fn new(view: GridTreeView<'a, G, Co>, node: NodeRef, region: GridRegion) -> Self {
+		let data_mask = view.raw.data_mask(node.index);
+		let occupied_mask = data_mask | view.raw.node_mask(node.index);
 		let node_region = GridRegion { min: node.origin, end: node.origin + IVec3::splat(size(node.depth) as i32) };
 		let Some(overlap) = node_region.intersection(region) else {
-			return Self { view, node, region, min: IVec3::ZERO, max: IVec3::ZERO, next: IVec3::ZERO, done: true, remaining_occupied: 0 };
+			return Self { view, node, region, data_mask, remaining_mask: 0 };
 		};
 		let cell_size = child_size(node.depth) as i32;
 		let min = (overlap.min - node.origin).div_euclid(IVec3::splat(cell_size));
 		let max = (overlap.end - node.origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
-		Self { view, node, region, min, max, next: min, done: false, remaining_occupied: view.raw.used_cell_count(node.index) }
+		let mut region_mask = 0u64;
+		for z in min.z..=max.z {
+			for y in min.y..=max.y {
+				for x in min.x..=max.x {
+					let child_index = get_child_contents_index(IVec3::new(x, y, z).as_u8vec3());
+					region_mask |= 1u64 << child_index;
+				}
+			}
+		}
+		Self { view, node, region, data_mask, remaining_mask: occupied_mask & region_mask }
 	}
 }
 
@@ -193,39 +239,30 @@ impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCellsInRegion<'a, G, Co> 
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.done || self.remaining_occupied == 0 {
+		let child_index = self.remaining_mask.trailing_zeros() as u8;
+		if child_index >= SIZE_CUBED {
 			return None;
 		}
-		while !self.done {
-			let pos = self.next;
-			if self.next.x < self.max.x {
-				self.next.x += 1;
-			} else {
-				self.next.x = self.min.x;
-				if self.next.y < self.max.y {
-					self.next.y += 1;
-				} else {
-					self.next.y = self.min.y;
-					if self.next.z < self.max.z {
-						self.next.z += 1;
-					} else {
-						self.done = true;
-					}
-				}
-			}
+		self.remaining_mask &= self.remaining_mask - 1;
 
-			debug_assert!(pos.cmpge(IVec3::ZERO).all() && pos.cmplt(IVec3::splat(SIZE as i32)).all());
-			let child_index = get_child_contents_index(pos.as_u8vec3());
-			if self.view.raw.cell_kind(self.node.index, child_index) == CellKind::Empty {
-				continue;
-			}
-			self.remaining_occupied = self.remaining_occupied.saturating_sub(1);
-			let child = self.view.child(self.node, child_index);
-			let child_region = GridRegion { min: child.origin, end: child.origin + IVec3::splat(child.size as i32) };
-			let clipped = child_region.intersection(self.region).expect("ranged child intersects region");
-			return Some((child, clipped));
-		}
-		None
+		let bit = 1u64 << child_index;
+		let size = child_size(self.node.depth);
+		let origin = self.node.origin + (get_child_contents_pos(child_index).as_uvec3() * size).as_ivec3();
+		let kind = if self.data_mask & bit != 0 { CellKind::Data } else { CellKind::Node };
+		let child_node_index = if kind == CellKind::Node { self.view.raw.child_index(self.node.index, child_index) } else { 0 };
+		let child = CellRef {
+			parent: self.node,
+			child_index,
+			origin,
+			size,
+			kind,
+			child_node_index,
+			grid_type: self.view.grid_type,
+			bytes: self.view.raw.cell_bytes(self.node.index, child_index),
+		};
+		let child_region = GridRegion { min: child.origin, end: child.origin + IVec3::splat(child.size as i32) };
+		let clipped = child_region.intersection(self.region).expect("masked child intersects region");
+		Some((child, clipped))
 	}
 }
 
