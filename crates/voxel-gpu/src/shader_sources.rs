@@ -35,8 +35,11 @@ pub fn compile_from_disk(local_shader_dir: &Path, shared_shader_dir: &Path, entr
 	let voxel_reader_template = std::fs::read_to_string(shared_shader_dir.join("voxel_reader.template.wesl"))?;
 	let generated_modules = generate_modules(&data_source_template, &raycast_template, &beam_template, &voxel_reader_template)?;
 	let mut generated = VirtualResolver::new();
-	for module in generated_modules {
-		generated.add_module(module.module.parse()?, module.source.into());
+	for GeneratedWeslModule { module, source } in generated_modules {
+		let module = module
+			.strip_prefix("shared::generated::")
+			.ok_or_else(|| std::io::Error::other(format!("generated shader module `{module}` is outside the resolver mount")))?;
+		generated.add_module(format!("package::{module}").parse()?, source.into());
 	}
 
 	let mut router = Router::new();
