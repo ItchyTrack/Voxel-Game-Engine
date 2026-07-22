@@ -1,17 +1,12 @@
 use std::path::Path;
 
-use voxel_gpu::shader_codegen::{EmbeddedWeslModule, ShaderResult};
+use voxel_gpu::shader_compiler::{ShaderResult, SlangEntry, SlangStage};
 
-const ENTRY_MODULES: &[&str] = &[
-	"package::beam",
-	"package::raycasting",
-	"package::coloring_shader",
-];
-
-const LOCAL_MODULES: &[EmbeddedWeslModule] = voxel_gpu::embedded_wesl_modules![
-	"package::beam" => "shaders/beam.wesl",
-	"package::raycasting" => "shaders/raycasting.wesl",
-	"package::coloring_shader" => "shaders/coloring_shader.wesl",
+const ENTRIES: &[SlangEntry<'_>] = &[
+	SlangEntry { source: "beam.slang", entry: "main", stage: SlangStage::Compute },
+	SlangEntry { source: "raycasting.slang", entry: "main", stage: SlangStage::Compute },
+	SlangEntry { source: "coloring_shader.slang", entry: "vs_main", stage: SlangStage::Vertex },
+	SlangEntry { source: "coloring_shader.slang", entry: "fs_main", stage: SlangStage::Fragment },
 ];
 
 #[derive(Clone)]
@@ -23,28 +18,28 @@ pub struct VoxelShaderSources {
 
 impl VoxelShaderSources {
 	pub fn embedded() -> ShaderResult<Self> {
-		Self::from_compiled(voxel_gpu::shader_sources::compile_embedded(LOCAL_MODULES, ENTRY_MODULES)?)
+		let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let local_shader_dir = manifest_dir.join("src/shaders");
+		let shared_shader_dir = voxel_gpu::shader_sources::shared_shader_dir_from_manifest(manifest_dir);
+		Self::from_compiled(voxel_gpu::shader_sources::compile_embedded(&local_shader_dir, &shared_shader_dir, ENTRIES)?)
 	}
 
 	#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
 	pub fn load_from_disk() -> ShaderResult<Self> {
 		let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
 		let local_shader_dir = manifest_dir.join("src/shaders");
-		let shared_shader_dir = manifest_dir.join("../voxel-gpu/src/shaders");
-		Self::from_compiled(voxel_gpu::shader_sources::compile_from_disk(
-			&local_shader_dir,
-			&shared_shader_dir,
-			ENTRY_MODULES,
-		)?)
+		let shared_shader_dir = voxel_gpu::shader_sources::shared_shader_dir_from_manifest(manifest_dir);
+		Self::from_compiled(voxel_gpu::shader_sources::compile_from_disk(&local_shader_dir, &shared_shader_dir, ENTRIES)?)
 	}
 
 	fn from_compiled(mut shaders: Vec<String>) -> ShaderResult<Self> {
-		if shaders.len() != 3 {
-			return Err(std::io::Error::other("expected three compiled voxel ray shaders").into());
+		if shaders.len() != 4 {
+			return Err(std::io::Error::other("expected four compiled voxel ray shader stages").into());
 		}
-		let coloring = shaders.pop().unwrap();
+		let fs = shaders.pop().unwrap();
+		let vs = shaders.pop().unwrap();
 		let raycasting = shaders.pop().unwrap();
 		let beam = shaders.pop().unwrap();
-		Ok(Self { beam, raycasting, coloring })
+		Ok(Self { beam, raycasting, coloring: format!("{vs}\n{fs}") })
 	}
 }

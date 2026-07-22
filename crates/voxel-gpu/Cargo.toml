@@ -20,7 +20,6 @@ bitflags = { workspace = true }
 tracy-client = { workspace = true }
 bevy = { workspace = true }
 orderly-allocator = "0.2.2"
-wesl = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
 

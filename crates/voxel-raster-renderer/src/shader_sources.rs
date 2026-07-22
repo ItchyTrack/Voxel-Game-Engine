@@ -1,24 +1,28 @@
-use voxel_gpu::shader_codegen::{EmbeddedWeslModule, ShaderResult};
+use voxel_gpu::shader_compiler::{ShaderResult, SlangEntry, SlangStage};
 
-const ENTRY_MODULE: &str = "package::raster_voxel";
-const LOCAL_MODULES: &[EmbeddedWeslModule] = voxel_gpu::embedded_wesl_modules![
-	"package::raster_voxel" => "shaders/raster_voxel.wesl",
+const ENTRIES: &[SlangEntry<'_>] = &[
+	SlangEntry { source: "raster_voxel.slang", entry: "vs_main", stage: SlangStage::Vertex },
+	SlangEntry { source: "raster_voxel.slang", entry: "fs_main", stage: SlangStage::Fragment },
 ];
 
 pub fn embedded() -> ShaderResult<String> {
-	one(voxel_gpu::shader_sources::compile_embedded(LOCAL_MODULES, &[ENTRY_MODULE])?)
+	let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+	let local_shader_dir = manifest_dir.join("src/shaders");
+	let shared_shader_dir = voxel_gpu::shader_sources::shared_shader_dir_from_manifest(manifest_dir);
+	one(voxel_gpu::shader_sources::compile_embedded(&local_shader_dir, &shared_shader_dir, ENTRIES)?)
 }
 
 #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
 pub fn load_from_disk() -> ShaderResult<String> {
 	let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-	one(voxel_gpu::shader_sources::compile_from_disk(
-		&manifest_dir.join("src/shaders"),
-		&manifest_dir.join("../voxel-gpu/src/shaders"),
-		&[ENTRY_MODULE],
-	)?)
+	let local_shader_dir = manifest_dir.join("src/shaders");
+	let shared_shader_dir = voxel_gpu::shader_sources::shared_shader_dir_from_manifest(manifest_dir);
+	one(voxel_gpu::shader_sources::compile_from_disk(&local_shader_dir, &shared_shader_dir, ENTRIES)?)
 }
 
-fn one(mut shaders: Vec<String>) -> ShaderResult<String> {
-	shaders.pop().ok_or_else(|| std::io::Error::other("raster WESL compiler returned no shader").into())
+fn one(shaders: Vec<String>) -> ShaderResult<String> {
+	if shaders.is_empty() {
+		return Err(std::io::Error::other("raster Slang compiler returned no shader").into());
+	}
+	Ok(shaders.join("\n"))
 }

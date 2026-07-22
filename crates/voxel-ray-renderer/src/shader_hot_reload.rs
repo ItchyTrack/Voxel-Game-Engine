@@ -44,5 +44,5 @@ impl VoxelShaderHotReload {
 }
 
 fn is_shader_file(path: &Path) -> bool {
-	path.extension().is_some_and(|extension| extension == "wesl")
+	path.extension().is_some_and(|extension| extension == "slang")
 }

@@ -7,7 +7,7 @@ pub mod voxel_color;
 pub mod lod_voxels;
 pub mod residency;
 pub mod residency_packing;
-pub mod shader_codegen;
+pub mod shader_compiler;
 pub mod shader_sources;
 pub mod incoming_ray_directions;
 pub mod upload;

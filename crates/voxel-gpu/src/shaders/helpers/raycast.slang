@@ -1,4 +1,5 @@
-fn ray_aabb(ray_origin: vec3<f32>, inv_ray_dir: vec3<f32>, aabb_min: vec3<f32>, aabb_max: vec3<f32>) -> vec2<f32> {
+#pragma once
+float2 ray_aabb(float3 ray_origin, float3 inv_ray_dir, float3 aabb_min, float3 aabb_max) {
 	let distance_to_min_planes = (aabb_min - ray_origin) * inv_ray_dir;
 	let distance_to_max_planes = (aabb_max - ray_origin) * inv_ray_dir;
 	let entry_distance = max(
@@ -15,6 +16,6 @@ fn ray_aabb(ray_origin: vec3<f32>, inv_ray_dir: vec3<f32>, aabb_min: vec3<f32>, 
 		),
 		max(distance_to_min_planes.z, distance_to_max_planes.z)
 	);
-	if exit_distance < 0.0 || entry_distance > exit_distance { return vec2<f32>(1e38, 0.0); }
-	return vec2<f32>(max(entry_distance, 0.0), exit_distance);
+	if (exit_distance < 0.0 || entry_distance > exit_distance) { return float2(1e38, 0.0); }
+	return float2(max(entry_distance, 0.0), exit_distance);
 }

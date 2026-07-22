@@ -19,7 +19,7 @@ impl RasterShaderHotReload {
 					EventKind::Create(_) |
 					EventKind::Modify(_) |
 					EventKind::Remove(_)
-				) && event.paths.iter().any(|path| path.extension().is_some_and(|extension| extension == "wesl")) =>
+				) && event.paths.iter().any(|path| path.extension().is_some_and(|extension| extension == "slang")) =>
 			{
 				dirty_flag.store(true, Ordering::Relaxed);
 			}
