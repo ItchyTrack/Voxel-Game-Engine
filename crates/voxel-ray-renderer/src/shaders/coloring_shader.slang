@@ -1,4 +1,5 @@
 #include "bvh/data.slang"
+#include "helpers/quat.slang"
 #include "voxel_reader.slang"
 
 struct VertexOutput {
@@ -63,11 +64,6 @@ float3 id_to_color(uint id) {
 	return float3(r, g, b);
 }
 
-float3 quat_rotate(float4 q, float3 v) {
-	let t = 2.0 * cross(q.xyz, v);
-	return v + q.w * t + cross(q.xyz, t);
-}
-
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target {
 	uint texture_width;
@@ -102,6 +98,6 @@ float4 fs_main(VertexOutput input) : SV_Target {
 	float3 normal_vec = float3(0.0);
 	normal_vec[(normal >> 3u) & 0xFu] = ((normal & (1u << ((normal >> 3u) & 0xFu))) != 0u) ? -1.0 : 1.0;
 	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
-	let color = shade(base_color, quat_rotate(transform_quat, normal_vec), light_visible);
+	let color = shade(base_color, Quat::rotate(transform_quat, normal_vec), light_visible);
 	return float4(color, 1.0);
 }

@@ -1,4 +1,5 @@
 #pragma once
+
 #include "dda/data.slang"
 
 uint dda_initial_hit_normal(float3 start_pos, float3 dir, uint step, uint3 cell_min_u32, uint cell_size) {
@@ -20,6 +21,13 @@ uint dda_initial_hit_normal(float3 start_pos, float3 dir, uint step, uint3 cell_
 		: ((clamped_back_distances.y <= clamped_back_distances.z) ? 1u : 2u);
 	return step + (entry_axis << 3u) + (1u << 10u);
 }
+
+struct DDAHit {
+	uint normal;
+	uint voxel_data_index;
+	uint voxel_index;
+	float dist;
+};
 
 DDAHit dda_make_hit(float3 start_pos, float3 dir, uint step, uint last_step_axis, float3 axis_distances, float3 delta, uint3 root_relative_grid_pos, uint node_size, uint voxel_data_index, uint voxel_index) {
 	DDAHit hit_result;

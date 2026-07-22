@@ -1,4 +1,5 @@
 #pragma once
+
 #include "dda/raycast.slang"
 
 float beam_conservative_cell_hit_distance(float3 origin, float3 inv_dir, float beam_radius_local, float hit_distance, uint3 root_relative_grid_pos, uint3 current_relative_pos, uint child_cell_size) {

@@ -1,22 +1,12 @@
 #pragma once
+
 static const uint DDA_LOG_SIZE = 2u;
 static const uint DDA_SIZE = 4u;
 static const uint DDA_SLOT_BYTES = 4u;
 
-StructuredBuffer<uint> residency_grid_tree_buf : register(t0, space2);
-StructuredBuffer<uint> main_grid_tree_buf : register(t1, space2);
-
 interface IDDADataSource {
 	uint dda_u32(uint byte_offset);
 }
-
-struct ResidencyDDADataSource : IDDADataSource {
-	uint dda_u32(uint byte_offset) { return residency_grid_tree_buf[byte_offset / 4u]; }
-};
-
-struct MainDDADataSource : IDDADataSource {
-	uint dda_u32(uint byte_offset) { return main_grid_tree_buf[byte_offset / 4u]; }
-};
 
 uint dda_u32<T : IDDADataSource>(uint byte_offset) {
 	T data;
@@ -80,9 +70,13 @@ uint dda_get_child_contents_index(uint3 contents_pos) {
 	return contents_pos.x + contents_pos.y * DDA_SIZE + contents_pos.z * DDA_SIZE * DDA_SIZE;
 }
 
-struct DDAHit {
-	uint normal;
-	uint voxel_data_index;
-	uint voxel_index;
-	float dist;
+StructuredBuffer<uint> residency_grid_tree_buf : register(t0, space2);
+StructuredBuffer<uint> main_grid_tree_buf : register(t1, space2);
+
+struct ResidencyDDADataSource : IDDADataSource {
+	uint dda_u32(uint byte_offset) { return residency_grid_tree_buf[byte_offset / 4u]; }
+};
+
+struct MainDDADataSource : IDDADataSource {
+	uint dda_u32(uint byte_offset) { return main_grid_tree_buf[byte_offset / 4u]; }
 };

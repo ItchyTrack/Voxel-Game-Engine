@@ -1,4 +1,5 @@
 #pragma once
+
 float2 ray_aabb(float3 ray_origin, float3 inv_ray_dir, float3 aabb_min, float3 aabb_max) {
 	let distance_to_min_planes = (aabb_min - ray_origin) * inv_ray_dir;
 	let distance_to_max_planes = (aabb_max - ray_origin) * inv_ray_dir;

@@ -1,4 +1,5 @@
 #pragma once
+
 RWStructuredBuffer<Atomic<uint>> bvh_item_direction_masks : register(u2, space1);
 
 // Call to make sure the bvh item internals are loaded.

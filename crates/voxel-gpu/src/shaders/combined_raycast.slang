@@ -1,15 +1,11 @@
 #pragma once
+
 #include "bvh/data.slang"
 #include "bvh/raycast.slang"
 #include "direction_feedback.slang"
 #include "dda/data.slang"
 #include "dda/raycast.slang"
-
-
-float3 quat_inv_rotate(float4 q, float3 v) {
-	let t = 2.0 * cross(q.xyz, v);
-	return v - q.w * t + cross(q.xyz, t);
-}
+#include "helpers/quat.slang"
 
 struct RaycastHit {
 	uint normal;
@@ -24,10 +20,11 @@ RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 	best.normal = 0;
 	best.total_dist = max_dist;
 
-	var iter = bvh_iter_new(ray_pos, ray_dir);
+	BVH::ExactRaycastPolicy bvh_policy;
+	var iter = BVH::iter_new(ray_pos, ray_dir, bvh_policy);
 
 	for (;;) {
-		let candidate = bvh_iter_next(iter, best.total_dist);
+		let candidate = BVH::iter_next(iter, best.total_dist);
 		if (!candidate.valid) { break; }
 
 		let item = bvh_items[candidate.bvh_item_idx];
@@ -35,8 +32,8 @@ RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 		let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
 
 		let entry_world = ray_pos + ray_dir * candidate.dist;
-		let local_pos = quat_inv_rotate(transform_quat, entry_world - transform_pos) / item.scale;
-		let local_dir = quat_inv_rotate(transform_quat, ray_dir);
+		let local_pos = Quat::inv_rotate(transform_quat, entry_world - transform_pos) / item.scale;
+		let local_dir = Quat::inv_rotate(transform_quat, ray_dir);
 		record_bvh_item_directions(candidate.bvh_item_idx, local_dir);
 		let data_source = item.aabb_size >> 24u;
 		if (data_source == 0u) { continue; }

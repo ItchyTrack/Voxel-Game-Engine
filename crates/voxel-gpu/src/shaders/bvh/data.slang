@@ -1,4 +1,5 @@
 #pragma once
+
 // Shared BVH data layout, bindings, and low-level helpers.
 
 struct BVHNode {
@@ -20,12 +21,3 @@ struct BVHItem {
 
 StructuredBuffer<BVHNode> bvh : register(t0, space1);
 StructuredBuffer<BVHItem> bvh_items : register(t1, space1);
-
-uint4 unpack4xU8(uint value) {
-	return uint4(
-		(value >> 0u) & 0xFFu,
-		(value >> 8u) & 0xFFu,
-		(value >> 16u) & 0xFFu,
-		(value >> 24u) & 0xFFu
-	);
-}
