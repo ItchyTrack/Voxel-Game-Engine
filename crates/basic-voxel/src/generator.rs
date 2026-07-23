@@ -1,10 +1,11 @@
 use bevy::math::IVec3;
-use voxel_data::grid_tree::GridRegion;
-use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelRef, VoxelType, VoxelTypeId, Voxels};
+use voxel_data::grid_tree::{GridCoord, GridRegion, SourceOverlaps as GridSourceOverlaps};
+use voxel_data::voxel_grid_tree::VoxelGridType;
+use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, VoxelTypeId, Voxels};
 use voxel_sources::VoxelLodGenerator;
 use voxel_streaming::CHUNK_SIZE;
 
-use crate::BasicVoxel;
+use crate::{BasicVoxel, LodVoxel};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BasicVoxelLodGenerator;
@@ -30,9 +31,9 @@ impl Accum {
 		for c in 0..3 { self.color[c] += other.color[c]; }
 		self.weight += other.weight;
 	}
-	fn from_leaf(voxel: &BasicVoxel, volume: u64) -> Self {
+	fn from_color(color: [u8; 4], volume: u64) -> Self {
 		Self {
-			color: [voxel.color[0] as u64 * volume, voxel.color[1] as u64 * volume, voxel.color[2] as u64 * volume],
+			color: [color[0] as u64 * volume, color[1] as u64 * volume, color[2] as u64 * volume],
 			weight: volume,
 		}
 	}
@@ -68,25 +69,113 @@ pub fn downsample_region(min: IVec3, size: IVec3, lod: f32, fetch: impl Fn(IVec3
 			output_offset: (*local * CHUNK_SIZE).div_euclid(IVec3::splat(step)),
 		})
 		.collect();
+	let source_infos = sources
+		.iter()
+		.map(|source| SourceInfo { scale_down: source.scale_down, output_offset: source.output_offset })
+		.collect();
 	let output_size = div_ceil_ivec3(size * CHUNK_SIZE, step);
 	let output_region = GridRegion::from_min_size(IVec3::ZERO, output_size)?;
-	let mut generated = Vec::new();
-	Voxels::reduce_voxels(output_region, &sources, |_, overlaps| reduce_basic_voxel(overlaps, &mut generated))
+	Voxels::reduce_voxels(output_region, &sources, BasicVoxelReducer { sources: source_infos })
 }
 
-fn reduce_basic_voxel<'a>(overlaps: impl Iterator<Item = SourceOverlap<'a>>, generated: &mut Vec<BasicVoxel>) -> Option<VoxelRef<'a>> {
-	let mut accum = Accum::default();
-	for overlap in overlaps {
-		let voxel = BasicVoxel::from_voxel_ref(&overlap.data);
-		accum.add(Accum::from_leaf(&voxel, region_volume(overlap.source_region)));
+#[derive(Clone, Copy)]
+struct SourceInfo {
+	scale_down: u8,
+	output_offset: IVec3,
+}
+
+struct BasicVoxelReducer {
+	sources: Vec<SourceInfo>,
+}
+
+impl VoxelReducer for BasicVoxelReducer {
+	type Output = LodVoxel;
+
+	fn reduce<'overlaps, 'a, Co>(
+		&mut self,
+		region: GridRegion,
+		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
+	) -> Option<Self::Output>
+	where
+		Co: GridCoord,
+	{
+		reduce_basic_voxel(region, &self.sources, overlaps.map(|overlap| SourceOverlap {
+			source_index: overlap.source_index,
+			source_region: overlap.source_region,
+			output_region: overlap.output_region,
+			data: overlap.data,
+		}))
 	}
-	if accum.weight == 0 {
+}
+
+fn reduce_basic_voxel<'a>(region: GridRegion, sources: &[SourceInfo], overlaps: impl Iterator<Item = SourceOverlap<'a>>) -> Option<LodVoxel> {
+	let mut octants = [Accum::default(); 8];
+	let mut total = Accum::default();
+	for overlap in overlaps {
+		let Some(source) = sources.get(overlap.source_index).copied() else { continue };
+		let volume = region_volume(overlap.source_region);
+		if overlap.data.type_id() == BasicVoxel::TYPE_ID {
+			let voxel = BasicVoxel::from_voxel_ref(&overlap.data);
+			let accum = Accum::from_color(voxel.color, volume * 8);
+			octants[octant_for_region(region, source, overlap.source_region)]
+				.add(accum);
+			total.add(accum);
+		} else if overlap.data.type_id() == LodVoxel::TYPE_ID {
+			let voxel = LodVoxel::from_voxel_ref(&overlap.data);
+			let child_volume = volume;
+			for child in 0..8 {
+				let accum = Accum::from_color(voxel.colors[child], child_volume);
+				octants[octant_for_child_region(region, source, overlap.source_region, child)]
+					.add(accum);
+				total.add(accum);
+			}
+		}
+	}
+	if total.weight == 0 {
 		return None;
 	}
-	let color = accum.average();
-	generated.push(BasicVoxel { color: [color[0], color[1], color[2], 255], mass: 0 });
-	let voxel = generated.last().expect("just pushed generated voxel").get_ref();
-	Some(unsafe { std::mem::transmute::<VoxelRef<'_>, VoxelRef<'a>>(voxel) })
+	let colors = std::array::from_fn(|i| {
+		if octants[i].weight == 0 {
+			[0, 0, 0, 0]
+		} else {
+			let color = octants[i].average();
+			[color[0], color[1], color[2], 255]
+		}
+	});
+	Some(LodVoxel { colors })
+}
+
+fn octant_for_region(output_region: GridRegion, source: SourceInfo, source_region: GridRegion) -> usize {
+	let center = [
+		(source_region.min.x + source_region.end.x) as f32 * 0.5,
+		(source_region.min.y + source_region.end.y) as f32 * 0.5,
+		(source_region.min.z + source_region.end.z) as f32 * 0.5,
+	];
+	octant_for_source_point(output_region, source, center)
+}
+
+fn octant_for_child_region(output_region: GridRegion, source: SourceInfo, source_region: GridRegion, child: usize) -> usize {
+	let size = source_region.size();
+	let center = [
+		source_region.min.x as f32 + size.x as f32 * if (child & 1) != 0 { 0.75 } else { 0.25 },
+		source_region.min.y as f32 + size.y as f32 * if (child & 2) != 0 { 0.75 } else { 0.25 },
+		source_region.min.z as f32 + size.z as f32 * if (child & 4) != 0 { 0.75 } else { 0.25 },
+	];
+	octant_for_source_point(output_region, source, center)
+}
+
+fn octant_for_source_point(output_region: GridRegion, source: SourceInfo, source_point: [f32; 3]) -> usize {
+	let step = 1i32 << source.scale_down as u32;
+	let preimage_min = (output_region.min - source.output_offset) * step;
+	let preimage_size = output_region.size() * step;
+	let threshold = [
+		preimage_min.x as f32 + preimage_size.x as f32 * 0.5,
+		preimage_min.y as f32 + preimage_size.y as f32 * 0.5,
+		preimage_min.z as f32 + preimage_size.z as f32 * 0.5,
+	];
+	((source_point[0] >= threshold[0]) as usize)
+		| (((source_point[1] >= threshold[1]) as usize) << 1)
+		| (((source_point[2] >= threshold[2]) as usize) << 2)
 }
 
 fn region_volume(region: GridRegion) -> u64 {

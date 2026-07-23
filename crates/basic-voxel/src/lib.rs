@@ -2,7 +2,7 @@ mod generator;
 mod voxel;
 
 pub use generator::{downsample_region, BasicVoxelLodGenerator};
-pub use voxel::BasicVoxel;
+pub use voxel::{BasicVoxel, LodVoxel};
 
 use bevy::prelude::*;
 use voxel_physics::VoxelPhysicsAppExt;
@@ -16,6 +16,7 @@ impl Plugin for BasicVoxelPlugin {
 		app
 			.register_voxel_lod_generator(BasicVoxelLodGenerator)
 			.register_voxel_mass::<BasicVoxel>()
-			.register_voxel_color::<BasicVoxel>();
+			.register_voxel_gpu_data::<BasicVoxel>()
+			.register_voxel_gpu_data::<LodVoxel>();
 	}
 }

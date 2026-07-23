@@ -12,12 +12,12 @@ pub mod shader_sources;
 pub mod incoming_ray_directions;
 pub mod upload;
 
-use bevy::{ecs::message::Message, prelude::*, render::RenderApp};
+use bevy::{ecs::message::Message, prelude::*, render::{extract_resource::ExtractResourcePlugin, RenderApp}};
 
 use crate::world_gpu_data::WorldGpuData;
 
 pub use lod_voxels::LodVoxels;
-pub use voxel_color::{VoxelColor, VoxelColorReaders, VoxelGpuAppExt};
+pub use voxel_color::{VoxelGpuAppExt, VoxelGpuData, VoxelGpuDataReaders, VoxelShaderRegistration};
 pub use voxel_gpu_state::{RasterGpuState, RayGpuState, SubGridPlacement, VoxelGpuBounds, VoxelGpuFormat, VoxelGpuState};
 
 #[doc(hidden)]
@@ -41,7 +41,8 @@ impl Plugin for GpuVoxelDataPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<upload::InFlightRayUploads>()
 			.init_resource::<upload::InFlightRasterUploads>()
-			.init_resource::<VoxelColorReaders>()
+			.init_resource::<VoxelGpuDataReaders>()
+			.add_plugins(ExtractResourcePlugin::<VoxelGpuDataReaders>::default())
 			.add_message::<VoxelGpuUploadFinished>()
 			.configure_sets(Update, (GpuUploadSet::Clear, GpuUploadSet::Upload).chain())
 			.add_systems(Update, (upload::clear_inactive_formats, upload::flag_changed_sub_grids).chain().in_set(GpuUploadSet::Clear))

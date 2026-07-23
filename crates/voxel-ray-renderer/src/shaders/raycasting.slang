@@ -86,7 +86,7 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 		light_visible = sky_hit.normal == 0u;
 	}
 	intermediate_textured.Store(pixel, uint4(
-		hit.normal + 256u * (light_visible ? 1u : 0u),
+		hit.normal + 256u * (light_visible ? 1u : 0u) + (hit.sample_octant << 11u),
 		hit.bvh_item_idx,
 		hit.voxel_data_index + (hit.voxel_index << 16u),
 		asuint(hit.total_dist + beam_min_dist)

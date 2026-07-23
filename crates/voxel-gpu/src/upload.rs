@@ -8,6 +8,7 @@ use tracy_client::span;
 
 use voxel_data::grid::Grid;
 use voxel_data::subgrid::SubGrid;
+use voxel_data::voxels::VoxelTypeInfo;
 use voxel_tasks::{AsyncTaskPriorityQueueResource, PriorityTask, TaskQueueResource};
 
 use crate::gpu_grid_tree::make_gpu_grid_tree;
@@ -18,7 +19,7 @@ use crate::voxel_gpu_state::{
 	VoxelGpuBounds, VoxelGpuState,
 };
 use crate::world_gpu_data::WorldGpuData;
-use crate::{VoxelColorReaders, VoxelGpuFormat, VoxelGpuUploadFinished};
+use crate::{VoxelGpuDataReaders, VoxelGpuFormat, VoxelGpuUploadFinished};
 
 #[derive(Resource, Default)]
 pub(crate) struct InFlightRayUploads(HashSet<Entity>);
@@ -117,7 +118,7 @@ pub(crate) fn manage_ray_gpu_uploads(
 	cameras: Query<(&Camera, &GlobalTransform, Option<&VoxelGpuFormat>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
-	color_readers: Res<VoxelColorReaders>,
+	gpu_data_readers: Res<VoxelGpuDataReaders>,
 ) {
 	let _zone = span!("GPU uploads: schedule ray sub-grids");
 	let Some(camera_world) = active_camera_world_position(VoxelGpuFormat::Volume, &cameras) else { return; };
@@ -146,14 +147,14 @@ pub(crate) fn manage_ray_gpu_uploads(
 		let voxel_type = view.voxels().voxel_type_info();
 		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
-		let color_readers = color_readers.clone();
+		let gpu_data_readers = gpu_data_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build ray sub-grid");
-			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, voxel_type, &color_readers);
+			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, voxel_type, &gpu_data_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply ray sub-grid");
-				apply_ray_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
+				apply_ray_upload(world, entity, placement, voxel_type, &tree_buffer, &voxel_buffer);
 			});
 		}));
 	}
@@ -165,7 +166,7 @@ pub(crate) fn manage_ray_lod_uploads(
 	cameras: Query<(&Camera, &GlobalTransform, Option<&VoxelGpuFormat>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
-	color_readers: Res<VoxelColorReaders>,
+	gpu_data_readers: Res<VoxelGpuDataReaders>,
 ) {
 	if active_camera_world_position(VoxelGpuFormat::Volume, &cameras).is_none() { return; }
 	let _zone = span!("GPU uploads: schedule ray LODs");
@@ -184,14 +185,14 @@ pub(crate) fn manage_ray_lod_uploads(
 		let voxels = lod_voxels.voxels.grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let priority = lod_voxels.priority;
-		let color_readers = color_readers.clone();
+		let gpu_data_readers = gpu_data_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build ray LOD");
-			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, voxel_type, &color_readers);
+			let (tree_buffer, voxel_buffer) = make_gpu_grid_tree(&voxels, voxel_type, &gpu_data_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply ray LOD");
-				apply_ray_upload(world, entity, placement, &tree_buffer, &voxel_buffer);
+				apply_ray_upload(world, entity, placement, voxel_type, &tree_buffer, &voxel_buffer);
 			});
 		}));
 	}
@@ -206,7 +207,7 @@ pub(crate) fn manage_raster_gpu_uploads(
 	cameras: Query<(&Camera, &GlobalTransform, Option<&VoxelGpuFormat>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
-	color_readers: Res<VoxelColorReaders>,
+	gpu_data_readers: Res<VoxelGpuDataReaders>,
 ) {
 	let _zone = span!("GPU uploads: schedule raster sub-grids");
 	let Some(camera_world) = active_camera_world_position(VoxelGpuFormat::Surface, &cameras) else { return; };
@@ -231,11 +232,11 @@ pub(crate) fn manage_raster_gpu_uploads(
 		let voxel_type = view.voxels().voxel_type_info();
 		let voxels = view.voxels().grid_tree().clone();
 		let task_queue = task_queue.clone();
-		let color_readers = color_readers.clone();
+		let gpu_data_readers = gpu_data_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build raster sub-grid");
-			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, voxel_type, &color_readers);
+			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, voxel_type, &gpu_data_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply raster sub-grid");
 				apply_raster_upload(world, entity, bounds, &face_buffer, &palette_buffer, face_count);
@@ -250,7 +251,7 @@ pub(crate) fn manage_raster_lod_uploads(
 	cameras: Query<(&Camera, &GlobalTransform, Option<&VoxelGpuFormat>)>,
 	task_queue: Res<TaskQueueResource>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
-	color_readers: Res<VoxelColorReaders>,
+	gpu_data_readers: Res<VoxelGpuDataReaders>,
 ) {
 	if active_camera_world_position(VoxelGpuFormat::Surface, &cameras).is_none() { return; }
 	let _zone = span!("GPU uploads: schedule raster LODs");
@@ -265,11 +266,11 @@ pub(crate) fn manage_raster_lod_uploads(
 		let voxels = lod_voxels.voxels.grid_tree().clone();
 		let task_queue = task_queue.clone();
 		let priority = lod_voxels.priority;
-		let color_readers = color_readers.clone();
+		let gpu_data_readers = gpu_data_readers.clone();
 
 		async_task_priority_queue.push(PriorityTask::new(priority, async move {
 			let _zone = span!("GPU upload build raster LOD");
-			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, voxel_type, &color_readers);
+			let (face_buffer, palette_buffer, face_count) = make_gpu_raster_mesh(&voxels, voxel_type, &gpu_data_readers);
 			task_queue.push(move |world: &mut World| {
 				let _zone = span!("GPU upload apply raster LOD");
 				apply_raster_upload(world, entity, bounds, &face_buffer, &palette_buffer, face_count);
@@ -282,6 +283,7 @@ fn apply_ray_upload(
 	world: &mut World,
 	entity: Entity,
 	placement: SubGridPlacement,
+	voxel_type: VoxelTypeInfo,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) {
@@ -296,8 +298,8 @@ fn apply_ray_upload(
 
 	let Some(mut gpu_data) = world.get_resource_mut::<WorldGpuData>() else { return; };
 	let new_state = match existing.as_ref().and_then(|state| state.ray) {
-		Some(old) => upload_replace_ray(&mut gpu_data, old, placement, tree_buffer, voxel_buffer),
-		None => upload_new_ray(&mut gpu_data, placement, tree_buffer, voxel_buffer),
+		Some(old) => upload_replace_ray(&mut gpu_data, old, placement, voxel_type, tree_buffer, voxel_buffer),
+		None => upload_new_ray(&mut gpu_data, placement, voxel_type, tree_buffer, voxel_buffer),
 	};
 	if let Some(raster) = existing.as_ref().and_then(|state| state.raster) {
 		free_raster_buffer(&mut gpu_data, raster);
@@ -371,6 +373,7 @@ fn apply_raster_upload(
 fn upload_new_ray(
 	gpu_data: &mut WorldGpuData,
 	placement: SubGridPlacement,
+	voxel_type: VoxelTypeInfo,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) -> Option<RayGpuState> {
@@ -382,7 +385,7 @@ fn upload_new_ray(
 	match gpu_data.packed_voxel_data_dynamic_buffer.add_buffer(voxel_buffer) {
 		Ok(voxels_id) => {
 			let generation = gpu_data.next_upload_generation();
-			Some(RayGpuState::new(tree_id, voxels_id, generation, placement))
+			Some(RayGpuState::new(tree_id, voxels_id, generation, placement, voxel_type))
 		},
 		Err(err) => {
 			log::warn!("{err}");
@@ -398,6 +401,7 @@ fn upload_replace_ray(
 	gpu_data: &mut WorldGpuData,
 	old: RayGpuState,
 	placement: SubGridPlacement,
+	voxel_type: VoxelTypeInfo,
 	tree_buffer: &[u8],
 	voxel_buffer: &[u8],
 ) -> Option<RayGpuState> {
@@ -415,7 +419,7 @@ fn upload_replace_ray(
 	match gpu_data.packed_voxel_data_dynamic_buffer.replace_buffer(old.voxels_id(), voxel_buffer) {
 		Ok(voxels_id) => {
 			let generation = gpu_data.next_upload_generation();
-			Some(RayGpuState::new(tree_id, voxels_id, generation, placement))
+			Some(RayGpuState::new(tree_id, voxels_id, generation, placement, voxel_type))
 		},
 		Err(err) => {
 			log::warn!("{err}");

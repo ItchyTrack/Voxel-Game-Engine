@@ -1,4 +1,4 @@
-use crate::{grid_tree::{GridTree, GridType, U16Coord}, voxels::{VoxelRef, VoxelTypeId, VoxelTypeInfo}};
+use crate::{grid_tree::{AsGridData, GridTree, GridType, U16Coord}, voxels::{VoxelRef, VoxelType, VoxelTypeId, VoxelTypeInfo}};
 use serde::{Deserialize, Serialize};
 
 /// Fixed-width `u16` grid type for non-voxel trees that store compact ids.
@@ -30,6 +30,10 @@ impl VoxelGridType {
 	pub fn new(type_info: VoxelTypeInfo) -> Self { Self { type_info } }
 	pub fn type_info(self) -> VoxelTypeInfo { self.type_info }
 	pub fn type_id(self) -> VoxelTypeId { self.type_info.id }
+}
+
+impl<'a, T: VoxelType + 'a> AsGridData<'a, VoxelGridType> for &'a T {
+	fn as_grid_data(self) -> VoxelRef<'a> { self.get_ref() }
 }
 
 impl GridType for VoxelGridType {

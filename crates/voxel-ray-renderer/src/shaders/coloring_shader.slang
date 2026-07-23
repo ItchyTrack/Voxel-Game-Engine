@@ -18,7 +18,7 @@ VertexOutput vs_main(uint vertex_index : SV_VertexID) {
 Texture2D<uint4> intermediate_textured_read : register(t0, space3);
 
 struct CameraUniform {
-	float4x4 camera_transform;
+	float4 camera_transform[4];
 	float2 camera_view_size;
 };
 ConstantBuffer<CameraUniform> camera : register(b0, space0);
@@ -83,21 +83,44 @@ float4 fs_main(VertexOutput input) : SV_Target {
 
 	let normal = data.x & 0xFFu;
 	let light_visible = (data.x & 256u) != 0u;
+	let sample_octant = (data.x >> 11u) & 7u;
 	let bvh_item_idx = data.y;
 	let voxel_data_index = data.z & 0xFFFFu;
 	let voxel_index = data.z >> 16u;
 
 	let item = bvh_items[bvh_item_idx];
 	let item_index_2 = item.item_index_2;
+	let distance = asfloat(data.w);
+	let view_ray = float4(
+		(input.screen_pos.x - 0.5) * camera.camera_view_size.x * 2.0,
+		(input.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
+		-1.0,
+		0.0
+	);
+	let ray_dir = normalize((
+		camera.camera_transform[0] * view_ray.x
+		+ camera.camera_transform[1] * view_ray.y
+		+ camera.camera_transform[2] * view_ray.z
+		+ camera.camera_transform[3] * view_ray.w
+	).xyz);
+	let world_hit = camera.camera_transform[3].xyz + ray_dir * distance;
+	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
+	let local_hit = Quat::inv_rotate(transform_quat, world_hit - float3(item.pos_x, item.pos_y, item.pos_z)) / item.scale;
+	let raw_surface_pos = frac(local_hit);
+	let half_low = asfloat(asuint(0.5) - 1u);
+	let surface_pos = float3(
+		(sample_octant & 1u) != 0u ? max(raw_surface_pos.x, 0.5) : min(raw_surface_pos.x, half_low),
+		(sample_octant & 2u) != 0u ? max(raw_surface_pos.y, 0.5) : min(raw_surface_pos.y, half_low),
+		(sample_octant & 4u) != 0u ? max(raw_surface_pos.z, 0.5) : min(raw_surface_pos.z, half_low)
+	);
 	float3 base_color;
 	if ((item.aabb_size >> 24u) == 2u) {
-		base_color = main_voxel_reader_color(item_index_2, voxel_data_index, voxel_index).xyz;
+		base_color = main_voxel_sampler_color(item.voxel_type_id, item_index_2, voxel_data_index, voxel_index, surface_pos).xyz;
 	} else {
-		base_color = residency_voxel_reader_color(item_index_2, voxel_data_index, voxel_index).xyz;
+		base_color = residency_voxel_sampler_color(item.voxel_type_id, item_index_2, voxel_data_index, voxel_index, surface_pos).xyz;
 	}
 	float3 normal_vec = float3(0.0);
 	normal_vec[(normal >> 3u) & 0xFu] = ((normal & (1u << ((normal >> 3u) & 0xFu))) != 0u) ? -1.0 : 1.0;
-	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
 	let color = shade(base_color, Quat::rotate(transform_quat, normal_vec), light_visible);
 	return float4(color, 1.0);
 }

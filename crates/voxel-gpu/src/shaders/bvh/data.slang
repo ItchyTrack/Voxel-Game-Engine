@@ -14,6 +14,7 @@ struct BVHItem {
 	uint aabb_size;
 	uint item_index;
 	uint item_index_2;
+	uint voxel_type_id;
 	float pos_x; float pos_y; float pos_z;
 	float quat_x; float quat_y; float quat_z; float quat_w;
 	float scale;

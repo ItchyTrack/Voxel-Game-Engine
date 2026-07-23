@@ -8,7 +8,7 @@ use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
-use basic_voxel::BasicVoxel;
+use basic_voxel::{BasicVoxel, LodVoxel};
 use voxel_content::{SdfSource, SdfSourceOptions, VoxelSdf};
 
 const POWER: f32 = 8.0;
@@ -23,11 +23,15 @@ const COST: u32 = 20;
 #[derive(Clone, Debug)]
 struct MandelbulbSdf {
 	voxel: Voxel,
+	lod_voxel: Voxel,
 }
 
 impl Default for MandelbulbSdf {
 	fn default() -> Self {
-		Self { voxel: BasicVoxel { color: [220, 128, 128, 255], mass: 0 }.into_voxel() }
+		Self {
+			voxel: BasicVoxel { color: [220, 128, 128, 255], mass: 0 }.into_voxel(),
+			lod_voxel: LodVoxel::solid([220, 128, 128, 255]).into_voxel(),
+		}
 	}
 }
 
@@ -81,6 +85,10 @@ impl Sdf for MandelbulbSdf {
 impl VoxelSdf for MandelbulbSdf {
 	fn voxel(&self) -> &Voxel {
 		&self.voxel
+	}
+
+	fn lod_voxel(&self) -> &Voxel {
+		&self.lod_voxel
 	}
 
 	fn bounds(&self) -> Option<(Vec3, Vec3)> {

@@ -10,6 +10,7 @@ type GpuBindGroupLayout = WgpuWrapper<wgpu::BindGroupLayout>;
 use crate::shader_hot_reload::VoxelShaderHotReload;
 use crate::shader_sources::VoxelShaderSources;
 use crate::voxel_renderer::VoxelRenderer;
+use voxel_gpu::{VoxelGpuDataReaders, VoxelShaderRegistration};
 
 #[derive(Resource)]
 pub struct VoxelRendererResource {
@@ -21,6 +22,7 @@ pub struct VoxelRendererResource {
 	pub camera_bind_group: GpuBindGroup,
 	pub camera_bind_group_layout: GpuBindGroupLayout,
 	shader_sources: VoxelShaderSources,
+	shader_source_signature: Vec<VoxelShaderRegistration>,
 	#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
 	hot_reload: Option<VoxelShaderHotReload>,
 }
@@ -77,13 +79,8 @@ impl FromWorld for VoxelRendererResource {
 			label: Some("voxel_camera_bind_group"),
 		}));
 
-		#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
-		let shader_sources = VoxelShaderSources::load_from_disk()
-			.or_else(|_| VoxelShaderSources::embedded())
-			.expect("embedded voxel ray shaders must compile");
-		#[cfg(not(all(feature = "shader_hot_reload", not(target_arch = "wasm32"))))]
-		let shader_sources = VoxelShaderSources::embedded()
-			.expect("embedded voxel ray shaders must compile");
+		let shader_sources = VoxelShaderSources { beam: String::new(), raycasting: String::new(), coloring: String::new() };
+		let shader_source_signature = Vec::new();
 
 		Self {
 			voxel_renderer: None,
@@ -94,6 +91,7 @@ impl FromWorld for VoxelRendererResource {
 			camera_bind_group,
 			camera_bind_group_layout,
 			shader_sources,
+			shader_source_signature,
 			#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
 			hot_reload: match VoxelShaderHotReload::new() {
 				Ok(hot_reload) => Some(hot_reload),
@@ -107,10 +105,10 @@ impl FromWorld for VoxelRendererResource {
 }
 
 impl VoxelRendererResource {
-	pub fn ensure(&mut self, device: &wgpu::Device, width: u32, height: u32, format: wgpu::TextureFormat) {
+	pub fn ensure(&mut self, device: &wgpu::Device, width: u32, height: u32, format: wgpu::TextureFormat, voxel_data_readers: &VoxelGpuDataReaders) {
 		if width == 0 || height == 0 { return; }
 
-		let shaders_changed = self.refresh_shader_sources_if_needed();
+		let shaders_changed = self.refresh_shader_sources_if_needed(voxel_data_readers);
 		let need_rebuild = self.voxel_renderer.is_none()
 			|| self.size != (width, height)
 			|| self.format != Some(format)
@@ -134,11 +132,14 @@ impl VoxelRendererResource {
 	}
 
 	#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
-	fn refresh_shader_sources_if_needed(&mut self) -> bool {
+	fn refresh_shader_sources_if_needed(&mut self, voxel_data_readers: &VoxelGpuDataReaders) -> bool {
+		if self.refresh_shader_sources_for_registry(voxel_data_readers) {
+			return true;
+		}
 		let Some(hot_reload) = self.hot_reload.as_ref() else { return false; };
 		if !hot_reload.take_dirty() { return false; }
 
-		match VoxelShaderSources::load_from_disk() {
+		match VoxelShaderSources::load_from_disk(voxel_data_readers) {
 			Ok(shader_sources) => {
 				self.shader_sources = shader_sources;
 				log::info!("Reloaded voxel shaders from disk");
@@ -152,7 +153,26 @@ impl VoxelRendererResource {
 	}
 
 	#[cfg(not(all(feature = "shader_hot_reload", not(target_arch = "wasm32"))))]
-	fn refresh_shader_sources_if_needed(&mut self) -> bool {
-		false
+	fn refresh_shader_sources_if_needed(&mut self, voxel_data_readers: &VoxelGpuDataReaders) -> bool {
+		self.refresh_shader_sources_for_registry(voxel_data_readers)
+	}
+
+	fn refresh_shader_sources_for_registry(&mut self, voxel_data_readers: &VoxelGpuDataReaders) -> bool {
+		let signature = crate::shader_sources::shader_source_signature(voxel_data_readers);
+		let shaders_missing = self.shader_sources.beam.is_empty() || self.shader_sources.raycasting.is_empty() || self.shader_sources.coloring.is_empty();
+		if self.shader_source_signature == signature && !shaders_missing {
+			return false;
+		}
+		match VoxelShaderSources::embedded(voxel_data_readers) {
+			Ok(shader_sources) => {
+				self.shader_sources = shader_sources;
+				self.shader_source_signature = signature;
+				true
+			}
+			Err(error) => {
+				log::error!("Failed to rebuild voxel shaders for registered voxel GPU shader sources: {error}");
+				false
+			}
+		}
 	}
 }

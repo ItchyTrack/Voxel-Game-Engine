@@ -4,43 +4,38 @@ StructuredBuffer<uint> residency_voxel_data_buf : register(t0, space2);
 StructuredBuffer<uint> main_voxel_data_buf : register(t1, space2);
 
 static const uint VOXELS_NODE_OFFSET_UNIT_BYTES = 16u;
-static const uint VOXELS_COLOR_BYTES = 4u;
+static const uint VOXEL_DATA_SOURCE_RESIDENCY = 1u;
+static const uint VOXEL_DATA_SOURCE_MAIN = 2u;
 
-interface IVoxelDataSource {
-	uint voxel_u32(uint byte_off);
+uint voxel_sampler_u32(uint data_source, uint byte_off) {
+	if (data_source == VOXEL_DATA_SOURCE_MAIN) {
+		return main_voxel_data_buf[byte_off / 4u];
+	}
+	return residency_voxel_data_buf[byte_off / 4u];
 }
 
-uint voxel_reader_u32<T : IVoxelDataSource>(uint byte_off) {
-	T data;
-	return data.voxel_u32(byte_off);
+uint voxel_sampler_u8(uint data_source, uint byte_off) {
+	return (voxel_sampler_u32(data_source, byte_off) >> ((byte_off % 4u) * 8u)) & 0xFFu;
 }
 
-uint voxel_reader_u8<T : IVoxelDataSource>(uint byte_off) {
-	return (voxel_reader_u32<T>(byte_off) >> ((byte_off % 4u) * 8u)) & 0xFFu;
+uint voxel_reader_buffer_offset(uint voxels_base, uint voxel_data_index) {
+	return voxels_base + voxel_data_index * VOXELS_NODE_OFFSET_UNIT_BYTES;
 }
 
-float4 voxel_reader_color<T : IVoxelDataSource>(uint voxels_base, uint voxel_data_index, uint voxel_index) {
-	let off = voxels_base + voxel_data_index * VOXELS_NODE_OFFSET_UNIT_BYTES + voxel_index * VOXELS_COLOR_BYTES;
-	return float4(
-		float(voxel_reader_u8<T>(off + 0u)) / 255.0,
-		float(voxel_reader_u8<T>(off + 1u)) / 255.0,
-		float(voxel_reader_u8<T>(off + 2u)) / 255.0,
-		float(voxel_reader_u8<T>(off + 3u)) / 255.0
-	);
+interface IVoxelSampler {
+	float4 color(uint data_source, uint buffer_offset, uint item_index, float3 surface_pos);
 }
 
-struct ResidencyVoxelDataSource : IVoxelDataSource {
-	uint voxel_u32(uint byte_off) { return residency_voxel_data_buf[byte_off / 4u]; }
-};
-
-struct MainVoxelDataSource : IVoxelDataSource {
-	uint voxel_u32(uint byte_off) { return main_voxel_data_buf[byte_off / 4u]; }
-};
-
-float4 residency_voxel_reader_color(uint voxels_base, uint voxel_data_index, uint voxel_index) {
-	return voxel_reader_color<ResidencyVoxelDataSource>(voxels_base, voxel_data_index, voxel_index);
+float4 voxel_sampler_color(uint voxel_type_id, uint data_source, uint voxels_base, uint voxel_data_index, uint voxel_index, float3 surface_pos) {
+	let buffer_offset = voxel_reader_buffer_offset(voxels_base, voxel_data_index);
+	IVoxelSampler sampler = createDynamicObject<IVoxelSampler>(voxel_type_id);
+	return sampler.color(data_source, buffer_offset, voxel_index, surface_pos);
 }
 
-float4 main_voxel_reader_color(uint voxels_base, uint voxel_data_index, uint voxel_index) {
-	return voxel_reader_color<MainVoxelDataSource>(voxels_base, voxel_data_index, voxel_index);
+float4 residency_voxel_sampler_color(uint voxel_type_id, uint voxels_base, uint voxel_data_index, uint voxel_index, float3 surface_pos) {
+	return voxel_sampler_color(voxel_type_id, VOXEL_DATA_SOURCE_RESIDENCY, voxels_base, voxel_data_index, voxel_index, surface_pos);
+}
+
+float4 main_voxel_sampler_color(uint voxel_type_id, uint voxels_base, uint voxel_data_index, uint voxel_index, float3 surface_pos) {
+	return voxel_sampler_color(voxel_type_id, VOXEL_DATA_SOURCE_MAIN, voxels_base, voxel_data_index, voxel_index, surface_pos);
 }

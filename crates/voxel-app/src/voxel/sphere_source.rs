@@ -4,7 +4,7 @@ use bevy::math::{IVec3, U16Vec3, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
-use voxel_data::voxels::{Voxel, VoxelType, Voxels};
+use voxel_data::voxels::{VoxelType, Voxels};
 use voxel_edit::GridEdits;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
@@ -12,7 +12,7 @@ use voxel_data::grid::GridId;
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
 use voxel_lightyear::ReplicateVoxels;
-use basic_voxel::BasicVoxel;
+use basic_voxel::{BasicVoxel, LodVoxel};
 
 const RADIUS: i32 = 2_000;
 const COST: u32 = 5;
@@ -61,17 +61,22 @@ fn region_intersects(min: Vec3, max: Vec3) -> bool {
 	Vec3::ZERO.clamp(min, max).length_squared() <= (RADIUS as f32) * (RADIUS as f32)
 }
 
-fn sphere_voxel_unchecked(world: IVec3, mass: u32) -> Voxel {
+fn sphere_color(world: IVec3) -> [u8; 4] {
 	let normal = world.as_vec3().normalize_or_zero();
-	BasicVoxel {
-		color: [
-			((normal.x * 0.5 + 0.5) * 255.0) as u8,
-			((normal.y * 0.5 + 0.5) * 255.0) as u8,
-			((normal.z * 0.5 + 0.5) * 255.0) as u8,
-			255,
-		],
-		mass: 0,
-	}.into_voxel()
+	[
+		((normal.x * 0.5 + 0.5) * 255.0) as u8,
+		((normal.y * 0.5 + 0.5) * 255.0) as u8,
+		((normal.z * 0.5 + 0.5) * 255.0) as u8,
+		255,
+	]
+}
+
+fn sphere_voxel_unchecked(world: IVec3, mass: u32) -> BasicVoxel {
+	BasicVoxel { color: sphere_color(world), mass }
+}
+
+fn sphere_lod_voxel_unchecked(world: IVec3) -> LodVoxel {
+	LodVoxel::solid(sphere_color(world))
 }
 
 fn build_chunk(chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels> {
@@ -140,7 +145,7 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &Cancellati
 			let Some((y0, y1)) = sample_y_span(origin.y, extent.y, step, sample_offset, max_y) else { continue };
 
 			let mid_y = ((y0 + y1) / 2 * step + sample_offset).min(max_source.y);
-			let voxel = sphere_voxel_unchecked(origin + IVec3::new(sample_x, mid_y, sample_z), 0);
+			let voxel = sphere_lod_voxel_unchecked(origin + IVec3::new(sample_x, mid_y, sample_z));
 			areas.push((U16Vec3::new(x as u16, y0 as u16, z as u16), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), voxel));
 		}
 	}
@@ -149,7 +154,7 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &Cancellati
 		None
 	} else {
 		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, *size, voxel.get_ref())).collect();
-		let mut voxels = Voxels::new::<BasicVoxel>();
+		let mut voxels = Voxels::new::<LodVoxel>();
 		voxels.add_areas(&area_refs);
 		Some(voxels)
 	}

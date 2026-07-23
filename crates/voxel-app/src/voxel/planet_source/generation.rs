@@ -5,7 +5,7 @@ use voxel_data::voxels::{VoxelType, Voxels};
 use voxel_sources::CancellationToken;
 use voxel_streaming::{CHUNK_SIZE, chunk_origin};
 
-use basic_voxel::BasicVoxel;
+use basic_voxel::{BasicVoxel, LodVoxel};
 
 use super::config::{PLANET_RADIUS, TILE_INWARD_DEPTH, TILE_OUTWARD_HEIGHT, TILE_SHAPE_EPSILON};
 use super::terrain::{terrain_color, terrain_sample};
@@ -62,7 +62,7 @@ pub(super) fn build_planet_lod_region(
 	);
 	if cancellation.is_cancelled() { return None; }
 	tracy_client::plot!("planet lod emitted voxels", points.len() as f64);
-	points_to_voxels(points)
+	points_to_lod_voxels(points)
 }
 
 fn points_to_voxels(points: Vec<(U16Vec3, BasicVoxel)>) -> Option<Voxels> {
@@ -73,6 +73,23 @@ fn points_to_voxels(points: Vec<(U16Vec3, BasicVoxel)>) -> Option<Voxels> {
 	} else {
 		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<BasicVoxel>();
+		voxels.add_voxels(&voxel_refs);
+		Some(voxels)
+	}
+}
+
+fn points_to_lod_voxels(points: Vec<(U16Vec3, BasicVoxel)>) -> Option<Voxels> {
+	let _zone = span!("planet points to lod voxels");
+	tracy_client::plot!("planet points to lod voxels input", points.len() as f64);
+	if points.is_empty() {
+		None
+	} else {
+		let lod_points: Vec<_> = points
+			.iter()
+			.map(|(pos, voxel)| (*pos, LodVoxel::solid(voxel.color)))
+			.collect();
+		let voxel_refs: Vec<_> = lod_points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
+		let mut voxels = Voxels::new::<LodVoxel>();
 		voxels.add_voxels(&voxel_refs);
 		Some(voxels)
 	}

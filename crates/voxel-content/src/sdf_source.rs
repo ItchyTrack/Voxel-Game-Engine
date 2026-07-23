@@ -17,6 +17,10 @@ use voxel_streaming::CHUNK_SIZE;
 pub trait VoxelSdf: Sdf + Send + Sync + 'static {
 	fn voxel(&self) -> &Voxel;
 
+	fn lod_voxel(&self) -> &Voxel {
+		self.voxel()
+	}
+
 	fn bounds(&self) -> Option<(Vec3, Vec3)> {
 		None
 	}
@@ -104,13 +108,13 @@ impl SdfSource {
 		binding: &GridBinding,
 		min: IVec3,
 		size: IVec3,
-		lod: f32,
+		lod: Option<f32>,
 		cancellation: Option<&CancellationToken>,
 	) -> Option<Voxels> {
 		if size.cmple(IVec3::ZERO).any() || !Self::might_intersect_region(binding, min, size) {
 			return None;
 		}
-		let step = step_for_lod(lod)?;
+		let step = step_for_lod(lod.unwrap_or(0.0))?;
 		let full_extent = size * CHUNK_SIZE;
 		let extent = full_extent / step;
 		if extent.cmple(IVec3::ZERO).any() || extent.cmpgt(IVec3::splat(i16::MAX as i32)).any() {
@@ -129,7 +133,7 @@ impl SdfSource {
 			}
 		};
 
-		let voxel = binding.sdf.voxel();
+		let voxel = if lod.is_some() { binding.sdf.lod_voxel() } else { binding.sdf.voxel() };
 		let mut voxels = Voxels::new_with_type(voxel.type_info());
 		voxels.apply_sdf(
 			Vec3::ZERO,
@@ -161,7 +165,7 @@ impl ChunkSource for SdfSource {
 
 	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, 0.0, Some(&cancellation)));
+		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, None, Some(&cancellation)));
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded(grid, chunk, generation, voxels);
@@ -175,7 +179,7 @@ impl ChunkSource for SdfSource {
 
 	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, min, size, lod, Some(&cancellation)));
+		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, min, size, Some(lod), Some(&cancellation)));
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded_lod(grid, min, size, lod, generation, voxels);

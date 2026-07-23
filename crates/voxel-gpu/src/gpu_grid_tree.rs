@@ -4,10 +4,9 @@ use voxel_data::grid_tree::{self, CellKind};
 use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
 use voxel_data::voxels::{VoxelRef, VoxelTypeInfo};
 
-use crate::voxel_color::VoxelColorReaders;
+use crate::voxel_color::VoxelGpuDataReaders;
 
 const SLOT_BYTES: usize = 4;
-const VOXEL_COLOR_BYTES: usize = 4;
 const VOXEL_OFFSET_UNIT_BYTES: u32 = 16;
 
 fn get_header_bytes(bitmap: u64) -> u32 {
@@ -50,12 +49,15 @@ fn collect_voxel_refs<'a>(nodes: &[PackedNode<'a>], gpu_order: &[(u32, u8)], vox
 	voxels
 }
 
-pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, color_readers: &VoxelColorReaders) -> (Vec<u8>, Vec<u8>) {
+pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, gpu_data_readers: &VoxelGpuDataReaders) -> (Vec<u8>, Vec<u8>) {
 	let _zone = span!("make GPU grid tree");
 	let view = grid_tree.view();
 	let nodes = view.nodes();
 	let root_depth = view.root_depth();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
+	let voxel_stride = gpu_data_readers.gpu_size_bytes(voxel_type.id).unwrap_or(voxel_type.size_bytes as usize);
+	let voxel_stride_bytes = voxel_stride as u32;
+	assert!(voxel_stride_bytes > 0, "voxel GPU data stride must be non-zero");
 
 	// -- Pass 1: DFS pre-order → gpu_order ------------------------------------
 	let mut cpu_to_gpu: Vec<u32>       = vec![u32::MAX; nodes.len()];
@@ -216,7 +218,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 			match node.kind(i) {
 				CellKind::Empty => {}
 				CellKind::Data => {
-					voxel_data_size += VOXEL_COLOR_BYTES as u32 * (1 + voxel_node_run);
+					voxel_data_size += voxel_stride_bytes * (1 + voxel_node_run);
 					voxel_node_run = 0;
 				}
 				CellKind::Node => {
@@ -240,11 +242,13 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 	let total_voxel_bytes = voxel_cursor as usize;
 
 	let voxel_refs = collect_voxel_refs(&nodes, &gpu_order, voxel_type);
-	let voxel_ref_count = voxel_refs.len();
-	let voxel_colors = color_readers
-		.colors(voxel_type.id, voxel_refs)
-		.unwrap_or_else(|| vec![[255, 0, 255, 255]; voxel_ref_count]);
-	let mut voxel_colors = voxel_colors.into_iter();
+	let mut voxel_payload_bytes = vec![0u8; voxel_refs.len() * voxel_stride];
+	if gpu_data_readers.write_bytes(voxel_type.id, &voxel_refs, &mut voxel_payload_bytes).is_none() {
+		for (voxel, out) in voxel_refs.iter().zip(voxel_payload_bytes.chunks_exact_mut(voxel_stride)) {
+			out.copy_from_slice(&voxel.bytes()[..voxel_stride]);
+		}
+	}
+	let mut voxel_payloads = voxel_payload_bytes.chunks_exact(voxel_stride);
 
 	// -- Pass 3: Write bytes ---------------------------------------------------
 	let mut tree_bytes: Vec<u8> = vec![0u8; total_tree_slots * SLOT_BYTES];
@@ -285,12 +289,12 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 		if depth == 0 {
 			for i in 0..grid_tree::SIZE_USIZE_CUBED {
 				if bitmap & (1u64 << i) == 0 { continue; }
-				let color = match node.kind(i as u8) {
-					CellKind::Data => voxel_colors.next().expect("voxel color count must match data cells"),
+				let payload = match node.kind(i as u8) {
+					CellKind::Data => voxel_payloads.next().expect("voxel payload count must match data cells"),
 					_ => unreachable!("depth-0 cell must be DATA"),
 				};
-				voxel_bytes[vox_write..vox_write + VOXEL_COLOR_BYTES].copy_from_slice(&color);
-				vox_write += VOXEL_COLOR_BYTES;
+				voxel_bytes[vox_write..vox_write + voxel_stride].copy_from_slice(payload);
+				vox_write += voxel_stride;
 			}
 		} else {
 			let mut entry_cursor = byte_base + get_header_bytes(bitmap) as usize;
@@ -302,11 +306,11 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 
 				let entry_val: u16 = match node.kind(child_i) {
 					CellKind::Data => {
-						vox_write += voxel_node_run * VOXEL_COLOR_BYTES;
+						vox_write += voxel_node_run * voxel_stride;
 						voxel_node_run = 0;
-						let color = voxel_colors.next().expect("voxel color count must match data cells");
-						voxel_bytes[vox_write..vox_write + VOXEL_COLOR_BYTES].copy_from_slice(&color);
-						vox_write += VOXEL_COLOR_BYTES;
+						let payload = voxel_payloads.next().expect("voxel payload count must match data cells");
+						voxel_bytes[vox_write..vox_write + voxel_stride].copy_from_slice(payload);
+						vox_write += voxel_stride;
 						0x00
 					}
 					CellKind::Node => {
@@ -333,7 +337,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 			}
 		}
 	}
-	debug_assert!(voxel_colors.next().is_none(), "unused voxel colors after GPU grid tree write");
+	debug_assert!(voxel_payloads.next().is_none(), "unused voxel payloads after GPU grid tree write");
 
 	// -- Assemble final buffers ------------------------------------------------
 

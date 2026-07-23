@@ -4,6 +4,7 @@ use bevy::math::Vec3;
 use bevy::transform::components::Transform;
 use bevy::render::renderer::WgpuWrapper;
 use voxel_data::bvh;
+use voxel_data::voxels::VoxelTypeInfo;
 use wgpu::{util::DeviceExt, Device};
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
@@ -64,6 +65,7 @@ struct GpuBVHItem {
 	data_source:  u8,
 	item_index:   u32,
 	item_index_2: u32,
+	voxel_type_id: u32,
 	pos:          [f32; 3],
 	quat:         [f32; 4],
 	scale:        f32,
@@ -80,6 +82,7 @@ pub enum BvhDataSource {
 pub struct BvhItemData {
 	pub data_source: BvhDataSource,
 	pub transform: Transform,
+	pub voxel_type: VoxelTypeInfo,
 }
 
 pub struct GpuBvh<Id> {
@@ -140,6 +143,7 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 				data_source,
 				item_index: tree_offset,
 				item_index_2: voxels_offset,
+				voxel_type_id: u32::from(data.voxel_type.id.0),
 				pos: data.transform.translation.to_array(),
 				quat: data.transform.rotation.to_array(),
 				scale: data.transform.scale.x,

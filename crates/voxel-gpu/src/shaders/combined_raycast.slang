@@ -12,12 +12,14 @@ struct RaycastHit {
 	uint bvh_item_idx;
 	uint voxel_data_index;
 	uint voxel_index;
+	uint sample_octant;
 	float total_dist;
 };
 
 RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 	RaycastHit best;
 	best.normal = 0;
+	best.sample_octant = 0u;
 	best.total_dist = max_dist;
 
 	BVH::ExactRaycastPolicy bvh_policy;
@@ -52,6 +54,7 @@ RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 				best.bvh_item_idx = candidate.bvh_item_idx;
 				best.voxel_data_index = dda_hit.voxel_data_index;
 				best.voxel_index = dda_hit.voxel_index;
+				best.sample_octant = dda_hit.sample_octant;
 				best.total_dist = total;
 			}
 		}

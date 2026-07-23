@@ -274,7 +274,7 @@ impl GridStreaming {
 }
 
 fn valid_lod_key(key: LodKey) -> bool {
-	if key.lod == 0 || key.size.cmple(IVec3::ZERO).any() { return false; }
+	if key.size.cmple(IVec3::ZERO).any() { return false; }
 	let factor = 1i32 << key.lod;
 	let coarse_extent = (key.size * CHUNK_SIZE) / factor;
 	!coarse_extent.cmplt(IVec3::ONE).any() && !coarse_extent.cmpgt(IVec3::splat(CHUNK_SIZE)).any()

@@ -2,6 +2,7 @@ use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::math::U16Vec3;
 use bevy::prelude::*;
+use voxel_data::voxels::VoxelTypeInfo;
 
 use crate::world_gpu_data::WorldGpuData;
 
@@ -35,15 +36,17 @@ pub struct RayGpuState {
 	voxels_id: u32,
 	generation: u64,
 	placement: SubGridPlacement,
+	voxel_type: VoxelTypeInfo,
 }
 
 impl RayGpuState {
-	pub(crate) fn new(tree_id: u32, voxels_id: u32, generation: u64, placement: SubGridPlacement) -> Self {
+	pub(crate) fn new(tree_id: u32, voxels_id: u32, generation: u64, placement: SubGridPlacement, voxel_type: VoxelTypeInfo) -> Self {
 		Self {
 			tree_id,
 			voxels_id,
 			generation,
 			placement,
+			voxel_type,
 		}
 	}
 
@@ -51,6 +54,7 @@ impl RayGpuState {
 	pub fn voxels_id(&self) -> u32 { self.voxels_id }
 	pub fn generation(&self) -> u64 { self.generation }
 	pub fn placement(&self) -> SubGridPlacement { self.placement }
+	pub fn voxel_type(&self) -> VoxelTypeInfo { self.voxel_type }
 }
 
 #[derive(Clone, Copy, Debug)]

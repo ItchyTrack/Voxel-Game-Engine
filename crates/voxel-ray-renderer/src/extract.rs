@@ -12,6 +12,7 @@ use voxel_gpu::lod_voxels::LodVoxels;
 use voxel_gpu::residency::{ResidentVoxels, ResidencyBuffers, ResidencyDirections};
 use voxel_gpu::world_gpu_data::WorldGpuData;
 use voxel_gpu::VoxelGpuState;
+use voxel_data::voxels::VoxelTypeInfo;
 use voxel_data::bvh::BVH;
 use voxel_data::subgrid::{aabb_from_bounds, SubGrid, SubGridId};
 
@@ -40,6 +41,7 @@ struct RenderItem {
 	tree_id: u32,
 	voxels_id: u32,
 	generation: u64,
+	voxel_type: VoxelTypeInfo,
 	aabb: (Vec3, Vec3),
 	dda_transform: Transform,
 }
@@ -97,6 +99,7 @@ pub fn extract_voxel_scene(
 					tree_id: sub_grid_gpu_state.tree_id(),
 					voxels_id: sub_grid_gpu_state.voxels_id(),
 					generation: sub_grid_gpu_state.generation(),
+					voxel_type: sub_grid_gpu_state.voxel_type(),
 					aabb,
 					dda_transform,
 				},
@@ -120,6 +123,7 @@ pub fn extract_voxel_scene(
 					tree_id: lod_grid_gpu_state.tree_id(),
 					voxels_id: lod_grid_gpu_state.voxels_id(),
 					generation: lod_grid_gpu_state.generation(),
+					voxel_type: lod_grid_gpu_state.voxel_type(),
 					aabb,
 					dda_transform,
 				},
@@ -198,6 +202,7 @@ pub fn extract_voxel_scene(
 		bvh_item_data.insert(item.entity, BvhItemData {
 			data_source,
 			transform: item.dda_transform,
+			voxel_type: item.voxel_type,
 		});
 	}
 

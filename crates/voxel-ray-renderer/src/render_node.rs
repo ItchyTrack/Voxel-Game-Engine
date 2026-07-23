@@ -9,6 +9,7 @@ use crate::extract::ExtractedVoxelScene;
 use crate::graphics_settings::{GraphicsSettings, RenderSettingsUniform};
 use crate::direction_feedback::{LastGpuBvh, RenderStats};
 use crate::voxel_renderer_resource::VoxelRendererResource;
+use voxel_gpu::VoxelGpuDataReaders;
 
 #[derive(Resource, Default)]
 pub struct VoxelViewBindGroups {
@@ -20,6 +21,7 @@ pub fn prepare_voxel_view_bind_groups(
 	render_queue: Res<RenderQueue>,
 	extracted: Res<ExtractedVoxelScene>,
 	graphics_settings: Res<GraphicsSettings>,
+	voxel_data_readers: Res<VoxelGpuDataReaders>,
 	mut voxel_resource: ResMut<VoxelRendererResource>,
 	mut bind_groups: ResMut<VoxelViewBindGroups>,
 	views: bevy::ecs::system::Query<&ViewTarget>,
@@ -35,7 +37,7 @@ pub fn prepare_voxel_view_bind_groups(
 	let height = main_texture.height();
 	let format = view_target.main_texture_format();
 
-	voxel_resource.ensure(render_device.wgpu_device(), width, height, format);
+	voxel_resource.ensure(render_device.wgpu_device(), width, height, format, &voxel_data_readers);
 	if voxel_resource.voxel_renderer.is_none() { return; }
 
 	let Ok(cam_uniform) = CameraUniform::from_camera(&extracted.camera_transform, projection) else {
