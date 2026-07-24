@@ -23,13 +23,14 @@ uint voxel_reader_buffer_offset(uint voxels_base, uint voxel_data_index) {
 }
 
 interface IVoxelSampler {
-	float4 color(uint data_source, uint buffer_offset, uint item_index, float3 surface_pos);
+	float4 color(uint data_source, uint data_header_offset, uint node_data_offset, uint item_index, float3 surface_pos);
 }
 
 float4 voxel_sampler_color(uint voxel_type_id, uint data_source, uint voxels_base, uint voxel_data_index, uint voxel_index, float3 surface_pos) {
-	let buffer_offset = voxel_reader_buffer_offset(voxels_base, voxel_data_index);
+	let data_header_offset = voxels_base;
+	let node_data_offset = voxel_reader_buffer_offset(voxels_base, voxel_data_index);
 	IVoxelSampler sampler = createDynamicObject<IVoxelSampler>(voxel_type_id);
-	return sampler.color(data_source, buffer_offset, voxel_index, surface_pos);
+	return sampler.color(data_source, data_header_offset, node_data_offset, voxel_index, surface_pos);
 }
 
 float4 residency_voxel_sampler_color(uint voxel_type_id, uint voxels_base, uint voxel_data_index, uint voxel_index, float3 surface_pos) {

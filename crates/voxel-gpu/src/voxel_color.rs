@@ -4,12 +4,11 @@ use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResource;
 use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeId};
 
-type VoxelGpuBytesWriterFn = Arc<dyn for<'bytes> Fn(&[VoxelRef<'bytes>], &mut [u8]) + Send + Sync>;
+type VoxelGpuEncoderFactoryFn = Arc<dyn for<'bytes> Fn(&[VoxelRef<'bytes>], &mut Vec<u8>) -> Box<dyn VoxelGpuBlockEncoder> + Send + Sync>;
 
 #[derive(Clone)]
 struct VoxelGpuDataReader {
-	gpu_size_bytes: usize,
-	write_bytes: VoxelGpuBytesWriterFn,
+	create_encoder: VoxelGpuEncoderFactoryFn,
 	shader_source: &'static str,
 	shader_sampler: &'static str,
 }
@@ -23,29 +22,16 @@ pub struct VoxelGpuDataReaders {
 
 impl VoxelGpuDataReaders {
 	pub fn register<T: VoxelGpuData>(&mut self) {
-		let gpu_size_bytes = T::voxel_gpu_size_bytes();
 		self.readers.insert(T::TYPE_INFO.id, VoxelGpuDataReader {
-			gpu_size_bytes,
-			write_bytes: Arc::new(move |voxels, bytes| {
-				assert_eq!(bytes.len(), voxels.len() * gpu_size_bytes, "GPU voxel byte output size must match voxel count and stride");
-				for (voxel, out) in voxels.iter().zip(bytes.chunks_exact_mut(gpu_size_bytes)) {
-					T::from_voxel_ref(voxel).write_voxel_gpu_raw(out);
-				}
-			}),
+			create_encoder: Arc::new(move |voxels, header| Box::new(T::create_voxel_gpu_encoder(voxels, header))),
 			shader_source: T::shader_source(),
 			shader_sampler: T::shader_sampler(),
 		});
 	}
 
-	pub fn gpu_size_bytes(&self, type_id: VoxelTypeId) -> Option<usize> {
-		Some(self.readers.get(&type_id)?.gpu_size_bytes)
-	}
-
-	pub fn write_bytes(&self, type_id: VoxelTypeId, voxels: &[VoxelRef<'_>], bytes: &mut [u8]) -> Option<()> {
+	pub fn create_encoder(&self, type_id: VoxelTypeId, voxels: &[VoxelRef<'_>], header: &mut Vec<u8>) -> Option<Box<dyn VoxelGpuBlockEncoder>> {
 		let reader = self.readers.get(&type_id)?;
-		assert_eq!(bytes.len(), voxels.len() * reader.gpu_size_bytes, "GPU voxel byte output size must match voxel count and stride");
-		(reader.write_bytes)(voxels, bytes);
-		Some(())
+		Some((reader.create_encoder)(voxels, header))
 	}
 
 	pub fn shader_sources(&self) -> Vec<VoxelShaderRegistration> {
@@ -57,20 +43,35 @@ impl VoxelGpuDataReaders {
 	}
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum VoxelGpuNodeEntry<'bytes> {
+	/// A non-empty tree entry that points at a child node. It is included because
+	/// shader voxel indices are ranks among all non-empty entries in the node, not
+	/// only among data entries.
+	ChildNode,
+	/// A tree entry containing voxel data. The entry's slice has the registered
+	/// voxel type.
+	Data(VoxelRef<'bytes>),
+}
+
+pub trait VoxelGpuBlockEncoder: Send + Sync + 'static {
+	/// Appends the encoded payload for one tree node. `entries` are ordered by the
+	/// node bitmap. Encoders must make every [`VoxelGpuNodeEntry::Data`] readable
+	/// by the same entry index the shader receives as `voxel_index`.
+	fn write_node(&self, entries: &[VoxelGpuNodeEntry<'_>], out: &mut Vec<u8>);
+}
+
 pub trait VoxelGpuData: VoxelType {
+	type Encoder: VoxelGpuBlockEncoder;
+
 	fn shader_source() -> &'static str;
 
 	fn shader_sampler() -> &'static str;
 
-	fn voxel_gpu_size_bytes() -> usize {
-		std::mem::size_of::<Self>()
-	}
-
-	fn write_voxel_gpu_raw(&self, bytes: &mut [u8]) {
-		let raw = bytemuck::bytes_of(self);
-		assert_eq!(bytes.len(), raw.len(), "GPU voxel byte output size must match default raw size");
-		bytes.copy_from_slice(raw);
-	}
+	/// Creates a block encoder for one uploaded voxel tree and writes optional
+	/// block-local metadata to `header`. `voxel-gpu` owns all padding/alignment
+	/// around this header before any per-node payload starts.
+	fn create_voxel_gpu_encoder(voxels: &[VoxelRef<'_>], header: &mut Vec<u8>) -> Self::Encoder;
 }
 
 pub trait VoxelGpuAppExt {

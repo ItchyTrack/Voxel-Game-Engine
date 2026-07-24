@@ -4,7 +4,7 @@ use voxel_data::grid_tree::{self, CellKind};
 use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
 use voxel_data::voxels::{VoxelRef, VoxelTypeInfo};
 
-use crate::voxel_color::VoxelGpuDataReaders;
+use crate::voxel_color::{VoxelGpuBlockEncoder, VoxelGpuDataReaders, VoxelGpuNodeEntry};
 
 const SLOT_BYTES: usize = 4;
 const VOXEL_OFFSET_UNIT_BYTES: u32 = 16;
@@ -49,15 +49,47 @@ fn collect_voxel_refs<'a>(nodes: &[PackedNode<'a>], gpu_order: &[(u32, u8)], vox
 	voxels
 }
 
+fn collect_node_entries<'a>(node: &PackedNode<'a>, voxel_type: VoxelTypeInfo) -> Vec<VoxelGpuNodeEntry<'a>> {
+	let bitmap = build_bitmap(node);
+	let mut entries = Vec::with_capacity(bitmap.count_ones() as usize);
+	for i in 0..grid_tree::SIZE_USIZE_CUBED {
+		if bitmap & (1u64 << i) == 0 { continue; }
+		let child_i = i as u8;
+		entries.push(match node.kind(child_i) {
+			CellKind::Data => VoxelGpuNodeEntry::Data(VoxelRef::new(voxel_type.id, node.cell_bytes(child_i))),
+			CellKind::Node => VoxelGpuNodeEntry::ChildNode,
+			CellKind::Empty => unreachable!("bitmap only includes non-empty cells"),
+		});
+	}
+	entries
+}
+
+struct RawVoxelGpuBlockEncoder {
+	stride: usize,
+}
+
+impl VoxelGpuBlockEncoder for RawVoxelGpuBlockEncoder {
+	fn write_node(&self, entries: &[VoxelGpuNodeEntry<'_>], out: &mut Vec<u8>) {
+		let Some(last_data_index) = entries
+			.iter()
+			.rposition(|entry| matches!(entry, VoxelGpuNodeEntry::Data(_))) else { return; };
+		let start = out.len();
+		out.resize(start + (last_data_index + 1) * self.stride, 0);
+		for (index, entry) in entries.iter().enumerate() {
+			let VoxelGpuNodeEntry::Data(voxel) = entry else { continue; };
+			assert_eq!(voxel.bytes().len(), self.stride, "unregistered GPU voxel fallback expects fixed CPU voxel size");
+			let offset = start + index * self.stride;
+			out[offset..offset + self.stride].copy_from_slice(voxel.bytes());
+		}
+	}
+}
+
 pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, gpu_data_readers: &VoxelGpuDataReaders) -> (Vec<u8>, Vec<u8>) {
 	let _zone = span!("make GPU grid tree");
 	let view = grid_tree.view();
 	let nodes = view.nodes();
 	let root_depth = view.root_depth();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
-	let voxel_stride = gpu_data_readers.gpu_size_bytes(voxel_type.id).unwrap_or(voxel_type.size_bytes as usize);
-	let voxel_stride_bytes = voxel_stride as u32;
-	assert!(voxel_stride_bytes > 0, "voxel GPU data stride must be non-zero");
 
 	// -- Pass 1: DFS pre-order → gpu_order ------------------------------------
 	let mut cpu_to_gpu: Vec<u32>       = vec![u32::MAX; nodes.len()];
@@ -197,11 +229,18 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 		if best.0 < empty_cells.len() { Some((best.1, best.2, best.3, best.4)) } else { None }
 	};*/
 
-	// -- Pass 2: Assign slot indices and voxel buffer offsets -----------------
+	// -- Pass 2: Assign slot indices and encode per-node voxel payloads --------
+	let voxel_refs = collect_voxel_refs(&nodes, &gpu_order, voxel_type);
+	let mut voxel_header = Vec::new();
+	let encoder = gpu_data_readers
+		.create_encoder(voxel_type.id, &voxel_refs, &mut voxel_header)
+		.unwrap_or_else(|| Box::new(RawVoxelGpuBlockEncoder { stride: voxel_type.size_bytes as usize }));
+
 	let mut slot_indices:  Vec<u32> = vec![0; gpu_order.len()];
 	let mut voxel_offsets: Vec<u16> = vec![0; gpu_order.len()];
+	let mut node_payloads: Vec<Vec<u8>> = Vec::with_capacity(gpu_order.len());
 	let mut tree_cursor:  u32 = 0;
-	let mut voxel_cursor: u32 = 0;
+	let mut voxel_cursor: u32 = voxel_header.len().next_multiple_of(VOXEL_OFFSET_UNIT_BYTES as usize) as u32;
 
 	for (gpu_idx, &(cpu_idx, depth)) in gpu_order.iter().enumerate() {
 		let node = &nodes[cpu_idx as usize];
@@ -211,48 +250,28 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 		slot_indices[gpu_idx] = tree_cursor;
 		tree_cursor += if depth == 0 { get_header_bytes(bitmap) / 4 } else { slots_for_nonleaf(bitmap, depth) as u32 };
 
-		let mut voxel_data_size = 0u32;
-		let mut voxel_node_run = 0u32;
-
-		for i in 0..grid_tree::SIZE_CUBED {
-			match node.kind(i) {
-				CellKind::Empty => {}
-				CellKind::Data => {
-					voxel_data_size += voxel_stride_bytes * (1 + voxel_node_run);
-					voxel_node_run = 0;
-				}
-				CellKind::Node => {
-					voxel_node_run += 1;
-				}
-			}
-		}
-
-		if voxel_data_size > 0 {
+		let entries = collect_node_entries(node, voxel_type);
+		let mut payload = Vec::new();
+		encoder.write_node(&entries, &mut payload);
+		if !payload.is_empty() {
 			let aligned = voxel_cursor.next_multiple_of(VOXEL_OFFSET_UNIT_BYTES);
 			debug_assert!(
 				aligned / VOXEL_OFFSET_UNIT_BYTES <= u16::MAX as u32,
 				"voxel_data_offset overflow at node {gpu_idx}: buffer 2 exceeds 1 MiB"
 			);
 			voxel_offsets[gpu_idx] = (aligned / VOXEL_OFFSET_UNIT_BYTES) as u16;
-			voxel_cursor = aligned + voxel_data_size;
+			voxel_cursor = aligned + payload.len() as u32;
 		}
+		node_payloads.push(payload);
 	}
 
 	let total_tree_slots = tree_cursor as usize;
 	let total_voxel_bytes = voxel_cursor as usize;
 
-	let voxel_refs = collect_voxel_refs(&nodes, &gpu_order, voxel_type);
-	let mut voxel_payload_bytes = vec![0u8; voxel_refs.len() * voxel_stride];
-	if gpu_data_readers.write_bytes(voxel_type.id, &voxel_refs, &mut voxel_payload_bytes).is_none() {
-		for (voxel, out) in voxel_refs.iter().zip(voxel_payload_bytes.chunks_exact_mut(voxel_stride)) {
-			out.copy_from_slice(&voxel.bytes()[..voxel_stride]);
-		}
-	}
-	let mut voxel_payloads = voxel_payload_bytes.chunks_exact(voxel_stride);
-
 	// -- Pass 3: Write bytes ---------------------------------------------------
 	let mut tree_bytes: Vec<u8> = vec![0u8; total_tree_slots * SLOT_BYTES];
 	let mut voxel_bytes: Vec<u8> = vec![0u8; total_voxel_bytes];
+	voxel_bytes[..voxel_header.len()].copy_from_slice(&voxel_header);
 
 	for (gpu_idx, &(cpu_idx, depth)) in gpu_order.iter().enumerate() {
 		let node = &nodes[cpu_idx as usize];
@@ -284,40 +303,25 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 			tree_bytes[bitmap_cursor..bitmap_cursor + 4].copy_from_slice(&((bitmap >> 32) as u32).to_le_bytes());
 		}
 
-		let mut vox_write = voxel_offsets[gpu_idx] as usize * VOXEL_OFFSET_UNIT_BYTES as usize;
+		let node_payload = &node_payloads[gpu_idx];
+		if !node_payload.is_empty() {
+			let vox_write = voxel_offsets[gpu_idx] as usize * VOXEL_OFFSET_UNIT_BYTES as usize;
+			voxel_bytes[vox_write..vox_write + node_payload.len()].copy_from_slice(node_payload);
+		}
 
-		if depth == 0 {
-			for i in 0..grid_tree::SIZE_USIZE_CUBED {
-				if bitmap & (1u64 << i) == 0 { continue; }
-				let payload = match node.kind(i as u8) {
-					CellKind::Data => voxel_payloads.next().expect("voxel payload count must match data cells"),
-					_ => unreachable!("depth-0 cell must be DATA"),
-				};
-				voxel_bytes[vox_write..vox_write + voxel_stride].copy_from_slice(payload);
-				vox_write += voxel_stride;
-			}
-		} else {
+		if depth > 0 {
 			let mut entry_cursor = byte_base + get_header_bytes(bitmap) as usize;
-			let mut voxel_node_run = 0usize;
 
 			for i in 0..grid_tree::SIZE_USIZE_CUBED {
 				if bitmap & (1u64 << i) == 0 { continue; }
 				let child_i = i as u8;
 
 				let entry_val: u16 = match node.kind(child_i) {
-					CellKind::Data => {
-						vox_write += voxel_node_run * voxel_stride;
-						voxel_node_run = 0;
-						let payload = voxel_payloads.next().expect("voxel payload count must match data cells");
-						voxel_bytes[vox_write..vox_write + voxel_stride].copy_from_slice(payload);
-						vox_write += voxel_stride;
-						0x00
-					}
+					CellKind::Data => 0x00,
 					CellKind::Node => {
 						let child_cpu = node.child_index(child_i).expect("node cell has child");
 						let child_slot = slot_indices[cpu_to_gpu[child_cpu as usize] as usize];
 						let offset = child_slot - my_slot;
-						voxel_node_run += 1;
 						debug_assert!(
 							offset >= 1 && offset <= if depth == 1 { u8::MAX as u32 } else { u16::MAX as u32 },
 							"NODE child slot offset {offset} out of range"
@@ -337,7 +341,6 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 			}
 		}
 	}
-	debug_assert!(voxel_payloads.next().is_none(), "unused voxel payloads after GPU grid tree write");
 
 	// -- Assemble final buffers ------------------------------------------------
 
