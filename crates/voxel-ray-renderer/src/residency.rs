@@ -6,8 +6,8 @@ use bevy::ecs::world::FromWorld;
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 
 use crate::incoming_ray_directions::IncomingRayDirections;
-use crate::residency_packing::{plan_residency, CopyRegion, PendingUpload, SlotEntry};
-use crate::world_gpu_data::{WorldGpuData, TREE_BUFFER_ALIGNMENT, VOXEL_BUFFER_ALIGNMENT};
+use voxel_gpu::{AllocationId, residency_packing::{plan_residency, CopyRegion, PendingUpload, SlotEntry}};
+use crate::gpu_data::{RayGpuBuffers, TREE_BUFFER_ALIGNMENT, VOXEL_BUFFER_ALIGNMENT};
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
 type GpuDevice = WgpuWrapper<wgpu::Device>;
@@ -28,13 +28,13 @@ pub enum ResidencyDirections {
 	Culled(IncomingRayDirections),
 }
 
-/// Render-only compact copy of the sub-grids needed this frame. The render world
-/// binds this instead of the large [`WorldGpuData`] buffers.
+/// Render-only compact copy of the ray tiles needed this frame. The render world
+/// binds this instead of the long-lived [`RayWorldGpuData`] buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResidentVoxels {
 	pub entity: Entity,
-	pub tree_id: u32,
-	pub voxels_id: u32,
+	pub tree: AllocationId,
+	pub voxels: AllocationId,
 	pub generation: u64,
 	pub loaded_directions: ResidencyDirections,
 }
@@ -133,13 +133,13 @@ impl ResidencyBuffers {
 	/// Copy the resident sub-grids into the residency slot and publish it. Caller
 	/// trims `resident` to [`Self::binding_limit`] and provides it in a stable
 	/// order.
-	pub fn upload(&mut self, world_gpu: &WorldGpuData, resident: &[ResidentVoxels]) {
+	pub fn upload(&mut self, world_gpu: &RayGpuBuffers, resident: &[ResidentVoxels]) {
 		let mut tree_entries = Vec::with_capacity(resident.len());
 		let mut voxel_entries = Vec::with_capacity(resident.len());
 		for item in resident {
 			let (Some(tree_held), Some(voxel_held)) = (
-				world_gpu.packed_64_tree_dynamic_buffer.held_buffer(item.tree_id),
-				world_gpu.packed_voxel_data_dynamic_buffer.held_buffer(item.voxels_id),
+				world_gpu.trees.held_buffer(item.tree),
+				world_gpu.voxels.held_buffer(item.voxels),
 			) else {
 				continue;
 			};
@@ -205,8 +205,8 @@ impl ResidencyBuffers {
 
 		if !tree_plan.copy_regions.is_empty() || !voxel_plan.copy_regions.is_empty() {
 			let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("residency_pack") });
-			let src_tree = world_gpu.packed_64_tree_dynamic_buffer.buffer();
-			let src_voxel = world_gpu.packed_voxel_data_dynamic_buffer.buffer();
+			let src_tree = world_gpu.trees.buffer();
+			let src_voxel = world_gpu.voxels.buffer();
 			let dst_tree = &self.tree_buffer;
 			let dst_voxel = &self.voxel_buffer;
 			record_copy_runs(&mut encoder, src_tree, dst_tree, &tree_plan.copy_regions);

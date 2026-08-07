@@ -75,7 +75,7 @@ impl Coverage {
 
 		let mut replacements = HashSet::new();
 		if let Some(region) = GridRegion::from_min_size(key.min, key.size()) {
-			self.pending.for_each_in_region(key.grid, region, u8::MAX, Some(key.lod), |candidate| {
+			self.pending.for_each_in_region(key.grid, key.class, region, u8::MAX, Some(key.lod), |candidate| {
 				replacements.insert(candidate);
 			});
 		}
@@ -164,7 +164,7 @@ mod tests {
 	use crate::types::TileKey;
 
 	fn grid() -> Entity { Entity::from_bits(1) }
-	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey { grid: grid(), lod, min } }
+	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey { grid: grid(), class: voxel_streaming::TileClassId(0), lod, min } }
 	fn children(parent: TileKey) -> Vec<TileKey> {
 		let child_lod = parent.lod - 1;
 		let child_size = 1 << child_lod;

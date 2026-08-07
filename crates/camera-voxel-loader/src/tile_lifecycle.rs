@@ -10,21 +10,19 @@ use crate::{coverage::Coverage, types::TileKey};
 pub(crate) enum TileResolution {
 	Requested,
 	Empty,
-	Chunk(HashSet<Entity>),
-	Lod(Entity),
+	Tile(Entity),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ResolvedTile {
 	Empty,
-	Chunk(HashSet<Entity>),
-	Lod(Entity),
+	Tile(Entity),
 }
 
 impl TileResolution {
 	pub(crate) fn is_requested(&self) -> bool { matches!(self, Self::Requested) }
 	#[cfg(test)]
-	pub(crate) fn is_visible(&self) -> bool { matches!(self, Self::Chunk(entities) if !entities.is_empty()) || matches!(self, Self::Lod(_)) }
+	pub(crate) fn is_visible(&self) -> bool { matches!(self, Self::Tile(_)) }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,8 +36,6 @@ pub(crate) struct TileLifecycle {
 	desired_index: HashMap<GridId, TileIndex<TileKey>>,
 	entries: HashMap<TileKey, TileEntry>,
 	coverage: Coverage,
-	subgrid_render_refs: HashMap<Entity, usize>,
-	lods_to_render: HashSet<Entity>,
 }
 
 impl TileLifecycle {
@@ -99,11 +95,9 @@ impl TileLifecycle {
 		if !self.entries.contains_key(&key) {
 			return Vec::new();
 		}
-		debug_assert!(matches!((&resolved, key.is_chunk()), (ResolvedTile::Empty, _) | (ResolvedTile::Chunk(_), true) | (ResolvedTile::Lod(_), false)));
-		let resolution = match resolved {
+				let resolution = match resolved {
 			ResolvedTile::Empty => TileResolution::Empty,
-			ResolvedTile::Chunk(entities) => TileResolution::Chunk(entities),
-			ResolvedTile::Lod(entity) => TileResolution::Lod(entity),
+			ResolvedTile::Tile(entity) => TileResolution::Tile(entity),
 		};
 		self.replace_resolution(key, resolution);
 
@@ -132,23 +126,15 @@ impl TileLifecycle {
 		}
 	}
 
-	pub(crate) fn subgrids_to_render(&self) -> impl Iterator<Item = Entity> + '_ { self.subgrid_render_refs.keys().copied() }
-	pub(crate) fn lods_to_render(&self) -> &HashSet<Entity> { &self.lods_to_render }
+	pub(crate) fn tiles_to_render(&self) -> impl Iterator<Item = Entity> + '_ {
+		self.entries.values().filter_map(|entry| match &entry.resolution {
+			TileResolution::Tile(entity) => Some(*entity),
+			TileResolution::Requested | TileResolution::Empty => None,
+		})
+	}
 	pub(crate) fn coverage_debug_tiles(&self) -> Vec<(TileKey, bool, bool)> { self.coverage.debug_tiles() }
 
 	fn replace_resolution(&mut self, key: TileKey, next: TileResolution) {
-		let previous = std::mem::replace(&mut self.entries.get_mut(&key).unwrap().resolution, TileResolution::Requested);
-		match (&previous, &next) {
-			(TileResolution::Chunk(old), TileResolution::Chunk(new)) => {
-				for &entity in old.difference(new) { self.remove_subgrid_ref(entity); }
-				for &entity in new.difference(old) { self.add_subgrid_ref(entity); }
-			}
-			(TileResolution::Lod(old), TileResolution::Lod(new)) if old == new => {}
-			_ => {
-				self.detach_resolution(&previous);
-				self.attach_resolution(&next);
-			}
-		}
 		self.entries.get_mut(&key).unwrap().resolution = next;
 	}
 
@@ -159,39 +145,8 @@ impl TileLifecycle {
 			if self.desired.contains(key) {
 				return false;
 			}
-			let Some(entry) = self.entries.remove(key) else { return false };
-			self.detach_resolution(&entry.resolution);
-			true
+			self.entries.remove(key).is_some()
 		});
-	}
-
-	fn attach_resolution(&mut self, resolution: &TileResolution) {
-		match resolution {
-			TileResolution::Chunk(entities) => {
-				for &entity in entities { self.add_subgrid_ref(entity); }
-			}
-			TileResolution::Lod(entity) => { self.lods_to_render.insert(*entity); }
-			TileResolution::Requested | TileResolution::Empty => {}
-		}
-	}
-
-	fn detach_resolution(&mut self, resolution: &TileResolution) {
-		match resolution {
-			TileResolution::Chunk(entities) => {
-				for &entity in entities { self.remove_subgrid_ref(entity); }
-			}
-			TileResolution::Lod(entity) => { self.lods_to_render.remove(entity); }
-			TileResolution::Requested | TileResolution::Empty => {}
-		}
-	}
-
-	fn add_subgrid_ref(&mut self, entity: Entity) { *self.subgrid_render_refs.entry(entity).or_default() += 1; }
-
-	fn remove_subgrid_ref(&mut self, entity: Entity) {
-		if let Some(count) = self.subgrid_render_refs.get_mut(&entity) {
-			*count = count.saturating_sub(1);
-			if *count == 0 { self.subgrid_render_refs.remove(&entity); }
-		}
 	}
 }
 
@@ -200,7 +155,7 @@ mod tests {
 	use super::*;
 
 	fn grid() -> Entity { Entity::from_bits(1) }
-	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey { grid: grid(), lod, min } }
+	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey { grid: grid(), class: voxel_streaming::TileClassId(0), lod, min } }
 	fn apply(lifecycle: &mut TileLifecycle, added: &[TileKey], removed: &[TileKey]) -> (Vec<TileKey>, Vec<TileKey>) {
 		let mut acquire = Vec::new();
 		let mut release = Vec::new();
@@ -219,12 +174,12 @@ mod tests {
 		assert!(release.is_empty());
 		assert_eq!(lifecycle.entry(key), Some(&TileEntry { resolution: TileResolution::Requested }));
 
-		assert!(lifecycle.resolve(key, ResolvedTile::Lod(entity)).is_empty());
-		assert!(lifecycle.lods_to_render().contains(&entity));
+		assert!(lifecycle.resolve(key, ResolvedTile::Tile(entity)).is_empty());
+		assert!(lifecycle.tiles_to_render().any(|candidate| candidate == entity));
 
 		assert_eq!(apply(&mut lifecycle, &[], &[key]).1, vec![key]);
 		assert!(!lifecycle.contains_source(key));
-		assert!(!lifecycle.lods_to_render().contains(&entity));
+		assert!(!lifecycle.tiles_to_render().any(|candidate| candidate == entity));
 	}
 
 	#[test]
@@ -254,21 +209,4 @@ mod tests {
 		assert!(lifecycle.contains_source(old));
 	}
 
-	#[test]
-	fn shared_chunk_entity_reference_survives_until_last_tile_releases_it() {
-		let first = tile(0, IVec3::ZERO);
-		let second = tile(0, IVec3::X);
-		let entity = Entity::from_bits(2);
-		let entities = HashSet::from([entity]);
-		let mut lifecycle = TileLifecycle::default();
-		apply(&mut lifecycle, &[first, second], &[]);
-		let _ = lifecycle.resolve(first, ResolvedTile::Chunk(entities.clone()));
-		let _ = lifecycle.resolve(second, ResolvedTile::Chunk(entities));
-		assert_eq!(lifecycle.subgrids_to_render().collect::<Vec<_>>(), vec![entity]);
-
-		apply(&mut lifecycle, &[], &[first]);
-		assert_eq!(lifecycle.subgrids_to_render().collect::<Vec<_>>(), vec![entity]);
-		apply(&mut lifecycle, &[], &[second]);
-		assert!(lifecycle.subgrids_to_render().next().is_none());
-	}
 }

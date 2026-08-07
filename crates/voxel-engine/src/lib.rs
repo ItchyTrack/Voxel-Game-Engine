@@ -10,6 +10,7 @@ use voxel_physics::VoxelPhysicsPlugin;
 use voxel_streaming::VoxelStreamingPlugin;
 
 use crate::client_rendering::ClientRenderingPlugins;
+pub use crate::client_rendering::VoxelRenderTileClasses;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VoxelEngineMode {

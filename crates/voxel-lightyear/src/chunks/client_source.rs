@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use bevy::prelude::*;
 use voxel_data::grid::GridId;
-use voxel_sources::{CancellationToken, ChunkSource, LodKey, SourceHandle};
+use voxel_data::voxels::VoxelTypeId;
+use voxel_sources::{CancellationToken, ChunkSource, TileVoxelKey, SourceHandle};
 
 use super::presence::PresenceRequest;
 use super::voxel_load::ClientLoadRegistry;
@@ -42,14 +43,14 @@ impl ChunkSource for ClientChunkSource {
 		self.state.loads.lock().unwrap().request_chunk(grid, chunk, generation, cancellation);
 	}
 
-	fn cost_lod(&self, grid: GridId, _min: IVec3, _size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost_tile_voxels(&self, grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _voxel_type: VoxelTypeId) -> Option<u32> {
 		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+	fn request_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let key = LodKey { min, size, lod: lod.max(0.0).floor() as u8 };
-		self.state.loads.lock().unwrap().request_lod(grid, key, 0.0, generation, cancellation);
+		let key = TileVoxelKey { min, size, lod: lod.max(0.0).floor() as u8 };
+		self.state.loads.lock().unwrap().request_tile_voxels(grid, key, voxel_type, 0.0, generation, cancellation);
 	}
 }
 

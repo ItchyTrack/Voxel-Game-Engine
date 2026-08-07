@@ -1,4 +1,9 @@
-use std::{collections::HashMap, num::NonZero, ops::*};
+use std::{
+	collections::HashMap,
+	num::NonZero,
+	ops::*,
+	sync::mpsc::{self, Receiver, Sender},
+};
 
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 use num::Integer;
@@ -27,6 +32,39 @@ impl HeldBuffer {
 	}
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct AllocationId(u32);
+
+pub struct PackedBufferAllocation {
+	id: AllocationId,
+	cleanup: Sender<u32>,
+}
+
+impl std::fmt::Debug for PackedBufferAllocation {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("PackedBufferAllocation").field("id", &self.id).finish()
+	}
+}
+
+impl PackedBufferAllocation {
+	pub fn id(&self) -> AllocationId { self.id }
+
+	fn into_id(self) -> AllocationId {
+		let allocation = std::mem::ManuallyDrop::new(self);
+		let id = allocation.id;
+		unsafe {
+			drop(std::ptr::read(std::ptr::addr_of!(allocation.cleanup)));
+		}
+		id
+	}
+}
+
+impl Drop for PackedBufferAllocation {
+	fn drop(&mut self) {
+		let _ = self.cleanup.send(self.id.0);
+	}
+}
+
 pub struct PackedDynamicBuffer {
 	buffer: GpuBuffer,
 	held_bytes: u32,
@@ -38,6 +76,8 @@ pub struct PackedDynamicBuffer {
 	usage: wgpu::BufferUsages,
 	buffer_size: u64,
 	max_binding_size: u32,
+	cleanup_tx: Sender<u32>,
+	cleanup_rx: Receiver<u32>,
 }
 
 impl std::fmt::Debug for PackedDynamicBuffer {
@@ -65,6 +105,7 @@ impl PackedDynamicBuffer {
 			usage,
 			mapped_at_creation: false,
 		}));
+		let (cleanup_tx, cleanup_rx) = mpsc::channel();
 		Ok(Self {
 			buffer,
 			held_bytes: 0,
@@ -76,6 +117,8 @@ impl PackedDynamicBuffer {
 			usage,
 			buffer_size,
 			max_binding_size: raw_device.limits().max_storage_buffer_binding_size.min(u32::MAX as u64) as u32,
+			cleanup_tx,
+			cleanup_rx,
 		})
 	}
 
@@ -127,7 +170,31 @@ impl PackedDynamicBuffer {
 		}
 	}
 
-	pub fn add_buffer(&mut self, data_buffer: &[u8]) -> Result<u32, &'static str> {
+	pub fn add_buffer(&mut self, data_buffer: &[u8]) -> Result<PackedBufferAllocation, &'static str> {
+		self.collect_garbage();
+		let id = self.add_buffer_raw(data_buffer)?;
+		Ok(PackedBufferAllocation { id: AllocationId(id), cleanup: self.cleanup_tx.clone() })
+	}
+
+	pub fn remove_buffer(&mut self, allocation: PackedBufferAllocation) -> Result<(), &'static str> {
+		self.collect_garbage();
+		self.remove_buffer_raw(allocation.into_id().0)
+	}
+
+	/// If the new buffer does not fit the old buffer will still be removed.
+	pub fn replace_buffer(&mut self, allocation: PackedBufferAllocation, buffer: &[u8]) -> Result<PackedBufferAllocation, &'static str> {
+		self.collect_garbage();
+		let id = self.replace_buffer_raw(allocation.into_id().0, buffer)?;
+		Ok(PackedBufferAllocation { id: AllocationId(id), cleanup: self.cleanup_tx.clone() })
+	}
+
+	pub fn collect_garbage(&mut self) {
+		while let Ok(id) = self.cleanup_rx.try_recv() {
+			let _ = self.remove_buffer_raw(id);
+		}
+	}
+
+	fn add_buffer_raw(&mut self, data_buffer: &[u8]) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer add_buffer");
 		// tracy_client::plot!("packed dynamic upload bytes", data_buffer.len() as f64);
 		let allocation = self.allocate_buffer(data_buffer.len() as u32)?;
@@ -141,7 +208,7 @@ impl PackedDynamicBuffer {
 		Ok(id)
 	}
 
-	pub fn remove_buffer(&mut self, id: u32) -> Result<(), &'static str> {
+	fn remove_buffer_raw(&mut self, id: u32) -> Result<(), &'static str> {
 		if let Some(held_buffer) = self.held_buffers.remove(&id) {
 			self.allocator.free(held_buffer.allocation());
 			self.held_bytes -= held_buffer.size;
@@ -151,8 +218,7 @@ impl PackedDynamicBuffer {
 		}
 	}
 
-	/// If the new buffer does not fit the old buffer will still be removed
-	pub fn replace_buffer(&mut self, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
+	fn replace_buffer_raw(&mut self, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer replace_buffer");
 		// tracy_client::plot!("packed dynamic upload bytes", buffer.len() as f64);
 		let Some(held_buffer) = self.held_buffers.get_mut(&id) else {
@@ -176,15 +242,15 @@ impl PackedDynamicBuffer {
 				Ok(id)
 			},
 			Err(orderly_allocator::ReallocateError::InsufficientSpace { .. }) => {
-				self.remove_buffer(id)?;
-				self.add_buffer(buffer)
+				self.remove_buffer_raw(id)?;
+				self.add_buffer_raw(buffer)
 			},
 			Err(orderly_allocator::ReallocateError::Invalid) => Err("Buffer size can't be 0."),
 		}
 	}
 
-	pub fn held_buffer(&self, id: u32) -> Option<&HeldBuffer> {
-		self.held_buffers.get(&id)
+	pub fn held_buffer(&self, id: AllocationId) -> Option<&HeldBuffer> {
+		self.held_buffers.get(&id.0)
 	}
 
 	pub fn buffer(&self) -> &GpuBuffer {

@@ -10,11 +10,26 @@ use crate::{BasicVoxel, LodVoxel};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BasicVoxelLodGenerator;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LodVoxelLodGenerator;
+
 impl VoxelLodGenerator for BasicVoxelLodGenerator {
 	fn input_type_id(&self) -> VoxelTypeId {
 		BasicVoxel::TYPE_INFO.id
 	}
 
+	fn output_type_id(&self) -> VoxelTypeId {
+		LodVoxel::TYPE_INFO.id
+	}
+
+	fn generate(&self, min: IVec3, size: IVec3, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+		downsample_region(min, size, lod, fetch)
+	}
+}
+
+impl VoxelLodGenerator for LodVoxelLodGenerator {
+	fn input_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_INFO.id }
+	fn output_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_INFO.id }
 	fn generate(&self, min: IVec3, size: IVec3, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 		downsample_region(min, size, lod, fetch)
 	}

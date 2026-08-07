@@ -6,7 +6,7 @@ use bevy::math::{IVec2, IVec3, Vec3};
 
 use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
-use voxel_data::voxels::{Voxel, Voxels};
+use voxel_data::voxels::{Voxel, VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::CHUNK_SIZE;
 
@@ -109,6 +109,7 @@ impl SdfSource {
 		min: IVec3,
 		size: IVec3,
 		lod: Option<f32>,
+		voxel_type: Option<VoxelTypeId>,
 		cancellation: Option<&CancellationToken>,
 	) -> Option<Voxels> {
 		if size.cmple(IVec3::ZERO).any() || !Self::might_intersect_region(binding, min, size) {
@@ -133,7 +134,12 @@ impl SdfSource {
 			}
 		};
 
-		let voxel = if lod.is_some() { binding.sdf.lod_voxel() } else { binding.sdf.voxel() };
+		let voxel = match voxel_type {
+			Some(type_id) if binding.sdf.lod_voxel().type_id() == type_id => binding.sdf.lod_voxel(),
+			Some(type_id) if binding.sdf.voxel().type_id() == type_id => binding.sdf.voxel(),
+			Some(_) => return None,
+			None => binding.sdf.voxel(),
+		};
 		let mut voxels = Voxels::new_with_type(voxel.type_info());
 		voxels.apply_sdf(
 			Vec3::ZERO,
@@ -165,24 +171,36 @@ impl ChunkSource for SdfSource {
 
 	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, None, Some(&cancellation)));
+		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, None, None, Some(&cancellation)));
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded(grid, chunk, generation, voxels);
 		}
 	}
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
 		let binding = self.binding(grid)?;
-		Self::might_intersect_region(&binding, min, size).then_some(binding.options.cost)
+		let supported = binding.sdf.voxel().type_id() == voxel_type || binding.sdf.lod_voxel().type_id() == voxel_type;
+		(supported && Self::might_intersect_region(&binding, min, size)).then_some(binding.options.cost)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+	fn request_tile_voxels(
+		&self,
+		grid: GridId,
+		min: IVec3,
+		size: IVec3,
+		lod: f32,
+		voxel_type: VoxelTypeId,
+		generation: u64,
+		cancellation: CancellationToken,
+	) {
 		if cancellation.is_cancelled() { return; }
-		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, min, size, Some(lod), Some(&cancellation)));
+		let voxels = self.binding(grid).and_then(|binding| {
+			self.build_region(&binding, min, size, Some(lod), Some(voxel_type), Some(&cancellation))
+		});
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
-			handle.loaded_lod(grid, min, size, lod, generation, voxels);
+			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 

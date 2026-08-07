@@ -23,7 +23,7 @@ impl VoxelShaderSources {
 	pub fn embedded(voxel_data_readers: &VoxelGpuDataReaders) -> ShaderResult<Self> {
 		let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
 		let local_shader_dir = manifest_dir.join("src/shaders");
-		let shared_shader_dir = voxel_gpu::shader_sources::shared_shader_dir_from_manifest(manifest_dir);
+		let shared_shader_dir = local_shader_dir.join("shared");
 		Self::from_compiled(voxel_gpu::shader_sources::compile_embedded(&local_shader_dir, &shared_shader_dir, ENTRIES, &linkages(voxel_data_readers))?)
 	}
 
@@ -31,7 +31,7 @@ impl VoxelShaderSources {
 	pub fn load_from_disk(voxel_data_readers: &VoxelGpuDataReaders) -> ShaderResult<Self> {
 		let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
 		let local_shader_dir = manifest_dir.join("src/shaders");
-		let shared_shader_dir = voxel_gpu::shader_sources::shared_shader_dir_from_manifest(manifest_dir);
+		let shared_shader_dir = local_shader_dir.join("shared");
 		Self::from_compiled(voxel_gpu::shader_sources::compile_from_disk(&local_shader_dir, &shared_shader_dir, ENTRIES, &linkages(voxel_data_readers))?)
 	}
 

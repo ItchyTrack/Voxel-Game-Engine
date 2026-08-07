@@ -8,10 +8,10 @@ use voxel_physics::{
 	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
 };
 use voxel_engine::VoxelCameraMode;
-use voxel_gpu::world_gpu_data::WorldGpuData;
-use voxel_ray_renderer::graphics_settings::GraphicsSettings;
+use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::GraphicsSettings};
+use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
-use voxel_streaming::{ChunkState, GridStreaming, VoxelSourceRequests, CHUNK_SIZE};
+use voxel_streaming::{ChunkState, GridStreaming, CHUNK_SIZE};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
@@ -59,7 +59,8 @@ impl Plugin for DebugUiPlugin {
 fn debug_window(
 	mut contexts: EguiContexts,
 	diagnostics: Res<DiagnosticsStore>,
-	world_gpu_data: Option<Res<WorldGpuData>>,
+	ray_gpu_data: Option<Res<RayWorldGpuData>>,
+	raster_gpu_data: Option<Res<RasterWorldGpuData>>,
 	render_stats: Res<RenderStats>,
 	mut graphics_settings: ResMut<GraphicsSettings>,
 	mut freeze_camera_voxel_loader: ResMut<FreezeCameraVoxelLoader>,
@@ -69,7 +70,6 @@ fn debug_window(
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
 	mut coverage_boxes: ResMut<CoverageBoxes>,
 	mut camera_modes: Query<&mut VoxelCameraMode, With<Camera3d>>,
-	_requests: VoxelSourceRequests,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) -> Result {
 	let ctx = contexts.ctx_mut()?;
@@ -79,14 +79,11 @@ fn debug_window(
 		.and_then(|d| d.smoothed())
 		.unwrap_or(0.0);
 
-	let (tree_kb, voxel_kb, raster_kb) = world_gpu_data
+	let (tree_kb, voxel_kb) = ray_gpu_data
 		.as_ref()
-		.map(|w| (
-			w.packed_64_tree_dynamic_buffer.held_bytes() / 1000,
-			w.packed_voxel_data_dynamic_buffer.held_bytes() / 1000,
-			w.packed_raster_face_dynamic_buffer.held_bytes() / 1000,
-		))
-		.unwrap_or((0, 0, 0));
+		.map(|gpu| { let gpu = gpu.lock(); (gpu.trees.held_bytes() / 1000, gpu.voxels.held_bytes() / 1000) })
+		.unwrap_or_default();
+	let raster_kb = raster_gpu_data.as_ref().map(|gpu| gpu.lock().faces.held_bytes() / 1000).unwrap_or_default();
 
 	let (bvh_kb, bvh_leaf_kb) = render_stats
 		.inner

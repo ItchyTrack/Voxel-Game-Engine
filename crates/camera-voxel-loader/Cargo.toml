@@ -10,7 +10,6 @@ tracy = ["tracy-client/enable"]
 [dependencies]
 bevy = { workspace = true }
 tracy-client = { workspace = true }
-voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 

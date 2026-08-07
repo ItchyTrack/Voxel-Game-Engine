@@ -113,7 +113,7 @@ fn append_planet_samples(
 	let mut columns_tested = 0usize;
 	let mut columns_in_shape = 0usize;
 	let mut z_candidates = 0usize;
-	let mut terrain_samples = 0usize;
+	let terrain_samples = 0usize;
 	let start_points = points.len();
 
 	tracy_client::plot!("planet sample extent x", extent.x as f64);

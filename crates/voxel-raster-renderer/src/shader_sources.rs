@@ -8,16 +8,14 @@ const ENTRIES: &[SlangEntry<'_>] = &[
 pub fn embedded() -> ShaderResult<String> {
 	let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
 	let local_shader_dir = manifest_dir.join("src/shaders");
-	let shared_shader_dir = voxel_gpu::shader_sources::shared_shader_dir_from_manifest(manifest_dir);
-	one(voxel_gpu::shader_sources::compile_embedded(&local_shader_dir, &shared_shader_dir, ENTRIES, &[])?)
+	one(voxel_gpu::shader_sources::compile_embedded(&local_shader_dir, &local_shader_dir, ENTRIES, &[])?)
 }
 
 #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
 pub fn load_from_disk() -> ShaderResult<String> {
 	let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
 	let local_shader_dir = manifest_dir.join("src/shaders");
-	let shared_shader_dir = voxel_gpu::shader_sources::shared_shader_dir_from_manifest(manifest_dir);
-	one(voxel_gpu::shader_sources::compile_from_disk(&local_shader_dir, &shared_shader_dir, ENTRIES, &[])?)
+	one(voxel_gpu::shader_sources::compile_from_disk(&local_shader_dir, &local_shader_dir, ENTRIES, &[])?)
 }
 
 fn one(shaders: Vec<String>) -> ShaderResult<String> {

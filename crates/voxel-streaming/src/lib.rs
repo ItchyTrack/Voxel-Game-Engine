@@ -4,9 +4,11 @@ use bevy::prelude::*;
 
 mod chunk;
 mod consumer;
-mod lod_index;
+mod tile_state_index;
 mod presence;
 mod streaming;
+mod source_request_handle;
+mod tile_updates;
 pub mod systems;
 mod edit;
 pub mod tile_index;
@@ -14,12 +16,14 @@ pub mod tile_index;
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use presence::{ChunkPresence, ChunkState};
+pub use tile_data::{DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData, TileGenerator, TileGeneratorInput, TileKey};
+pub use tile_updates::{TileLoadStatus, TileLoadUpdate};
 pub use tile_index::{TileIndex, TileIndexKey};
-pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, LodKey, LodLoadRequest, LodLoaded, PresenceLoadRequest, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
+pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, TileVoxelKey, TileVoxelLoadRequest, TileVoxelsLoaded, PresenceLoadRequest};
 pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
-pub type LodLoadResult = voxel_sources::LodLoaded;
+pub use source_request_handle::StreamingSourceRequestHandle;
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
-pub use systems::{receive_lod_results, request_presence_for_new_grids};
+pub use systems::request_presence_for_new_grids;
 
 // Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
@@ -83,6 +87,9 @@ impl Plugin for VoxelStreamingPlugin {
 		}
 		app.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkLoadResolved>()
+			.init_resource::<TileClassRegistry>()
+			.init_resource::<StreamingSourceRequestHandle>()
+			.init_resource::<systems::PendingTileUpdates>()
 			.register_edit_gate::<GridStreaming>()
 			.add_systems(
 				StreamingSchedule,
@@ -111,14 +118,19 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(systems::request_presence_for_new_grids, systems::handle_dirty_chunks, systems::request_stalled_chunks, systems::request_lod_tiles)
+					(systems::request_presence_for_new_grids, systems::handle_dirty_chunks, systems::request_stalled_chunks, systems::request_tiles)
 						.in_set(StreamingPhase::Request),
-					(systems::receive_results, systems::receive_lod_results)
+					(
+						systems::receive_results,
+						(
+							systems::receive_tile_results,
+							systems::publish_tile_updates,
+						).chain(),
+					)
 						.in_set(StreamingPhase::Receive),
 				),
 			)
-			.add_systems(Update, systems::refresh_lod_uploads.after(voxel_gpu::GpuUploadSet::Upload))
-			.add_systems(StreamingMaintenance, (systems::cleanup_released_lods, systems::apply_chunk_clears).chain())
+			.add_systems(StreamingMaintenance, (systems::cleanup_released_tiles, systems::apply_chunk_clears).chain())
 			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain());
 	}
 }

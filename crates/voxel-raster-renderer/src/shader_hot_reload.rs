@@ -27,9 +27,7 @@ impl RasterShaderHotReload {
 			Err(error) => log::error!("Raster shader hot reload watcher error: {error}"),
 		})?;
 		let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-		for root in [manifest_dir.join("src/shaders"), manifest_dir.join("../voxel-gpu/src/shaders")] {
-			watcher.watch(&root, RecursiveMode::Recursive)?;
-		}
+		watcher.watch(&manifest_dir.join("src/shaders"), RecursiveMode::Recursive)?;
 		Ok(Self { dirty, _watcher: watcher })
 	}
 

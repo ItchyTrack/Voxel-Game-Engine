@@ -5,7 +5,7 @@ use bevy::math::IVec3;
 
 use voxel_data::grid::GridId;
 
-use crate::LodLoadResult;
+use crate::TileLoadUpdate;
 
 #[bevy_trait_query::queryable]
 pub trait ChunkConsumer {
@@ -13,8 +13,8 @@ pub trait ChunkConsumer {
 	fn needed_mut(&mut self) -> &mut HashMap<GridId, HashSet<IVec3>>;
 	fn outstanding(&self) -> usize;
 	fn outstanding_mut(&mut self) -> &mut usize;
-	fn push_lod(&mut self, result: LodLoadResult);
-	fn drain_lod(&mut self) -> Vec<LodLoadResult>;
+	fn push_tile(&mut self, result: TileLoadUpdate);
+	fn drain_tiles(&mut self) -> Vec<TileLoadUpdate>;
 }
 
 /// Defines a [`ChunkConsumer`] component. Register it with [`VoxelStreamingAppExt::register_chunk_consumer`].
@@ -28,7 +28,7 @@ macro_rules! chunk_consumer {
 				::std::collections::HashSet<$crate::__bevy::math::IVec3>,
 			>,
 			outstanding: usize,
-			lod_inbox: ::std::vec::Vec<$crate::LodLoadResult>,
+			tile_inbox: ::std::vec::Vec<$crate::TileLoadUpdate>,
 		}
 		impl $crate::ChunkConsumer for $name {
 			fn needed(
@@ -53,11 +53,11 @@ macro_rules! chunk_consumer {
 			fn outstanding_mut(&mut self) -> &mut usize {
 				&mut self.outstanding
 			}
-			fn push_lod(&mut self, result: $crate::LodLoadResult) {
-				self.lod_inbox.push(result);
+			fn push_tile(&mut self, result: $crate::TileLoadUpdate) {
+				self.tile_inbox.push(result);
 			}
-			fn drain_lod(&mut self) -> ::std::vec::Vec<$crate::LodLoadResult> {
-				::std::mem::take(&mut self.lod_inbox)
+			fn drain_tiles(&mut self) -> ::std::vec::Vec<$crate::TileLoadUpdate> {
+				::std::mem::take(&mut self.tile_inbox)
 			}
 		}
 	};

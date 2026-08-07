@@ -8,7 +8,7 @@ use bevy::math::{IVec3, Quat, U16Vec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::grid_tree::GridRegion;
-use voxel_data::voxels::{Voxel, VoxelType, Voxels};
+use voxel_data::voxels::{Voxel, VoxelType, VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::{CHUNK_SIZE, chunk_of};
 
@@ -255,24 +255,50 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		}
 	}
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
 		let binding = self.binding(grid)?;
 		let region_has_data = (0..size.z).any(|z| (0..size.y).any(|y| (0..size.x).any(|x| {
 			self.translated_chunk(&binding, min + IVec3::new(x, y, z)).is_some()
 		})));
-		region_has_data.then_some(COST)
+		if !region_has_data { return None; }
+		(lod <= 0.0 && T::TYPE_ID == voxel_type
+			|| self.inner.handle.get()?.voxel_lod_generator(T::TYPE_ID, voxel_type).is_some())
+			.then_some(COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+	fn request_tile_voxels(
+		&self,
+		grid: GridId,
+		min: IVec3,
+		size: IVec3,
+		lod: f32,
+		voxel_type: VoxelTypeId,
+		generation: u64,
+		cancellation: CancellationToken,
+	) {
 		if cancellation.is_cancelled() { return; }
 		let voxels = self.binding(grid).and_then(|binding| {
+			if lod <= 0.0 && T::TYPE_ID == voxel_type {
+				let mut merged = Voxels::new::<T>();
+				for z in 0..size.z {
+					for y in 0..size.y {
+						for x in 0..size.x {
+							let local = IVec3::new(x, y, z);
+							if let Some(chunk) = self.translated_chunk(&binding, min + local) {
+								merged.merge_from(&chunk, local * CHUNK_SIZE);
+							}
+						}
+					}
+				}
+				return (!merged.is_empty()).then_some(merged);
+			}
 			let handle = self.inner.handle.get()?;
-			let generator = handle.voxel_lod_generator(T::TYPE_ID)?;
+			let generator = handle.voxel_lod_generator(T::TYPE_ID, voxel_type)?;
 			generator.generate(min, size, lod, &|chunk| self.translated_chunk(&binding, chunk))
 		});
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
-			handle.loaded_lod(grid, min, size, lod, generation, voxels);
+			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 

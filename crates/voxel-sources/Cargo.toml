@@ -12,6 +12,7 @@ crossbeam-channel = "0.5.15"
 bevy = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
+tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
 tracy-client = { workspace = true }
 

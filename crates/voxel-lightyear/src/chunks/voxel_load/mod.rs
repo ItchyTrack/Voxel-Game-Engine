@@ -34,15 +34,16 @@ impl Plugin for VoxelLoadPlugin {
 			.add_direction(NetworkDirection::ClientToServer);
 
 		if self.enable_server {
-			app.init_resource::<PendingVoxelLoads>()
+			app.init_resource::<server::LightyearSourceRequestHandle>()
+				.init_resource::<PendingVoxelLoads>()
 				.add_observer(server::receive_voxel_load_request)
 				.add_observer(server::receive_voxel_load_finished)
 				.add_systems(
 					Update,
 					(
 						server::flush_chunk_results,
-						server::flush_lod_results,
-						server::send_pending_voxel_load_responses.after(server::flush_chunk_results).after(server::flush_lod_results),
+						server::flush_tile_voxel_results,
+						server::send_pending_voxel_load_responses.after(server::flush_chunk_results).after(server::flush_tile_voxel_results),
 						server::cleanup_disconnected_requests,
 					),
 				);

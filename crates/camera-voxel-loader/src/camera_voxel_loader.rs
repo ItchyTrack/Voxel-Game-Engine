@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use bevy::ecs::{component::Component, entity::Entity};
 use voxel_data::grid::GridId;
+use voxel_streaming::TileClassId;
 
 use crate::lod_bands::LodBand;
 use crate::tile_lifecycle::{TileLifecycle, TileResolution};
@@ -40,10 +41,14 @@ pub struct CoverageDebugTile {
 	pub state: CoverageDebugState,
 }
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CameraVoxelTileClass(pub TileClassId);
+
 #[derive(Component, Default, Debug)]
 pub struct CameraVoxelLoader {
 	pub(crate) settings: CameraVoxelLoaderSettings,
 	pub(crate) bands: HashMap<GridId, Vec<LodBand>>,
+	pub(crate) classes: HashMap<GridId, TileClassId>,
 	pub(crate) tiles: TileLifecycle,
 }
 
@@ -51,8 +56,7 @@ impl CameraVoxelLoader {
 	pub fn with_settings(settings: CameraVoxelLoaderSettings) -> Self { Self { settings, ..Default::default() } }
 	pub fn settings(&self) -> &CameraVoxelLoaderSettings { &self.settings }
 	pub fn set_settings(&mut self, settings: CameraVoxelLoaderSettings) { self.settings = settings; }
-	pub fn subgrids_to_render(&self) -> impl Iterator<Item = Entity> + '_ { self.tiles.subgrids_to_render() }
-	pub fn lods_to_render(&self) -> &std::collections::HashSet<Entity> { self.tiles.lods_to_render() }
+	pub fn tiles_to_render(&self) -> impl Iterator<Item = Entity> + '_ { self.tiles.tiles_to_render() }
 	pub fn coverage_debug_tiles(&self) -> Vec<CoverageDebugTile> {
 		let mut states = HashMap::new();
 		for (key, _, retained) in self.tiles.coverage_debug_tiles() {
@@ -65,7 +69,7 @@ impl CameraVoxelLoader {
 				match &entry.resolution {
 					TileResolution::Requested => CoverageDebugState::Pending,
 					TileResolution::Empty => CoverageDebugState::Empty,
-					TileResolution::Chunk(_) | TileResolution::Lod(_) => CoverageDebugState::Loaded,
+					TileResolution::Tile(_) => CoverageDebugState::Loaded,
 				}
 			};
 			states.entry(key).and_modify(|current| {

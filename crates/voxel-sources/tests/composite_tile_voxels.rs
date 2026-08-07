@@ -11,15 +11,16 @@ struct AreaSource {
 
 impl ChunkSource for AreaSource {
 	fn init(&self, _handle: SourceHandle) {}
+	fn request_available_area(&self, _grid: GridId) {}
 	fn cost(&self, _grid: GridId, chunk: IVec3) -> Option<u32> { self.chunks.contains(&chunk).then_some(0) }
 	fn request_load(&self, _grid: GridId, _chunk: IVec3, _generation: u64, _cancellation: CancellationToken) {}
-	fn cost_lod(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost_tile_voxels(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32, _voxel_type: VoxelTypeId) -> Option<u32> {
 		self.chunks
 			.iter()
 			.any(|chunk| chunk.cmpge(min).all() && chunk.cmplt(min + size).all())
 			.then_some(0)
 	}
-	fn request_load_lod(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _generation: u64, _cancellation: CancellationToken) {}
+	fn request_tile_voxels(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _voxel_type: VoxelTypeId, _generation: u64, _cancellation: CancellationToken) {}
 }
 
 fn test_type_info() -> VoxelTypeInfo {
@@ -37,6 +38,7 @@ struct MarkerLodGenerator;
 
 impl VoxelLodGenerator for MarkerLodGenerator {
 	fn input_type_id(&self) -> VoxelTypeId { VoxelTypeId(99) }
+	fn output_type_id(&self) -> VoxelTypeId { VoxelTypeId(99) }
 
 	fn generate(&self, _min: IVec3, _size: IVec3, lod: f32, _fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 		let mut voxels = Voxels::new_with_type(test_type_info());
@@ -46,12 +48,12 @@ impl VoxelLodGenerator for MarkerLodGenerator {
 }
 
 #[test]
-fn chunk_source_lod_cost_detects_overlap() {
+fn chunk_source_tile_voxel_cost_detects_overlap() {
 	let source = AreaSource { chunks: vec![IVec3::new(4, 0, 0)] };
 	let grid = Entity::PLACEHOLDER;
 
-	assert_eq!(source.cost_lod(grid, IVec3::ZERO, IVec3::new(8, 1, 1), 1.0), Some(0));
-	assert_eq!(source.cost_lod(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1), 1.0), None);
+	assert_eq!(source.cost_tile_voxels(grid, IVec3::ZERO, IVec3::new(8, 1, 1), 1.0, VoxelTypeId(99)), Some(0));
+	assert_eq!(source.cost_tile_voxels(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1), 1.0, VoxelTypeId(99)), None);
 }
 
 #[test]

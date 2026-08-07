@@ -2,17 +2,17 @@ use bevy::ecs::message::MessageReader;
 use bevy::log::warn;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerMetadata, RemoteEvent};
-use voxel_sources::{ChunkLoaded, LodLoaded, VoxelSourceRequests};
+use voxel_sources::{ChunkLoaded, TileVoxelsLoaded};
 
-use super::registry::PendingVoxelLoads;
+use super::{LightyearSourceRequestHandle, registry::PendingVoxelLoads};
 use super::super::{VoxelLoadFinished, VoxelLoadRequest, VoxelLoadResponse};
 
 pub(crate) fn receive_voxel_load_request(
 	trigger: On<RemoteEvent<VoxelLoadRequest>>,
-	sources: VoxelSourceRequests,
+	sources: Res<LightyearSourceRequestHandle>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
-	pending.request(trigger.event().from, trigger.event().trigger, &sources);
+	pending.request(trigger.event().from, trigger.event().trigger, sources.requests());
 }
 
 pub(crate) fn receive_voxel_load_finished(trigger: On<RemoteEvent<VoxelLoadFinished>>, mut pending: ResMut<PendingVoxelLoads>) {
@@ -30,12 +30,12 @@ pub(crate) fn flush_chunk_results(
 	}
 }
 
-pub(crate) fn flush_lod_results(
-	mut loader: MessageReader<LodLoaded>,
+pub(crate) fn flush_tile_voxel_results(
+	mut loader: MessageReader<TileVoxelsLoaded>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
-	for LodLoaded { grid, key, generation, voxels, .. } in loader.read() {
-		if let Err(err) = pending.complete_lod(*grid, *key, *generation, voxels.as_ref()) {
+	for TileVoxelsLoaded { grid, key, generation, voxel_type, voxels, .. } in loader.read() {
+		if let Err(err) = pending.complete_tile_voxels(*grid, *key, *generation, *voxel_type, voxels.as_ref()) {
 			warn!(grid=?grid, min=?key.min, size=?key.size, lod=key.lod, error=%err, "failed to compress lod response voxels");
 		}
 	}

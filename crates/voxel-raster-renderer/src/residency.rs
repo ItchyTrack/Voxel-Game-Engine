@@ -5,10 +5,8 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::FromWorld;
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 
-use voxel_gpu::residency_packing::{plan_residency, CopyRegion, PendingUpload, SlotEntry};
-use voxel_gpu::world_gpu_data::{
-	RASTER_FACE_BUFFER_ALIGNMENT, RASTER_PALETTE_BUFFER_ALIGNMENT, WorldGpuData,
-};
+use voxel_gpu::{AllocationId, residency_packing::{plan_residency, CopyRegion, PendingUpload, SlotEntry}};
+use crate::gpu_data::{FACE_BUFFER_ALIGNMENT, PALETTE_BUFFER_ALIGNMENT, RasterGpuBuffers};
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
 type GpuDevice = WgpuWrapper<wgpu::Device>;
@@ -25,8 +23,8 @@ fn align_up(value: u32, alignment: u32) -> u32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ResidentRasterVoxels {
 	pub entity: Entity,
-	pub buffer_id: u32,
-	pub palette_id: u32,
+	pub faces: AllocationId,
+	pub palette: AllocationId,
 	pub generation: u64,
 }
 
@@ -94,8 +92,8 @@ impl FromWorld for RasterResidencyBuffers {
 		let raw_device = render_device.wgpu_device();
 		let device = WgpuWrapper::new(raw_device.clone());
 		let queue = WgpuWrapper::new(bevy::render::renderer::WgpuWrapper::clone(&**render_queue).into_inner());
-		let face_alignment = align_up(RASTER_FACE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
-		let palette_alignment = align_up(RASTER_PALETTE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
+		let face_alignment = align_up(FACE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
+		let palette_alignment = align_up(PALETTE_BUFFER_ALIGNMENT, wgpu::COPY_BUFFER_ALIGNMENT as u32);
 		let binding_limit = raw_device.limits().max_storage_buffer_binding_size;
 		let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
 		Self {
@@ -125,14 +123,14 @@ impl RasterResidencyBuffers {
 	pub fn face_alignment(&self) -> u32 { self.face_alignment }
 	pub fn palette_alignment(&self) -> u32 { self.palette_alignment }
 
-	pub fn upload(&mut self, world_gpu: &WorldGpuData, resident: &[ResidentRasterVoxels]) {
+	pub fn upload(&mut self, world_gpu: &RasterGpuBuffers, resident: &[ResidentRasterVoxels]) {
 		self.current = (self.current + 1) % SLOTS;
 
 		let mut face_entries = Vec::with_capacity(resident.len());
 		let mut palette_entries = Vec::with_capacity(resident.len());
 		for item in resident {
-			let Some(face_held) = world_gpu.packed_raster_face_dynamic_buffer.held_buffer(item.buffer_id) else { continue; };
-			let Some(palette_held) = world_gpu.packed_raster_palette_dynamic_buffer.held_buffer(item.palette_id) else { continue; };
+			let Some(face_held) = world_gpu.faces.held_buffer(item.faces) else { continue; };
+			let Some(palette_held) = world_gpu.palettes.held_buffer(item.palette) else { continue; };
 
 			face_entries.push(PendingUpload {
 				entity: item.entity,
@@ -195,8 +193,8 @@ impl RasterResidencyBuffers {
 
 		if !face_plan.copy_regions.is_empty() || !palette_plan.copy_regions.is_empty() {
 			let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("raster_residency_pack") });
-			let face_src = world_gpu.packed_raster_face_dynamic_buffer.buffer();
-			let palette_src = world_gpu.packed_raster_palette_dynamic_buffer.buffer();
+			let face_src = world_gpu.faces.buffer();
+			let palette_src = world_gpu.palettes.buffer();
 			let face_dst = &self.face_slots[self.current];
 			let palette_dst = &self.palette_slots[self.current];
 			record_copy_runs(&mut encoder, face_src, face_dst, &face_plan.copy_regions);

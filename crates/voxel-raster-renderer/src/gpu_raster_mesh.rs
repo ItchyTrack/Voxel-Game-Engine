@@ -4,7 +4,7 @@ use bevy::math::IVec3;
 use voxel_data::voxel_grid_tree::VoxelGridTree;
 use voxel_data::voxels::VoxelTypeInfo;
 
-use crate::voxel_color::VoxelGpuDataReaders;
+use voxel_gpu::voxel_color::VoxelGpuDataReaders;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]

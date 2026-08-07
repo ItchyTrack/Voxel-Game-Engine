@@ -1,14 +1,15 @@
 use bevy::math::IVec3;
 use voxel_data::grid::GridId;
-use voxel_streaming::TileIndexKey;
+use voxel_streaming::{TileClassId, TileIndexKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TileKey { pub(crate) grid: GridId, pub(crate) lod: u8, pub(crate) min: IVec3 }
+pub(crate) struct TileKey { pub(crate) grid: GridId, pub(crate) class: TileClassId, pub(crate) lod: u8, pub(crate) min: IVec3 }
 
 impl TileKey {
-	pub(crate) fn chunk(grid: GridId, chunk: IVec3) -> Self { Self { grid, lod: 0, min: chunk } }
 	pub(crate) fn size(self) -> IVec3 { IVec3::splat(1i32 << self.lod) }
-	pub(crate) fn is_chunk(self) -> bool { self.lod == 0 }
+	pub(crate) fn streaming_key(self) -> voxel_streaming::TileKey {
+		voxel_streaming::TileKey { min: self.min, size: self.size(), lod: self.lod, class: self.class }
+	}
 }
 
 impl TileIndexKey for TileKey {

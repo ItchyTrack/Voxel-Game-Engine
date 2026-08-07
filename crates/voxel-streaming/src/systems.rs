@@ -4,8 +4,7 @@ use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use voxel_edit::GridEdits;
-use voxel_gpu::{LodVoxels, VoxelGpuUploadFinished};
-use voxel_sources::{ChunkChangeKind, ChunkChanged, ChunkLoaded, LodLoaded, VoxelSourceRequestApi, VoxelSourceRequests, VoxelSources};
+use voxel_sources::{ChunkChangeKind, ChunkChanged, ChunkLoaded, SourceManager};
 
 use tracy_client::span;
 
@@ -15,9 +14,11 @@ use voxel_data::subgrid::SubGrid;
 
 use crate::chunk::{chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
-use crate::streaming::{LodStatus, LodUploadState};
-use crate::{ChunkSaveChannel, ChunkSaveRequest, GridStreaming, InflightChunkPresence, LodLoadRequest, PresenceLoadRequest, RequestChunkPresence};
-use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkLoadResolved, LodLoadResult};
+use crate::streaming::TileStatus;
+use crate::{DynamicTileData, LoadedTile, StreamingSourceRequestHandle, TileClassRegistry, TileLoadStatus, TileLoadUpdate};
+use crate::{ChunkSaveChannel, ChunkSaveRequest, GridStreaming, InflightChunkPresence, PresenceLoadRequest, RequestChunkPresence};
+use voxel_sources::TileLoadRequest;
+use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkLoadResolved};
 use crate::presence::ChunkState;
 
 pub fn apply_source_events(
@@ -33,7 +34,7 @@ pub fn apply_source_events(
 			for x in event.min.x..event.min.x + event.size.x {
 				for y in event.min.y..event.min.y + event.size.y {
 					for z in event.min.z..event.min.z + event.size.z {
-						s.dirty_lods_covering(IVec3::new(x, y, z), Some(generation));
+						s.dirty_tiles_covering(IVec3::new(x, y, z), Some(generation));
 					}
 				}
 			}
@@ -87,13 +88,13 @@ pub fn apply_source_events(
 }
 
 pub fn request_presence_for_new_grids(
-	requests: VoxelSourceRequests,
+	requests: Res<StreamingSourceRequestHandle>,
 	mut commands: Commands,
 	grids: Query<(Entity, GridId), (With<RequestChunkPresence>, Without<InflightChunkPresence>)>,
 ) {
 	for (entity, grid) in &grids {
 		commands.entity(entity).insert(InflightChunkPresence);
-		requests.request_presence(PresenceLoadRequest { grid });
+		requests.0.request_presence(PresenceLoadRequest { grid });
 	}
 }
 
@@ -110,10 +111,10 @@ pub fn receive_chunk_presence_loaded(
 
 pub fn serve_saves(
 	saves: Res<ChunkSaveChannel>,
-	sources: VoxelSources,
+	sources: Res<SourceManager>,
 ) {
 	while let Some(save) = saves.try_recv() {
-		sources.route_save(save.grid, save.chunk, &save.voxels);
+		sources.save_chunk(save.grid, save.chunk, &save.voxels);
 	}
 }
 
@@ -219,149 +220,126 @@ pub fn receive_results(
 	}
 }
 
-pub fn receive_lod_results(
-	mut commands: Commands,
-	mut channel: MessageReader<LodLoaded>,
-	mut grids: Query<&mut GridStreaming>,
-	mut consumers: Query<&mut dyn ChunkConsumer>,
-) {
-	let mut updates = Vec::new();
-	for mut result in channel.read().cloned() {
-		let Ok(mut streaming) = grids.get_mut(result.grid) else { continue };
-		let Some(state) = streaming.lods.get_mut(&result.key) else { continue };
-		let status = std::mem::replace(&mut state.status, LodStatus::Requested);
-		match status {
-			LodStatus::ExternalDirtyInFlight { generation, .. } if result.generation < generation => {
-				state.status = LodStatus::ExternalDirty;
-				streaming.pending_lod_requests.insert(result.key);
-				continue;
+#[derive(Resource, Default)]
+pub struct PendingTileUpdates(Vec<TileLoadUpdate>);
+
+fn cleanup_tile_entity(world: &mut World, entity: Entity) {
+	if let Ok(entity_mut) = world.get_entity_mut(entity) { entity_mut.despawn(); }
+}
+
+pub fn receive_tile_results(world: &mut World) {
+	let mut results = {
+		let mut messages = world.resource_mut::<Messages<voxel_sources::TileLoaded>>();
+		std::mem::take(&mut *messages)
+	};
+	for result in results.drain() {
+		let Some(key) = world.get_mut::<GridStreaming>(result.grid).and_then(|mut streaming| streaming.inflight_tiles_by_tag.remove(&result.tag)) else { continue };
+		let accepted = {
+			let Some(mut streaming) = world.get_mut::<GridStreaming>(result.grid) else { continue };
+			let Some(state) = streaming.tiles.get_mut(&key) else { continue };
+			let status = std::mem::replace(&mut state.status, TileStatus::Requested);
+			match status {
+				TileStatus::ExternalDirtyInFlight { generation, .. } if result.generation < generation => {
+					state.status = TileStatus::ExternalDirty;
+					streaming.pending_tile_requests.insert(key);
+					false
+				}
+				TileStatus::InFlight { .. } | TileStatus::ExternalDirtyInFlight { .. } => true,
+				other => { state.status = other; false }
 			}
-			LodStatus::InFlight { .. } | LodStatus::ExternalDirtyInFlight { .. } => {}
-			other => state.status = other,
-		}
-		let prior_upload = state.upload;
-		let requesters: Vec<_> = state.requesters.iter().map(|(&requester, &priority)| (requester, priority)).collect();
-		match result.voxels.take() {
-			Some(voxels) if !voxels.is_empty() => {
-				let entity = commands.spawn((
-					LodVoxels { voxels, lod: result.key.lod as f32, priority: result.priority },
-					Transform::from_translation((result.key.min * CHUNK_SIZE).as_vec3()),
+		};
+		if !accepted { continue; }
+		let (requesters, old) = {
+			let streaming = world.get::<GridStreaming>(result.grid).unwrap();
+			let state = streaming.tiles.get(&key).unwrap();
+			(state.requesters.keys().copied().collect::<Vec<_>>(), state.active)
+		};
+		match result.data {
+			Some(data) => {
+				let entity = world.spawn((
+					DynamicTileData::new(data),
+					LoadedTile { grid: result.grid, key },
+					Transform::from_translation((key.min * CHUNK_SIZE).as_vec3()),
 					ChildOf(result.grid),
 				)).id();
-				let active = match prior_upload {
-					LodUploadState::Uploading { entity, active, .. } => {
-						commands.entity(entity).despawn();
-						active
-					}
-					LodUploadState::Active { entity, .. } => Some(entity),
-					LodUploadState::None => None,
-				};
-				state.upload = LodUploadState::Uploading { entity, generation: result.generation, active };
-				state.status = LodStatus::Loaded;
+				let mut streaming = world.get_mut::<GridStreaming>(result.grid).unwrap();
+				let state = streaming.tiles.get_mut(&key).unwrap();
+				state.active = Some(entity);
+				state.status = TileStatus::Loaded;
+				for requester in requesters {
+					world.resource_mut::<PendingTileUpdates>().0.push(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Ready(entity) });
+				}
+				if let Some(old) = old { cleanup_tile_entity(world, old); }
 			}
-			_ => {
-				match prior_upload {
-					LodUploadState::Active { entity, .. } => commands.entity(entity).despawn(),
-					LodUploadState::Uploading { entity, .. } => commands.entity(entity).despawn(),
-					LodUploadState::None => {}
+			None => {
+				let mut streaming = world.get_mut::<GridStreaming>(result.grid).unwrap();
+				let state = streaming.tiles.get_mut(&key).unwrap();
+				state.active = None;
+				state.status = TileStatus::Empty;
+				for requester in requesters {
+					world.resource_mut::<PendingTileUpdates>().0.push(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Empty });
 				}
-				state.upload = LodUploadState::None;
-				state.status = LodStatus::Empty;
-				for (requester, _) in requesters {
-					let mut update = result.clone();
-					update.requester = requester;
-					update.entity = None;
-					updates.push(update);
-				}
+				if let Some(old) = old { cleanup_tile_entity(world, old); }
 			}
 		}
-		let current_upload = state.upload;
-		let _ = state;
-		if let LodUploadState::Uploading { entity, .. } = prior_upload {
-			streaming.uploading_lods_by_entity.remove(&entity);
-		}
-		if let LodUploadState::Uploading { entity, .. } = current_upload {
-			streaming.uploading_lods_by_entity.insert(entity, result.key);
-		}
-	}
-	for update in updates {
-		let Ok(mut entity_consumers) = consumers.get_mut(update.requester) else { continue };
-		for mut consumer in &mut entity_consumers { consumer.push_lod(update.clone()); }
 	}
 }
 
-pub fn refresh_lod_uploads(
-	mut gpu_events: MessageReader<VoxelGpuUploadFinished>,
+pub fn publish_tile_updates(
+	mut updates: ResMut<PendingTileUpdates>,
 	mut grids: Query<(GridId, &mut GridStreaming)>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
 ) {
-	let mut updates = Vec::new();
-	for entity in gpu_events.read().map(|event| event.entity) {
-		for (grid, mut streaming) in &mut grids {
-			let Some(key) = streaming.uploading_lods_by_entity.remove(&entity) else { continue };
-			let Some(state) = streaming.lods.get_mut(&key) else { continue };
-			let generation = match state.upload {
-				LodUploadState::Uploading { entity, generation, active } => {
-					if let Some(old) = active {
-						state.stale_entities.push(old);
-					}
-					state.upload = LodUploadState::Active { entity, generation };
-					generation
-				}
-				_ => continue,
-			};
-			state.status = LodStatus::Loaded;
-			for &requester in state.requesters.keys() {
-				updates.push(LodLoadResult { grid, requester, key, priority: state.requesters[&requester], generation, voxels: None, entity: Some(entity) });
-			}
+	for (grid, mut streaming) in &mut grids {
+		for mut update in std::mem::take(&mut streaming.queued_tile_updates) {
+			update.grid = grid;
+			updates.0.push(update);
 		}
 	}
-	for update in updates {
+	for update in std::mem::take(&mut updates.0) {
 		let Ok(mut entity_consumers) = consumers.get_mut(update.requester) else { continue };
-		for mut consumer in &mut entity_consumers { consumer.push_lod(update.clone()); }
+		for mut consumer in &mut entity_consumers { consumer.push_tile(update); }
 	}
 }
 
-pub fn cleanup_released_lods(mut commands: Commands, mut grids: Query<&mut GridStreaming>) {
-	for mut streaming in &mut grids {
-		for state in streaming.lods.values_mut() {
-			for entity in state.stale_entities.drain(..) { commands.entity(entity).despawn(); }
-		}
-		let released: Vec<_> = streaming.lods.iter().filter_map(|(&key, state)| state.requesters.is_empty().then_some(key)).collect();
+pub fn cleanup_released_tiles(world: &mut World) {
+	let mut released_entities = Vec::new();
+	let mut query = world.query::<&mut GridStreaming>();
+	for mut streaming in query.iter_mut(world) {
+		let released: Vec<_> = streaming.tiles.iter().filter_map(|(&key, state)| state.requesters.is_empty().then_some(key)).collect();
 		for key in released {
-			let Some(state) = streaming.lods.remove(&key) else { continue };
-			match state.upload {
-				LodUploadState::Active { entity, .. } => commands.entity(entity).despawn(),
-				LodUploadState::Uploading { entity, .. } => {
-					streaming.uploading_lods_by_entity.remove(&entity);
-					commands.entity(entity).despawn();
-				}
-				LodUploadState::None => {}
+			if let Some(state) = streaming.tiles.remove(&key) {
+				if let Some(entity) = state.active { released_entities.push(entity); }
 			}
 		}
 	}
+	for entity in released_entities { cleanup_tile_entity(world, entity); }
 }
 
-pub fn request_lod_tiles(
-	requests: VoxelSourceRequests,
+pub fn request_tiles(
+	requests: Res<StreamingSourceRequestHandle>,
+	classes: Res<TileClassRegistry>,
 	mut grids: Query<(GridId, &mut GridStreaming)>,
 ) {
 	for (grid, mut streaming) in grids.iter_mut() {
-		let pending: Vec<_> = std::mem::take(&mut streaming.pending_lod_requests).into_iter().collect();
+		let pending: Vec<_> = std::mem::take(&mut streaming.pending_tile_requests).into_iter().collect();
 		for key in pending {
-			let Some(state) = streaming.lods.get_mut(&key) else { continue };
+			let Some(state) = streaming.tiles.get(&key) else { continue };
 			if state.requesters.is_empty() { continue; }
-			if !matches!(&state.status, LodStatus::Requested | LodStatus::ExternalDirty) { continue; }
-			let requester = *state.requesters.keys().next().unwrap();
+			if !matches!(&state.status, TileStatus::Requested | TileStatus::ExternalDirty) { continue; }
 			let priority = state.requesters.values().copied().fold(f32::NEG_INFINITY, f32::max);
-			let cancellation = requests.request_lod(LodLoadRequest { grid, requester, key, priority });
-			state.status = LodStatus::InFlight { cancellation };
+			streaming.next_tile_tag = streaming.next_tile_tag.wrapping_add(1).max(1);
+			let tag = streaming.next_tile_tag;
+			let generator = classes.generator(key.class).expect("requested unregistered tile class");
+			let cancellation = requests.0.request_tile(TileLoadRequest { grid, requester: grid, key, tag, priority }, generator);
+			streaming.inflight_tiles_by_tag.insert(tag, key);
+			streaming.tiles.get_mut(&key).unwrap().status = TileStatus::InFlight { tag, cancellation };
 		}
 	}
 }
 
 pub fn handle_dirty_chunks(
-	requests: VoxelSourceRequests,
+	requests: Res<StreamingSourceRequestHandle>,
 	save_channel: Res<ChunkSaveChannel>,
 	mut grids: Query<(GridId, &mut GridStreaming, &Grid)>,
 	mut consumers: Query<&mut dyn ChunkConsumer>,
@@ -393,7 +371,7 @@ pub fn handle_dirty_chunks(
 					}
 				}
 			}
-			streaming.refetch(grid, &requests, chunk);
+			streaming.refetch(grid, &requests.0, chunk);
 		}
 	}
 }
@@ -437,7 +415,7 @@ pub fn apply_chunk_clears(
 }
 
 pub fn request_stalled_chunks(
-	requests: VoxelSourceRequests,
+	requests: Res<StreamingSourceRequestHandle>,
 	mut grids: Query<(GridId, &mut GridStreaming)>,
 ) {
 	for (grid, mut streaming) in grids.iter_mut() {
@@ -447,7 +425,7 @@ pub fn request_stalled_chunks(
 			if matches!(streaming.presence.state(chunk), Some(ChunkState::Available))
 				&& streaming.stalled_pinned.insert(chunk)
 			{
-				streaming.fetch(grid, &requests, chunk);
+				streaming.fetch(grid, &requests.0, chunk);
 			}
 		}
 	}

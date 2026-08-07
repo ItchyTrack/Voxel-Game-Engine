@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::shader_compiler::{self, ShaderResult, SlangEntry, SlangLinkage};
 
@@ -16,6 +16,3 @@ pub fn compile_embedded(local_shader_dir: &Path, shared_shader_dir: &Path, entri
 	compile_from_disk(local_shader_dir, shared_shader_dir, entries, linkages)
 }
 
-pub fn shared_shader_dir_from_manifest(manifest_dir: &Path) -> PathBuf {
-	manifest_dir.join("../voxel-gpu/src/shaders")
-}

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use tracy_client::span;
 use voxel_data::grid::GridId;
-use voxel_streaming::{GridStreaming, CHUNK_SIZE};
+use voxel_streaming::{GridStreaming, TileClassId, CHUNK_SIZE};
 
 use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
 use crate::lod_bands::{run_over_diff, BandBounds, LodBand};
@@ -19,6 +19,7 @@ pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
 pub(crate) fn update_desired_sources_delta(
 	loader: &mut CameraVoxelLoader,
 	grid: GridId,
+	class: TileClassId,
 	center: IVec3,
 	settings: &CameraVoxelLoaderSettings,
 	streaming: &GridStreaming,
@@ -26,17 +27,20 @@ pub(crate) fn update_desired_sources_delta(
 	let _span = span!();
 	let new_bands = desired_lod_bands(center, settings);
 	let old_bands = std::mem::take(loader.bands.entry(grid).or_default());
+	let old_class = loader.classes.insert(grid, class);
 
 	let mut added = Vec::new();
 	let mut removed = Vec::new();
-	run_over_diff(&old_bands, &new_bands, streaming, |lod, min, is_added| {
-		let key = TileKey { grid, lod, min };
-		if is_added {
-			added.push(key);
-		} else {
-			removed.push(key);
-		}
-	});
+	if old_class.is_none_or(|old| old == class) {
+		run_over_diff(&old_bands, &new_bands, streaming, |lod, min, is_added| {
+			let key = TileKey { grid, class, lod, min };
+			if is_added { added.push(key); } else { removed.push(key); }
+		});
+	} else {
+		let old_class = old_class.unwrap();
+		run_over_diff(&old_bands, &[], streaming, |lod, min, _| removed.push(TileKey { grid, class: old_class, lod, min }));
+		run_over_diff(&[], &new_bands, streaming, |lod, min, _| added.push(TileKey { grid, class, lod, min }));
+	}
 
 	loader.bands.insert(grid, new_bands);
 	DesiredSourceDelta { added, removed }
@@ -127,7 +131,7 @@ mod tests {
 	fn desired_at(settings: &CameraVoxelLoaderSettings, grid: GridId, streaming: &GridStreaming, center: IVec3) -> std::collections::HashSet<TileKey> {
 		let mut loader = CameraVoxelLoader::default();
 		loader.settings = settings.clone();
-		let delta = update_desired_sources_delta(&mut loader, grid, center, settings, streaming);
+		let delta = update_desired_sources_delta(&mut loader, grid, TileClassId(0), center, settings, streaming);
 		loader.tiles.apply_delta(&delta.added, &delta.removed, &mut Vec::new(), &mut Vec::new());
 		loader.tiles.desired_set().clone()
 	}
@@ -159,7 +163,7 @@ mod tests {
 		let mut flying = CameraVoxelLoader::default();
 		flying.settings = settings.clone();
 		for center in flight_path() {
-			let delta = update_desired_sources_delta(&mut flying, grid, center, &settings, &streaming);
+			let delta = update_desired_sources_delta(&mut flying, grid, TileClassId(0), center, &settings, &streaming);
 			flying.tiles.apply_delta(&delta.added, &delta.removed, &mut Vec::new(), &mut Vec::new());
 			let fresh = desired_at(&settings, grid, &streaming, center);
 			assert_eq!(flying.tiles.desired_set(), &fresh, "incremental desired set diverged from fresh rebuild at {center:?}");

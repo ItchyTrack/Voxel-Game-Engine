@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use bevy::prelude::*;
 
 use voxel_data::grid::GridId;
-use voxel_data::voxels::Voxels;
+use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
 
 use crate::GridStore;
@@ -55,25 +55,44 @@ impl ChunkSource for VoxelStoreSource {
 		}
 	}
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
-		self.inner.grids.read().unwrap().get(&grid)?.has_any_in_region(min, size).then_some(LOAD_COST)
+	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+		let grids = self.inner.grids.read().unwrap();
+		let store = grids.get(&grid)?;
+		if !store.has_any_in_region(min, size) { return None; }
+		let input = store.voxel_type_id_in_region(min, size)?;
+		if lod <= 0.0 && input == voxel_type
+			|| self.inner.handle.get()?.voxel_lod_generator(input, voxel_type).is_some()
+		{
+			Some(LOAD_COST)
+		} else {
+			None
+		}
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+	fn request_tile_voxels(
+		&self,
+		grid: GridId,
+		min: IVec3,
+		size: IVec3,
+		lod: f32,
+		voxel_type: VoxelTypeId,
+		generation: u64,
+		cancellation: CancellationToken,
+	) {
 		if cancellation.is_cancelled() { return; }
 		let voxels = self.inner.handle.get().and_then(|handle| {
 			let grids = self.inner.grids.read().unwrap();
 			let store = grids.get(&grid)?;
-			if lod <= 0.0 {
+			let input = store.voxel_type_id_in_region(min, size)?;
+			if lod <= 0.0 && input == voxel_type {
 				return store.load_lod_region(min, size, lod);
 			}
-			let type_id = store.voxel_type_id_in_region(min, size)?;
-			let generator = handle.voxel_lod_generator(type_id)?;
+			let generator = handle.voxel_lod_generator(input, voxel_type)?;
 			generator.generate(min, size, lod, &|chunk| store.load_chunk(chunk))
 		});
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
-			handle.loaded_lod(grid, min, size, lod, generation, voxels);
+			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 
@@ -85,12 +104,9 @@ impl ChunkSource for VoxelStoreSource {
 		handle.presence_loaded(grid);
 	}
 
-	fn can_save(&self) -> bool {
-		true
-	}
-
-	fn save(&self, grid: GridId, chunk: IVec3, voxels: &Voxels) {
+	fn save(&self, grid: GridId, chunk: IVec3, voxels: &Voxels) -> bool {
 		self.inner.grids.write().unwrap().entry(grid).or_default().save_chunk(chunk, voxels);
+		true
 	}
 
 	fn forget(&self, grid: GridId, chunk: IVec3) {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use voxel_content::{VoxMaterial, VoxMaterialVoxel};
-use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeId};
+use voxel_data::voxels::{VoxelType, VoxelTypeId};
 use voxel_gpu::{VoxelGpuBlockEncoder, VoxelGpuData, VoxelGpuNodeEntry};
 use voxel_physics::VoxelMassValue;
 
@@ -181,42 +181,6 @@ impl VoxelGpuBlockEncoder for LodVoxelGpuEncoder {
 	}
 }
 
-fn basic_voxel_gpu_encoder(voxels: &[VoxelRef<'_>], header: &mut Vec<u8>) -> BasicVoxelGpuEncoder {
-	let colors = voxels.iter().map(|voxel| BasicVoxel::from_voxel_ref(voxel).color);
-	let Some((palette, indices, bits)) = build_palette(colors) else {
-		append_raw_header(header);
-		return BasicVoxelGpuEncoder::Raw;
-	};
-	let raw_size = aligned_header_len(1) + voxels.len() * 4;
-	let palette_size = aligned_header_len(1 + palette.len() * 4) + packed_index_bytes(voxels.len(), bits);
-	if palette_size < raw_size {
-		append_palette_header(header, bits, &palette);
-		BasicVoxelGpuEncoder::Paletted { indices, bits }
-	} else {
-		append_raw_header(header);
-		BasicVoxelGpuEncoder::Raw
-	}
-}
-
-fn lod_voxel_gpu_encoder(voxels: &[VoxelRef<'_>], header: &mut Vec<u8>) -> LodVoxelGpuEncoder {
-	let colors = voxels
-		.iter()
-		.flat_map(|voxel| LodVoxel::from_voxel_ref(voxel).colors);
-	let Some((palette, indices, bits)) = build_palette(colors) else {
-		append_raw_header(header);
-		return LodVoxelGpuEncoder::Raw;
-	};
-	let raw_size = aligned_header_len(1) + voxels.len() * 32;
-	let palette_size = aligned_header_len(1 + palette.len() * 4) + packed_index_bytes(voxels.len() * 8, bits);
-	if palette_size < raw_size {
-		append_palette_header(header, bits, &palette);
-		LodVoxelGpuEncoder::Paletted { indices, bits }
-	} else {
-		append_raw_header(header);
-		LodVoxelGpuEncoder::Raw
-	}
-}
-
 impl VoxelGpuData for BasicVoxel {
 	type Encoder = BasicVoxelGpuEncoder;
 
@@ -229,7 +193,20 @@ impl VoxelGpuData for BasicVoxel {
 	}
 
 	fn create_voxel_gpu_encoder(voxels: &[voxel_data::voxels::VoxelRef<'_>], header: &mut Vec<u8>) -> Self::Encoder {
-		basic_voxel_gpu_encoder(voxels, header)
+		let colors = voxels.iter().map(|voxel| BasicVoxel::from_voxel_ref(voxel).color);
+		let Some((palette, indices, bits)) = build_palette(colors) else {
+			append_raw_header(header);
+			return BasicVoxelGpuEncoder::Raw;
+		};
+		let raw_size = aligned_header_len(1) + voxels.len() * 4;
+		let palette_size = aligned_header_len(1 + palette.len() * 4) + packed_index_bytes(voxels.len(), bits);
+		if palette_size < raw_size {
+			append_palette_header(header, bits, &palette);
+			BasicVoxelGpuEncoder::Paletted { indices, bits }
+		} else {
+			append_raw_header(header);
+			BasicVoxelGpuEncoder::Raw
+		}
 	}
 }
 
@@ -245,7 +222,22 @@ impl VoxelGpuData for LodVoxel {
 	}
 
 	fn create_voxel_gpu_encoder(voxels: &[voxel_data::voxels::VoxelRef<'_>], header: &mut Vec<u8>) -> Self::Encoder {
-		lod_voxel_gpu_encoder(voxels, header)
+		let colors = voxels
+			.iter()
+			.flat_map(|voxel| LodVoxel::from_voxel_ref(voxel).colors);
+		let Some((palette, indices, bits)) = build_palette(colors) else {
+			append_raw_header(header);
+			return LodVoxelGpuEncoder::Raw;
+		};
+		let raw_size = aligned_header_len(1) + voxels.len() * 32;
+		let palette_size = aligned_header_len(1 + palette.len() * 4) + packed_index_bytes(voxels.len() * 8, bits);
+		if palette_size < raw_size {
+			append_palette_header(header, bits, &palette);
+			LodVoxelGpuEncoder::Paletted { indices, bits }
+		} else {
+			append_raw_header(header);
+			LodVoxelGpuEncoder::Raw
+		}
 	}
 }
 

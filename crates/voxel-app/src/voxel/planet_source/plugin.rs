@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use bevy::prelude::*;
-use basic_voxel::BasicVoxel;
+use basic_voxel::{BasicVoxel, LodVoxel};
 use tracy_client::span;
-use voxel_data::grid::{Grid, GridId};
+use voxel_data::{grid::{Grid, GridId}, voxels::{VoxelType, VoxelTypeId}};
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
@@ -49,6 +49,12 @@ impl ChunkSource for ProceduralPlanetSource {
 		let _ = self.handle.set(handle);
 	}
 
+	fn request_available_area(&self, grid: GridId) {
+		if let Some(handle) = self.handle.get() {
+			handle.presence_loaded(grid);
+		}
+	}
+
 	fn cost(&self, grid_id: GridId, chunk: IVec3) -> Option<u32> {
 		let tile = planet_tiles().get(self.tile_index(grid_id)?)?;
 		tile_has_chunk(tile, chunk).then_some(PLANET_COST)
@@ -66,21 +72,23 @@ impl ChunkSource for ProceduralPlanetSource {
 		}
 	}
 
-	fn cost_lod(&self, grid_id: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
+	fn cost_tile_voxels(&self, grid_id: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+		if voxel_type != LodVoxel::TYPE_INFO.id { return None; }
 		let tile = planet_tiles().get(self.tile_index(grid_id)?)?;
 		tile_has_any_chunk_in_region(tile, min, size).then_some(PLANET_COST)
 	}
 
-	fn request_load_lod(
+	fn request_tile_voxels(
 		&self,
 		grid_id: GridId,
 		min: IVec3,
 		size: IVec3,
 		lod: f32,
+		voxel_type: VoxelTypeId,
 		generation: u64,
 		cancellation: CancellationToken,
 	) {
-		let _zone = span!("planet source request_load_lod");
+		let _zone = span!("planet source request_tile_voxels");
 		tracy_client::plot!("planet lod level", lod as f64);
 		let voxels = self
 			.tile_index(grid_id)
@@ -88,7 +96,7 @@ impl ChunkSource for ProceduralPlanetSource {
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
 			let _zone = span!("planet source publish lod");
-			handle.loaded_lod(grid_id, min, size, lod, generation, voxels);
+			handle.loaded_tile_voxels(grid_id, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 }

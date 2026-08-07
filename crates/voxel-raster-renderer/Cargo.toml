@@ -9,11 +9,13 @@ shader_hot_reload = ["dep:notify"]
 
 [dependencies]
 anyhow = "1.0"
+crossbeam-channel = "0.5.15"
 log = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
+tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

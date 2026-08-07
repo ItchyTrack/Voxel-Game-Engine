@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use lightyear::prelude::{DisableReplicateHierarchy, ReplicationSystems};
 use voxel_data::subgrid::SubGrid;
-use voxel_gpu::lod_voxels::LodVoxels;
+use voxel_streaming::LoadedTile;
 
 pub struct ReplicationPlugin;
 
@@ -13,7 +13,7 @@ impl Plugin for ReplicationPlugin {
 
 fn disable_hierarchy_replication(
 	mut commands: Commands,
-	entities: Query<Entity, (Or<(With<SubGrid>, With<LodVoxels>)>, Without<DisableReplicateHierarchy>)>,
+	entities: Query<Entity, (Or<(With<SubGrid>, With<LoadedTile>)>, Without<DisableReplicateHierarchy>)>,
 ) {
 	for entity in &entities {
 		commands.entity(entity).insert(DisableReplicateHierarchy);

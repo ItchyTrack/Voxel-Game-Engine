@@ -5,11 +5,9 @@ use camera_voxel_loader::{
 	CameraVoxelLoader, CameraVoxelLoaderDefaultSettings, CameraVoxelLoaderSettings, CoverageDebugState, CoverageDebugTile,
 };
 use voxel_app::build_app_with_mode;
-use voxel_data::subgrid::SubGrid;
 use voxel_engine::VoxelEngineMode;
-use voxel_gpu::{LodVoxels, VoxelGpuFormat, VoxelGpuState};
-use voxel_ray_renderer::voxel_camera::VoxelCamera;
-use voxel_streaming::CHUNK_SIZE;
+use voxel_ray_renderer::{RayTileCapabilityRegistry, voxel_camera::VoxelCamera};
+use voxel_streaming::{DynamicTileData, LoadedTile};
 
 /// GPU-backed soak test for the scene that voxel-app currently loads.
 ///
@@ -134,12 +132,13 @@ fn assert_pending_regions_keep_prior_rendered_coverage(
 
 fn assert_render_lists_are_gpu_ready(world: &World, camera: Entity, frame: usize) {
 	let voxel_camera = world.entity(camera).get::<VoxelCamera>().unwrap();
-	for &entity in voxel_camera.subgrids_to_render.iter().chain(&voxel_camera.lods_to_render) {
-		let gpu = world.entity(entity).get::<VoxelGpuState>();
-		assert!(
-			gpu.is_some_and(|state| state.matches(VoxelGpuFormat::Volume)),
-			"frame {frame}: camera render list contains non-GPU-ready entity {entity:?}",
-		);
+	let capabilities = world.resource::<RayTileCapabilityRegistry>();
+	for &entity in &voxel_camera.tiles_to_render {
+		let ready = world
+			.entity(entity)
+			.get::<DynamicTileData>()
+			.and_then(|data| capabilities.read(data.data()));
+		assert!(ready.is_some(), "frame {frame}: camera render list contains tile entity without a ray capability {entity:?}");
 	}
 }
 
@@ -168,30 +167,10 @@ fn rendered_chunks(world: &World, camera: Entity) -> HashSet<(Entity, IVec3)> {
 	let voxel_camera = world.entity(camera).get::<VoxelCamera>().unwrap();
 	let mut chunks = HashSet::new();
 
-	for &entity in &voxel_camera.subgrids_to_render {
+	for &entity in &voxel_camera.tiles_to_render {
 		let entity_ref = world.entity(entity);
-		let Some(subgrid) = entity_ref.get::<SubGrid>() else { continue };
-		let Some(bounds) = entity_ref.get::<VoxelGpuState>().and_then(VoxelGpuState::bounds) else { continue };
-		let min = (subgrid.sub_grid_pos() + bounds.min.as_ivec3()).div_euclid(IVec3::splat(CHUNK_SIZE));
-		let max = (subgrid.sub_grid_pos() + bounds.max.as_ivec3()).div_euclid(IVec3::splat(CHUNK_SIZE));
-		insert_chunk_box(&mut chunks, subgrid.grid(), min, max);
-	}
-
-	for &entity in &voxel_camera.lods_to_render {
-		let entity_ref = world.entity(entity);
-		let (Some(lod), Some(transform), Some(parent), Some(bounds)) = (
-			entity_ref.get::<LodVoxels>(),
-			entity_ref.get::<Transform>(),
-			entity_ref.get::<ChildOf>(),
-			entity_ref.get::<VoxelGpuState>().and_then(VoxelGpuState::bounds),
-		) else { continue };
-		let scale = 1i32 << lod.lod.max(0.0).floor() as u32;
-		let origin = transform.translation.as_ivec3();
-		let min_voxel = origin + bounds.min.as_ivec3() * scale;
-		let max_voxel = origin + bounds.max.as_ivec3() * scale;
-		let min = min_voxel.div_euclid(IVec3::splat(CHUNK_SIZE));
-		let max = max_voxel.div_euclid(IVec3::splat(CHUNK_SIZE));
-		insert_chunk_box(&mut chunks, parent.parent(), min, max);
+		let Some(tile) = entity_ref.get::<LoadedTile>() else { continue };
+		insert_chunk_box(&mut chunks, tile.grid, tile.key.min, tile.key.min + tile.key.size - IVec3::ONE);
 	}
 
 	chunks

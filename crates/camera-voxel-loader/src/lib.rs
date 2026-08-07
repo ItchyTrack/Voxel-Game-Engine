@@ -2,7 +2,6 @@ mod camera_voxel_loader;
 mod coverage;
 mod lod_bands;
 mod lod_policy;
-mod runtime;
 mod systems;
 mod tile_lifecycle;
 mod types;
@@ -14,7 +13,7 @@ mod system_invariants;
 use bevy::prelude::*;
 use voxel_streaming::{StreamingPhase, StreamingSchedule, VoxelStreamingAppExt};
 
-pub use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings, CoverageDebugState, CoverageDebugTile};
+pub use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings, CameraVoxelTileClass, CoverageDebugState, CoverageDebugTile};
 
 voxel_streaming::chunk_consumer!(pub CameraVoxelLoaderConsumer);
 
@@ -56,12 +55,10 @@ impl Plugin for CameraVoxelLoaderPlugin {
 					.in_set(StreamingPhase::Request)
 					.before(CameraVoxelLoaderSet::RefreshVisibility),
 			)
-			.add_systems(StreamingSchedule, systems::receive_camera_voxel_loader_results.after(voxel_streaming::receive_lod_results).in_set(StreamingPhase::Receive))
+			.add_systems(StreamingSchedule, systems::receive_camera_voxel_loader_results.after(voxel_streaming::systems::publish_tile_updates).in_set(StreamingPhase::Receive))
 			.add_systems(
 				Update,
-				systems::refresh_camera_voxel_loader_visibility
-					.after(voxel_gpu::GpuUploadSet::Upload)
-					.in_set(CameraVoxelLoaderSet::RefreshVisibility),
+				systems::refresh_camera_voxel_loader_visibility.in_set(CameraVoxelLoaderSet::RefreshVisibility),
 			);
 	}
 }

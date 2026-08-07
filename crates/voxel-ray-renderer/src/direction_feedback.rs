@@ -6,16 +6,16 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::render::renderer::RenderDevice;
 
-use voxel_data::subgrid::SubGridId;
-use voxel_gpu::incoming_ray_directions::IncomingRayDirections;
+use bevy::prelude::Entity;
+use crate::incoming_ray_directions::IncomingRayDirections;
 
 use crate::gpu_bvh::GpuBvh;
 
 #[derive(Resource, Clone, Default)]
-pub struct DirectionFeedback(pub HashMap<SubGridId, IncomingRayDirections>);
+pub struct DirectionFeedback(pub HashMap<Entity, IncomingRayDirections>);
 
 #[derive(Resource, Default)]
-pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<SubGridId>>>);
+pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<Entity>>>);
 
 /// GPU-side render stats published by the render world for the main world to read.
 #[derive(Resource, Clone, Default)]

@@ -4,7 +4,7 @@ use voxel_data::grid_tree::{self, CellKind};
 use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
 use voxel_data::voxels::{VoxelRef, VoxelTypeInfo};
 
-use crate::voxel_color::{VoxelGpuBlockEncoder, VoxelGpuDataReaders, VoxelGpuNodeEntry};
+use voxel_gpu::voxel_color::{VoxelGpuBlockEncoder, VoxelGpuDataReaders, VoxelGpuNodeEntry};
 
 const SLOT_BYTES: usize = 4;
 const VOXEL_OFFSET_UNIT_BYTES: u32 = 16;

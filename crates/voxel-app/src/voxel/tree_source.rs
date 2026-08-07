@@ -4,10 +4,10 @@ use std::{
 };
 
 use bevy::{prelude::*};
-use basic_voxel::{BasicVoxel, downsample_region};
+use basic_voxel::{BasicVoxel, LodVoxel, downsample_region};
 use voxel_data::{
 	grid::{Grid, GridId},
-	voxels::{VoxelType, Voxels},
+	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
@@ -116,6 +116,12 @@ impl TreeSource {
 impl ChunkSource for TreeSource {
 	fn init(&self, handle: SourceHandle) { let _ = self.handle.set(handle); }
 
+	fn request_available_area(&self, grid: GridId) {
+		if let Some(handle) = self.handle.get() {
+			handle.presence_loaded(grid);
+		}
+	}
+
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> { (self.is_mine(grid) && self.bounds.contains(chunk)).then_some(SOURCE_COST) }
 
 	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
@@ -131,11 +137,11 @@ impl ChunkSource for TreeSource {
 		}
 	}
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32) -> Option<u32> {
-		(self.is_mine(grid) && self.bounds.intersects(min, size)).then_some(SOURCE_COST)
+	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+		(voxel_type == LodVoxel::TYPE_INFO.id && self.is_mine(grid) && self.bounds.intersects(min, size)).then_some(SOURCE_COST)
 	}
 
-	fn request_load_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, generation: u64, cancellation: CancellationToken) {
+	fn request_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() {
 			return;
 		}
@@ -145,7 +151,7 @@ impl ChunkSource for TreeSource {
 			return;
 		}
 		if let Some(handle) = self.handle.get() {
-			handle.loaded_lod(grid, min, size, lod, generation, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
+			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
 		}
 	}
 }

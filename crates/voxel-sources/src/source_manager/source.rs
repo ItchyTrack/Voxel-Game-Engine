@@ -1,38 +1,20 @@
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use bevy::prelude::*;
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
-
-use crate::handle::SourceHandle;
 use voxel_tasks::CancellationToken;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct SourceId(pub usize);
+use super::handle::SourceHandle;
 
-pub trait VoxelLodGenerator: Send + Sync {
-	fn input_type_id(&self) -> VoxelTypeId;
-
-	fn generate(
-		&self,
-		min: IVec3,
-		size: IVec3,
-		lod: f32,
-		fetch: &dyn Fn(IVec3) -> Option<Voxels>,
-	) -> Option<Voxels>;
-}
-
-pub type VoxelLodGenerators = Arc<RwLock<HashMap<VoxelTypeId, Arc<dyn VoxelLodGenerator>>>>;
+pub(super) type SharedSource = Arc<dyn ChunkSource>;
 
 /// A source of voxel chunks. Methods take `&self` and are called concurrently from the
 /// async load workers, so mutable state must use interior mutability. This lets many
 /// loads from one source run in parallel instead of serializing on an outer lock.
 pub trait ChunkSource: Send + Sync {
-	fn init(&self, handle: SourceHandle) {
-		let _ = handle;
-	}
+	fn init(&self, handle: SourceHandle);
 
 	/// Cost of serving `chunk`, or `None` if this source can't. Lowest wins.
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32>;
@@ -47,28 +29,25 @@ pub trait ChunkSource: Send + Sync {
 		cancellation: CancellationToken,
 	);
 
-	fn cost_lod(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32) -> Option<u32>;
+	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32>;
 
-	fn request_load_lod(
+	fn request_tile_voxels(
 		&self,
 		grid: GridId,
 		min: IVec3,
 		size: IVec3,
 		lod: f32,
+		voxel_type: VoxelTypeId,
 		generation: u64,
 		cancellation: CancellationToken,
 	);
 
-	fn request_available_area(&self, grid: GridId) {
-		let _ = grid;
-	}
+	/// Publish any claimed areas, then call [`SourceHandle::presence_loaded`] exactly once.
+	fn request_available_area(&self, grid: GridId);
 
-	fn can_save(&self) -> bool {
-		false
-	}
-
-	fn save(&self, grid: GridId, chunk: IVec3, voxels: &Voxels) {
+	fn save(&self, grid: GridId, chunk: IVec3, voxels: &Voxels) -> bool {
 		let _ = (grid, chunk, voxels);
+		false
 	}
 
 	fn forget(&self, grid: GridId, chunk: IVec3) {

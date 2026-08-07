@@ -28,9 +28,7 @@ impl VoxelShaderHotReload {
 		})?;
 
 		let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-		for root in [manifest_dir.join("src/shaders"), manifest_dir.join("../voxel-gpu/src/shaders")] {
-			watcher.watch(&root, RecursiveMode::Recursive)?;
-		}
+		watcher.watch(&manifest_dir.join("src/shaders"), RecursiveMode::Recursive)?;
 
 		Ok(Self {
 			dirty,

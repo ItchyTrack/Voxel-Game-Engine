@@ -1,11 +1,17 @@
 use bevy::app::{PluginGroup, PluginGroupBuilder};
 use bevy::prelude::*;
-use camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderPlugin, CameraVoxelLoaderSet};
-use voxel_gpu::VoxelGpuFormat;
+use camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderPlugin, CameraVoxelLoaderSet, CameraVoxelTileClass};
 use voxel_raster_renderer::{VoxelRasterRendererPlugin, voxel_camera::VoxelRasterCamera};
 use voxel_ray_renderer::{VoxelRayRendererPlugin, voxel_camera::VoxelCamera};
+use tile_data::TileClassId;
 
 use crate::VoxelCameraMode;
+
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct VoxelRenderTileClasses {
+	pub ray: TileClassId,
+	pub raster: TileClassId,
+}
 
 #[derive(Default)]
 pub struct ClientRenderingPlugins;
@@ -25,88 +31,50 @@ struct ClientRenderingLinkPlugin;
 impl Plugin for ClientRenderingLinkPlugin {
 	fn build(&self, app: &mut App) {
 		app.register_type::<VoxelCameraMode>()
-			.add_systems(Update, ensure_voxel_camera_modes.before(voxel_gpu::GpuUploadSet::Upload))
+			.add_systems(Update, ensure_voxel_camera_modes)
 			.add_systems(Update, sync_voxel_camera_components.after(CameraVoxelLoaderSet::RefreshVisibility));
 	}
 }
 
-fn ensure_voxel_camera_modes(
-	mut commands: Commands,
-	cameras: Query<(Entity, Option<&VoxelCameraMode>, Option<&VoxelGpuFormat>), With<Camera3d>>,
-) {
-	for (entity, mode, format) in &cameras {
-		let mode_value = mode.copied().unwrap_or_default();
-		let desired_format = match mode_value {
-			VoxelCameraMode::Ray => VoxelGpuFormat::Volume,
-			VoxelCameraMode::Raster => VoxelGpuFormat::Surface,
-		};
-		let mut entity_commands = commands.entity(entity);
-		if mode.is_none() {
-			entity_commands.insert(mode_value);
-		}
-		if format.copied() != Some(desired_format) {
-			entity_commands.insert(desired_format);
-		}
+fn ensure_voxel_camera_modes(mut commands: Commands, cameras: Query<(Entity, Option<&VoxelCameraMode>), With<Camera3d>>) {
+	for (entity, mode) in &cameras {
+		if mode.is_none() { commands.entity(entity).insert(VoxelCameraMode::default()); }
 	}
 }
 
 fn sync_voxel_camera_components(
 	mut commands: Commands,
+	classes: Option<Res<VoxelRenderTileClasses>>,
 	mut cameras: Query<(
 		Entity,
 		&VoxelCameraMode,
 		Option<&CameraVoxelLoader>,
+		Option<&CameraVoxelTileClass>,
 		Option<&mut VoxelCamera>,
 		Option<&mut VoxelRasterCamera>,
-		Option<&VoxelGpuFormat>,
 	), With<Camera3d>>,
 ) {
-	for (entity, mode, loader, ray_camera, raster_camera, format) in &mut cameras {
-		let (subgrids_to_render, lods_to_render) = loader
-			.map(|loader| {
-				(
-					loader.subgrids_to_render().collect::<Vec<_>>(),
-					loader.lods_to_render().iter().copied().collect::<Vec<_>>(),
-				)
-			})
-			.unwrap_or_default();
-
-		let desired_format = match mode {
-			VoxelCameraMode::Ray => VoxelGpuFormat::Volume,
-			VoxelCameraMode::Raster => VoxelGpuFormat::Surface,
+	let Some(classes) = classes else { return };
+	for (entity, mode, loader, current_class, ray_camera, raster_camera) in &mut cameras {
+		let tiles_to_render = loader.map(|loader| loader.tiles_to_render().collect::<Vec<_>>()).unwrap_or_default();
+		let desired_class = match mode {
+			VoxelCameraMode::Ray => classes.ray,
+			VoxelCameraMode::Raster => classes.raster,
 		};
 		let mut entity_commands = commands.entity(entity);
-		if format.copied() != Some(desired_format) {
-			entity_commands.insert(desired_format);
+		if current_class.map(|class| class.0) != Some(desired_class) {
+			entity_commands.insert(CameraVoxelTileClass(desired_class));
 		}
 		match mode {
 			VoxelCameraMode::Ray => {
-				if let Some(mut ray_camera) = ray_camera {
-					ray_camera.subgrids_to_render = subgrids_to_render.clone();
-					ray_camera.lods_to_render = lods_to_render.clone();
-				} else {
-					entity_commands.insert(VoxelCamera {
-						subgrids_to_render: subgrids_to_render.clone(),
-						lods_to_render: lods_to_render.clone(),
-					});
-				}
-				if raster_camera.is_some() {
-					entity_commands.remove::<VoxelRasterCamera>();
-				}
+				if let Some(mut camera) = ray_camera { camera.tiles_to_render = tiles_to_render.clone(); }
+				else { entity_commands.insert(VoxelCamera { tiles_to_render: tiles_to_render.clone() }); }
+				if raster_camera.is_some() { entity_commands.remove::<VoxelRasterCamera>(); }
 			}
 			VoxelCameraMode::Raster => {
-				if let Some(mut raster_camera) = raster_camera {
-					raster_camera.subgrids_to_render = subgrids_to_render.clone();
-					raster_camera.lods_to_render = lods_to_render.clone();
-				} else {
-					entity_commands.insert(VoxelRasterCamera {
-						subgrids_to_render: subgrids_to_render.clone(),
-						lods_to_render: lods_to_render.clone(),
-					});
-				}
-				if ray_camera.is_some() {
-					entity_commands.remove::<VoxelCamera>();
-				}
+				if let Some(mut camera) = raster_camera { camera.tiles_to_render = tiles_to_render.clone(); }
+				else { entity_commands.insert(VoxelRasterCamera { tiles_to_render: tiles_to_render.clone() }); }
+				if ray_camera.is_some() { entity_commands.remove::<VoxelCamera>(); }
 			}
 		}
 	}
