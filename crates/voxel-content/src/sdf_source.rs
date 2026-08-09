@@ -178,13 +178,16 @@ impl ChunkSource for SdfSource {
 		}
 	}
 
-	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
 		let binding = self.binding(grid)?;
-		let supported = binding.sdf.voxel().type_id() == voxel_type || binding.sdf.lod_voxel().type_id() == voxel_type;
-		(supported && Self::might_intersect_region(&binding, min, size)).then_some(binding.options.cost)
+		assert!(
+			binding.sdf.voxel().type_id() == voxel_type || binding.sdf.lod_voxel().type_id() == voxel_type,
+			"SDF source does not support requested voxel type",
+		);
+		Self::might_intersect_region(&binding, min, size).then_some(binding.options.cost)
 	}
 
-	fn request_tile_voxels(
+	fn request_voxel_area(
 		&self,
 		grid: GridId,
 		min: IVec3,
@@ -200,7 +203,7 @@ impl ChunkSource for SdfSource {
 		});
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
-			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels);
+			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 

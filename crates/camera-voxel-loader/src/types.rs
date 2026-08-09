@@ -1,6 +1,7 @@
 use bevy::math::IVec3;
+use tile_data::TileIndexKey;
 use voxel_data::grid::GridId;
-use voxel_streaming::{TileClassId, TileIndexKey};
+use voxel_streaming::TileClassId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TileKey { pub(crate) grid: GridId, pub(crate) class: TileClassId, pub(crate) lod: u8, pub(crate) min: IVec3 }

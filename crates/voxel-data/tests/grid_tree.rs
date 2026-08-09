@@ -202,7 +202,7 @@ mod tests {
 	}
 
 	#[test]
-	fn single_voxel_batch_build_uses_canonical_root_origin() {
+	fn single_voxel_pair_build_uses_canonical_root_origin() {
 		let mut t = PackedGridTree::new();
 		t.add_single_voxels(&[(p(5, 0, 0), 7), (p(8, 0, 0), 9)]);
 		assert_eq!(t.get(&p(5, 0, 0)), Some(7));
@@ -210,7 +210,27 @@ mod tests {
 	}
 
 	#[test]
-	fn single_voxel_pair_build_uses_canonical_root_origin() {
+	fn single_voxel_pair_depth_two_builds_directly_and_keeps_last_duplicate() {
+		let mut t = PackedGridTree::new();
+		t.add_single_voxels(&[(p(0, 0, 0), 1), (p(63, 63, 63), 2), (p(0, 0, 0), 3)]);
+		assert_eq!(t.len(), 2);
+		assert_eq!(t.get(&p(0, 0, 0)), Some(3));
+		assert_eq!(t.get(&p(63, 63, 63)), Some(2));
+	}
+
+	#[test]
+	fn single_voxel_pair_build_collapses_uniform_leaf_nodes() {
+		let voxels: Vec<_> = (0..16)
+			.flat_map(|z| (0..16).flat_map(move |y| (0..16).map(move |x| (p(x, y, z), 7))))
+			.collect();
+		let mut t = PackedGridTree::new();
+		t.add_single_voxels(&voxels);
+		assert_eq!(t.len(), 16 * 16 * 16);
+		assert_eq!(t.iter().count(), 64);
+	}
+
+	#[test]
+	fn single_voxel_insert_uses_canonical_root_origin() {
 		let mut t = PackedGridTree::new();
 		assert!(!t.insert(&p(5, 0, 0), 7));
 		assert!(!t.insert(&p(8, 0, 0), 9));

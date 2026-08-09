@@ -11,6 +11,7 @@ gpu_profiling = []
 [dependencies]
 num = { workspace = true }
 tracy-client = { workspace = true }
+rustc-hash = { workspace = true }
 bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }

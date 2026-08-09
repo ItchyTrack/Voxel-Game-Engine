@@ -137,11 +137,13 @@ impl ChunkSource for TreeSource {
 		}
 	}
 
-	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		(voxel_type == LodVoxel::TYPE_INFO.id && self.is_mine(grid) && self.bounds.intersects(min, size)).then_some(SOURCE_COST)
+	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+		if !self.is_mine(grid) { return None; }
+		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "tree source does not support requested voxel type");
+		self.bounds.intersects(min, size).then_some(SOURCE_COST)
 	}
 
-	fn request_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) {
+	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() {
 			return;
 		}
@@ -151,7 +153,7 @@ impl ChunkSource for TreeSource {
 			return;
 		}
 		if let Some(handle) = self.handle.get() {
-			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
+			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
 		}
 	}
 }

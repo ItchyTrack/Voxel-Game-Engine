@@ -35,6 +35,10 @@ impl GridStore {
 		})))
 	}
 
+	pub fn voxel_type_id(&self) -> Option<VoxelTypeId> {
+		self.chunks.values().find_map(|chunk| chunk.decompress().ok().map(|voxels| voxels.voxel_type_id()))
+	}
+
 	pub fn voxel_type_id_in_region(&self, min: IVec3, size: IVec3) -> Option<VoxelTypeId> {
 		for z in 0..size.z {
 			for y in 0..size.y {

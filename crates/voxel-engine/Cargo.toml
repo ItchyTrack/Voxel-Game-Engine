@@ -9,7 +9,6 @@ camera-voxel-loader = { version = "0.1.0", path = "../camera-voxel-loader" }
 voxel-ray-renderer = { version = "0.1.0", path = "../voxel-ray-renderer" }
 voxel-raster-renderer = { version = "0.1.0", path = "../voxel-raster-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
-tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }

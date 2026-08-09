@@ -5,7 +5,7 @@ use bevy::math::IVec3;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{CancellationToken, TileVoxelKey, SourceHandle};
+use voxel_sources::{CancellationToken, VoxelAreaKey, SourceHandle};
 
 use super::super::{
 	VoxelLoadFinished,
@@ -33,15 +33,15 @@ struct PendingChunk {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct PendingTileVoxelKey {
+struct PendingVoxelAreaKey {
 	grid: GridId,
-	key: TileVoxelKey,
+	key: VoxelAreaKey,
 	voxel_type: VoxelTypeId,
 }
 
 #[derive(Clone, Debug)]
-struct PendingTileVoxels {
-	key: PendingTileVoxelKey,
+struct PendingVoxelArea {
+	key: PendingVoxelAreaKey,
 	request_generation: u64,
 	possible_generations: BTreeMap<u64, u64>,
 	cancellation: CancellationToken,
@@ -49,7 +49,7 @@ struct PendingTileVoxels {
 
 enum PendingVoxelLoad {
 	Chunk(PendingChunk),
-	TileVoxels(PendingTileVoxels),
+	VoxelArea(PendingVoxelArea),
 }
 
 fn generation_for_response(request_generation: u64, possible_generations: &BTreeMap<u64, u64>, source_generation: u64) -> u64 {
@@ -63,7 +63,7 @@ impl PendingVoxelLoad {
 	fn is_cancelled(&self) -> bool {
 		match self {
 			Self::Chunk(pending) => pending.cancellation.is_cancelled(),
-			Self::TileVoxels(pending) => pending.cancellation.is_cancelled(),
+			Self::VoxelArea(pending) => pending.cancellation.is_cancelled(),
 		}
 	}
 }
@@ -73,7 +73,7 @@ pub(crate) struct ClientLoadRegistry {
 	next_id: u64,
 	pending: HashMap<VoxelLoadId, PendingVoxelLoad>,
 	chunk_ids: HashMap<PendingChunkKey, VoxelLoadId>,
-	tile_voxel_ids: HashMap<PendingTileVoxelKey, VoxelLoadId>,
+	voxel_area_ids: HashMap<PendingVoxelAreaKey, VoxelLoadId>,
 	requests: VecDeque<VoxelLoadRequest>,
 	finished: VecDeque<VoxelLoadFinished>,
 }
@@ -96,29 +96,29 @@ impl ClientLoadRegistry {
 		self.requests.push_back(VoxelLoadRequest { id, kind: VoxelLoadRequestKind::Chunk { grid, chunk } });
 	}
 
-	pub fn request_tile_voxels(
+	pub fn request_voxel_area(
 		&mut self,
 		grid: GridId,
-		key: TileVoxelKey,
+		key: VoxelAreaKey,
 		voxel_type: VoxelTypeId,
 		priority: f32,
 		request_generation: u64,
 		cancellation: CancellationToken,
 	) {
-		let pending_key = PendingTileVoxelKey { grid, key, voxel_type };
-		if let Some(previous) = self.tile_voxel_ids.get(&pending_key).copied() {
+		let pending_key = PendingVoxelAreaKey { grid, key, voxel_type };
+		if let Some(previous) = self.voxel_area_ids.get(&pending_key).copied() {
 			self.finish(previous, VoxelLoadOutcome::Cancelled);
 		}
 
 		let id = self.allocate_id();
-		self.pending.insert(id, PendingVoxelLoad::TileVoxels(PendingTileVoxels {
+		self.pending.insert(id, PendingVoxelLoad::VoxelArea(PendingVoxelArea {
 			key: pending_key,
 			request_generation,
 			possible_generations: BTreeMap::new(),
 			cancellation,
 		}));
-		self.tile_voxel_ids.insert(pending_key, id);
-		self.requests.push_back(VoxelLoadRequest { id, kind: VoxelLoadRequestKind::TileVoxels { grid, key, voxel_type, priority } });
+		self.voxel_area_ids.insert(pending_key, id);
+		self.requests.push_back(VoxelLoadRequest { id, kind: VoxelLoadRequestKind::VoxelArea { grid, key, voxel_type, priority } });
 	}
 
 	pub fn drain_cancelled(&mut self) {
@@ -163,8 +163,8 @@ impl ClientLoadRegistry {
 
 		let Some(claim_generation) = claim_generation else { return };
 		for voxel_load in self.pending.values_mut() {
-			let PendingVoxelLoad::TileVoxels(pending) = voxel_load else { continue };
-			if pending.key.grid != event.grid || !tile_voxels_overlap_area(pending.key.key, event.min, event.size) {
+			let PendingVoxelLoad::VoxelArea(pending) = voxel_load else { continue };
+			if pending.key.grid != event.grid || !voxel_area_overlaps(pending.key.key, event.min, event.size) {
 				continue;
 			}
 			pending.possible_generations.insert(generation, claim_generation);
@@ -176,8 +176,8 @@ impl ClientLoadRegistry {
 			VoxelLoadResponseKind::Chunk { grid, chunk, generation, voxels } => {
 				self.receive_chunk_response(handle, from, response.id, *grid, *chunk, *generation, voxels);
 			}
-			VoxelLoadResponseKind::TileVoxels { grid, key, generation, voxel_type, voxels } => {
-				self.receive_tile_voxel_response(handle, from, response.id, *grid, *key, *generation, *voxel_type, voxels);
+			VoxelLoadResponseKind::VoxelArea { grid, key, generation, voxel_type, voxels } => {
+				self.receive_voxel_area_response(handle, from, response.id, *grid, *key, *generation, *voxel_type, voxels);
 			}
 		}
 	}
@@ -223,19 +223,19 @@ impl ClientLoadRegistry {
 		handle.loaded(grid, chunk, generation, voxels);
 	}
 
-	fn receive_tile_voxel_response(
+	fn receive_voxel_area_response(
 		&mut self,
 		handle: &SourceHandle,
 		from: impl std::fmt::Debug,
 		id: VoxelLoadId,
 		grid: GridId,
-		key: TileVoxelKey,
+		key: VoxelAreaKey,
 		generation: u64,
 		voxel_type: VoxelTypeId,
 		compressed: &mut Option<CompressedVoxels>,
 	) {
 		let Some(pending) = self.pending.get(&id) else { return };
-		let PendingVoxelLoad::TileVoxels(pending) = pending else {
+		let PendingVoxelLoad::VoxelArea(pending) = pending else {
 			warn!(?id, ?from, "ignoring lod response for a non-lod voxel load");
 			return;
 		};
@@ -255,11 +255,11 @@ impl ClientLoadRegistry {
 				return;
 			}
 		};
-		let Some(PendingVoxelLoad::TileVoxels(pending)) = self.finish(id, VoxelLoadOutcome::Received) else {
+		let Some(PendingVoxelLoad::VoxelArea(pending)) = self.finish(id, VoxelLoadOutcome::Received) else {
 			unreachable!("checked lod voxel load disappeared")
 		};
 		let generation = generation_for_response(pending.request_generation, &pending.possible_generations, generation);
-		handle.loaded_tile_voxels(grid, key.min, key.size, key.lod as f32, voxel_type, generation, voxels);
+		handle.voxels_loaded(grid, key.min, key.size, key.lod as f32, voxel_type, generation, voxels);
 	}
 
 	fn allocate_id(&mut self) -> VoxelLoadId {
@@ -273,8 +273,8 @@ impl ClientLoadRegistry {
 			PendingVoxelLoad::Chunk(pending) if self.chunk_ids.get(&pending.key) == Some(&id) => {
 				self.chunk_ids.remove(&pending.key);
 			}
-			PendingVoxelLoad::TileVoxels(pending) if self.tile_voxel_ids.get(&pending.key) == Some(&id) => {
-				self.tile_voxel_ids.remove(&pending.key);
+			PendingVoxelLoad::VoxelArea(pending) if self.voxel_area_ids.get(&pending.key) == Some(&id) => {
+				self.voxel_area_ids.remove(&pending.key);
 			}
 			_ => {}
 		}
@@ -287,7 +287,7 @@ fn decompress(compressed: &mut Option<CompressedVoxels>) -> Result<Option<voxel_
 	compressed.take().map(|voxels| voxels.decompress()).transpose()
 }
 
-fn tile_voxels_overlap_area(key: TileVoxelKey, min: IVec3, size: IVec3) -> bool {
+fn voxel_area_overlaps(key: VoxelAreaKey, min: IVec3, size: IVec3) -> bool {
 	let max = min + size;
 	let key_max = key.min + key.size;
 	key.min.cmplt(max).all() && min.cmplt(key_max).all()
@@ -324,11 +324,11 @@ mod tests {
 	}
 
 	#[test]
-	fn cancelled_tile_voxels_has_one_terminal_outcome() {
+	fn cancelled_voxel_area_has_one_terminal_outcome() {
 		let cancellation = CancellationToken::new();
-		let key = TileVoxelKey { min: IVec3::ZERO, size: IVec3::ONE, lod: 1 };
+		let key = VoxelAreaKey { min: IVec3::ZERO, size: IVec3::ONE, lod: 1 };
 		let mut loads = ClientLoadRegistry::default();
-		loads.request_tile_voxels(Entity::PLACEHOLDER, key, VoxelTypeId(1), 0.0, 7, cancellation.clone());
+		loads.request_voxel_area(Entity::PLACEHOLDER, key, VoxelTypeId(1), 0.0, 7, cancellation.clone());
 		let request = loads.pop_request().unwrap();
 
 		cancellation.cancel();

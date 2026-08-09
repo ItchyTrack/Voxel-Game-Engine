@@ -2,14 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::math::IVec3;
 use bevy::prelude::*;
-use voxel_sources::{CancellationToken, TileVoxelCancellation, VoxelSourcesRequestHandle};
+use voxel_sources::{CancellationToken, VoxelSourcesRequestHandle};
 
 use voxel_data::grid::GridId;
 use voxel_edit::GridEdit;
 
 use crate::chunk::CHUNK_SIZE;
 use crate::consumer::ChunkConsumer;
-use crate::tile_state_index::TileStateIndex;
+use crate::generation::TileGenerationCancellation;
+use crate::tile_dependency_index::TileDependencyIndex;
 use crate::{ChunkLoadRequest, TileKey, TileLoadStatus, TileLoadUpdate};
 use crate::presence::{ChunkPresence, ChunkState};
 
@@ -25,10 +26,9 @@ pub(crate) struct TileState {
 #[derive(Debug)]
 pub(crate) enum TileStatus {
 	Requested,
-	InFlight { tag: u64, cancellation: TileVoxelCancellation },
+	InFlight { tag: u64, cancellation: TileGenerationCancellation },
 	Loaded,
-	ExternalDirty,
-	ExternalDirtyInFlight { tag: u64, generation: u64, cancellation: TileVoxelCancellation },
+	Dirty,
 	Empty,
 }
 
@@ -44,8 +44,9 @@ pub struct GridStreaming {
 	pub(crate) newly_present_dirty: Vec<IVec3>,
 	pub(crate) tiles: HashMap<TileKey, TileState>,
 	pub(crate) pending_tile_requests: HashSet<TileKey>,
-	pub(crate) tile_index: TileStateIndex,
+	pub(crate) tile_dependencies: TileDependencyIndex,
 	pub(crate) inflight_tiles_by_tag: HashMap<u64, TileKey>,
+	pub(crate) latest_source_generation: u64,
 	pub(crate) next_tile_tag: u64,
 	pub(crate) queued_tile_updates: Vec<TileLoadUpdate>,
 }
@@ -126,7 +127,6 @@ impl GridStreaming {
 
 	pub fn fetch_tile(&mut self, requester: Entity, key: TileKey, priority: f32) -> bool {
 		if !valid_tile_key(key) { return false; }
-		if !self.tiles.contains_key(&key) { self.tile_index.insert(key); }
 		let state = self.tiles.entry(key).or_insert_with(|| TileState {
 			requesters: HashMap::new(),
 			status: TileStatus::Requested,
@@ -141,7 +141,7 @@ impl GridStreaming {
 			};
 			if let Some(status) = status { self.queued_tile_updates.push(TileLoadUpdate { grid: Entity::PLACEHOLDER, requester, key, status }); }
 		}
-		if matches!(&state.status, TileStatus::Requested | TileStatus::ExternalDirty) {
+		if matches!(&state.status, TileStatus::Requested | TileStatus::Dirty) {
 			self.pending_tile_requests.insert(key);
 		}
 		true
@@ -152,10 +152,9 @@ impl GridStreaming {
 		state.requesters.remove(&requester);
 		if !state.requesters.is_empty() { return; }
 		self.pending_tile_requests.remove(&key);
-		self.tile_index.remove(key);
 		let status = std::mem::replace(&mut state.status, TileStatus::Requested);
 		match status {
-			TileStatus::InFlight { tag, cancellation } | TileStatus::ExternalDirtyInFlight { tag, cancellation, .. } => {
+			TileStatus::InFlight { tag, cancellation } => {
 				self.inflight_tiles_by_tag.remove(&tag);
 				cancellation.cancel();
 			}
@@ -208,22 +207,30 @@ impl GridStreaming {
 		}
 	}
 
-	pub(crate) fn dirty_tiles_covering(&mut self, chunk: IVec3, generation: Option<u64>) {
-		for key in self.tile_index.tiles_covering_chunk(chunk) {
-			let Some(state) = self.tiles.get_mut(&key) else { continue };
-			if state.requesters.is_empty() { continue; }
-			let status = std::mem::replace(&mut state.status, TileStatus::Requested);
-			state.status = match (status, generation) {
-				(TileStatus::InFlight { tag, cancellation }, Some(generation)) => TileStatus::ExternalDirtyInFlight { tag, generation, cancellation },
-				(TileStatus::ExternalDirtyInFlight { tag, generation: current, cancellation }, Some(generation)) => {
-					TileStatus::ExternalDirtyInFlight { tag, generation: current.max(generation), cancellation }
-				}
-				(TileStatus::Loaded, _) | (TileStatus::Empty, _) | (TileStatus::ExternalDirty, _) => TileStatus::ExternalDirty,
-				(TileStatus::Requested, _) => TileStatus::Requested,
-				(other, None) => other,
-			};
-			if matches!(&state.status, TileStatus::ExternalDirty) { self.pending_tile_requests.insert(key); }
+	pub(crate) fn note_source_generation(&mut self, generation: u64) {
+		self.latest_source_generation = self.latest_source_generation.max(generation);
+	}
+
+	pub(crate) fn dirty_tiles_covering(&mut self, chunk: IVec3) {
+		let keys: HashSet<_> = self.tile_dependencies.tiles_for_chunk(chunk).collect();
+		for key in keys { self.dirty_tile(key); }
+	}
+
+	pub(crate) fn invalidate_generation_context(&mut self) {
+		let keys: Vec<_> = self.tiles.keys().copied().collect();
+		for key in keys { self.dirty_tile(key); }
+	}
+
+	fn dirty_tile(&mut self, key: TileKey) {
+		let Some(state) = self.tiles.get_mut(&key) else { return };
+		if state.requesters.is_empty() { return; }
+		let status = std::mem::replace(&mut state.status, TileStatus::Dirty);
+		if let TileStatus::InFlight { tag, cancellation } = status {
+			self.inflight_tiles_by_tag.remove(&tag);
+			cancellation.cancel();
 		}
+		state.status = TileStatus::Dirty;
+		self.pending_tile_requests.insert(key);
 	}
 }
 

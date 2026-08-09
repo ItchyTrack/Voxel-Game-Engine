@@ -29,9 +29,9 @@ pub trait ChunkSource: Send + Sync {
 		cancellation: CancellationToken,
 	);
 
-	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32>;
+	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32>;
 
-	fn request_tile_voxels(
+	fn request_voxel_area(
 		&self,
 		grid: GridId,
 		min: IVec3,

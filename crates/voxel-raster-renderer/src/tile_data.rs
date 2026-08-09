@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use bevy::math::U16Vec3;
-use tile_data::{TileData, TileGenerator, TileGeneratorInput};
+use tile_data::{TileData, TileGenerationSession, TileGenerator, VoxelArea, VoxelAreaRequest};
 use voxel_data::voxels::VoxelTypeId;
 use voxel_gpu::{AllocationId, PackedBufferAllocation, VoxelGpuDataReaders};
 
@@ -52,7 +52,6 @@ impl RasterTileCapability for RasterTileData {
 	}
 }
 
-#[derive(Clone)]
 pub struct VoxelRasterTileGenerator {
 	pub voxel_type: VoxelTypeId,
 	pub lod_levels: u8,
@@ -60,11 +59,16 @@ pub struct VoxelRasterTileGenerator {
 	pub readers: VoxelGpuDataReaders,
 }
 
+#[tile_data::async_trait]
 impl TileGenerator for VoxelRasterTileGenerator {
-	fn voxel_type(&self) -> VoxelTypeId { self.voxel_type }
-	fn lod_levels(&self) -> u8 { self.lod_levels }
-
-	fn generate(&self, input: TileGeneratorInput) -> Option<Box<dyn TileData>> {
+	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
+		let area = VoxelArea { min: session.key.min, size: session.key.size };
+		session.request_voxels(VoxelAreaRequest {
+			area,
+			lod: session.key.lod.saturating_sub(self.lod_levels),
+			voxel_type: self.voxel_type,
+		});
+		let input = session.receive_merged_voxels(area).await?;
 		let (bounds_min, bounds_max) = input.voxels.bounding_box()?;
 		assert_eq!(input.voxels.voxel_type_id(), self.voxel_type);
 		let voxel_type = input.voxels.voxel_type_info();
@@ -81,7 +85,7 @@ impl TileGenerator for VoxelRasterTileGenerator {
 			generation,
 			bounds_min,
 			bounds_max,
-			voxel_lod: input.voxel_lod,
+			voxel_lod: input.lod,
 		}))
 	}
 }

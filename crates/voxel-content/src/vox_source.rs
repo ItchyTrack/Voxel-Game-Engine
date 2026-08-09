@@ -255,8 +255,13 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		}
 	}
 
-	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
 		let binding = self.binding(grid)?;
+		assert!(
+			lod <= 0.0 && T::TYPE_ID == voxel_type
+				|| self.inner.handle.get().and_then(|handle| handle.voxel_lod_generator(T::TYPE_ID, voxel_type)).is_some(),
+			"VOX source does not support requested voxel type or LOD",
+		);
 		let region_has_data = (0..size.z).any(|z| (0..size.y).any(|y| (0..size.x).any(|x| {
 			self.translated_chunk(&binding, min + IVec3::new(x, y, z)).is_some()
 		})));
@@ -266,7 +271,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 			.then_some(COST)
 	}
 
-	fn request_tile_voxels(
+	fn request_voxel_area(
 		&self,
 		grid: GridId,
 		min: IVec3,
@@ -298,7 +303,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		});
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
-			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels);
+			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 

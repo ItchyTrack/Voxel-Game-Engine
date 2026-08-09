@@ -1,8 +1,8 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use bevy::prelude::*;
+use tile_data::TileIndex;
 use voxel_data::grid::GridId;
-use voxel_streaming::TileIndex;
 
 use crate::{coverage::Coverage, types::TileKey};
 

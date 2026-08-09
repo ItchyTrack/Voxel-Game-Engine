@@ -1,6 +1,6 @@
-use bevy::ecs::system::{Commands, Query, Res};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::math::Mat4;
-use bevy::render::render_resource::StoreOp;
+use bevy::render::render_resource::{BindGroupEntries, PipelineCache, StoreOp};
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
 use bevy::render::view::{ExtractedView, ViewDepthTexture, ViewTarget, ViewUniformOffset, ViewUniforms};
 
@@ -15,9 +15,10 @@ pub fn prepare_raster_view_bind_groups(
 	mut commands: Commands,
 	render_device: Res<RenderDevice>,
 	render_queue: Res<RenderQueue>,
+	pipeline_cache: Res<PipelineCache>,
 	view_uniforms: Res<ViewUniforms>,
 	mut shader: SlangShaderParam<VoxelRasterShader>,
-	raster_resource: Res<VoxelRasterRendererResource>,
+	mut raster_resource: ResMut<VoxelRasterRendererResource>,
 	mut views: Query<(
 		bevy::ecs::entity::Entity,
 		&ExtractedView,
@@ -28,91 +29,84 @@ pub fn prepare_raster_view_bind_groups(
 	)>,
 ) {
 	let view_uniforms_ready = view_uniforms.uniforms.binding().is_some();
-	let shader = shader.get();
+	let shader = shader.get().and_then(|shader| shader.bevy_shader().cloned());
 	for (entity, extracted_view, view_target, _view_uniform_offset, extracted, prepared) in &mut views {
 		let Some(shader) = shader.as_ref() else {
-			if let Some(mut prepared) = prepared { prepared.ready = false; }
+			if let Some(mut prepared) = prepared { prepared.pipeline = None; }
 			continue;
 		};
 		if !view_uniforms_ready {
-			if let Some(mut prepared) = prepared { prepared.ready = false; }
+			if let Some(mut prepared) = prepared { prepared.pipeline = None; }
 			continue;
 		}
-		let format = view_target.main_texture_format();
-		let device = render_device.wgpu_device();
-		let camera_uniform = CameraUniform::from_view(extracted_view);
 
+		let pipeline = raster_resource.pipeline(
+			&pipeline_cache,
+			view_target.main_texture_format(),
+			shader,
+		);
 		if let Some(mut prepared) = prepared {
-			prepared.ready = false;
-			prepared.camera_buffer.set(camera_uniform);
-			prepared.camera_buffer.write_buffer(&render_device, &render_queue);
-			prepare_models(
+			prepare_view(
 				&mut prepared,
+				extracted_view,
 				extracted,
-				device,
+				pipeline,
 				&render_device,
 				&render_queue,
+				&pipeline_cache,
 				&raster_resource,
 			);
-			prepared.ensure(
-				device,
-				format,
-				&raster_resource.camera_bind_group_layout,
-				&raster_resource.model_bind_group_layout,
-				shader,
-			);
-			prepared.ready = prepared.renderer.is_some();
 		} else {
-			let mut prepared = RasterViewResources::new(device, &render_device, &render_queue, &raster_resource);
-			prepared.camera_buffer.set(camera_uniform);
-			prepared.camera_buffer.write_buffer(&render_device, &render_queue);
-			prepare_models(
-				&mut prepared,
-				extracted,
-				device,
+			let mut prepared = RasterViewResources::new(
 				&render_device,
 				&render_queue,
+				&pipeline_cache,
 				&raster_resource,
 			);
-			prepared.ensure(
-				device,
-				format,
-				&raster_resource.camera_bind_group_layout,
-				&raster_resource.model_bind_group_layout,
-				shader,
+			prepare_view(
+				&mut prepared,
+				extracted_view,
+				extracted,
+				pipeline,
+				&render_device,
+				&render_queue,
+				&pipeline_cache,
+				&raster_resource,
 			);
-			prepared.ready = prepared.renderer.is_some();
 			commands.entity(entity).insert(prepared);
 		}
 	}
 }
 
-fn prepare_models(
+fn prepare_view(
 	prepared: &mut RasterViewResources,
+	extracted_view: &ExtractedView,
 	extracted: &ExtractedRasterScene,
-	device: &wgpu::Device,
+	pipeline: bevy::render::render_resource::CachedRenderPipelineId,
 	render_device: &RenderDevice,
 	render_queue: &RenderQueue,
+	pipeline_cache: &PipelineCache,
 	shared: &VoxelRasterRendererResource,
 ) {
-	prepared.model_buffer.clear();
-	prepared.model_buffer.push(&ModelUniform::default());
-	prepared.model_offsets.clear();
-	for item in &extracted.items {
-		let model = Mat4::from_scale_rotation_translation(item.transform.scale, item.transform.rotation, item.transform.translation);
-		let offset = prepared.model_buffer.push(&ModelUniform::from_mat4(&model, item.palette_offset));
-		prepared.model_offsets.push(offset);
-	}
-	prepared.model_buffer.write_buffer(render_device, render_queue);
-	prepared.model_bind_group = ModelUniform::get_bind_group(
-		device,
-		&shared.model_bind_group_layout,
-		&prepared.model_buffer,
-		0,
-	);
+	prepared.camera_buffer.set(CameraUniform::from_view(extracted_view));
+	prepared.camera_buffer.write_buffer(render_device, render_queue);
+	let models = extracted.items.iter()
+		.map(|item| {
+			let model = Mat4::from_scale_rotation_translation(
+				item.transform.scale,
+				item.transform.rotation,
+				item.transform.translation,
+			);
+			ModelUniform::from_mat4(model, item.palette_offset)
+		})
+		.collect();
+	prepared.write_models(models, render_device, render_queue, pipeline_cache, shared);
+	prepared.pipeline = Some(pipeline);
 }
 
 pub fn voxel_raster_render_pass(
+	raster_resource: Res<VoxelRasterRendererResource>,
+	pipeline_cache: Res<PipelineCache>,
 	view: ViewQuery<(
 		&ViewTarget,
 		&ViewDepthTexture,
@@ -122,32 +116,27 @@ pub fn voxel_raster_render_pass(
 	mut render_context: RenderContext,
 ) {
 	let (view_target, view_depth, extracted, prepared) = view.into_inner();
-	if !prepared.ready { return; }
-	let Some(renderer) = prepared.renderer.as_ref() else { return };
+	let Some(pipeline_id) = prepared.pipeline else { return };
+	let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline_id) else { return };
 	if extracted.items.is_empty() { return; }
 
-	let face_bind_group = render_context.render_device().wgpu_device().create_bind_group(&wgpu::BindGroupDescriptor {
-		layout: &renderer.face_bind_group_layout,
-		entries: &[
-			wgpu::BindGroupEntry {
-				binding: 0,
-				resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-					buffer: &extracted.face_buffer,
-					offset: 0,
-					size: None,
-				}),
+	let render_device = render_context.render_device();
+	let face_bind_group = render_device.create_bind_group(
+		"raster_face_bind_group",
+		&pipeline_cache.get_bind_group_layout(&raster_resource.face_bind_group_layout),
+		&BindGroupEntries::sequential((
+			wgpu::BufferBinding {
+				buffer: &extracted.face_buffer,
+				offset: 0,
+				size: None,
 			},
-			wgpu::BindGroupEntry {
-				binding: 1,
-				resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-					buffer: &extracted.palette_buffer,
-					offset: 0,
-					size: None,
-				}),
+			wgpu::BufferBinding {
+				buffer: &extracted.palette_buffer,
+				offset: 0,
+				size: None,
 			},
-		],
-		label: Some("raster_face_bind_group"),
-	});
+		)),
+	);
 
 	let color_attachment = view_target.get_color_attachment();
 	let encoder = render_context.command_encoder();
@@ -159,11 +148,15 @@ pub fn voxel_raster_render_pass(
 		timestamp_writes: None,
 		multiview_mask: None,
 	});
-	pass.set_pipeline(&renderer.pipeline);
+	pass.set_pipeline(pipeline);
 	pass.set_bind_group(0, &*prepared.camera_bind_group, &[]);
-	pass.set_bind_group(2, &face_bind_group, &[]);
-	for (item, offset) in extracted.items.iter().zip(&prepared.model_offsets) {
-		pass.set_bind_group(1, &*prepared.model_bind_group, &[*offset]);
-		pass.draw(item.face_offset * 6..(item.face_offset + item.face_count) * 6, 0..1);
+	pass.set_bind_group(1, &*prepared.model_bind_group, &[]);
+	pass.set_bind_group(2, &*face_bind_group, &[]);
+	for (index, item) in extracted.items.iter().enumerate() {
+		let instance = index as u32;
+		pass.draw(
+			item.face_offset * 6..(item.face_offset + item.face_count) * 6,
+			instance..instance + 1,
+		);
 	}
 }

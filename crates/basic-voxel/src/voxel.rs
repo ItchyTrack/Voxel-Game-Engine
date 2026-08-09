@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use voxel_content::{VoxMaterial, VoxMaterialVoxel};
 use voxel_data::voxels::{VoxelType, VoxelTypeId};
@@ -72,9 +72,9 @@ fn packed_index_bytes(index_count: usize, bits: u8) -> usize {
 	if bits == 0 { 0 } else { (index_count * bits as usize).div_ceil(8) }
 }
 
-fn build_palette(colors: impl IntoIterator<Item = [u8; 4]>) -> Option<(Vec<[u8; 4]>, HashMap<[u8; 4], u16>, u8)> {
+fn build_palette(colors: impl IntoIterator<Item = [u8; 4]>) -> Option<(Vec<[u8; 4]>, FxHashMap<[u8; 4], u16>, u8)> {
 	let mut palette = Vec::new();
-	let mut indices = HashMap::new();
+	let mut indices = FxHashMap::default();
 	for color in colors {
 		if indices.contains_key(&color) { continue; }
 		if palette.len() == 65_536 { return None; }
@@ -111,7 +111,7 @@ fn pack_indices(indices: &[u16], bits: u8, out: &mut Vec<u8>) {
 
 pub enum BasicVoxelGpuEncoder {
 	Raw,
-	Paletted { indices: HashMap<[u8; 4], u16>, bits: u8 },
+	Paletted { indices: FxHashMap<[u8; 4], u16>, bits: u8 },
 }
 
 impl VoxelGpuBlockEncoder for BasicVoxelGpuEncoder {
@@ -146,7 +146,7 @@ impl VoxelGpuBlockEncoder for BasicVoxelGpuEncoder {
 
 pub enum LodVoxelGpuEncoder {
 	Raw,
-	Paletted { indices: HashMap<[u8; 4], u16>, bits: u8 },
+	Paletted { indices: FxHashMap<[u8; 4], u16>, bits: u8 },
 }
 
 impl VoxelGpuBlockEncoder for LodVoxelGpuEncoder {

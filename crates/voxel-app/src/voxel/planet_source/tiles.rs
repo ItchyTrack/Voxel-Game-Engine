@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 use std::sync::OnceLock;
 
-use bevy::prelude::*;
+use bevy::{math::DVec2, prelude::*};
 use tracy_client::span;
 use voxel_streaming::{CHUNK_SIZE, chunk_of, chunk_origin};
 
@@ -76,6 +76,7 @@ fn build_planet_tiles() -> Vec<PlanetTile> {
 			.collect();
 		let present_chunks = build_present_chunks(&halfspaces);
 		let (present_min, present_max_exclusive) = chunk_bounds(&present_chunks);
+		let active_halfspaces = remove_redundant_halfspaces(&halfspaces);
 
 		tiles.push(PlanetTile {
 			index,
@@ -83,7 +84,7 @@ fn build_planet_tiles() -> Vec<PlanetTile> {
 			origin: normal * PLANET_RADIUS,
 			axis_x,
 			axis_y,
-			halfspaces,
+			halfspaces: active_halfspaces,
 			present_chunks,
 			present_min,
 			present_max_exclusive,
@@ -120,6 +121,97 @@ fn voronoi_halfspace(
 		normal: Vec3::new(diff.dot(axis_x), diff.dot(axis_y), diff.dot(tile_normal)),
 		offset: diff.dot(tile_normal * PLANET_RADIUS),
 	}
+}
+
+fn remove_redundant_halfspaces(halfspaces: &[Halfspace]) -> Vec<Halfspace> {
+	let active: Vec<_> = halfspaces
+		.iter()
+		.enumerate()
+		.filter(|&(candidate, _)| halfspace_is_active(candidate, halfspaces))
+		.map(|(_, halfspace)| halfspace.clone())
+		.collect();
+
+	// A valid Voronoi tile always has active boundaries. Retaining the original
+	// set is a defensive fallback for malformed or numerically unstable input.
+	if active.is_empty() { halfspaces.to_vec() } else { active }
+}
+
+fn halfspace_is_active(candidate: usize, halfspaces: &[Halfspace]) -> bool {
+	let candidate_plane = halfspace_z_plane(&halfspaces[candidate]);
+	let extent = PLANET_RADIUS as f64;
+	let mut polygon = vec![
+		DVec2::new(-extent, -extent),
+		DVec2::new(extent, -extent),
+		DVec2::new(extent, extent),
+		DVec2::new(-extent, extent),
+	];
+
+	// Ignore boundaries which can only be exposed outside the generated Z slab.
+	clip_affine_polygon(
+		&mut polygon,
+		candidate_plane.0,
+		candidate_plane.1 + TILE_INWARD_DEPTH as f64,
+	);
+	clip_affine_polygon(
+		&mut polygon,
+		-candidate_plane.0,
+		TILE_OUTWARD_HEIGHT as f64 - candidate_plane.1,
+	);
+
+	// The candidate is active wherever its lower Z bound is at least every
+	// other bound. If that region is empty, it can never affect a column.
+	for (other_index, other) in halfspaces.iter().enumerate() {
+		if other_index == candidate || polygon.is_empty() {
+			continue;
+		}
+		let other_plane = halfspace_z_plane(other);
+		clip_affine_polygon(
+			&mut polygon,
+			candidate_plane.0 - other_plane.0,
+			candidate_plane.1 - other_plane.1,
+		);
+	}
+
+	!polygon.is_empty()
+}
+
+fn halfspace_z_plane(halfspace: &Halfspace) -> (DVec2, f64) {
+	debug_assert!(halfspace.normal.z > 1e-6);
+	let inverse_z = (halfspace.normal.z as f64).recip();
+	(
+		DVec2::new(
+			-halfspace.normal.x as f64 * inverse_z,
+			-halfspace.normal.y as f64 * inverse_z,
+		),
+		(-TILE_SHAPE_EPSILON as f64 - halfspace.offset as f64) * inverse_z,
+	)
+}
+
+fn clip_affine_polygon(polygon: &mut Vec<DVec2>, normal: DVec2, offset: f64) {
+	if polygon.is_empty() {
+		return;
+	}
+
+	let mut clipped = Vec::with_capacity(polygon.len() + 1);
+	for index in 0..polygon.len() {
+		let a = polygon[index];
+		let b = polygon[(index + 1) % polygon.len()];
+		let a_value = normal.dot(a) + offset;
+		let b_value = normal.dot(b) + offset;
+		let a_inside = a_value >= 0.0;
+		let b_inside = b_value >= 0.0;
+
+		if a_inside && b_inside {
+			clipped.push(b);
+		} else if a_inside != b_inside {
+			let t = a_value / (a_value - b_value);
+			clipped.push(a.lerp(b, t));
+			if b_inside {
+				clipped.push(b);
+			}
+		}
+	}
+	*polygon = clipped;
 }
 
 fn build_present_chunks(halfspaces: &[Halfspace]) -> Vec<IVec3> {

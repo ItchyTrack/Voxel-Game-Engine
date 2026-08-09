@@ -5,8 +5,9 @@ use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
 pub use reader::{
-	ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, PresenceLoadRequest, TileLoadRequest,
-	TileVoxelCancellation, TileVoxelKey, TileVoxelLoadRequest,
+	ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, PresenceLoadRequest,
+	VoxelAreaCancellation, VoxelAreaKey, VoxelAreaMessageRequest, VoxelAreaLoadEvent,
+	VoxelAreaLoadRequest, VoxelAreaLoadResult,
 	VoxelSourcesRequestHandle, VoxelSourcesRequestHandleGetter,
 };
 pub use source_manager::{
@@ -28,21 +29,11 @@ pub struct ChunkLoaded {
 	pub voxels: Option<voxel_data::voxels::Voxels>,
 }
 
-#[derive(Message)]
-pub struct TileLoaded {
-	pub grid: voxel_data::grid::GridId,
-	pub requester: Entity,
-	pub key: tile_data::TileKey,
-	pub tag: u64,
-	pub generation: u64,
-	pub data: Option<Box<dyn tile_data::TileData>>,
-}
-
 #[derive(Message, Debug, Clone)]
-pub struct TileVoxelsLoaded {
+pub struct VoxelAreaLoaded {
 	pub grid: voxel_data::grid::GridId,
 	pub requester: Entity,
-	pub key: TileVoxelKey,
+	pub key: VoxelAreaKey,
 	pub voxel_type: voxel_data::voxels::VoxelTypeId,
 	pub tag: u64,
 	pub priority: f32,
@@ -79,8 +70,7 @@ impl Plugin for VoxelSourcesPlugin {
 			.add_message::<ChunkChanged>()
 			.add_message::<ChunkPresenceLoaded>()
 			.add_message::<ChunkLoaded>()
-			.add_message::<TileLoaded>()
-			.add_message::<TileVoxelsLoaded>()
+			.add_message::<VoxelAreaLoaded>()
 			.add_systems(Startup, (reader::systems::init_sources, source_manager::spawn_workers).chain())
 			.add_systems(PreUpdate, reader::systems::publish_source_messages)
 			.add_systems(PostUpdate, reader::systems::process_source_requests);

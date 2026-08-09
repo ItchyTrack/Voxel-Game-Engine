@@ -261,8 +261,8 @@ fn request_voxels(
 			let source = sources[id.0].clone();
 			pusher.push(PriorityTask::new(priority, async move {
 				if cancellation.is_cancelled() { return; }
-				let _zone = span!("source request_tile_voxels direct");
-				source.request_tile_voxels(grid, min, size, lod, voxel_type, generation, cancellation);
+				let _zone = span!("source request_voxel_area direct");
+				source.request_voxel_area(grid, min, size, lod, voxel_type, generation, cancellation);
 			}));
 		}
 		_ => {
@@ -271,8 +271,8 @@ fn request_voxels(
 				let cancellation = cancellation.clone();
 				pusher.push(PriorityTask::new(priority, async move {
 					if cancellation.is_cancelled() { return; }
-					let _zone = span!("source request_tile_voxels composite part");
-					source.request_tile_voxels(grid, min, size, lod, voxel_type, generation, cancellation);
+					let _zone = span!("source request_voxel_area composite part");
+					source.request_voxel_area(grid, min, size, lod, voxel_type, generation, cancellation);
 				}));
 			}
 		}
@@ -299,7 +299,7 @@ fn voxel_sources_for_region(
 	sources
 		.iter()
 		.enumerate()
-		.filter_map(|(i, source)| source.cost_tile_voxels(grid, min, size, lod, voxel_type).is_some().then_some(SourceId(i)))
+		.filter_map(|(i, source)| source.cost_voxels(grid, min, size, lod, voxel_type).is_some().then_some(SourceId(i)))
 		.collect()
 }
 

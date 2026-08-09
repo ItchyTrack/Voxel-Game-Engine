@@ -1,10 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}};
 
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::math::IVec3;
 use bevy::prelude::*;
+use bevy::tasks::AsyncComputeTaskPool;
 use voxel_edit::GridEdits;
-use voxel_sources::{ChunkChangeKind, ChunkChanged, ChunkLoaded, SourceManager};
+use voxel_sources::{ChunkChangeKind, ChunkChanged, ChunkLoaded, SourceManager, VoxelSourcesRequestHandleGetter};
+use voxel_tasks::CancellationToken;
 
 use tracy_client::span;
 
@@ -14,10 +16,16 @@ use voxel_data::subgrid::SubGrid;
 
 use crate::chunk::{chunk_origin, CHUNK_SIZE};
 use crate::consumer::ChunkConsumer;
+use crate::generation::{
+	TileGenerationCancellation, TileGenerationChannel, TileGenerationMetadata,
+	TileGenerationResult, session as generation_session,
+};
 use crate::streaming::TileStatus;
-use crate::{DynamicTileData, LoadedTile, StreamingSourceRequestHandle, TileClassRegistry, TileLoadStatus, TileLoadUpdate};
+use crate::{
+	DynamicTileData, LoadedTile, StreamingSourceRequestHandle, TileGenerationContext,
+	TileGeneratorRegistry, TileLoadStatus, TileLoadUpdate,
+};
 use crate::{ChunkSaveChannel, ChunkSaveRequest, GridStreaming, InflightChunkPresence, PresenceLoadRequest, RequestChunkPresence};
-use voxel_sources::TileLoadRequest;
 use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkLoadResolved};
 use crate::presence::ChunkState;
 
@@ -31,10 +39,11 @@ pub fn apply_source_events(
 			let generation = match event.kind {
 				ChunkChangeKind::Changed { generation } | ChunkChangeKind::Removed { generation } => generation,
 			};
+			s.note_source_generation(generation);
 			for x in event.min.x..event.min.x + event.size.x {
 				for y in event.min.y..event.min.y + event.size.y {
 					for z in event.min.z..event.min.z + event.size.z {
-						s.dirty_tiles_covering(IVec3::new(x, y, z), Some(generation));
+						s.dirty_tiles_covering(IVec3::new(x, y, z));
 					}
 				}
 			}
@@ -228,29 +237,31 @@ fn cleanup_tile_entity(world: &mut World, entity: Entity) {
 }
 
 pub fn receive_tile_results(world: &mut World) {
-	let mut results = {
-		let mut messages = world.resource_mut::<Messages<voxel_sources::TileLoaded>>();
-		std::mem::take(&mut *messages)
-	};
-	for result in results.drain() {
+	let results: Vec<_> = world.resource::<TileGenerationChannel>().drain().collect();
+	for result in results {
 		let Some(key) = world.get_mut::<GridStreaming>(result.grid).and_then(|mut streaming| streaming.inflight_tiles_by_tag.remove(&result.tag)) else { continue };
+		let context_matches = world.get::<TileGenerationContext>(result.grid).is_some_and(|context| context.version() == result.context_version);
 		let accepted = {
 			let Some(mut streaming) = world.get_mut::<GridStreaming>(result.grid) else { continue };
+			let stale_source = result.source_generation.is_some_and(|generation| generation < streaming.latest_source_generation);
 			let Some(state) = streaming.tiles.get_mut(&key) else { continue };
 			let status = std::mem::replace(&mut state.status, TileStatus::Requested);
-			match status {
-				TileStatus::ExternalDirtyInFlight { generation, .. } if result.generation < generation => {
-					state.status = TileStatus::ExternalDirty;
-					streaming.pending_tile_requests.insert(key);
-					false
-				}
-				TileStatus::InFlight { .. } | TileStatus::ExternalDirtyInFlight { .. } => true,
-				other => { state.status = other; false }
+			let matching_task = matches!(&status, TileStatus::InFlight { tag, .. } if *tag == result.tag);
+			if !matching_task {
+				state.status = status;
+				false
+			} else if !context_matches || stale_source {
+				state.status = TileStatus::Dirty;
+				streaming.pending_tile_requests.insert(key);
+				false
+			} else {
+				true
 			}
 		};
 		if !accepted { continue; }
 		let (requesters, old) = {
-			let streaming = world.get::<GridStreaming>(result.grid).unwrap();
+			let mut streaming = world.get_mut::<GridStreaming>(result.grid).unwrap();
+			streaming.tile_dependencies.replace(key, result.dependencies);
 			let state = streaming.tiles.get(&key).unwrap();
 			(state.requesters.keys().copied().collect::<Vec<_>>(), state.active)
 		};
@@ -308,6 +319,7 @@ pub fn cleanup_released_tiles(world: &mut World) {
 	for mut streaming in query.iter_mut(world) {
 		let released: Vec<_> = streaming.tiles.iter().filter_map(|(&key, state)| state.requesters.is_empty().then_some(key)).collect();
 		for key in released {
+			streaming.tile_dependencies.remove(key);
 			if let Some(state) = streaming.tiles.remove(&key) {
 				if let Some(entity) = state.active { released_entities.push(entity); }
 			}
@@ -316,24 +328,67 @@ pub fn cleanup_released_tiles(world: &mut World) {
 	for entity in released_entities { cleanup_tile_entity(world, entity); }
 }
 
-pub fn request_tiles(
-	requests: Res<StreamingSourceRequestHandle>,
-	classes: Res<TileClassRegistry>,
-	mut grids: Query<(GridId, &mut GridStreaming)>,
+pub fn invalidate_changed_generation_contexts(
+	mut grids: Query<&mut GridStreaming, Changed<TileGenerationContext>>,
 ) {
-	for (grid, mut streaming) in grids.iter_mut() {
+	for mut streaming in &mut grids { streaming.invalidate_generation_context(); }
+}
+
+pub(crate) fn request_tiles(
+	request_handles: Res<VoxelSourcesRequestHandleGetter>,
+	generators: Res<TileGeneratorRegistry>,
+	results: Res<TileGenerationChannel>,
+	mut grids: Query<(GridId, &Grid, Option<&TileGenerationContext>, &mut GridStreaming)>,
+) {
+	for (grid, grid_data, context, mut streaming) in grids.iter_mut() {
 		let pending: Vec<_> = std::mem::take(&mut streaming.pending_tile_requests).into_iter().collect();
+		if !pending.is_empty() {
+			assert!(context.is_some(), "grid {grid:?} has tile requests but no generation context");
+		}
+		let Some(context) = context else { continue };
 		for key in pending {
 			let Some(state) = streaming.tiles.get(&key) else { continue };
 			if state.requesters.is_empty() { continue; }
-			if !matches!(&state.status, TileStatus::Requested | TileStatus::ExternalDirty) { continue; }
+			if !matches!(&state.status, TileStatus::Requested | TileStatus::Dirty) { continue; }
 			let priority = state.requesters.values().copied().fold(f32::NEG_INFINITY, f32::max);
 			streaming.next_tile_tag = streaming.next_tile_tag.wrapping_add(1).max(1);
 			let tag = streaming.next_tile_tag;
-			let generator = classes.generator(key.class).expect("requested unregistered tile class");
-			let cancellation = requests.0.request_tile(TileLoadRequest { grid, requester: grid, key, tag, priority }, generator);
+			let context_version = context.version();
+			let generator = generators.generator(key.class, grid_data.voxel_type_info().id);
+			let cancellation = CancellationToken::new();
+			let metadata = Arc::new(Mutex::new(TileGenerationMetadata::default()));
+			let (session, wake) = generation_session(
+				grid,
+				key,
+				context.clone(),
+				priority,
+				request_handles.get(),
+				cancellation.clone(),
+				metadata.clone(),
+			);
+			let result_tx = results.sender();
+			let task_cancellation = cancellation.clone();
+			AsyncComputeTaskPool::get().spawn(async move {
+				let data = generator.generate(session).await;
+				if task_cancellation.is_cancelled() { return; }
+				let mut metadata = metadata.lock().unwrap();
+				let dependencies = std::mem::take(&mut metadata.dependencies);
+				let source_generation = metadata.source_generation;
+				drop(metadata);
+				let _ = result_tx.send(TileGenerationResult {
+					grid,
+					tag,
+					context_version,
+					source_generation,
+					dependencies,
+					data,
+				});
+			}).detach();
 			streaming.inflight_tiles_by_tag.insert(tag, key);
-			streaming.tiles.get_mut(&key).unwrap().status = TileStatus::InFlight { tag, cancellation };
+			streaming.tiles.get_mut(&key).unwrap().status = TileStatus::InFlight {
+				tag,
+				cancellation: TileGenerationCancellation::new(cancellation, wake),
+			};
 		}
 	}
 }

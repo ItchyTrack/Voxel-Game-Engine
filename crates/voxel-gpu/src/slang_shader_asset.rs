@@ -7,6 +7,7 @@ use bevy::ecs::system::{Single, SystemParam, SystemParamItem};
 use bevy::prelude::{Component, Message, Res, TypePath, With};
 use bevy::render::render_asset::{PrepareAssetError, RenderAsset, RenderAssets};
 use bevy::render::Extract;
+use bevy::shader::Shader;
 use serde::{Deserialize, Serialize};
 
 use crate::shader_compiler::{self, SlangEntry, SlangLinkage, SlangModule, SlangStage};
@@ -16,6 +17,8 @@ static NEXT_TEMP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct CompiledSlangShader {
 	pub shaders: Vec<String>,
+	#[dependency]
+	pub bevy_shader: Option<Handle<Shader>>,
 }
 
 #[derive(Message, Clone, Copy)]
@@ -50,6 +53,10 @@ impl LoadedSlangShader<'_> {
 
 	pub fn changed(&self) -> bool {
 		self.changed
+	}
+
+	pub fn bevy_shader(&self) -> Option<&Handle<Shader>> {
+		self.shader.bevy_shader.as_ref()
 	}
 }
 
@@ -101,6 +108,8 @@ pub struct SlangShaderSettings {
 	pub include_dirs: Vec<PathBuf>,
 	pub entries: Vec<SlangAssetEntry>,
 	pub linkages: Vec<SlangLinkage>,
+	#[serde(default)]
+	pub create_bevy_shader: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,7 +177,14 @@ impl AssetLoader for SlangShaderLoader {
 			&linkages,
 		)
 		.map_err(|error| std::io::Error::other(error.to_string()))?;
-		Ok(CompiledSlangShader { shaders })
+		let bevy_shader = settings.create_bevy_shader.then(|| {
+			let path = format!("{}#compiled-wgsl", load_context.path());
+			load_context.add_labeled_asset(
+				"compiled-wgsl",
+				Shader::from_wgsl(shaders.join("\n"), path),
+			)
+		});
+		Ok(CompiledSlangShader { shaders, bevy_shader })
 	}
 
 	fn extensions(&self) -> &[&str] {

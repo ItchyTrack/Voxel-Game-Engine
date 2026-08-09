@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use bevy::ecs::message::Message;
 use bevy::math::IVec3;
 use crossbeam_channel::Sender;
+use rustc_hash::FxHashMap;
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
@@ -24,7 +25,7 @@ pub trait VoxelLodGenerator: Send + Sync {
 	) -> Option<Voxels>;
 }
 
-pub(super) type VoxelLodGenerators = Arc<RwLock<HashMap<(VoxelTypeId, VoxelTypeId), Arc<dyn VoxelLodGenerator>>>>;
+pub(super) type VoxelLodGenerators = Arc<RwLock<FxHashMap<(VoxelTypeId, VoxelTypeId), Arc<dyn VoxelLodGenerator>>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChunkChangeKind {
@@ -142,7 +143,7 @@ impl SourceHandle {
 		let _ = self.messages.send(SourceMessage::Chunk(SourceChunkResult { grid, chunk, generation, voxels }));
 	}
 
-	pub fn loaded_tile_voxels(
+	pub fn voxels_loaded(
 		&self,
 		grid: GridId,
 		min: IVec3,

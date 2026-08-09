@@ -1,4 +1,6 @@
 pub mod packed_dynamic_buffer;
+pub mod packed_residency_buffer;
+pub mod rendering_generator;
 pub mod residency_packing;
 pub mod shader_compiler;
 pub mod slang_shader_asset;
@@ -11,6 +13,10 @@ use bevy::{
 };
 
 pub use packed_dynamic_buffer::{AllocationId, PackedBufferAllocation};
+pub use rendering_generator::{
+	RenderingContext, RenderingGenerationPlugin, RenderingGeneratorAppExt,
+	RenderingGeneratorRegistry, RenderingTileClass, RenderingTileGenerator, RenderingType,
+};
 pub use slang_shader_asset::{
 	CompiledSlangShader, LoadedSlangShader, SlangAssetEntry, SlangAssetFile, SlangShader,
 	SlangShaderChanged, SlangShaderLoader, SlangShaderParam, SlangShaderSettings,

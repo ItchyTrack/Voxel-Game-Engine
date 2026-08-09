@@ -42,8 +42,8 @@ impl Plugin for VoxelLoadPlugin {
 					Update,
 					(
 						server::flush_chunk_results,
-						server::flush_tile_voxel_results,
-						server::send_pending_voxel_load_responses.after(server::flush_chunk_results).after(server::flush_tile_voxel_results),
+						server::flush_voxel_area_results,
+						server::send_pending_voxel_load_responses.after(server::flush_chunk_results).after(server::flush_voxel_area_results),
 						server::cleanup_disconnected_requests,
 					),
 				);

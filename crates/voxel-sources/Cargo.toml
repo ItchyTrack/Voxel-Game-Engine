@@ -10,9 +10,10 @@ tracy = ["tracy-client/enable"]
 [dependencies]
 crossbeam-channel = "0.5.15"
 bevy = { workspace = true }
+rustc-hash = { workspace = true }
 serde = { version = "1", features = ["derive"] }
+futures = "0.3.32"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
-tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
 tracy-client = { workspace = true }
 

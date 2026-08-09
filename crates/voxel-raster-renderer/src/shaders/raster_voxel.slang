@@ -10,7 +10,7 @@ struct ModelUniform {
 	uint _padding1;
 	uint _padding2;
 };
-ConstantBuffer<ModelUniform> model : register(b0, space1);
+StructuredBuffer<ModelUniform> models : register(t0, space1);
 
 struct Face {
 	uint packed;
@@ -26,7 +26,7 @@ struct VertexOutput {
 };
 
 [shader("vertex")]
-VertexOutput vs_main(uint vertex_index : SV_VertexID) {
+VertexOutput vs_main(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) {
 	let offsets_2d = float2[6](
 		float2( 0.5,  0.5),
 		float2(-0.5,  0.5),
@@ -36,6 +36,7 @@ VertexOutput vs_main(uint vertex_index : SV_VertexID) {
 		float2(-0.5, -0.5),
 	);
 
+	let model = models[instance_index];
 	let face = faces[vertex_index / 6u];
 	let base = offsets_2d[vertex_index % 6u];
 	let packed = face.packed;

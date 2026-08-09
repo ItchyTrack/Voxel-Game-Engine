@@ -1,90 +1,48 @@
-use bevy::render::renderer::WgpuWrapper;
+use bevy::asset::Handle;
+use bevy::render::render_resource::{
+	CachedRenderPipelineId, FragmentState, PipelineCache, RenderPipelineDescriptor, VertexState,
+};
+use bevy::shader::Shader;
 
-use crate::camera::CameraUniform;
-use crate::model::ModelUniform;
+use crate::voxel_raster_renderer_resource::VoxelRasterRendererResource;
 
-type GpuBindGroupLayout = WgpuWrapper<wgpu::BindGroupLayout>;
-type GpuRenderPipeline = WgpuWrapper<wgpu::RenderPipeline>;
-
-pub struct VoxelRasterRenderer {
-	pub pipeline: GpuRenderPipeline,
-	pub face_bind_group_layout: GpuBindGroupLayout,
-}
-
-impl VoxelRasterRenderer {
-	pub fn new(
-		device: &wgpu::Device,
+impl VoxelRasterRendererResource {
+	pub fn pipeline(
+		&mut self,
+		pipeline_cache: &PipelineCache,
 		color_format: wgpu::TextureFormat,
-		camera_bind_group_layout: &GpuBindGroupLayout,
-		model_bind_group_layout: &GpuBindGroupLayout,
-		shader_source: &str,
-	) -> anyhow::Result<Self> {
-		let face_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[
-				wgpu::BindGroupLayoutEntry {
-					binding: 0,
-					visibility: wgpu::ShaderStages::VERTEX,
-					ty: wgpu::BindingType::Buffer {
-						ty: wgpu::BufferBindingType::Storage { read_only: true },
-						has_dynamic_offset: false,
-						min_binding_size: None,
-					},
-					count: None,
-				},
-				wgpu::BindGroupLayoutEntry {
-					binding: 1,
-					visibility: wgpu::ShaderStages::VERTEX,
-					ty: wgpu::BindingType::Buffer {
-						ty: wgpu::BufferBindingType::Storage { read_only: true },
-						has_dynamic_offset: false,
-						min_binding_size: None,
-					},
-					count: None,
-				},
-			],
-			label: Some("raster_face_bind_group_layout"),
-		}));
+		shader: &Handle<Shader>,
+	) -> CachedRenderPipelineId {
+		if let Some(&pipeline) = self.pipelines.get(&color_format) {
+			return pipeline;
+		}
 
-		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-			label: Some("Raster Voxel Shader"),
-			source: wgpu::ShaderSource::Wgsl(shader_source.to_owned().into()),
-		});
-		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			label: Some("Raster Voxel Pipeline Layout"),
-			bind_group_layouts: &[
-				Some(camera_bind_group_layout),
-				Some(model_bind_group_layout),
-				Some(&face_bind_group_layout),
+		let pipeline = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
+			label: Some("raster_voxel_pipeline".into()),
+			layout: vec![
+				self.camera_bind_group_layout.clone(),
+				self.model_bind_group_layout.clone(),
+				self.face_bind_group_layout.clone(),
 			],
-			immediate_size: 0,
-		});
-		let pipeline = WgpuWrapper::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-			label: Some("Raster Voxel Pipeline"),
-			layout: Some(&pipeline_layout),
-			vertex: wgpu::VertexState {
-				module: &shader,
-				entry_point: Some("vs_main"),
-				buffers: &[],
-				compilation_options: wgpu::PipelineCompilationOptions::default(),
+			vertex: VertexState {
+				shader: shader.clone(),
+				entry_point: Some("vs_main".into()),
+				..Default::default()
 			},
-			fragment: Some(wgpu::FragmentState {
-				module: &shader,
-				entry_point: Some("fs_main"),
-				targets: &[Some(wgpu::ColorTargetState {
+			fragment: Some(FragmentState {
+				shader: shader.clone(),
+				entry_point: Some("fs_main".into()),
+				targets: vec![Some(wgpu::ColorTargetState {
 					format: color_format,
 					blend: Some(wgpu::BlendState::REPLACE),
 					write_mask: wgpu::ColorWrites::ALL,
 				})],
-				compilation_options: wgpu::PipelineCompilationOptions::default(),
+				..Default::default()
 			}),
 			primitive: wgpu::PrimitiveState {
 				topology: wgpu::PrimitiveTopology::TriangleList,
-				strip_index_format: None,
-				front_face: wgpu::FrontFace::Ccw,
 				cull_mode: Some(wgpu::Face::Back),
-				polygon_mode: wgpu::PolygonMode::Fill,
-				unclipped_depth: false,
-				conservative: false,
+				..Default::default()
 			},
 			depth_stencil: Some(wgpu::DepthStencilState {
 				format: wgpu::TextureFormat::Depth32Float,
@@ -94,16 +52,9 @@ impl VoxelRasterRenderer {
 				bias: wgpu::DepthBiasState::default(),
 			}),
 			multisample: wgpu::MultisampleState::default(),
-			multiview_mask: None,
-			cache: None,
-		}));
-
-		let _ = CameraUniform::from_view;
-		let _ = ModelUniform::from_mat4;
-
-		Ok(Self {
-			pipeline,
-			face_bind_group_layout,
-		})
+			..Default::default()
+		});
+		self.pipelines.insert(color_format, pipeline);
+		pipeline
 	}
 }

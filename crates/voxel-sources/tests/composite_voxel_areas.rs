@@ -14,13 +14,13 @@ impl ChunkSource for AreaSource {
 	fn request_available_area(&self, _grid: GridId) {}
 	fn cost(&self, _grid: GridId, chunk: IVec3) -> Option<u32> { self.chunks.contains(&chunk).then_some(0) }
 	fn request_load(&self, _grid: GridId, _chunk: IVec3, _generation: u64, _cancellation: CancellationToken) {}
-	fn cost_tile_voxels(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32, _voxel_type: VoxelTypeId) -> Option<u32> {
+	fn cost_voxels(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32, _voxel_type: VoxelTypeId) -> Option<u32> {
 		self.chunks
 			.iter()
 			.any(|chunk| chunk.cmpge(min).all() && chunk.cmplt(min + size).all())
 			.then_some(0)
 	}
-	fn request_tile_voxels(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _voxel_type: VoxelTypeId, _generation: u64, _cancellation: CancellationToken) {}
+	fn request_voxel_area(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _voxel_type: VoxelTypeId, _generation: u64, _cancellation: CancellationToken) {}
 }
 
 fn test_type_info() -> VoxelTypeInfo {
@@ -48,12 +48,12 @@ impl VoxelLodGenerator for MarkerLodGenerator {
 }
 
 #[test]
-fn chunk_source_tile_voxel_cost_detects_overlap() {
+fn chunk_source_voxel_area_cost_detects_overlap() {
 	let source = AreaSource { chunks: vec![IVec3::new(4, 0, 0)] };
 	let grid = Entity::PLACEHOLDER;
 
-	assert_eq!(source.cost_tile_voxels(grid, IVec3::ZERO, IVec3::new(8, 1, 1), 1.0, VoxelTypeId(99)), Some(0));
-	assert_eq!(source.cost_tile_voxels(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1), 1.0, VoxelTypeId(99)), None);
+	assert_eq!(source.cost_voxels(grid, IVec3::ZERO, IVec3::new(8, 1, 1), 1.0, VoxelTypeId(99)), Some(0));
+	assert_eq!(source.cost_voxels(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1), 1.0, VoxelTypeId(99)), None);
 }
 
 #[test]

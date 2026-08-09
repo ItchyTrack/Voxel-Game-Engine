@@ -7,7 +7,7 @@ use voxel_tasks::AsyncTaskPriorityQueueResource;
 use voxel_physics::{
 	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
 };
-use voxel_engine::VoxelCameraMode;
+use crate::voxel::rendering::VoxelRenderMode;
 use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::GraphicsSettings};
 use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
@@ -69,7 +69,7 @@ fn debug_window(
 	mut constraint_debug_render: ResMut<ConstraintDebugRender>,
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
 	mut coverage_boxes: ResMut<CoverageBoxes>,
-	mut camera_modes: Query<&mut VoxelCameraMode, With<Camera3d>>,
+	mut voxel_render_mode: ResMut<VoxelRenderMode>,
 	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) -> Result {
 	let ctx = contexts.ctx_mut()?;
@@ -92,7 +92,7 @@ fn debug_window(
 		.unwrap_or((0, 0));
 
 	let async_queue_len = async_task_priority_queue.len();
-	let mut camera_mode = camera_modes.iter_mut().next().map(|mode| *mode).unwrap_or_default();
+	let mut render_mode = *voxel_render_mode;
 
 	egui::Window::new("Debug")
 		.default_pos([0.0, 0.0])
@@ -112,9 +112,9 @@ fn debug_window(
 			ui.label("Graphics");
 			ui.checkbox(&mut graphics_settings.shadows, "shadows");
 			ui.horizontal(|ui| {
-				ui.label("camera renderer");
-				ui.selectable_value(&mut camera_mode, VoxelCameraMode::Ray, "ray");
-				ui.selectable_value(&mut camera_mode, VoxelCameraMode::Raster, "raster");
+				ui.label("grid renderer");
+				ui.selectable_value(&mut render_mode, VoxelRenderMode::Ray, "ray");
+				ui.selectable_value(&mut render_mode, VoxelRenderMode::Raster, "raster");
 			});
 			ui.separator();
 			ui.label("Debug");
@@ -126,9 +126,7 @@ fn debug_window(
 			ui.checkbox(&mut coverage_boxes.0, "camera coverage");
 		});
 
-	if let Some(mut mode) = camera_modes.iter_mut().next() {
-		*mode = camera_mode;
-	}
+	if *voxel_render_mode != render_mode { *voxel_render_mode = render_mode; }
 
 	Ok(())
 }

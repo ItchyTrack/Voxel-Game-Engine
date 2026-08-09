@@ -4,22 +4,25 @@ use bevy::prelude::*;
 
 mod chunk;
 mod consumer;
-mod tile_state_index;
+mod tile_dependency_index;
 mod presence;
 mod streaming;
 mod source_request_handle;
 mod tile_updates;
+mod generation;
 pub mod systems;
 mod edit;
-pub mod tile_index;
 
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use presence::{ChunkPresence, ChunkState};
-pub use tile_data::{DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData, TileGenerator, TileGeneratorInput, TileKey};
+pub use tile_data::{
+	DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData,
+	TileGenerationContext, TileGenerationSession, TileGenerator, TileGeneratorRegistry, TileKey,
+	VoxelArea, VoxelAreaRequest, VoxelAreaResult,
+};
 pub use tile_updates::{TileLoadStatus, TileLoadUpdate};
-pub use tile_index::{TileIndex, TileIndexKey};
-pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, TileVoxelKey, TileVoxelLoadRequest, TileVoxelsLoaded, PresenceLoadRequest};
+pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, VoxelAreaKey, VoxelAreaMessageRequest, VoxelAreaLoaded, PresenceLoadRequest};
 pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
 pub use source_request_handle::StreamingSourceRequestHandle;
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
@@ -88,8 +91,10 @@ impl Plugin for VoxelStreamingPlugin {
 		app.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkLoadResolved>()
 			.init_resource::<TileClassRegistry>()
+			.init_resource::<TileGeneratorRegistry>()
 			.init_resource::<StreamingSourceRequestHandle>()
 			.init_resource::<systems::PendingTileUpdates>()
+			.init_resource::<generation::TileGenerationChannel>()
 			.register_edit_gate::<GridStreaming>()
 			.add_systems(
 				StreamingSchedule,
@@ -118,7 +123,11 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(systems::request_presence_for_new_grids, systems::handle_dirty_chunks, systems::request_stalled_chunks, systems::request_tiles)
+					(
+						systems::invalidate_changed_generation_contexts,
+						(systems::request_presence_for_new_grids, systems::handle_dirty_chunks, systems::request_stalled_chunks, systems::request_tiles),
+					)
+						.chain()
 						.in_set(StreamingPhase::Request),
 					(
 						systems::receive_results,

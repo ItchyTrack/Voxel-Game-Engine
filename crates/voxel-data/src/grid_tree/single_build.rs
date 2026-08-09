@@ -44,75 +44,89 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		let Some((root_pos, depth)) = Self::canonical_root_for_bounds(min, max) else {
 			return false;
 		};
-		self.reset_empty_root(root_pos, depth);
 		if depth > 2 {
 			return false;
 		}
+		self.reset_empty_root(root_pos, depth);
 
+		const UNALLOCATED: u32 = u32::MAX;
 		match depth {
 			0 => {
-				let mut root = TempNode::new(self.raw.cell_stride());
 				for (pos, data) in voxels {
-					let rel = Co::to_ivec3(*pos) - root_pos;
-					let i = (rel.x + rel.y * SIZE as i32 + rel.z * SIZE as i32 * SIZE as i32) as usize;
-					root.set_data(&self.grid_type, i, *data);
+					let local = Co::to_ivec3(*pos) - root_pos;
+					let cell_index = get_child_contents_index(local.as_u8vec3());
+					self.set_voxel_child_to_data(0, cell_index, *data);
 				}
-				self.raw.add_item_count(root.used_cell_count as u64);
-				root.write_to_raw(&mut self.raw, &self.grid_type, 0);
 			}
 			1 => {
-				let mut leaves: Vec<_> = (0..SIZE_USIZE_CUBED).map(|_| TempNode::new(self.raw.cell_stride())).collect();
+				let mut leaf_nodes = [UNALLOCATED; SIZE_USIZE_CUBED];
 				for (pos, data) in voxels {
 					let rel = Co::to_ivec3(*pos) - root_pos;
 					let child = rel / SIZE as i32;
-					let leaf_i = (child.x + child.y * SIZE as i32 + child.z * SIZE as i32 * SIZE as i32) as usize;
+					let leaf_slot = get_child_contents_index(child.as_u8vec3());
+					let leaf_index = if leaf_nodes[leaf_slot as usize] == UNALLOCATED {
+						let Some(index) = self.allocate_empty_child_node(0, leaf_slot) else { return false; };
+						leaf_nodes[leaf_slot as usize] = index;
+						index
+					} else {
+						leaf_nodes[leaf_slot as usize]
+					};
 					let local = rel - child * SIZE as i32;
-					let cell_i = (local.x + local.y * SIZE as i32 + local.z * SIZE as i32 * SIZE as i32) as usize;
-					leaves[leaf_i].set_data(&self.grid_type, cell_i, *data);
+					let cell_index = get_child_contents_index(local.as_u8vec3());
+					self.set_voxel_child_to_data(leaf_index, cell_index, *data);
 				}
-				for (i, leaf) in leaves.iter().enumerate() {
-					if leaf.is_empty() {
-						continue;
+				for (leaf_slot, leaf_index) in leaf_nodes.iter().enumerate() {
+					if *leaf_index != UNALLOCATED {
+						self.collapse_child_node_if_possible(0, leaf_slot as u8);
 					}
-					let Some(child_index) = self.alloc_empty_node_after_parent(0) else { return false; };
-					self.raw.inc_used_cell_count(0);
-					self.raw.set_child_index(0, i as u8, child_index);
-					self.raw.add_item_count(leaf.used_cell_count as u64);
-					leaf.write_to_raw(&mut self.raw, &self.grid_type, child_index);
 				}
 			}
 			2 => {
-				let mut leaves: Vec<_> = (0..SIZE_USIZE_CUBED * SIZE_USIZE_CUBED).map(|_| TempNode::new(self.raw.cell_stride())).collect();
+				let mut mid_nodes = [UNALLOCATED; SIZE_USIZE_CUBED];
+				let mut leaf_nodes = [UNALLOCATED; SIZE_USIZE_CUBED * SIZE_USIZE_CUBED];
+				let mid_cell_size = child_size(2) as i32;
+				let leaf_cell_size = child_size(1) as i32;
 				for (pos, data) in voxels {
 					let rel = Co::to_ivec3(*pos) - root_pos;
-					let root_child = rel / 16;
-					let mid_rel = rel - root_child * 16;
-					let mid_child = mid_rel / 4;
-					let local = mid_rel - mid_child * 4;
-					let root_i = (root_child.x + root_child.y * SIZE as i32 + root_child.z * SIZE as i32 * SIZE as i32) as usize;
-					let mid_i = (mid_child.x + mid_child.y * SIZE as i32 + mid_child.z * SIZE as i32 * SIZE as i32) as usize;
-					let cell_i = (local.x + local.y * SIZE as i32 + local.z * SIZE as i32 * SIZE as i32) as usize;
-					leaves[root_i * SIZE_USIZE_CUBED + mid_i].set_data(&self.grid_type, cell_i, *data);
+					let root_child = rel / mid_cell_size;
+					let root_slot = get_child_contents_index(root_child.as_u8vec3());
+					let mid_index = if mid_nodes[root_slot as usize] == UNALLOCATED {
+						let Some(index) = self.allocate_empty_child_node(0, root_slot) else { return false; };
+						mid_nodes[root_slot as usize] = index;
+						index
+					} else {
+						mid_nodes[root_slot as usize]
+					};
+
+					let mid_rel = rel - root_child * mid_cell_size;
+					let mid_child = mid_rel / leaf_cell_size;
+					let mid_slot = get_child_contents_index(mid_child.as_u8vec3());
+					let leaf_slot = root_slot as usize * SIZE_USIZE_CUBED + mid_slot as usize;
+					let leaf_index = if leaf_nodes[leaf_slot] == UNALLOCATED {
+						let Some(index) = self.allocate_empty_child_node(mid_index, mid_slot) else { return false; };
+						leaf_nodes[leaf_slot] = index;
+						index
+					} else {
+						leaf_nodes[leaf_slot]
+					};
+
+					let local = mid_rel - mid_child * leaf_cell_size;
+					let cell_index = get_child_contents_index(local.as_u8vec3());
+					self.set_voxel_child_to_data(leaf_index, cell_index, *data);
 				}
 
-				for root_i in 0..SIZE_USIZE_CUBED {
-					if !(0..SIZE_USIZE_CUBED).any(|mid_i| !leaves[root_i * SIZE_USIZE_CUBED + mid_i].is_empty()) {
+				for root_slot in 0..SIZE_USIZE_CUBED {
+					let mid_index = mid_nodes[root_slot];
+					if mid_index == UNALLOCATED {
 						continue;
 					}
-					let Some(mid_index) = self.alloc_empty_node_after_parent(0) else { return false; };
-					self.raw.inc_used_cell_count(0);
-					self.raw.set_child_index(0, root_i as u8, mid_index);
-					for mid_i in 0..SIZE_USIZE_CUBED {
-						let leaf = &leaves[root_i * SIZE_USIZE_CUBED + mid_i];
-						if leaf.is_empty() {
-							continue;
+					for mid_slot in 0..SIZE_USIZE_CUBED {
+						let leaf_slot = root_slot * SIZE_USIZE_CUBED + mid_slot;
+						if leaf_nodes[leaf_slot] != UNALLOCATED {
+							self.collapse_child_node_if_possible(mid_index, mid_slot as u8);
 						}
-						let Some(leaf_index) = self.alloc_empty_node_after_parent(mid_index) else { return false; };
-						self.raw.inc_used_cell_count(mid_index);
-						self.raw.set_child_index(mid_index, mid_i as u8, leaf_index);
-						self.raw.add_item_count(leaf.used_cell_count as u64);
-						leaf.write_to_raw(&mut self.raw, &self.grid_type, leaf_index);
 					}
+					self.collapse_child_node_if_possible(0, root_slot as u8);
 				}
 			}
 			_ => unreachable!(),

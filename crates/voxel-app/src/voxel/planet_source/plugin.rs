@@ -72,13 +72,13 @@ impl ChunkSource for ProceduralPlanetSource {
 		}
 	}
 
-	fn cost_tile_voxels(&self, grid_id: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if voxel_type != LodVoxel::TYPE_INFO.id { return None; }
+	fn cost_voxels(&self, grid_id: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
 		let tile = planet_tiles().get(self.tile_index(grid_id)?)?;
+		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "planet source does not support requested voxel type");
 		tile_has_any_chunk_in_region(tile, min, size).then_some(PLANET_COST)
 	}
 
-	fn request_tile_voxels(
+	fn request_voxel_area(
 		&self,
 		grid_id: GridId,
 		min: IVec3,
@@ -88,7 +88,7 @@ impl ChunkSource for ProceduralPlanetSource {
 		generation: u64,
 		cancellation: CancellationToken,
 	) {
-		let _zone = span!("planet source request_tile_voxels");
+		let _zone = span!("planet source request_voxel_area");
 		tracy_client::plot!("planet lod level", lod as f64);
 		let voxels = self
 			.tile_index(grid_id)
@@ -96,7 +96,7 @@ impl ChunkSource for ProceduralPlanetSource {
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
 			let _zone = span!("planet source publish lod");
-			handle.loaded_tile_voxels(grid_id, min, size, lod, voxel_type, generation, voxels);
+			handle.voxels_loaded(grid_id, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 }

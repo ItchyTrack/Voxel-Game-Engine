@@ -198,20 +198,19 @@ impl ChunkSource for SphereSource {
 		}
 	}
 
-	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if voxel_type != LodVoxel::TYPE_INFO.id || !self.is_mine(grid) {
-			return None;
-		}
+	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+		if !self.is_mine(grid) { return None; }
+		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "sphere source does not support requested voxel type");
 		let lo = chunk_origin(min).as_vec3();
 		let hi = chunk_origin(min + size).as_vec3();
 		region_intersects(lo, hi).then_some(COST)
 	}
 
-	fn request_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) {
+	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) {
 		let voxels = build_lod_region(min, size, lod, &cancellation);
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
-			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels);
+			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 }

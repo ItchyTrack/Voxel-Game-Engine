@@ -7,7 +7,7 @@ use lightyear::prelude::PeerId;
 use voxel_data::compressed_voxels::{CompressVoxelsError, CompressedVoxels};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
-use voxel_sources::{CancellationToken, TileVoxelCancellation, TileVoxelLoadRequest, VoxelSourcesRequestHandle};
+use voxel_sources::{CancellationToken, VoxelAreaCancellation, VoxelAreaMessageRequest, VoxelSourcesRequestHandle};
 
 use super::super::{
 	VoxelLoadFinished,
@@ -28,9 +28,9 @@ struct PendingChunkKey {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct PendingTileVoxelKey {
+struct PendingVoxelAreaKey {
 	grid: GridId,
-	key: voxel_sources::TileVoxelKey,
+	key: voxel_sources::VoxelAreaKey,
 	voxel_type: VoxelTypeId,
 }
 
@@ -45,7 +45,7 @@ struct ChunkPayload {
 	voxels: Option<CompressedVoxels>,
 }
 
-struct TileVoxelPayload {
+struct VoxelAreaPayload {
 	generation: u64,
 	voxel_type: VoxelTypeId,
 	voxels: Option<CompressedVoxels>,
@@ -61,14 +61,14 @@ struct ChunkVoxelLoad {
 	status: VoxelLoadStatus<ChunkPayload>,
 }
 
-struct TileVoxelLoad {
-	key: PendingTileVoxelKey,
-	status: VoxelLoadStatus<TileVoxelPayload>,
+struct VoxelAreaLoad {
+	key: PendingVoxelAreaKey,
+	status: VoxelLoadStatus<VoxelAreaPayload>,
 }
 
 enum ServerVoxelLoad {
 	Chunk(ChunkVoxelLoad),
-	TileVoxels(TileVoxelLoad),
+	VoxelArea(VoxelAreaLoad),
 }
 
 struct PendingChunkLoad {
@@ -76,9 +76,9 @@ struct PendingChunkLoad {
 	cancellation: CancellationToken,
 }
 
-struct PendingTileVoxelsLoad {
+struct PendingVoxelAreaLoad {
 	subscribers: HashSet<VoxelLoadOwner>,
-	cancellation: TileVoxelCancellation,
+	cancellation: VoxelAreaCancellation,
 }
 
 #[derive(Resource, Default)]
@@ -86,7 +86,7 @@ pub(crate) struct PendingVoxelLoads {
 	clients: HashMap<PeerId, HashMap<VoxelLoadId, ServerVoxelLoad>>,
 	cancelled: HashMap<PeerId, HashSet<VoxelLoadId>>,
 	chunk_loads: HashMap<PendingChunkKey, PendingChunkLoad>,
-	tile_voxel_loads: HashMap<PendingTileVoxelKey, PendingTileVoxelsLoad>,
+	voxel_area_loads: HashMap<PendingVoxelAreaKey, PendingVoxelAreaLoad>,
 }
 
 impl PendingVoxelLoads {
@@ -110,19 +110,19 @@ impl PendingVoxelLoads {
 					self.chunk_loads.insert(key, PendingChunkLoad { subscribers: HashSet::from([owner]), cancellation });
 				}
 			}
-			VoxelLoadRequestKind::TileVoxels { grid, key, voxel_type, priority } => {
-				let pending_key = PendingTileVoxelKey { grid, key, voxel_type };
-				self.clients.entry(peer).or_default().insert(request.id, ServerVoxelLoad::TileVoxels(TileVoxelLoad {
+			VoxelLoadRequestKind::VoxelArea { grid, key, voxel_type, priority } => {
+				let pending_key = PendingVoxelAreaKey { grid, key, voxel_type };
+				self.clients.entry(peer).or_default().insert(request.id, ServerVoxelLoad::VoxelArea(VoxelAreaLoad {
 					key: pending_key,
 					status: VoxelLoadStatus::Loading,
 				}));
-				if let Some(load) = self.tile_voxel_loads.get_mut(&pending_key) {
+				if let Some(load) = self.voxel_area_loads.get_mut(&pending_key) {
 					load.subscribers.insert(owner);
 				} else {
-					let cancellation = sources.request_tile_voxels(TileVoxelLoadRequest::raw(
+					let cancellation = sources.request_voxel_area(VoxelAreaMessageRequest::raw(
 						grid, Entity::PLACEHOLDER, key, voxel_type, 0, priority,
 					));
-					self.tile_voxel_loads.insert(pending_key, PendingTileVoxelsLoad { subscribers: HashSet::from([owner]), cancellation });
+					self.voxel_area_loads.insert(pending_key, PendingVoxelAreaLoad { subscribers: HashSet::from([owner]), cancellation });
 				}
 			}
 		}
@@ -162,16 +162,16 @@ impl PendingVoxelLoads {
 		Ok(())
 	}
 
-	pub(super) fn complete_tile_voxels(
+	pub(super) fn complete_voxel_area(
 		&mut self,
 		grid: GridId,
-		key: voxel_sources::TileVoxelKey,
+		key: voxel_sources::VoxelAreaKey,
 		generation: u64,
 		voxel_type: VoxelTypeId,
 		voxels: Option<&Voxels>,
 	) -> Result<(), CompressVoxelsError> {
-		let pending_key = PendingTileVoxelKey { grid, key, voxel_type };
-		let Some(load) = self.tile_voxel_loads.remove(&pending_key) else { return Ok(()) };
+		let pending_key = PendingVoxelAreaKey { grid, key, voxel_type };
+		let Some(load) = self.voxel_area_loads.remove(&pending_key) else { return Ok(()) };
 		let voxels = match compress(voxels) {
 			Ok(voxels) => voxels,
 			Err(err) => {
@@ -181,9 +181,9 @@ impl PendingVoxelLoads {
 				return Err(err);
 			}
 		};
-		let payload = Arc::new(TileVoxelPayload { generation, voxel_type, voxels });
+		let payload = Arc::new(VoxelAreaPayload { generation, voxel_type, voxels });
 		for owner in load.subscribers {
-			self.set_tile_voxels_ready(owner, pending_key, payload.clone());
+			self.set_voxel_area_ready(owner, pending_key, payload.clone());
 		}
 		Ok(())
 	}
@@ -204,11 +204,11 @@ impl PendingVoxelLoads {
 							},
 						}
 					}
-					ServerVoxelLoad::TileVoxels(TileVoxelLoad { key, status: VoxelLoadStatus::Ready { payload, next_send_at } }) if now >= *next_send_at => {
+					ServerVoxelLoad::VoxelArea(VoxelAreaLoad { key, status: VoxelLoadStatus::Ready { payload, next_send_at } }) if now >= *next_send_at => {
 						*next_send_at = now + RESPONSE_RETRY_INTERVAL.as_secs_f64();
 						VoxelLoadResponse {
 							id,
-							kind: VoxelLoadResponseKind::TileVoxels {
+							kind: VoxelLoadResponseKind::VoxelArea {
 								grid: key.grid,
 								key: key.key,
 								generation: payload.generation,
@@ -251,13 +251,13 @@ impl PendingVoxelLoads {
 					}
 				}
 			}
-			ServerVoxelLoad::TileVoxels(TileVoxelLoad { key, status: VoxelLoadStatus::Loading }) => {
-				let should_cancel = self.tile_voxel_loads.get_mut(&key).is_some_and(|load| {
+			ServerVoxelLoad::VoxelArea(VoxelAreaLoad { key, status: VoxelLoadStatus::Loading }) => {
+				let should_cancel = self.voxel_area_loads.get_mut(&key).is_some_and(|load| {
 					load.subscribers.remove(&owner);
 					load.subscribers.is_empty()
 				});
 				if should_cancel {
-					if let Some(load) = self.tile_voxel_loads.remove(&key) {
+					if let Some(load) = self.voxel_area_loads.remove(&key) {
 						load.cancellation.cancel();
 					}
 				}
@@ -290,8 +290,8 @@ impl PendingVoxelLoads {
 		}
 	}
 
-	fn set_tile_voxels_ready(&mut self, owner: VoxelLoadOwner, key: PendingTileVoxelKey, payload: Arc<TileVoxelPayload>) {
-		let Some(ServerVoxelLoad::TileVoxels(voxel_load)) = self.clients.get_mut(&owner.peer).and_then(|voxel_loads| voxel_loads.get_mut(&owner.id)) else { return };
+	fn set_voxel_area_ready(&mut self, owner: VoxelLoadOwner, key: PendingVoxelAreaKey, payload: Arc<VoxelAreaPayload>) {
+		let Some(ServerVoxelLoad::VoxelArea(voxel_load)) = self.clients.get_mut(&owner.peer).and_then(|voxel_loads| voxel_loads.get_mut(&owner.id)) else { return };
 		if voxel_load.key == key && matches!(voxel_load.status, VoxelLoadStatus::Loading) {
 			voxel_load.status = VoxelLoadStatus::Ready { payload, next_send_at: 0.0 };
 		}

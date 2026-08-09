@@ -25,8 +25,11 @@ use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 
 use ::tile_data::{TileCapabilityRegistry, TileData};
-use voxel_data::VoxelDataPlugin;
-use voxel_gpu::{GpuVoxelDataPlugin, SlangShader};
+use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
+use voxel_gpu::{
+	GpuVoxelDataPlugin, RenderingGeneratorAppExt, RenderingType, SlangShader,
+	VoxelGpuDataReaders,
+};
 
 use graphics_settings::GraphicsSettings;
 use direction_feedback::RenderStats;
@@ -47,6 +50,12 @@ impl RayTileCapabilityRegistry {
 
 pub trait VoxelRayTileAppExt {
 	fn register_ray_tile_data<T: tile_data::RayTileCapability>(&mut self) -> &mut Self;
+	fn register_voxel_ray_generator(
+		&mut self,
+		source_voxel_type: VoxelTypeId,
+		voxel_type: VoxelTypeId,
+		lod_levels: u8,
+	) -> &mut Self;
 }
 
 impl VoxelRayTileAppExt for App {
@@ -56,6 +65,21 @@ impl VoxelRayTileAppExt for App {
 		}
 		self.world_mut().resource_mut::<RayTileCapabilityRegistry>().register::<T>();
 		self
+	}
+
+	fn register_voxel_ray_generator(
+		&mut self,
+		source_voxel_type: VoxelTypeId,
+		voxel_type: VoxelTypeId,
+		lod_levels: u8,
+	) -> &mut Self {
+		let generator = tile_data::VoxelRayTileGenerator {
+			voxel_type,
+			lod_levels,
+			gpu: self.world().resource::<gpu_data::RayWorldGpuData>().clone(),
+			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
+		};
+		self.register_rendering_generator(RenderingType::Ray, source_voxel_type, generator)
 	}
 }
 
@@ -89,8 +113,9 @@ impl Plugin for VoxelRayRendererPlugin {
 		}
 		let render_stats = RenderStats::default();
 		app.init_resource::<gpu_data::RayWorldGpuData>()
-			.init_resource::<RayTileCapabilityRegistry>()
-			.insert_resource(render_stats.clone())
+			.init_resource::<RayTileCapabilityRegistry>();
+		app.register_ray_tile_data::<tile_data::RayTileData>();
+		app.insert_resource(render_stats.clone())
 			.init_resource::<GraphicsSettings>()
 			.add_systems(bevy::prelude::Update, (
 				gpu_data::collect_ray_gpu_garbage,

@@ -55,21 +55,19 @@ impl ChunkSource for VoxelStoreSource {
 		}
 	}
 
-	fn cost_tile_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
 		let grids = self.inner.grids.read().unwrap();
 		let store = grids.get(&grid)?;
-		if !store.has_any_in_region(min, size) { return None; }
-		let input = store.voxel_type_id_in_region(min, size)?;
-		if lod <= 0.0 && input == voxel_type
-			|| self.inner.handle.get()?.voxel_lod_generator(input, voxel_type).is_some()
-		{
-			Some(LOAD_COST)
-		} else {
-			None
-		}
+		let Some(input) = store.voxel_type_id() else { return None };
+		assert!(
+			lod <= 0.0 && input == voxel_type
+				|| self.inner.handle.get().and_then(|handle| handle.voxel_lod_generator(input, voxel_type)).is_some(),
+			"voxel store source does not support requested voxel type or LOD",
+		);
+		store.has_any_in_region(min, size).then_some(LOAD_COST)
 	}
 
-	fn request_tile_voxels(
+	fn request_voxel_area(
 		&self,
 		grid: GridId,
 		min: IVec3,
@@ -92,7 +90,7 @@ impl ChunkSource for VoxelStoreSource {
 		});
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
-			handle.loaded_tile_voxels(grid, min, size, lod, voxel_type, generation, voxels);
+			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
 

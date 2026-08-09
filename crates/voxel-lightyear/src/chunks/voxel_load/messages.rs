@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::TileVoxelKey;
+use voxel_sources::VoxelAreaKey;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct VoxelLoadId(pub u64);
@@ -19,13 +19,13 @@ pub(crate) struct VoxelLoadRequest {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub(crate) enum VoxelLoadRequestKind {
 	Chunk { grid: GridId, chunk: IVec3 },
-	TileVoxels { grid: GridId, key: TileVoxelKey, voxel_type: VoxelTypeId, priority: f32 },
+	VoxelArea { grid: GridId, key: VoxelAreaKey, voxel_type: VoxelTypeId, priority: f32 },
 }
 
 impl MapEntities for VoxelLoadRequest {
 	fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
 		let grid = match &mut self.kind {
-			VoxelLoadRequestKind::Chunk { grid, .. } | VoxelLoadRequestKind::TileVoxels { grid, .. } => grid,
+			VoxelLoadRequestKind::Chunk { grid, .. } | VoxelLoadRequestKind::VoxelArea { grid, .. } => grid,
 		};
 		*grid = entity_mapper.get_mapped(*grid);
 	}
@@ -45,9 +45,9 @@ pub(crate) enum VoxelLoadResponseKind {
 		generation: u64,
 		voxels: Option<CompressedVoxels>,
 	},
-	TileVoxels {
+	VoxelArea {
 		grid: GridId,
-		key: TileVoxelKey,
+		key: VoxelAreaKey,
 		generation: u64,
 		voxel_type: VoxelTypeId,
 		voxels: Option<CompressedVoxels>,
@@ -57,7 +57,7 @@ pub(crate) enum VoxelLoadResponseKind {
 impl MapEntities for VoxelLoadResponse {
 	fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
 		let grid = match &mut self.kind {
-			VoxelLoadResponseKind::Chunk { grid, .. } | VoxelLoadResponseKind::TileVoxels { grid, .. } => grid,
+			VoxelLoadResponseKind::Chunk { grid, .. } | VoxelLoadResponseKind::VoxelArea { grid, .. } => grid,
 		};
 		*grid = entity_mapper.get_mapped(*grid);
 	}

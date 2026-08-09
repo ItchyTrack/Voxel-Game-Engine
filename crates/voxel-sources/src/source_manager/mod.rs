@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use bevy::ecs::resource::Resource;
 use bevy::math::IVec3;
 use crossbeam_channel::{Receiver, Sender, unbounded};
+use rustc_hash::FxHashMap;
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
@@ -65,7 +66,7 @@ impl Default for SourceManager {
 		let (work_tx, work_rx) = unbounded();
 		Self {
 			sources: Vec::new(),
-			generators: Arc::new(RwLock::new(HashMap::new())),
+			generators: Arc::new(RwLock::new(FxHashMap::default())),
 			changes: SourceChangeEmitter::new(generations.clone(), message_tx.clone()),
 			message_tx,
 			message_rx,

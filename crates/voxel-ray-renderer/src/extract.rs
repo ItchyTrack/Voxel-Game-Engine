@@ -53,12 +53,6 @@ struct ResidencyCandidate<'a> {
 	directions: IncomingRayDirections,
 }
 
-const PRIORITY_BUCKET_SCALE: f32 = 16.0;
-
-fn priority_bucket(priority: f32) -> usize {
-	priority.max(0.0).ln_1p().mul_add(PRIORITY_BUCKET_SCALE, 0.0) as usize
-}
-
 pub fn extract_voxel_scene(
 	mut extracted_scenes: ResMut<ExtractedVoxelScenes>,
 	mut residency: ResMut<ResidencyBuffers>,
@@ -93,11 +87,10 @@ pub fn extract_voxel_scene(
 				priority: global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0,
 			});
 		}
-		items.sort_unstable_by_key(|item| (priority_bucket(item.priority), item.entity.to_bits()));
+		items.sort_unstable_by_key(|item| ((item.priority * 100.0) as u64, item.entity.to_bits()));
 		views.push((render_entity, items));
 	}
 
-	let world_gpu = world_gpu.lock();
 	let tree_alignment = residency.tree_alignment();
 	let voxel_alignment = residency.voxel_alignment();
 	let limit = residency.binding_limit();
@@ -120,12 +113,13 @@ pub fn extract_voxel_scene(
 		}
 	}
 	let mut candidates: Vec<ResidencyCandidate<'_>> = candidates.into_values().collect();
-	candidates.sort_unstable_by_key(|candidate| (priority_bucket(candidate.item.priority), candidate.item.entity.to_bits()));
+	candidates.sort_unstable_by_key(|candidate| ((candidate.item.priority * 100.0) as u64, candidate.item.entity.to_bits()));
 
 	let mut tree_total = 0u64;
 	let mut voxel_total = 0u64;
 	let mut resident: Vec<ResidentVoxels> = Vec::with_capacity(candidates.len());
 	let mut dropped = 0usize;
+	let world_gpu = world_gpu.lock();
 	for candidate in candidates {
 		if candidate.directions.is_empty() { continue; }
 		let item = candidate.item;

@@ -12,21 +12,21 @@ use voxel_data::voxels::VoxelTypeId;
 use voxel_tasks::CancellationToken;
 
 use crate::source_manager::SourceManager;
-use crate::TileLoaded;
 
 pub use loader::{
-	ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, PresenceLoadRequest, TileLoadRequest,
-	TileVoxelCancellation, TileVoxelKey, TileVoxelLoadRequest,
+	ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, PresenceLoadRequest,
+	VoxelAreaCancellation, VoxelAreaKey, VoxelAreaMessageRequest, VoxelAreaLoadEvent,
+	VoxelAreaLoadRequest, VoxelAreaLoadResult,
 };
 pub use request_handle::{VoxelSourcesRequestHandle, VoxelSourcesRequestHandleGetter};
 
-use loader::{PendingTileVoxelRequest, ReaderRequest};
+use loader::{PendingVoxelAreaRequest, ReaderRequest};
 use request_handle::VoxelSourceRequesterId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct VoxelReaderKey {
 	grid: GridId,
-	key: TileVoxelKey,
+	key: VoxelAreaKey,
 	voxel_type: VoxelTypeId,
 }
 
@@ -37,7 +37,7 @@ struct ActiveChunkLoad {
 }
 
 struct PendingVoxelLoad {
-	requests: Vec<PendingTileVoxelRequest>,
+	requests: Vec<PendingVoxelAreaRequest>,
 	required_generation: u64,
 	source_cancellation: CancellationToken,
 }
@@ -49,22 +49,17 @@ pub(crate) struct VoxelReader {
 	pending_presence: HashMap<GridId, HashSet<VoxelSourceRequesterId>>,
 	active_chunks: HashMap<(GridId, bevy::math::IVec3), ActiveChunkLoad>,
 	pending_voxels: HashMap<VoxelReaderKey, PendingVoxelLoad>,
-	tile_tx: Sender<TileLoaded>,
-	tile_rx: Receiver<TileLoaded>,
 }
 
 impl Default for VoxelReader {
 	fn default() -> Self {
 		let (request_tx, request_rx) = unbounded();
-		let (tile_tx, tile_rx) = unbounded();
 		Self {
 			request_tx,
 			request_rx,
 			pending_presence: HashMap::new(),
 			active_chunks: HashMap::new(),
 			pending_voxels: HashMap::new(),
-			tile_tx,
-			tile_rx,
 		}
 	}
 }
@@ -72,14 +67,6 @@ impl Default for VoxelReader {
 impl VoxelReader {
 	pub(crate) fn request_sender(&self) -> Sender<ReaderRequest> {
 		self.request_tx.clone()
-	}
-
-	pub(crate) fn tile_sender(&self) -> Sender<TileLoaded> {
-		self.tile_tx.clone()
-	}
-
-	pub(crate) fn get_completed_tiles(&self) -> Vec<TileLoaded> {
-		self.tile_rx.try_iter().collect()
 	}
 
 	pub(crate) fn process_requests(&mut self, sources: &SourceManager) {
@@ -109,10 +96,10 @@ impl VoxelReader {
 						previous.cancellation.cancel();
 					}
 				}
-				ReaderRequest::TileVoxels { requester, request, cancellation } => {
-					self.request_voxels(sources, requester, request, cancellation);
+				ReaderRequest::VoxelArea { requester, request, cancellation, target } => {
+					self.request_voxels(sources, requester, request, cancellation, target);
 				}
-				ReaderRequest::CancelTileVoxels { requester, grid, key, voxel_type } => {
+				ReaderRequest::CancelVoxelArea { requester, grid, key, voxel_type } => {
 					self.cancel_voxels(requester, VoxelReaderKey { grid, key, voxel_type });
 				}
 				ReaderRequest::ReleaseRequester { requester } => self.release_requester(requester),
@@ -124,8 +111,9 @@ impl VoxelReader {
 		&mut self,
 		sources: &SourceManager,
 		requester: VoxelSourceRequesterId,
-		request: TileVoxelLoadRequest,
+		request: VoxelAreaLoadRequest,
 		cancellation: CancellationToken,
+		target: loader::VoxelCompletionTarget,
 	) {
 		let source_cancellation = CancellationToken::new();
 		let generation = sources.request_voxels(
@@ -138,7 +126,7 @@ impl VoxelReader {
 			source_cancellation.clone(),
 		);
 		let key = VoxelReaderKey { grid: request.grid, key: request.key, voxel_type: request.voxel_type };
-		let pending_request = PendingTileVoxelRequest { requester, request, cancellation };
+		let pending_request = PendingVoxelAreaRequest { requester, request, cancellation, target };
 		match self.pending_voxels.get_mut(&key) {
 			Some(load) if generation <= load.required_generation => {
 				source_cancellation.cancel();
@@ -225,10 +213,10 @@ impl VoxelReader {
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
-	) -> Vec<PendingTileVoxelRequest> {
+	) -> Vec<PendingVoxelAreaRequest> {
 		let key = VoxelReaderKey {
 			grid,
-			key: TileVoxelKey { min, size, lod: lod.max(0.0).floor() as u8 },
+			key: VoxelAreaKey { min, size, lod: lod.max(0.0).floor() as u8 },
 			voxel_type,
 		};
 		let Some(load) = self.pending_voxels.get(&key) else { return Vec::new() };

@@ -1,7 +1,6 @@
 mod client_rendering;
 
 use bevy::app::{PluginGroup, PluginGroupBuilder};
-use bevy::prelude::*;
 use voxel_data::VoxelDataPlugin;
 use voxel_edit::VoxelEditPlugin;
 use voxel_gpu::GpuVoxelDataPlugin;
@@ -10,7 +9,6 @@ use voxel_physics::VoxelPhysicsPlugin;
 use voxel_streaming::VoxelStreamingPlugin;
 
 use crate::client_rendering::ClientRenderingPlugins;
-pub use crate::client_rendering::VoxelRenderTileClasses;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VoxelEngineMode {
@@ -18,13 +16,6 @@ pub enum VoxelEngineMode {
 	Server,
 	Client,
 	Host,
-}
-
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
-pub enum VoxelCameraMode {
-	#[default]
-	Ray,
-	Raster,
 }
 
 pub struct VoxelEnginePlugins {

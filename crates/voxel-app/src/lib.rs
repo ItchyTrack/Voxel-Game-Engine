@@ -24,20 +24,7 @@ use ui::crosshair::CrosshairPlugin;
 use ui::debug_toggles::DebugTogglesPlugin;
 use ui::debug_ui::DebugUiPlugin;
 use scene::gravity::GravityPlugin;
-use basic_voxel::{BasicVoxelPlugin, LodVoxel};
-use voxel_data::voxels::VoxelType;
-use tile_data::TileAppExt;
-use voxel_ray_renderer::{
-	VoxelRayTileAppExt,
-	gpu_data::RayWorldGpuData,
-	tile_data::{RayTileData, VoxelRayTileGenerator},
-};
-use voxel_raster_renderer::{
-	VoxelRasterTileAppExt,
-	gpu_data::RasterWorldGpuData,
-	tile_data::{RasterTileData, VoxelRasterTileGenerator},
-};
-use voxel_gpu::VoxelGpuDataReaders;
+use basic_voxel::BasicVoxelPlugin;
 use voxel_content::VoxelStoreSourcePlugin;
 #[cfg(not(target_arch = "wasm32"))]
 use networking::network_client::NetworkClientPlugin;
@@ -45,11 +32,12 @@ use networking::network_client::NetworkClientPlugin;
 use networking::network_server::NetworkServerPlugin;
 use scene::scene::ScenePlugin;
 use scene::skybox::SkyboxPlugin;
-use voxel_engine::{VoxelCameraMode, VoxelEngineMode, VoxelEnginePlugins, VoxelRenderTileClasses};
+use voxel_engine::{VoxelEngineMode, VoxelEnginePlugins};
 use scene::world_interaction::WorldInteractionPlugin;
 
 
 use crate::voxel::planet_source::ProceduralPlanetPlugin;
+use crate::voxel::rendering::VoxelAppRenderingPlugin;
 use crate::voxel::tree_source::TreeSourcePlugin;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -106,25 +94,6 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 		.add_plugins(GravityPlugin)
 		.add_systems(Startup, setup);
 
-	if matches!(mode, VoxelEngineMode::Client | VoxelEngineMode::Host) {
-		app.register_ray_tile_data::<RayTileData>()
-			.register_raster_tile_data::<RasterTileData>();
-		let readers = app.world().resource::<VoxelGpuDataReaders>().clone();
-		let ray = app.register_tile_class(VoxelRayTileGenerator {
-			voxel_type: LodVoxel::TYPE_INFO.id,
-			lod_levels: 0,
-			gpu: app.world().resource::<RayWorldGpuData>().clone(),
-			readers: readers.clone(),
-		});
-		let raster = app.register_tile_class(VoxelRasterTileGenerator {
-			voxel_type: LodVoxel::TYPE_INFO.id,
-			lod_levels: 0,
-			gpu: app.world().resource::<RasterWorldGpuData>().clone(),
-			readers,
-		});
-		app.insert_resource(VoxelRenderTileClasses { ray, raster });
-	}
-
 	match mode {
 		VoxelEngineMode::Server => {
 			app.add_plugins((VoxelStoreSourcePlugin, ProceduralPlanetPlugin, TreeSourcePlugin::default(), ScenePlugin));
@@ -144,6 +113,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 
 	if matches!(mode, VoxelEngineMode::Client | VoxelEngineMode::Host) {
 		app.add_plugins((
+			VoxelAppRenderingPlugin,
 			SkyboxPlugin,
 			CrosshairPlugin,
 			FlyCameraPlugin,
@@ -239,7 +209,6 @@ fn setup(mut commands: Commands) {
 		Msaa::Off,
 		Transform::from_xyz(0.0, 0.0, 200.0).looking_at(Vec3::ZERO, Vec3::Y),
 		FlyCamera::default(),
-		VoxelCameraMode::Ray,
 	));
 }
 

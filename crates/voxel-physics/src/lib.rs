@@ -10,8 +10,9 @@ pub mod sparse_set;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
+use rustc_hash::FxHashMap;
 use voxel_data::{grid::Grid, voxels::{VoxelRef, VoxelType, VoxelTypeId}};
 
 pub use constraints::BallJoint;
@@ -56,7 +57,7 @@ type VoxelMassReader = Arc<dyn Fn(&VoxelRef) -> Option<f64> + Send + Sync>;
 
 #[derive(Resource, Default, Clone)]
 pub struct VoxelMassReaders {
-	readers: HashMap<VoxelTypeId, VoxelMassReader>,
+	readers: FxHashMap<VoxelTypeId, VoxelMassReader>,
 }
 
 impl VoxelMassReaders {

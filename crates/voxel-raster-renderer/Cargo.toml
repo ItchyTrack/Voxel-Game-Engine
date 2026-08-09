@@ -8,8 +8,6 @@ default = []
 shader_hot_reload = ["bevy/embedded_watcher"]
 
 [dependencies]
-anyhow = "1.0"
-crossbeam-channel = "0.5.15"
 log = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }

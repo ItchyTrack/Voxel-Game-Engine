@@ -20,8 +20,11 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 
 use ::tile_data::{TileCapabilityRegistry, TileData};
-use voxel_data::VoxelDataPlugin;
-use voxel_gpu::{GpuVoxelDataPlugin, SlangShader, SlangShaderSettings};
+use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
+use voxel_gpu::{
+	GpuVoxelDataPlugin, RenderingGeneratorAppExt, RenderingType, SlangShader,
+	SlangShaderSettings, VoxelGpuDataReaders,
+};
 
 #[derive(Component)]
 pub struct VoxelRasterShader;
@@ -39,6 +42,12 @@ impl RasterTileCapabilityRegistry {
 
 pub trait VoxelRasterTileAppExt {
 	fn register_raster_tile_data<T: tile_data::RasterTileCapability>(&mut self) -> &mut Self;
+	fn register_voxel_raster_generator(
+		&mut self,
+		source_voxel_type: VoxelTypeId,
+		voxel_type: VoxelTypeId,
+		lod_levels: u8,
+	) -> &mut Self;
 }
 
 impl VoxelRasterTileAppExt for App {
@@ -48,6 +57,21 @@ impl VoxelRasterTileAppExt for App {
 		}
 		self.world_mut().resource_mut::<RasterTileCapabilityRegistry>().register::<T>();
 		self
+	}
+
+	fn register_voxel_raster_generator(
+		&mut self,
+		source_voxel_type: VoxelTypeId,
+		voxel_type: VoxelTypeId,
+		lod_levels: u8,
+	) -> &mut Self {
+		let generator = tile_data::VoxelRasterTileGenerator {
+			voxel_type,
+			lod_levels,
+			gpu: self.world().resource::<gpu_data::RasterWorldGpuData>().clone(),
+			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
+		};
+		self.register_rendering_generator(RenderingType::Raster, source_voxel_type, generator)
 	}
 }
 
@@ -69,8 +93,9 @@ impl Plugin for VoxelRasterRendererPlugin {
 			.with_settings(move |current: &mut SlangShaderSettings| *current = settings.clone())
 			.load(shader_sources::ROOT_SHADER_ASSET);
 		app.init_resource::<gpu_data::RasterWorldGpuData>()
-			.init_resource::<RasterTileCapabilityRegistry>()
-			.add_systems(bevy::prelude::Update, gpu_data::collect_raster_gpu_garbage);
+			.init_resource::<RasterTileCapabilityRegistry>();
+		app.register_raster_tile_data::<tile_data::RasterTileData>();
+		app.add_systems(bevy::prelude::Update, gpu_data::collect_raster_gpu_garbage);
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return; };
 		render_app.world_mut().spawn((VoxelRasterShader, SlangShader::new(shader)));

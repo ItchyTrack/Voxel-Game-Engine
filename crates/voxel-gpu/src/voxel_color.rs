@@ -1,7 +1,8 @@
-use std::{collections::HashMap, sync::{Arc, RwLock}};
+use std::sync::{Arc, RwLock};
 
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResource;
+use rustc_hash::FxHashMap;
 use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeId};
 
 type VoxelGpuEncoderFactoryFn = Arc<dyn for<'bytes> Fn(&[VoxelRef<'bytes>], &mut Vec<u8>) -> Box<dyn VoxelGpuBlockEncoder> + Send + Sync>;
@@ -15,7 +16,7 @@ pub type VoxelShaderRegistration = (VoxelTypeId, &'static str, &'static str);
 
 #[derive(Resource, ExtractResource, Default, Clone)]
 pub struct VoxelGpuDataReaders {
-	readers: HashMap<VoxelTypeId, VoxelGpuDataReader>,
+	readers: FxHashMap<VoxelTypeId, VoxelGpuDataReader>,
 }
 
 impl VoxelGpuDataReaders {
@@ -33,7 +34,7 @@ impl VoxelGpuDataReaders {
 
 #[derive(Resource, Default, Clone)]
 pub struct VoxelGpuShaderTypes {
-	types: Arc<RwLock<HashMap<VoxelTypeId, (&'static str, &'static str)>>>,
+	types: Arc<RwLock<FxHashMap<VoxelTypeId, (&'static str, &'static str)>>>,
 }
 
 impl VoxelGpuShaderTypes {

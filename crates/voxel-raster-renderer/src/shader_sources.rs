@@ -1,4 +1,4 @@
-use voxel_gpu::shader_compiler::{ShaderResult, SlangStage};
+use voxel_gpu::shader_compiler::SlangStage;
 use voxel_gpu::{SlangAssetEntry, SlangAssetFile, SlangShaderSettings};
 
 pub const ROOT_SHADER_ASSET: &str = "embedded://voxel_raster_renderer/shaders/raster_voxel.slang";
@@ -16,12 +16,6 @@ pub fn asset_settings() -> SlangShaderSettings {
 			SlangAssetEntry { source: "raster_voxel.slang".into(), entry: "fs_main".into(), stage: SlangStage::Fragment },
 		],
 		linkages: Vec::new(),
+		create_bevy_shader: true,
 	}
-}
-
-pub fn from_compiled(shaders: &[String]) -> ShaderResult<String> {
-	if shaders.len() != 2 {
-		return Err(std::io::Error::other("expected two compiled voxel raster shader stages").into());
-	}
-	Ok(shaders.join("\n"))
 }

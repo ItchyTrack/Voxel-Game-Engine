@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use bevy::math::U16Vec3;
-use tile_data::{TileData, TileGenerator, TileGeneratorInput};
+use tile_data::{TileData, TileGenerationSession, TileGenerator, VoxelArea, VoxelAreaRequest};
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo};
 use voxel_gpu::{AllocationId, PackedBufferAllocation, VoxelGpuDataReaders};
 
@@ -56,7 +56,6 @@ impl RayTileCapability for RayTileData {
 	}
 }
 
-#[derive(Clone)]
 pub struct VoxelRayTileGenerator {
 	pub voxel_type: VoxelTypeId,
 	pub lod_levels: u8,
@@ -64,13 +63,17 @@ pub struct VoxelRayTileGenerator {
 	pub readers: VoxelGpuDataReaders,
 }
 
+#[tile_data::async_trait]
 impl TileGenerator for VoxelRayTileGenerator {
-	fn voxel_type(&self) -> VoxelTypeId { self.voxel_type }
-	fn lod_levels(&self) -> u8 { self.lod_levels }
-
-	fn generate(&self, input: TileGeneratorInput) -> Option<Box<dyn TileData>> {
+	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
+		let area = VoxelArea { min: session.key.min, size: session.key.size };
+		session.request_voxels(VoxelAreaRequest {
+			area,
+			lod: session.key.lod.saturating_sub(self.lod_levels),
+			voxel_type: self.voxel_type,
+		});
+		let input = session.receive_merged_voxels(area).await?;
 		let (bounds_min, bounds_max) = input.voxels.bounding_box()?;
-		assert_eq!(input.voxels.voxel_type_id(), self.voxel_type);
 		let placement = RayTilePlacement {
 			tree_root_pos: input.voxels.grid_tree().view().root_pos(),
 			bounds_min,
@@ -79,16 +82,13 @@ impl TileGenerator for VoxelRayTileGenerator {
 		let voxel_type = input.voxels.voxel_type_info();
 		let (tree, voxels) = make_gpu_grid_tree(input.voxels.grid_tree(), voxel_type, &self.readers);
 		let mut gpu = self.gpu.lock();
-		let tree = gpu.trees.add_buffer(&tree).expect("failed to allocate ray tile tree data");
-		let voxels = gpu.voxels.add_buffer(&voxels).expect("failed to allocate ray tile voxel data");
-		let generation = gpu.next_generation();
 		Some(Box::new(RayTileData {
-			tree,
-			voxels,
-			generation,
+			tree: gpu.trees.add_buffer(&tree).expect("failed to allocate ray tile tree data"),
+			voxels: gpu.voxels.add_buffer(&voxels).expect("failed to allocate ray tile voxel data"),
+			generation: gpu.next_generation(),
 			placement,
 			voxel_type,
-			voxel_lod: input.voxel_lod,
+			voxel_lod: input.lod,
 		}))
 	}
 }

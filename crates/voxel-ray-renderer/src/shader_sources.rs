@@ -96,6 +96,7 @@ pub fn asset_settings(shader_types: &VoxelGpuShaderTypes) -> SlangShaderSettings
 			voxel_linkage.clone(),
 			voxel_linkage,
 		],
+		create_bevy_shader: false,
 	}
 }
 
