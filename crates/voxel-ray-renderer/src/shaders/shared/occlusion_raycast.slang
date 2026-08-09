@@ -1,32 +1,16 @@
 #pragma once
 
-#include "bvh/data.slang"
 #include "bvh/raycast.slang"
 #include "direction_feedback.slang"
-#include "dda/data.slang"
 #include "dda/raycast.slang"
 #include "helpers/quat.slang"
 
-struct RaycastHit {
-	uint normal;
-	uint bvh_item_idx;
-	uint voxel_data_index;
-	uint voxel_index;
-	uint sample_octant;
-	float total_dist;
-};
-
-RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
-	RaycastHit best;
-	best.normal = 0;
-	best.sample_octant = 0u;
-	best.total_dist = max_dist;
-
+bool occlusion_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 	BVH::ExactRaycastPolicy bvh_policy;
 	var iter = BVH::iter_new(ray_pos, ray_dir, bvh_policy);
 
 	for (;;) {
-		let candidate = BVH::iter_next(iter, best.total_dist);
+		let candidate = BVH::iter_next(iter, max_dist);
 		if (!candidate.valid) { break; }
 
 		let item = bvh_items[candidate.bvh_item_idx];
@@ -39,26 +23,19 @@ RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 		record_bvh_item_directions(candidate.bvh_item_idx, local_dir);
 		let data_source = item.aabb_size >> 24u;
 		if (data_source == 0u) { continue; }
-		let remaining = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
+		let remaining = min(max_dist - candidate.dist, candidate.aabb_internal_dist);
 		DDAHit dda_hit;
 		if ((data_source == 2u)) {
 			dda_hit = dda_raycast<MainDDADataSource>(local_pos, local_dir, remaining / item.scale, item.item_index);
 		} else {
 			dda_hit = dda_raycast<ResidencyDDADataSource>(local_pos, local_dir, remaining / item.scale, item.item_index);
 		}
-
 		if ((dda_hit.normal != 0)) {
 			let total = candidate.dist + dda_hit.dist * item.scale;
-			if ((total < best.total_dist)) {
-				best.normal = dda_hit.normal;
-				best.bvh_item_idx = candidate.bvh_item_idx;
-				best.voxel_data_index = dda_hit.voxel_data_index;
-				best.voxel_index = dda_hit.voxel_index;
-				best.sample_octant = dda_hit.sample_octant;
-				best.total_dist = total;
+			if ((total < max_dist)) {
+				return true;
 			}
 		}
 	}
-
-	return best;
+	return false;
 }

@@ -1,5 +1,6 @@
 #include "bvh/data.slang"
 #include "combined_raycast.slang"
+#include "occlusion_raycast.slang"
 
 // 0 : camera uniform
 // 1 : BVH (nodes + items)
