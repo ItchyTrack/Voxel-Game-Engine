@@ -1,5 +1,7 @@
 use bevy::ecs::resource::Resource;
+use bevy::math::UVec4;
 use bevy::render::extract_resource::ExtractResource;
+use bevy::render::render_resource::ShaderType;
 
 #[derive(Resource, ExtractResource, Clone, Copy, Debug)]
 pub struct GraphicsSettings {
@@ -18,14 +20,13 @@ impl GraphicsSettings {
 	}
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone, Default, ShaderType)]
 pub struct RenderSettingsUniform {
-	values: [u32; 4],
+	values: UVec4,
 }
 
 impl RenderSettingsUniform {
 	pub fn from_graphics_settings(settings: &GraphicsSettings) -> Self {
-		Self { values: [settings.shadows as u32, 0, 0, 0] }
+		Self { values: UVec4::new(settings.shadows as u32, 0, 0, 0) }
 	}
 }

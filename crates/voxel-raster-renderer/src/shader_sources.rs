@@ -1,26 +1,27 @@
-use voxel_gpu::shader_compiler::{ShaderResult, SlangEntry, SlangStage};
+use voxel_gpu::shader_compiler::{ShaderResult, SlangStage};
+use voxel_gpu::{SlangAssetEntry, SlangAssetFile, SlangShaderSettings};
 
-const ENTRIES: &[SlangEntry<'_>] = &[
-	SlangEntry { source: "raster_voxel.slang", entry: "vs_main", stage: SlangStage::Vertex },
-	SlangEntry { source: "raster_voxel.slang", entry: "fs_main", stage: SlangStage::Fragment },
-];
+pub const ROOT_SHADER_ASSET: &str = "embedded://voxel_raster_renderer/shaders/raster_voxel.slang";
 
-pub fn embedded() -> ShaderResult<String> {
-	let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-	let local_shader_dir = manifest_dir.join("src/shaders");
-	one(voxel_gpu::shader_sources::compile_embedded(&local_shader_dir, &local_shader_dir, ENTRIES, &[])?)
+pub fn asset_settings() -> SlangShaderSettings {
+	SlangShaderSettings {
+		files: vec![SlangAssetFile {
+			asset_path: ROOT_SHADER_ASSET.into(),
+			compile_path: "raster/raster_voxel.slang".into(),
+		}],
+		base_dir: "raster".into(),
+		include_dirs: vec!["raster".into()],
+		entries: vec![
+			SlangAssetEntry { source: "raster_voxel.slang".into(), entry: "vs_main".into(), stage: SlangStage::Vertex },
+			SlangAssetEntry { source: "raster_voxel.slang".into(), entry: "fs_main".into(), stage: SlangStage::Fragment },
+		],
+		linkages: Vec::new(),
+	}
 }
 
-#[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
-pub fn load_from_disk() -> ShaderResult<String> {
-	let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-	let local_shader_dir = manifest_dir.join("src/shaders");
-	one(voxel_gpu::shader_sources::compile_from_disk(&local_shader_dir, &local_shader_dir, ENTRIES, &[])?)
-}
-
-fn one(shaders: Vec<String>) -> ShaderResult<String> {
-	if shaders.is_empty() {
-		return Err(std::io::Error::other("raster Slang compiler returned no shader").into());
+pub fn from_compiled(shaders: &[String]) -> ShaderResult<String> {
+	if shaders.len() != 2 {
+		return Err(std::io::Error::other("expected two compiled voxel raster shader stages").into());
 	}
 	Ok(shaders.join("\n"))
 }

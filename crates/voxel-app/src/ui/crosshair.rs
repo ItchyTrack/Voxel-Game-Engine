@@ -1,21 +1,32 @@
+use bevy::asset::{Handle, embedded_asset, load_embedded_asset};
 use bevy::core_pipeline::tonemapping::tonemapping;
 use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::prelude::*;
+use bevy::render::render_resource::{
+	BindGroupLayoutDescriptor, CachedRenderPipelineId, FragmentState, PipelineCache,
+	RenderPipelineDescriptor, ShaderType, UniformBuffer, VertexState,
+};
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery, WgpuWrapper};
 use bevy::render::view::ViewTarget;
 use bevy::render::{Render, RenderApp, RenderSystems};
 
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
-type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
-type GpuRenderPipeline = WgpuWrapper<wgpu::RenderPipeline>;
+
+#[derive(Clone, Copy, Default, ShaderType)]
+struct CrosshairUniform {
+	screen_size: Vec4,
+}
 
 #[derive(Default)]
 pub struct CrosshairPlugin;
 
 impl Plugin for CrosshairPlugin {
 	fn build(&self, app: &mut App) {
+		embedded_asset!(app, "../shaders/crosshair.wgsl");
+		let shader = load_embedded_asset!(app, "../shaders/crosshair.wgsl");
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
+			.insert_resource(CrosshairShader(shader))
 			.init_resource::<CrosshairResource>()
 			.add_systems(Render, prepare_crosshair.in_set(RenderSystems::PrepareBindGroups))
 			.add_systems(
@@ -27,6 +38,9 @@ impl Plugin for CrosshairPlugin {
 	}
 }
 
+#[derive(Resource)]
+struct CrosshairShader(Handle<Shader>);
+
 #[derive(Resource, Default)]
 struct CrosshairResource {
 	renderer: Option<CrosshairRenderer>,
@@ -34,34 +48,38 @@ struct CrosshairResource {
 }
 
 impl CrosshairResource {
-	fn ensure(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+	fn ensure(
+		&mut self,
+		render_device: &RenderDevice,
+		render_queue: &RenderQueue,
+		pipeline_cache: &PipelineCache,
+		shader: &Handle<Shader>,
+		format: wgpu::TextureFormat,
+	) {
 		if self.format == Some(format) && self.renderer.is_some() { return; }
-		self.renderer = Some(CrosshairRenderer::new(device, format));
+		self.renderer = Some(CrosshairRenderer::new(render_device, render_queue, pipeline_cache, shader, format));
 		self.format = Some(format);
 	}
 }
 
 struct CrosshairRenderer {
-	pipeline: GpuRenderPipeline,
-	buffer: GpuBuffer,
+	pipeline: CachedRenderPipelineId,
+	buffer: UniformBuffer<CrosshairUniform>,
 	bind_group: GpuBindGroup,
 }
 
 impl CrosshairRenderer {
-	fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
-		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-			label: Some("Crosshair Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/crosshair.wgsl").into()),
-		});
-		let buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
-			label: Some("Crosshair Screen Size"),
-			size: 16,
-			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-			mapped_at_creation: false,
-		}));
-		let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			label: Some("Crosshair BGL"),
-			entries: &[wgpu::BindGroupLayoutEntry {
+	fn new(
+		render_device: &RenderDevice,
+		render_queue: &RenderQueue,
+		pipeline_cache: &PipelineCache,
+		shader: &Handle<Shader>,
+		format: wgpu::TextureFormat,
+	) -> Self {
+		let device = render_device.wgpu_device();
+		let layout_descriptor = BindGroupLayoutDescriptor::new(
+			"Crosshair BGL",
+			&[wgpu::BindGroupLayoutEntry {
 				binding: 0,
 				visibility: wgpu::ShaderStages::FRAGMENT,
 				ty: wgpu::BindingType::Buffer {
@@ -71,33 +89,31 @@ impl CrosshairRenderer {
 				},
 				count: None,
 			}],
-		});
-		let bind_group = {
-			let buffer = &*buffer;
-			WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
-				label: Some("Crosshair BG"),
-				layout: &bgl,
-				entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
-			}))
-		};
-		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			label: Some("Crosshair Pipeline Layout"),
-			bind_group_layouts: &[Some(&bgl)],
-			immediate_size: 0,
-		});
-		let pipeline = WgpuWrapper::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-			label: Some("Crosshair Pipeline"),
-			layout: Some(&pipeline_layout),
-			vertex: wgpu::VertexState {
-				module: &shader,
-				entry_point: Some("vs_main"),
-				buffers: &[],
-				compilation_options: wgpu::PipelineCompilationOptions::default(),
+		);
+		let layout = pipeline_cache.get_bind_group_layout(&layout_descriptor);
+		let mut buffer = UniformBuffer::from(CrosshairUniform::default());
+		buffer.set_label(Some("Crosshair Screen Size"));
+		buffer.write_buffer(render_device, render_queue);
+		let bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+			label: Some("Crosshair BG"),
+			layout: &layout,
+			entries: &[wgpu::BindGroupEntry {
+				binding: 0,
+				resource: buffer.binding().expect("crosshair uniform buffer must be initialized"),
+			}],
+		}));
+		let pipeline = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
+			label: Some("Crosshair Pipeline".into()),
+			layout: vec![layout_descriptor],
+			vertex: VertexState {
+				shader: shader.clone(),
+				entry_point: Some("vs_main".into()),
+				..default()
 			},
-			fragment: Some(wgpu::FragmentState {
-				module: &shader,
-				entry_point: Some("fs_main"),
-				targets: &[Some(wgpu::ColorTargetState {
+			fragment: Some(FragmentState {
+				shader: shader.clone(),
+				entry_point: Some("fs_main".into()),
+				targets: vec![Some(wgpu::ColorTargetState {
 					format,
 					blend: Some(wgpu::BlendState {
 						color: wgpu::BlendComponent {
@@ -109,14 +125,12 @@ impl CrosshairRenderer {
 					}),
 					write_mask: wgpu::ColorWrites::ALL,
 				})],
-				compilation_options: wgpu::PipelineCompilationOptions::default(),
+				..default()
 			}),
 			primitive: wgpu::PrimitiveState::default(),
-			depth_stencil: None,
 			multisample: wgpu::MultisampleState::default(),
-			multiview_mask: None,
-			cache: None,
-		}));
+			..default()
+		});
 
 		Self { pipeline, buffer, bind_group }
 	}
@@ -125,27 +139,36 @@ impl CrosshairRenderer {
 fn prepare_crosshair(
 	render_device: Res<RenderDevice>,
 	render_queue: Res<RenderQueue>,
+	pipeline_cache: Res<PipelineCache>,
+	shader: Res<CrosshairShader>,
 	mut crosshair: ResMut<CrosshairResource>,
 	views: Query<&ViewTarget>,
 ) {
 	let Some(view_target) = views.iter().next() else { return };
-	crosshair.ensure(render_device.wgpu_device(), view_target.main_texture_format());
+	crosshair.ensure(
+		&render_device,
+		&render_queue,
+		&pipeline_cache,
+		&shader.0,
+		view_target.main_texture_format(),
+	);
 
-	let Some(renderer) = crosshair.renderer.as_ref() else { return };
+	let Some(renderer) = crosshair.renderer.as_mut() else { return };
 	let main_texture = view_target.main_texture();
-	let mut bytes = [0u8; 8];
-	bytes[0..4].copy_from_slice(&(main_texture.width() as f32).to_le_bytes());
-	bytes[4..8].copy_from_slice(&(main_texture.height() as f32).to_le_bytes());
-	render_queue.write_buffer(&renderer.buffer, 0, &bytes);
+	renderer.buffer.set(CrosshairUniform {
+		screen_size: Vec4::new(main_texture.width() as f32, main_texture.height() as f32, 0.0, 0.0),
+	});
+	renderer.buffer.write_buffer(&render_device, &render_queue);
 }
 
 fn crosshair_pass(
-	world: &World,
+	crosshair: Res<CrosshairResource>,
+	pipeline_cache: Res<PipelineCache>,
 	view: ViewQuery<&ViewTarget>,
 	mut render_context: RenderContext,
 ) {
-	let crosshair = world.resource::<CrosshairResource>();
 	let Some(renderer) = crosshair.renderer.as_ref() else { return };
+	let Some(pipeline) = pipeline_cache.get_render_pipeline(renderer.pipeline) else { return };
 
 	let encoder = render_context.command_encoder();
 	let view = view.into_inner().main_texture_view();
@@ -165,7 +188,7 @@ fn crosshair_pass(
 		timestamp_writes: None,
 		multiview_mask: None,
 	});
-	pass.set_pipeline(&renderer.pipeline);
+	pass.set_pipeline(pipeline);
 	pass.set_bind_group(0, &*renderer.bind_group, &[]);
 	pass.draw(0..3, 0..1);
 }

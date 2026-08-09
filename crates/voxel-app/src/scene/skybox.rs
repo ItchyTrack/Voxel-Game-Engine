@@ -1,7 +1,12 @@
+use bevy::asset::{Handle, embedded_asset, load_embedded_asset};
 use bevy::camera::{Camera, Projection};
 use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::prelude::*;
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
+use bevy::render::render_resource::{
+	BindGroupLayoutDescriptor, CachedRenderPipelineId, FragmentState, PipelineCache,
+	RenderPipelineDescriptor, UniformBuffer, VertexState,
+};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery, WgpuWrapper};
 use bevy::render::view::ViewTarget;
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::transform::components::GlobalTransform;
@@ -9,19 +14,19 @@ use bevy::transform::components::GlobalTransform;
 use voxel_raster_renderer::render_node::voxel_raster_render_pass;
 use voxel_ray_renderer::camera::CameraUniform;
 use voxel_ray_renderer::render_node::voxel_render_pass;
-use bevy::render::renderer::WgpuWrapper;
 
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
-type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
-type GpuRenderPipeline = WgpuWrapper<wgpu::RenderPipeline>;
 
 #[derive(Default)]
 pub struct SkyboxPlugin;
 
 impl Plugin for SkyboxPlugin {
 	fn build(&self, app: &mut App) {
+		embedded_asset!(app, "../shaders/skybox.wgsl");
+		let shader = load_embedded_asset!(app, "../shaders/skybox.wgsl");
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
+			.insert_resource(SkyboxShader(shader))
 			.init_resource::<SkyboxCamera>()
 			.init_resource::<SkyboxResource>()
 			.add_systems(ExtractSchedule, extract_skybox_camera)
@@ -36,6 +41,9 @@ impl Plugin for SkyboxPlugin {
 	}
 }
 
+#[derive(Resource)]
+struct SkyboxShader(Handle<Shader>);
+
 #[derive(Resource, Default)]
 struct SkyboxCamera(Option<(Transform, Projection)>);
 
@@ -46,56 +54,82 @@ struct SkyboxResource {
 }
 
 impl SkyboxResource {
-	fn ensure(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+	fn ensure(
+		&mut self,
+		render_device: &RenderDevice,
+		render_queue: &RenderQueue,
+		pipeline_cache: &PipelineCache,
+		shader: &Handle<Shader>,
+		format: wgpu::TextureFormat,
+	) {
 		if self.format == Some(format) && self.renderer.is_some() { return; }
-		self.renderer = Some(SkyboxRenderer::new(device, format));
+		self.renderer = Some(SkyboxRenderer::new(render_device, render_queue, pipeline_cache, shader, format));
 		self.format = Some(format);
 	}
 }
 
 struct SkyboxRenderer {
-	pipeline: GpuRenderPipeline,
-	buffer: GpuBuffer,
+	pipeline: CachedRenderPipelineId,
+	buffer: UniformBuffer<CameraUniform>,
 	bind_group: GpuBindGroup,
 }
 
 impl SkyboxRenderer {
-	fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
-		let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-			label: Some("Skybox Shader"),
-			source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/skybox.wgsl").into()),
-		});
-		let (buffer, bind_group, layout) = CameraUniform::get_buffer(device, 0);
-		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			label: Some("Skybox Pipeline Layout"),
-			bind_group_layouts: &[Some(&layout)],
-			immediate_size: 0,
-		});
-		let pipeline = WgpuWrapper::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-			label: Some("Skybox Pipeline"),
-			layout: Some(&pipeline_layout),
-			vertex: wgpu::VertexState {
-				module: &shader,
-				entry_point: Some("vs_main"),
-				buffers: &[],
-				compilation_options: wgpu::PipelineCompilationOptions::default(),
+	fn new(
+		render_device: &RenderDevice,
+		render_queue: &RenderQueue,
+		pipeline_cache: &PipelineCache,
+		shader: &Handle<Shader>,
+		format: wgpu::TextureFormat,
+	) -> Self {
+		let device = render_device.wgpu_device();
+		let layout_descriptor = BindGroupLayoutDescriptor::new(
+			"Skybox Camera Bind Group Layout",
+			&[wgpu::BindGroupLayoutEntry {
+				binding: 0,
+				visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+				ty: wgpu::BindingType::Buffer {
+					ty: wgpu::BufferBindingType::Uniform,
+					has_dynamic_offset: false,
+					min_binding_size: None,
+				},
+				count: None,
+			}],
+		);
+		let layout = pipeline_cache.get_bind_group_layout(&layout_descriptor);
+		let mut buffer = UniformBuffer::from(CameraUniform::default());
+		buffer.set_label(Some("camera_buffer"));
+		buffer.write_buffer(render_device, render_queue);
+		let bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+			layout: &layout,
+			entries: &[wgpu::BindGroupEntry {
+				binding: 0,
+				resource: buffer.binding().expect("skybox camera uniform buffer must be initialized"),
+			}],
+			label: Some("skybox_camera_bind_group"),
+		}));
+		let pipeline = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
+			label: Some("Skybox Pipeline".into()),
+			layout: vec![layout_descriptor],
+			vertex: VertexState {
+				shader: shader.clone(),
+				entry_point: Some("vs_main".into()),
+				..default()
 			},
-			fragment: Some(wgpu::FragmentState {
-				module: &shader,
-				entry_point: Some("fs_main"),
-				targets: &[Some(wgpu::ColorTargetState {
+			fragment: Some(FragmentState {
+				shader: shader.clone(),
+				entry_point: Some("fs_main".into()),
+				targets: vec![Some(wgpu::ColorTargetState {
 					format,
 					blend: Some(wgpu::BlendState::REPLACE),
 					write_mask: wgpu::ColorWrites::ALL,
 				})],
-				compilation_options: wgpu::PipelineCompilationOptions::default(),
+				..default()
 			}),
 			primitive: wgpu::PrimitiveState::default(),
-			depth_stencil: None,
 			multisample: wgpu::MultisampleState::default(),
-			multiview_mask: None,
-			cache: None,
-		}));
+			..default()
+		});
 		Self { pipeline, buffer, bind_group }
 	}
 }
@@ -113,26 +147,36 @@ fn extract_skybox_camera(
 fn prepare_skybox(
 	render_device: Res<RenderDevice>,
 	render_queue: Res<RenderQueue>,
+	pipeline_cache: Res<PipelineCache>,
+	shader: Res<SkyboxShader>,
 	mut skybox: ResMut<SkyboxResource>,
 	skybox_camera: Res<SkyboxCamera>,
 	views: Query<&ViewTarget>,
 ) {
 	let Some(view_target) = views.iter().next() else { return };
-	skybox.ensure(render_device.wgpu_device(), view_target.main_texture_format());
+	skybox.ensure(
+		&render_device,
+		&render_queue,
+		&pipeline_cache,
+		&shader.0,
+		view_target.main_texture_format(),
+	);
 
-	let Some(renderer) = skybox.renderer.as_ref() else { return };
+	let Some(renderer) = skybox.renderer.as_mut() else { return };
 	let Some((transform, projection)) = skybox_camera.0.as_ref() else { return };
 	let Ok(uniform) = CameraUniform::from_camera(transform, projection) else { return };
-	render_queue.write_buffer(&renderer.buffer, 0, uniform.as_bytes());
+	renderer.buffer.set(uniform);
+	renderer.buffer.write_buffer(&render_device, &render_queue);
 }
 
 fn skybox_pass(
-	world: &World,
+	skybox: Res<SkyboxResource>,
+	pipeline_cache: Res<PipelineCache>,
 	view: ViewQuery<&ViewTarget>,
 	mut render_context: RenderContext,
 ) {
-	let skybox = world.resource::<SkyboxResource>();
 	let Some(renderer) = skybox.renderer.as_ref() else { return };
+	let Some(pipeline) = pipeline_cache.get_render_pipeline(renderer.pipeline) else { return };
 
 	let view_target = view.into_inner();
 	let color_attachment = view_target.get_color_attachment();
@@ -145,7 +189,7 @@ fn skybox_pass(
 		timestamp_writes: None,
 		multiview_mask: None,
 	});
-	pass.set_pipeline(&renderer.pipeline);
+	pass.set_pipeline(pipeline);
 	pass.set_bind_group(0, &*renderer.bind_group, &[]);
 	pass.draw(0..3, 0..1);
 }

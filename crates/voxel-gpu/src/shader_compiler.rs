@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type ShaderResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SlangStage {
 	Vertex,
 	Fragment,
@@ -31,19 +31,19 @@ pub struct SlangEntry<'a> {
 	pub stage: SlangStage,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SlangModule {
 	pub path: PathBuf,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SlangConformance {
 	pub ty: String,
 	pub interface: String,
 	pub id: u16,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SlangLinkage {
 	pub modules: Vec<SlangModule>,
 	pub conformances: Vec<SlangConformance>,

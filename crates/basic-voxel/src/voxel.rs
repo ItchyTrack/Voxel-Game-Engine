@@ -185,7 +185,7 @@ impl VoxelGpuData for BasicVoxel {
 	type Encoder = BasicVoxelGpuEncoder;
 
 	fn shader_source() -> &'static str {
-		concat!(env!("CARGO_MANIFEST_DIR"), "/src/shaders/basic_voxel.slang")
+		"embedded://basic_voxel/shaders/basic_voxel.slang"
 	}
 
 	fn shader_sampler() -> &'static str {
@@ -214,7 +214,7 @@ impl VoxelGpuData for LodVoxel {
 	type Encoder = LodVoxelGpuEncoder;
 
 	fn shader_source() -> &'static str {
-		concat!(env!("CARGO_MANIFEST_DIR"), "/src/shaders/lod_voxel.slang")
+		"embedded://basic_voxel/shaders/lod_voxel.slang"
 	}
 
 	fn shader_sampler() -> &'static str {

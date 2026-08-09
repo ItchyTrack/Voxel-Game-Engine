@@ -13,6 +13,8 @@ pub struct BasicVoxelPlugin;
 
 impl Plugin for BasicVoxelPlugin {
 	fn build(&self, app: &mut App) {
+		bevy::asset::embedded_asset!(app, "shaders/basic_voxel.slang");
+		bevy::asset::embedded_asset!(app, "shaders/lod_voxel.slang");
 		app
 			.register_voxel_lod_generator(BasicVoxelLodGenerator)
 			.register_voxel_lod_generator(LodVoxelLodGenerator)

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResource;
@@ -9,8 +9,6 @@ type VoxelGpuEncoderFactoryFn = Arc<dyn for<'bytes> Fn(&[VoxelRef<'bytes>], &mut
 #[derive(Clone)]
 struct VoxelGpuDataReader {
 	create_encoder: VoxelGpuEncoderFactoryFn,
-	shader_source: &'static str,
-	shader_sampler: &'static str,
 }
 
 pub type VoxelShaderRegistration = (VoxelTypeId, &'static str, &'static str);
@@ -24,8 +22,6 @@ impl VoxelGpuDataReaders {
 	pub fn register<T: VoxelGpuData>(&mut self) {
 		self.readers.insert(T::TYPE_INFO.id, VoxelGpuDataReader {
 			create_encoder: Arc::new(move |voxels, header| Box::new(T::create_voxel_gpu_encoder(voxels, header))),
-			shader_source: T::shader_source(),
-			shader_sampler: T::shader_sampler(),
 		});
 	}
 
@@ -33,13 +29,24 @@ impl VoxelGpuDataReaders {
 		let reader = self.readers.get(&type_id)?;
 		Some((reader.create_encoder)(voxels, header))
 	}
+}
 
-	pub fn shader_sources(&self) -> Vec<VoxelShaderRegistration> {
-		let mut sources = self.readers.iter()
-			.map(|(type_id, reader)| (*type_id, reader.shader_source, reader.shader_sampler))
+#[derive(Resource, Default, Clone)]
+pub struct VoxelGpuShaderTypes {
+	types: Arc<RwLock<HashMap<VoxelTypeId, (&'static str, &'static str)>>>,
+}
+
+impl VoxelGpuShaderTypes {
+	pub fn register<T: VoxelGpuData>(&mut self) {
+		self.types.write().unwrap().insert(T::TYPE_INFO.id, (T::shader_source(), T::shader_sampler()));
+	}
+
+	pub fn registrations(&self) -> Vec<VoxelShaderRegistration> {
+		let mut registrations = self.types.read().unwrap().iter()
+			.map(|(type_id, (source, sampler))| (*type_id, *source, *sampler))
 			.collect::<Vec<_>>();
-		sources.sort_by_key(|source| source.0.0);
-		sources
+		registrations.sort_by_key(|registration| registration.0.0);
+		registrations
 	}
 }
 
@@ -83,7 +90,11 @@ impl VoxelGpuAppExt for App {
 		if !self.world().contains_resource::<VoxelGpuDataReaders>() {
 			self.init_resource::<VoxelGpuDataReaders>();
 		}
+		if !self.world().contains_resource::<VoxelGpuShaderTypes>() {
+			self.init_resource::<VoxelGpuShaderTypes>();
+		}
 		self.world_mut().resource_mut::<VoxelGpuDataReaders>().register::<T>();
+		self.world_mut().resource_mut::<VoxelGpuShaderTypes>().register::<T>();
 		self
 	}
 }

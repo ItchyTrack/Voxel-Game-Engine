@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bevy::ecs::entity::Entity;
+use bevy::render::render_resource::Buffer;
 use bevy::render::renderer::WgpuWrapper;
 use voxel_data::bvh;
 
@@ -17,14 +18,10 @@ use crate::shader_sources::VoxelShaderSources;
 pub const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
 
 pub struct VoxelRenderer {
-	pub color_format: wgpu::TextureFormat,
-	pub camera_bind_group_layout: GpuBindGroupLayout,
 	// Beam optimisation for BVH
 	pub bvh_beam_textured: GpuTexture,
 	pub bvh_beam_textured_storage_bind_group_layout: GpuBindGroupLayout,
 	pub bvh_beam_textured_storage_bind_group: GpuBindGroup,
-	pub bvh_beam_textured_read_bind_group_layout: GpuBindGroupLayout,
-	pub bvh_beam_textured_read_bind_group: GpuBindGroup,
 	// 64 tree
 	pub tree_bind_group_layout: GpuBindGroupLayout,
 	// voxel data
@@ -132,19 +129,6 @@ impl VoxelRenderer {
 			}],
 			label: Some("bvh_beam_storage_layout"),
 		}));
-		let bvh_beam_textured_read_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[wgpu::BindGroupLayoutEntry {
-				binding: 0,
-				visibility: wgpu::ShaderStages::COMPUTE,
-				ty: wgpu::BindingType::Texture {
-					sample_type: wgpu::TextureSampleType::Float { filterable: false },
-					view_dimension: wgpu::TextureViewDimension::D2,
-					multisampled: false,
-				},
-				count: None,
-			}],
-			label: Some("bvh_beam_read_layout"),
-		}));
 		let bvh_beam_textured = WgpuWrapper::new(device.create_texture(&wgpu::TextureDescriptor {
 			label: Some("bvh_beam_texture"),
 			size: wgpu::Extent3d { width: config.width / BVH_BEAM_TEXTURE_FACTOR, height: config.height / BVH_BEAM_TEXTURE_FACTOR, depth_or_array_layers: 1 },
@@ -163,15 +147,6 @@ impl VoxelRenderer {
 				label: Some("bvh_beam_storage_bind_group"),
 			}))
 		};
-		let bvh_beam_textured_read_bind_group = {
-			let view = texture_view(&bvh_beam_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&bvh_beam_textured);
-			WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
-				layout: &bvh_beam_textured_read_bind_group_layout,
-				entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
-				label: Some("bvh_beam_read_bind_group"),
-			}))
-		};
-
 		let ray_marching_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[
 				wgpu::BindGroupLayoutEntry {
@@ -241,7 +216,7 @@ impl VoxelRenderer {
 			}))
 		};
 
-		let gpu_bvh_layout = GpuBvh::<Entity>::bind_group_layout(device);
+		let gpu_bvh_layout = GpuBvh::bind_group_layout(device);
 		let bvh_beam_pipeline = {
 			let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("Beam Shader"),
@@ -331,14 +306,10 @@ impl VoxelRenderer {
 		};
 
 		Ok(Self {
-			color_format,
-			camera_bind_group_layout: camera_bind_group_layout.clone(),
 			// bvh beam optimization
 			bvh_beam_textured_storage_bind_group_layout,
-			bvh_beam_textured_read_bind_group_layout,
 			bvh_beam_textured,
 			bvh_beam_textured_storage_bind_group,
-			bvh_beam_textured_read_bind_group,
 			bvh_beam_pipeline,
 			// 64 tree
 			tree_bind_group_layout,
@@ -369,9 +340,10 @@ impl VoxelRenderer {
 		voxel_buffer: &GpuBuffer,
 		main_tree_buffer: &GpuBuffer,
 		main_voxel_buffer: &GpuBuffer,
+		direction_mask_buffer: &Buffer,
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
-	) -> GpuBvh<Entity> {
-		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
+	) -> GpuBvh {
+		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data, direction_mask_buffer);
 		let tree_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &self.tree_bind_group_layout,
 			entries: &[
@@ -423,14 +395,6 @@ impl VoxelRenderer {
 			render_pass.set_pipeline(&self.coloring_pipeline);
 			render_pass.draw(0..3, 0..1);
 		}
-
-		encoder.copy_buffer_to_buffer(
-			&gpu_bvh.item_direction_mask_buffer,
-			0,
-			&gpu_bvh.item_direction_mask_staging_buffer,
-			0,
-			gpu_bvh.item_direction_mask_buffer.size(),
-		);
 
 		gpu_bvh
 	}

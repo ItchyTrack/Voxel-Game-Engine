@@ -85,19 +85,20 @@ pub struct BvhItemData {
 	pub voxel_type: VoxelTypeInfo,
 }
 
-pub struct GpuBvh<Id> {
+pub struct GpuBvh {
 	pub bvh_buffer: GpuBuffer,
 	pub items_buffer: GpuBuffer,
 	pub bind_group: GpuBindGroup,
-	pub item_direction_mask_buffer: GpuBuffer,
-	pub item_direction_mask_staging_buffer: GpuBuffer,
-	pub item_count: usize,
 	pub bind_group_layout: GpuBindGroupLayout,
-	pub item_ids: Vec<Id>,
 }
 
-impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
-	pub fn from_bvh(device: &Device, bvh: &bvh::BVH<Id>, item_data_by_id: &HashMap<Id, BvhItemData>) -> Self {
+impl GpuBvh {
+	pub fn from_bvh<Id: Copy + Debug + PartialEq + Eq + Hash>(
+		device: &Device,
+		bvh: &bvh::BVH<Id>,
+		item_data_by_id: &HashMap<Id, BvhItemData>,
+		item_direction_mask_buffer: &wgpu::Buffer,
+	) -> Self {
 		let (nodes, items) = bvh.internals();
 
 		let mut gpu_nodes: Vec<GpuBVHNode> = Vec::with_capacity(nodes.len() + 1);
@@ -126,7 +127,6 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 		}));
 
 		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
-		let mut item_ids: Vec<_> = Vec::with_capacity(items.len());
 		for item in items {
 			let data = item_data_by_id
 				.get(&item.0)
@@ -148,7 +148,6 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 				quat: data.transform.rotation.to_array(),
 				scale: data.transform.scale.x,
 			}));
-			item_ids.push(item.0);
 		}
 
 		if item_data.is_empty() {
@@ -161,34 +160,18 @@ impl<Id: Copy + Debug + PartialEq + Eq + Hash> GpuBvh<Id> {
 			usage: wgpu::BufferUsages::STORAGE,
 		}));
 
-		let item_count = items.len().max(1);
-		let direction_mask_size = (item_count.div_ceil(4) * std::mem::size_of::<u32>()) as u64;
-
-		let item_direction_mask_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
-			label: Some("bvh_item_direction_mask_buffer"),
-			size: direction_mask_size,
-			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-			mapped_at_creation: false,
-		}));
-		let item_direction_mask_staging_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
-			label: Some("bvh_item_direction_mask_staging_buffer"),
-			size: direction_mask_size,
-			usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-			mapped_at_creation: false,
-		}));
-
 		let bind_group_layout = Self::bind_group_layout(device);
 		let bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &bind_group_layout,
 			entries: &[
 				wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &bvh_buffer, offset: 0, size: None }) },
 				wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &items_buffer, offset: 0, size: None }) },
-				wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &item_direction_mask_buffer, offset: 0, size: None }) },
+				wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: item_direction_mask_buffer, offset: 0, size: None }) },
 			],
 			label: Some("bvh_bind_group"),
 		}));
 
-		Self { bvh_buffer, items_buffer, item_direction_mask_buffer, item_direction_mask_staging_buffer, item_count, bind_group, bind_group_layout, item_ids }
+		Self { bvh_buffer, items_buffer, bind_group, bind_group_layout }
 	}
 
 	pub fn bind_group_layout(device: &Device) -> GpuBindGroupLayout {

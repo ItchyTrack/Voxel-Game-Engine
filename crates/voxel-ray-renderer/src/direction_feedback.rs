@@ -1,21 +1,25 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
+use bevy::asset::{AssetEvent, Assets, RenderAssetUsages};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Res, ResMut};
-use bevy::render::renderer::RenderDevice;
+use bevy::ecs::system::{Commands, Query, ResMut};
+use bevy::prelude::{Component, Entity, On};
+use bevy::render::gpu_readback::{Readback, ReadbackComplete};
+use bevy::render::storage::ShaderBuffer;
+use bevy::render::MainWorld;
 
-use bevy::prelude::Entity;
+use crate::extract::ExtractedVoxelScene;
 use crate::incoming_ray_directions::IncomingRayDirections;
-
-use crate::gpu_bvh::GpuBvh;
 
 #[derive(Resource, Clone, Default)]
 pub struct DirectionFeedback(pub HashMap<Entity, IncomingRayDirections>);
 
-#[derive(Resource, Default)]
-pub struct LastGpuBvh(pub Mutex<Option<GpuBvh<Entity>>>);
+#[derive(Component)]
+struct DirectionMaskReadback {
+	item_ids: Vec<Entity>,
+	completed: bool,
+}
 
 /// GPU-side render stats published by the render world for the main world to read.
 #[derive(Resource, Clone, Default)]
@@ -29,46 +33,48 @@ pub struct RenderStatsData {
 	pub bvh_leaf_bytes: u64,
 }
 
-const READBACK_TIMEOUT: Duration = Duration::from_millis(100);
-
-/// Read back the previous frame's packed per-item local direction masks.
-pub fn read_back_direction_masks(
-	render_device: Res<RenderDevice>,
-	last_gpu_bvh: ResMut<LastGpuBvh>,
-	mut feedback: ResMut<DirectionFeedback>,
+/// Create a GPU buffer and an entity that will asynchronously read its direction masks back.
+pub fn prepare_direction_mask_readback(
+	mut main_world: ResMut<MainWorld>,
+	mut extracted_scenes: Query<&mut ExtractedVoxelScene>,
 ) {
-	let Some(prev) = last_gpu_bvh.0.lock().ok().and_then(
-		|mut slot| slot.take()
-	) else { return };
+	for mut extracted in &mut extracted_scenes {
+		let Some(item_ids) = extracted.bvh.as_ref().map(|bvh| {
+			bvh.internals().1.iter().map(|item| item.0).collect::<Vec<_>>()
+		}) else { continue };
 
-	let (tx, rx) = std::sync::mpsc::channel();
-	{
-		let staging = prev.item_direction_mask_staging_buffer.slice(..);
-		staging.map_async(wgpu::MapMode::Read, move |result| { let _ = tx.send(result); });
+		let direction_mask_size = item_ids.len().div_ceil(4) * size_of::<u32>();
+		let mut buffer = ShaderBuffer::with_size(direction_mask_size, RenderAssetUsages::RENDER_WORLD);
+		buffer.buffer_description.label = Some("bvh_item_direction_mask_buffer");
+		buffer.buffer_description.usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC;
+
+		let handle = main_world.resource_mut::<Assets<ShaderBuffer>>().add(buffer);
+		main_world.write_message(AssetEvent::Added { id: handle.id() });
+		extracted.direction_mask_buffer = Some(handle.clone());
+		main_world
+			.spawn((Readback::buffer(handle), DirectionMaskReadback { item_ids, completed: false }))
+			.observe(read_back_direction_masks);
+	}
+}
+
+fn read_back_direction_masks(
+	event: On<ReadbackComplete>,
+	mut readbacks: Query<&mut DirectionMaskReadback>,
+	mut feedback: ResMut<DirectionFeedback>,
+	mut commands: Commands,
+) {
+	let Ok(mut readback) = readbacks.get_mut(event.entity) else { return };
+	if readback.completed { return; }
+	readback.completed = true;
+
+	feedback.0.clear();
+	for (item_index, id) in readback.item_ids.iter().enumerate() {
+		let byte_index = (item_index / 4) * size_of::<u32>();
+		let Some(bytes) = event.data.get(byte_index..byte_index + size_of::<u32>()) else { break };
+		let word = u32::from_ne_bytes(bytes.try_into().expect("direction mask word has four bytes"));
+		let shift = (item_index % 4) * 8;
+		feedback.0.insert(*id, IncomingRayDirections::from_bits_truncate((word >> shift) as u8));
 	}
 
-	let polled = render_device.wgpu_device().poll(wgpu::PollType::Wait {
-		submission_index: None,
-		timeout: Some(READBACK_TIMEOUT),
-	});
-
-	if polled.is_err() || !matches!(rx.try_recv(), Ok(Ok(()))) {
-		return;
-	}
-
-	{
-		let staging = prev.item_direction_mask_staging_buffer.slice(..);
-		let view = staging.get_mapped_range();
-		let words: &[u32] = bytemuck::cast_slice(&view);
-		let n = prev.item_count.min(prev.item_ids.len());
-
-		feedback.0.clear();
-		for (item_index, id) in prev.item_ids[..n].iter().enumerate() {
-			let word = words[item_index / 4];
-			let shift = (item_index % 4) * 8;
-			feedback.0.insert(*id, IncomingRayDirections::from_bits_truncate((word >> shift) as u8));
-		}
-		drop(view);
-		prev.item_direction_mask_staging_buffer.unmap();
-	}
+	commands.entity(event.entity).despawn();
 }

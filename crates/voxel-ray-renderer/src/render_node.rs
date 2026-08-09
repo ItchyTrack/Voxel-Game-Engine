@@ -1,77 +1,107 @@
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Res, ResMut};
-use bevy::ecs::world::World;
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::render::render_asset::RenderAssets;
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
-use bevy::render::view::ViewTarget;
+use bevy::render::storage::GpuShaderBuffer;
+use bevy::render::view::{ExtractedView, ViewTarget, ViewUniformOffset, ViewUniforms};
 
 use crate::camera::CameraUniform;
+use crate::direction_feedback::RenderStats;
 use crate::extract::ExtractedVoxelScene;
 use crate::graphics_settings::{GraphicsSettings, RenderSettingsUniform};
-use crate::direction_feedback::{LastGpuBvh, RenderStats};
-use crate::voxel_renderer_resource::VoxelRendererResource;
-use voxel_gpu::VoxelGpuDataReaders;
-
-#[derive(Resource, Default)]
-pub struct VoxelViewBindGroups {
-	pub ready: bool,
-}
+use crate::voxel_renderer_resource::{VoxelRendererResource, VoxelViewResources};
+use crate::VoxelRayShader;
+use voxel_gpu::SlangShaderParam;
 
 pub fn prepare_voxel_view_bind_groups(
+	mut commands: Commands,
 	render_device: Res<RenderDevice>,
 	render_queue: Res<RenderQueue>,
-	extracted: Res<ExtractedVoxelScene>,
+	view_uniforms: Res<ViewUniforms>,
 	graphics_settings: Res<GraphicsSettings>,
-	voxel_data_readers: Res<VoxelGpuDataReaders>,
+	mut shader: SlangShaderParam<VoxelRayShader>,
 	mut voxel_resource: ResMut<VoxelRendererResource>,
-	mut bind_groups: ResMut<VoxelViewBindGroups>,
-	views: bevy::ecs::system::Query<&ViewTarget>,
+	mut views: Query<(
+		bevy::ecs::entity::Entity,
+		&ExtractedView,
+		&ViewTarget,
+		&ViewUniformOffset,
+		Option<&mut VoxelViewResources>,
+	), bevy::ecs::query::With<ExtractedVoxelScene>>,
 ) {
-	bind_groups.ready = false;
-
-	if !extracted.has_camera { return; }
-	let Some(projection) = extracted.camera_projection.as_ref() else { return };
-
-	let Some(view_target) = views.iter().next() else { return };
-	let main_texture = view_target.main_texture();
-	let width = main_texture.width();
-	let height = main_texture.height();
-	let format = view_target.main_texture_format();
-
-	voxel_resource.ensure(render_device.wgpu_device(), width, height, format, &voxel_data_readers);
-	if voxel_resource.voxel_renderer.is_none() { return; }
-
-	let Ok(cam_uniform) = CameraUniform::from_camera(&extracted.camera_transform, projection) else {
-		log::warn!("voxel renderer: unsupported camera projection (expected perspective)");
-		return;
-	};
-
-	render_queue.write_buffer(&voxel_resource.camera_buffer, 0, bytemuck::bytes_of(&cam_uniform));
+	let view_uniforms_ready = view_uniforms.uniforms.binding().is_some();
 	let settings = RenderSettingsUniform::from_graphics_settings(&graphics_settings);
-	render_queue.write_buffer(&voxel_resource.render_settings_buffer, 0, bytemuck::bytes_of(&settings));
+	voxel_resource.render_settings_buffer.set(settings);
+	voxel_resource.render_settings_buffer.write_buffer(&render_device, &render_queue);
+	let shader = shader.get();
 
-	bind_groups.ready = true;
+	for (entity, extracted_view, view_target, _view_uniform_offset, prepared) in &mut views {
+		let Some(shader) = shader.as_ref() else {
+			if let Some(mut prepared) = prepared { prepared.ready = false; }
+			continue;
+		};
+		if !view_uniforms_ready {
+			if let Some(mut prepared) = prepared { prepared.ready = false; }
+			continue;
+		}
+		let Ok(camera_uniform) = CameraUniform::from_view(extracted_view) else {
+			log::warn!("voxel renderer: unsupported camera projection (expected perspective)");
+			if let Some(mut prepared) = prepared { prepared.ready = false; }
+			continue;
+		};
+		let main_texture = view_target.main_texture();
+		let width = main_texture.width();
+		let height = main_texture.height();
+		let format = view_target.main_texture_format();
+		let device = render_device.wgpu_device();
+
+		if let Some(mut prepared) = prepared {
+			prepared.ready = false;
+			prepared.camera_buffer.set(camera_uniform);
+			prepared.camera_buffer.write_buffer(&render_device, &render_queue);
+			prepared.ensure(
+				device,
+				width,
+				height,
+				format,
+				&voxel_resource.camera_bind_group_layout,
+				shader,
+			);
+			prepared.ready = prepared.voxel_renderer.is_some();
+		} else {
+			let mut prepared = VoxelViewResources::new(device, &render_device, &render_queue, &voxel_resource);
+			prepared.camera_buffer.set(camera_uniform);
+			prepared.camera_buffer.write_buffer(&render_device, &render_queue);
+			prepared.ensure(
+				device,
+				width,
+				height,
+				format,
+				&voxel_resource.camera_bind_group_layout,
+				shader,
+			);
+			prepared.ready = prepared.voxel_renderer.is_some();
+			commands.entity(entity).insert(prepared);
+		}
+	}
 }
 
 pub fn voxel_render_pass(
-	world: &World,
-	view: ViewQuery<&ViewTarget>,
+	render_stats: Res<RenderStats>,
+	shader_buffers: Res<RenderAssets<GpuShaderBuffer>>,
+	view: ViewQuery<(
+		&ViewTarget,
+		&ExtractedVoxelScene,
+		&VoxelViewResources,
+	)>,
 	mut render_context: RenderContext,
 ) {
-	if !world.resource::<VoxelViewBindGroups>().ready { return; }
-
-	let voxel_resource = world.resource::<VoxelRendererResource>();
-	let Some(voxel_renderer) = voxel_resource.voxel_renderer.as_ref() else { return };
-
-	let extracted = world.resource::<ExtractedVoxelScene>();
+	let (view_target, extracted, prepared) = view.into_inner();
+	if !prepared.ready { return; }
+	let Some(voxel_renderer) = prepared.voxel_renderer.as_ref() else { return };
 	let Some(bvh) = extracted.bvh.as_ref() else { return };
-	let (Some(tree_buffer), Some(voxel_buffer), Some(main_tree_buffer), Some(main_voxel_buffer)) = (
-		extracted.tree_buffer.as_ref(),
-		extracted.voxel_buffer.as_ref(),
-		extracted.main_tree_buffer.as_ref(),
-		extracted.main_voxel_buffer.as_ref(),
-	) else { return };
+	let Some(direction_mask_handle) = extracted.direction_mask_buffer.as_ref() else { return };
+	let Some(direction_mask_buffer) = shader_buffers.get(direction_mask_handle) else { return };
 
-	let view_target = view.into_inner();
 	let device = render_context.render_device().wgpu_device().clone();
 	let encoder = render_context.command_encoder();
 	let main_texture = view_target.main_texture();
@@ -82,24 +112,19 @@ pub fn voxel_render_pass(
 		encoder,
 		main_texture.width(),
 		main_texture.height(),
-		&voxel_resource.camera_bind_group,
+		&prepared.camera_bind_group,
 		bvh,
 		&extracted.bvh_item_data,
-		tree_buffer,
-		voxel_buffer,
-		main_tree_buffer,
-		main_voxel_buffer,
+		&extracted.tree_buffer,
+		&extracted.voxel_buffer,
+		&extracted.main_tree_buffer,
+		&extracted.main_voxel_buffer,
+		&direction_mask_buffer.buffer,
 		color_attachment,
 	);
 
-	if let Ok(mut stats) = world.resource::<RenderStats>().inner.lock() {
+	if let Ok(mut stats) = render_stats.inner.lock() {
 		stats.bvh_bytes = gpu_bvh.bvh_buffer.size();
 		stats.bvh_leaf_bytes = gpu_bvh.items_buffer.size();
-	}
-
-	// Hold onto the GpuBvh so next frame's prepare can read back its
-	// item-direction-mask staging buffer.
-	if let Ok(mut slot) = world.resource::<LastGpuBvh>().0.lock() {
-		*slot = Some(gpu_bvh);
 	}
 }

@@ -19,6 +19,7 @@ bytemuck = { workspace = true }
 bitflags = { workspace = true }
 tracy-client = { workspace = true }
 bevy = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
 orderly-allocator = "0.2.2"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }

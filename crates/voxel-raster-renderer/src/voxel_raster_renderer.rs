@@ -14,8 +14,6 @@ pub struct VoxelRasterRenderer {
 impl VoxelRasterRenderer {
 	pub fn new(
 		device: &wgpu::Device,
-		width: u32,
-		height: u32,
 		color_format: wgpu::TextureFormat,
 		camera_bind_group_layout: &GpuBindGroupLayout,
 		model_bind_group_layout: &GpuBindGroupLayout,
@@ -100,9 +98,8 @@ impl VoxelRasterRenderer {
 			cache: None,
 		}));
 
-		let _ = CameraUniform::from_camera;
+		let _ = CameraUniform::from_view;
 		let _ = ModelUniform::from_mat4;
-		let _ = (width, height);
 
 		Ok(Self {
 			pipeline,

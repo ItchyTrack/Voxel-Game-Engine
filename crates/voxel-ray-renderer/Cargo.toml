@@ -6,7 +6,7 @@ edition = "2024"
 [features]
 default = []
 gpu_profiling = []
-shader_hot_reload = ["dep:notify"]
+shader_hot_reload = ["bevy/embedded_watcher"]
 
 [dependencies]
 anyhow = "1.0"
@@ -20,9 +20,6 @@ bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-notify = { version = "8", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["console"] }
