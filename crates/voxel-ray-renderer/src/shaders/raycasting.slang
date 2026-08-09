@@ -1,5 +1,6 @@
 #include "bvh/data.slang"
 #include "combined_raycast.slang"
+#include "occlusion_raycast.slang"
 
 // 0 : camera uniform
 // 1 : BVH (nodes + items)
@@ -82,8 +83,7 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 		let item = bvh_items[hit.bvh_item_idx];
 		let hit_pos = ray_start + (hit.total_dist + beam_min_dist) * ray_dir;
 		let shadow_bias = max(0.01, item.scale * 0.01);
-		let sky_hit = full_raycast(hit_pos + sun_dir * shadow_bias, sun_dir, 1e38);
-		light_visible = sky_hit.normal == 0u;
+		light_visible = !occlusion_raycast(hit_pos + sun_dir * shadow_bias, sun_dir, 1e38);
 	}
 	intermediate_textured.Store(pixel, uint4(
 		hit.normal + 256u * (light_visible ? 1u : 0u) + (hit.sample_octant << 11u),

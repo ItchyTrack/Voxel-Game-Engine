@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../../voxel-ray-renderer/src/shaders/shared/voxel_sampler_api.slang"
+
 struct LodVoxelSampler : IVoxelSampler {
 	static const uint RAW_SIZE_BYTES = 32u;
 	static const uint PALETTE_NO_PALETTE = 255u;
