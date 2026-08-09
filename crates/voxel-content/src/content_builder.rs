@@ -55,7 +55,7 @@ impl StreamingVoxels {
 						&local_sdf,
 						IVec2::splat(9),
 						8,
-						sdf.voxel().get_ref(),
+						sdf.voxel(),
 					);
 					if !chunk_voxels.is_empty() {
 						self.chunks.entry(chunk).or_insert_with(|| Voxels::new_with_type(self.voxel_type_info)).merge_from(&chunk_voxels, IVec3::ZERO);

@@ -75,8 +75,8 @@ impl TileGenerator for VoxelRasterTileGenerator {
 		let (faces, palette, face_count) = make_gpu_raster_mesh(input.voxels.grid_tree(), voxel_type, &self.readers);
 		if face_count == 0 { return None; }
 		let mut gpu = self.gpu.lock();
-		let faces = gpu.faces.add_buffer(&faces).expect("failed to allocate raster tile face data");
-		let palette = gpu.palettes.add_buffer(&palette).expect("failed to allocate raster tile palette data");
+		let faces = gpu.faces.add_buffer(faces).expect("failed to allocate raster tile face data");
+		let palette = gpu.palettes.add_buffer(palette).expect("failed to allocate raster tile palette data");
 		let generation = gpu.next_generation();
 		Some(Box::new(RasterTileData {
 			faces,

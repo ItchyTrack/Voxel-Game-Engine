@@ -3,7 +3,7 @@ use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
 use voxel_data::sdf::Sdf;
-use voxel_data::voxels::{Voxel, VoxelType};
+use voxel_data::voxels::{VoxelRef, VoxelType};
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
@@ -22,15 +22,15 @@ const COST: u32 = 20;
 
 #[derive(Clone, Debug)]
 struct MandelbulbSdf {
-	voxel: Voxel,
-	lod_voxel: Voxel,
+	voxel: BasicVoxel,
+	lod_voxel: LodVoxel,
 }
 
 impl Default for MandelbulbSdf {
 	fn default() -> Self {
 		Self {
-			voxel: BasicVoxel { color: [220, 128, 128, 255], mass: 0 }.into_voxel(),
-			lod_voxel: LodVoxel::solid([220, 128, 128, 255]).into_voxel(),
+			voxel: BasicVoxel { color: [220, 128, 128, 255], mass: 0 },
+			lod_voxel: LodVoxel::solid([220, 128, 128, 255]),
 		}
 	}
 }
@@ -83,12 +83,12 @@ impl Sdf for MandelbulbSdf {
 }
 
 impl VoxelSdf for MandelbulbSdf {
-	fn voxel(&self) -> &Voxel {
-		&self.voxel
+	fn voxel(&self) -> VoxelRef<'_> {
+		self.voxel.get_ref()
 	}
 
-	fn lod_voxel(&self) -> &Voxel {
-		&self.lod_voxel
+	fn lod_voxel(&self) -> VoxelRef<'_> {
+		self.lod_voxel.get_ref()
 	}
 
 	fn bounds(&self) -> Option<(Vec3, Vec3)> {

@@ -29,15 +29,6 @@ impl<'a, G: GridType> Clone for SourceOverlap<'a, G> {
 	fn clone(&self) -> Self { *self }
 }
 
-struct OverlapFrame<'a, G: GridType, Co: GridCoord> {
-	children: ChildCellsInRegion<'a, G, Co>,
-}
-
-impl<'a, G: GridType, Co: GridCoord> Copy for OverlapFrame<'a, G, Co> {}
-impl<'a, G: GridType, Co: GridCoord> Clone for OverlapFrame<'a, G, Co> {
-	fn clone(&self) -> Self { *self }
-}
-
 #[derive(Clone, Copy)]
 struct SourceCursor {
 	source_index: usize,
@@ -46,71 +37,14 @@ struct SourceCursor {
 }
 
 pub struct SourceOverlaps<'overlaps, 'a, G: GridType, Co: GridCoord> {
-	sources: &'overlaps [SourceTree<'a, G, Co>],
-	output_region: GridRegion,
-	source_bounds: GridRegion,
-	active: Option<&'overlaps [SourceCursor]>,
-	source_index: usize,
-	active_index: usize,
-	current_source_index: usize,
-	stack: [OverlapFrame<'a, G, Co>; MAX_TREE_DEPTH_USIZE + 1],
-	stack_len: usize,
+	collected: &'overlaps [SourceOverlap<'a, G>],
+	index: usize,
+	_coord: std::marker::PhantomData<Co>,
 }
 
-impl<'overlaps, 'a, G, Co> SourceOverlaps<'overlaps, 'a, G, Co>
-where
-	G: GridType,
-	Co: GridCoord,
-{
-	fn new(
-		sources: &'overlaps [SourceTree<'a, G, Co>],
-		output_region: GridRegion,
-		active: Option<&'overlaps [SourceCursor]>,
-	) -> Self {
-		let source_bounds = tree_region::<Co>();
-		let dummy_view = sources[0].tree.view();
-		let dummy_root = dummy_view.root();
-		let dummy = OverlapFrame { children: dummy_view.occupied_children_in_region(dummy_root, GridRegion { min: IVec3::ZERO, end: IVec3::ZERO }) };
-		let mut overlaps = Self {
-			sources,
-			output_region,
-			source_bounds,
-			active,
-			source_index: 0,
-			active_index: 0,
-			current_source_index: 0,
-			stack: [dummy; MAX_TREE_DEPTH_USIZE + 1],
-			stack_len: 0,
-		};
-		overlaps.advance_to_next_source();
-		overlaps
-	}
-
-	fn advance_to_next_source(&mut self) {
-		self.stack_len = 0;
-		if let Some(active) = self.active {
-			while self.active_index < active.len() {
-				let cursor = active[self.active_index];
-				self.active_index += 1;
-				let source = &self.sources[cursor.source_index];
-				self.current_source_index = cursor.source_index;
-				self.stack[0] = OverlapFrame { children: source.tree.view().occupied_children_in_region(cursor.node, cursor.query) };
-				self.stack_len = 1;
-				return;
-			}
-			return;
-		}
-
-		while self.source_index < self.sources.len() {
-			let source_index = self.source_index;
-			self.source_index += 1;
-			let source = &self.sources[source_index];
-			let Some(cursor) = root_source_cursor(source_index, source, self.output_region, self.source_bounds) else { continue };
-			self.current_source_index = cursor.source_index;
-			self.stack[0] = OverlapFrame { children: source.tree.view().occupied_children_in_region(cursor.node, cursor.query) };
-			self.stack_len = 1;
-			return;
-		}
+impl<'overlaps, 'a, G: GridType, Co: GridCoord> SourceOverlaps<'overlaps, 'a, G, Co> {
+	fn from_collected(collected: &'overlaps [SourceOverlap<'a, G>]) -> Self {
+		Self { collected, index: 0, _coord: std::marker::PhantomData }
 	}
 }
 
@@ -122,39 +56,9 @@ where
 	type Item = SourceOverlap<'a, G>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		loop {
-			if self.stack_len == 0 {
-				self.advance_to_next_source();
-				if self.stack_len == 0 {
-					return None;
-				}
-				continue;
-			}
-
-			let frame_index = self.stack_len - 1;
-			let frame = &mut self.stack[frame_index];
-			let Some((child, source_region)) = frame.children.next() else {
-				self.stack_len -= 1;
-				continue;
-			};
-			let source = &self.sources[self.current_source_index];
-			let view = source.tree.view();
-
-			match child.kind() {
-				CellKind::Empty => {}
-				CellKind::Data => {
-					let Some(projected) = project_source_region(source_region, source) else { continue };
-					let Some(output_region) = projected.intersection(self.output_region) else { continue };
-					return Some(SourceOverlap { source_index: self.current_source_index, source_region, output_region, data: child.data_value() });
-				}
-				CellKind::Node => {
-					let child_node = view.child_node(child).expect("Node kind implies child_node");
-					debug_assert!(self.stack_len < self.stack.len());
-					self.stack[self.stack_len] = OverlapFrame { children: view.occupied_children_in_region(child_node, source_region) };
-					self.stack_len += 1;
-				}
-			}
-		}
+		let overlap = self.collected.get(self.index).copied();
+		self.index += overlap.is_some() as usize;
+		overlap
 	}
 }
 
@@ -200,7 +104,8 @@ where
 		.enumerate()
 		.filter_map(|(source_index, source)| root_source_cursor(source_index, source, output_region, source_bounds))
 		.collect();
-	if !reduce_output_region(output_region, sources, &active_sources, &mut reducer, &mut out, 0, root_depth, root_origin) {
+	let mut overlaps_scratch = Vec::new();
+	if !reduce_output_region(output_region, sources, &active_sources, &mut overlaps_scratch, &mut reducer, &mut out, 0, root_depth, root_origin) {
 		return None;
 	}
 	if out.is_empty() {
@@ -213,6 +118,7 @@ fn reduce_output_region<'a, G, Co, R>(
 	region: GridRegion,
 	sources: &[SourceTree<'a, G, Co>],
 	active_sources: &[SourceCursor],
+	overlaps_scratch: &mut Vec<SourceOverlap<'a, G>>,
 	reducer: &mut R,
 	out: &mut GridTree<G, Co>,
 	node_index: u32,
@@ -230,7 +136,7 @@ where
 	let cell_size = child_size(node_depth) as i32;
 	let child_min = (region.min - node_origin).div_euclid(IVec3::splat(cell_size));
 	let child_max = (region.end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
-	let mut child_active_sources: [Vec<SourceCursor>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
+	let mut child_active_sources: [smallvec::SmallVec<[SourceCursor; 2]>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| smallvec::SmallVec::new());
 	partition_source_cursors_by_child(sources, active_sources, region, node_origin, cell_size, &mut child_active_sources);
 
 	for z in child_min.z..=child_max.z {
@@ -243,21 +149,21 @@ where
 				let child_active_sources = &child_active_sources[child_index as usize];
 
 				if work_region == child_region {
-					if !reduce_output_child(child_region, sources, child_active_sources, reducer, out, node_index, node_depth, node_origin, child_index) {
+					if !reduce_output_child(child_region, sources, child_active_sources, overlaps_scratch, reducer, out, node_index, node_depth, node_origin, child_index) {
 						return false;
 					}
 					continue;
 				}
 
 				if node_depth == 0 {
-					if !reduce_output_child(child_region, sources, child_active_sources, reducer, out, node_index, node_depth, node_origin, child_index) {
+					if !reduce_output_child(child_region, sources, child_active_sources, overlaps_scratch, reducer, out, node_index, node_depth, node_origin, child_index) {
 						return false;
 					}
 					continue;
 				}
 
 				let Some(child_node_index) = out.child_node_for_partial_area(node_index, child_index) else { return false };
-				if !reduce_output_region(work_region, sources, child_active_sources, reducer, out, child_node_index, node_depth - 1, child_origin) {
+				if !reduce_output_region(work_region, sources, child_active_sources, overlaps_scratch, reducer, out, child_node_index, node_depth - 1, child_origin) {
 					return false;
 				}
 				out.collapse_child_node_if_possible(node_index, child_index);
@@ -271,6 +177,7 @@ fn reduce_output_child<'a, G, Co, R>(
 	region: GridRegion,
 	sources: &[SourceTree<'a, G, Co>],
 	active_sources: &[SourceCursor],
+	overlaps_scratch: &mut Vec<SourceOverlap<'a, G>>,
 	reducer: &mut R,
 	out: &mut GridTree<G, Co>,
 	node_index: u32,
@@ -284,10 +191,10 @@ where
 	R: GridReducer<G>,
 	for<'d> &'d R::Output: AsGridData<'d, G>,
 {
-	match classify_region(sources, region, active_sources) {
+	match classify_region(sources, region, active_sources, overlaps_scratch) {
 		RegionAction::Empty => true,
 		RegionAction::Reduce => {
-			if let Some(value) = reducer.reduce(region, SourceOverlaps::new(sources, region, Some(active_sources))) {
+			if let Some(value) = reducer.reduce(region, SourceOverlaps::<G, Co>::from_collected(overlaps_scratch)) {
 				out.set_child_area_to_data(node_index, node_depth, child_index, (&value).as_grid_data());
 			}
 			true
@@ -299,11 +206,11 @@ where
 			let child_origin = node_origin + (get_child_contents_pos(child_index).as_uvec3() * child_size(node_depth)).as_ivec3();
 			let Some(child_node_index) = out.child_node_for_partial_area(node_index, child_index) else { return false };
 			let a_active_sources = child_source_cursors(sources, active_sources, a);
-			if !reduce_output_region(a, sources, &a_active_sources, reducer, out, child_node_index, node_depth - 1, child_origin) {
+			if !reduce_output_region(a, sources, &a_active_sources, overlaps_scratch, reducer, out, child_node_index, node_depth - 1, child_origin) {
 				return false;
 			}
 			let b_active_sources = child_source_cursors(sources, active_sources, b);
-			if !reduce_output_region(b, sources, &b_active_sources, reducer, out, child_node_index, node_depth - 1, child_origin) {
+			if !reduce_output_region(b, sources, &b_active_sources, overlaps_scratch, reducer, out, child_node_index, node_depth - 1, child_origin) {
 				return false;
 			}
 			out.collapse_child_node_if_possible(node_index, child_index);
@@ -319,78 +226,83 @@ enum RegionAction {
 	Split { a: GridRegion, b: GridRegion },
 }
 
-fn classify_region<'a, G, Co>(sources: &[SourceTree<'a, G, Co>], region: GridRegion, active_sources: &[SourceCursor]) -> RegionAction
+fn classify_region<'a, G, Co>(
+	sources: &[SourceTree<'a, G, Co>],
+	region: GridRegion,
+	active_sources: &[SourceCursor],
+	overlaps: &mut Vec<SourceOverlap<'a, G>>,
+) -> RegionAction
 where
 	G: GridType,
 	Co: GridCoord,
 {
-	let mut has_overlap = false;
+	overlaps.clear();
 	for &cursor in active_sources {
-		match inspect_source_region(&sources[cursor.source_index], region, cursor) {
-			SourceRegionInspection::Empty => {}
-			SourceRegionInspection::Split(a, b) => return RegionAction::Split { a, b },
-			SourceRegionInspection::Overlap(_) => {
-				has_overlap = true;
-			}
+		if let SourceRegionInspection::Split(a, b) = inspect_source_region(&sources[cursor.source_index], region, cursor, overlaps) {
+			return RegionAction::Split { a, b };
 		}
 	}
 
-	if has_overlap {
-		RegionAction::Reduce
-	} else {
-		RegionAction::Empty
-	}
+	if overlaps.is_empty() { RegionAction::Empty } else { RegionAction::Reduce }
 }
 
 #[derive(Clone, Copy)]
-enum SourceRegionInspection<'a, G: GridType> {
+enum SourceRegionInspection {
 	Empty,
-	Overlap(SourceOverlap<'a, G>),
+	Overlap,
 	Split(GridRegion, GridRegion),
 }
 
-fn inspect_source_region<'a, G, Co>(source: &SourceTree<'a, G, Co>, region: GridRegion, cursor: SourceCursor) -> SourceRegionInspection<'a, G>
+fn inspect_source_region<'a, G, Co>(
+	source: &SourceTree<'a, G, Co>,
+	region: GridRegion,
+	cursor: SourceCursor,
+	overlaps: &mut Vec<SourceOverlap<'a, G>>,
+) -> SourceRegionInspection
 where
 	G: GridType,
 	Co: GridCoord,
 {
-	let view = source.tree.view();
-	let mut stack = [OverlapFrame { children: view.occupied_children_in_region(cursor.node, cursor.query) }; MAX_TREE_DEPTH_USIZE + 1];
-	let mut stack_len = 1usize;
-	let mut first_overlap = None;
-
-	while stack_len > 0 {
-		let frame_index = stack_len - 1;
-		let Some((child, source_region)) = stack[frame_index].children.next() else {
-			stack_len -= 1;
-			continue;
-		};
-
-		let Some(output_region) = project_source_region(source_region, source).and_then(|projected| projected.intersection(region)) else { continue };
-		if !region_is_unit(region) {
-			if let Some((a, b)) = split_from_output_region(region, output_region) {
-				return SourceRegionInspection::Split(a, b);
-			}
-		}
-
-		match child.kind() {
-			CellKind::Empty => {}
-			CellKind::Data => {
-				let overlap = SourceOverlap { source_index: cursor.source_index, source_region, output_region, data: child.data_value() };
-				if first_overlap.is_none() {
-					first_overlap = Some(overlap);
+	fn recurse<'a, G, Co>(
+		source: &SourceTree<'a, G, Co>,
+		region: GridRegion,
+		source_index: usize,
+		node: NodeRef,
+		query: GridRegion,
+		overlaps: &mut Vec<SourceOverlap<'a, G>>,
+	) -> Option<(GridRegion, GridRegion)>
+	where
+		G: GridType,
+		Co: GridCoord,
+	{
+		let view = source.tree.view();
+		for (child, source_region) in view.occupied_children_in_region(node, query) {
+			let Some(output_region) = project_source_region(source_region, source).and_then(|projected| projected.intersection(region)) else { continue };
+			if !region_is_unit(region) {
+				if let Some(split) = split_from_output_region(region, output_region) {
+					return Some(split);
 				}
 			}
-			CellKind::Node => {
-				let child_node = view.child_node(child).expect("Node kind implies child_node");
-				debug_assert!(stack_len < stack.len());
-				stack[stack_len] = OverlapFrame { children: view.occupied_children_in_region(child_node, source_region) };
-				stack_len += 1;
+
+			match child.kind() {
+				CellKind::Empty => {}
+				CellKind::Data => overlaps.push(SourceOverlap { source_index, source_region, output_region, data: child.data_value() }),
+				CellKind::Node => {
+					let child_node = view.child_node(child).expect("Node kind implies child_node");
+					if let Some(split) = recurse(source, region, source_index, child_node, source_region, overlaps) {
+						return Some(split);
+					}
+				}
 			}
 		}
+		None
 	}
 
-	first_overlap.map_or(SourceRegionInspection::Empty, SourceRegionInspection::Overlap)
+	let overlap_start = overlaps.len();
+	if let Some((a, b)) = recurse(source, region, cursor.source_index, cursor.node, cursor.query, overlaps) {
+		return SourceRegionInspection::Split(a, b);
+	}
+	if overlaps.len() == overlap_start { SourceRegionInspection::Empty } else { SourceRegionInspection::Overlap }
 }
 
 fn root_source_cursor<G, Co>(source_index: usize, source: &SourceTree<'_, G, Co>, output_region: GridRegion, source_bounds: GridRegion) -> Option<SourceCursor>
@@ -412,7 +324,7 @@ fn partition_source_cursors_by_child<G, Co>(
 	region: GridRegion,
 	node_origin: IVec3,
 	cell_size: i32,
-	child_active_sources: &mut [Vec<SourceCursor>; SIZE_USIZE_CUBED],
+	child_active_sources: &mut [smallvec::SmallVec<[SourceCursor; 2]>; SIZE_USIZE_CUBED],
 ) where
 	G: GridType,
 	Co: GridCoord,
@@ -653,5 +565,57 @@ mod tests {
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
 		assert_eq!(output.get(&U16Vec3::ZERO), Some(33));
+	}
+
+	#[test]
+	fn reduce_preserves_leaf_boundaries_across_a_larger_region() {
+		let mut source = GridTree::<PackedCell, U16Coord>::new();
+		source.add_area(&U16Vec3::ZERO, IVec3::new(4, 8, 8), 7);
+		source.add_area(&U16Vec3::new(4, 0, 0), IVec3::new(4, 8, 8), 9);
+
+		let sources = [SourceTree { tree: &source, scale_down: 0, output_offset: IVec3::ZERO }];
+		let output_region = GridRegion::from_min_size(IVec3::ZERO, IVec3::splat(8)).expect("output region");
+		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
+
+		assert_eq!(output.get(&U16Vec3::new(3, 6, 6)), Some(7));
+		assert_eq!(output.get(&U16Vec3::new(4, 6, 6)), Some(9));
+	}
+
+	#[derive(Clone, Copy, Debug)]
+	struct SourceVolumeReducer;
+
+	impl GridReducer<PackedCell> for SourceVolumeReducer {
+		type Output = u16;
+
+		fn output_grid_type(&self) -> PackedCell { PackedCell }
+
+		fn reduce<'overlaps, 'a, Co>(
+			&mut self,
+			_region: GridRegion,
+			overlaps: SourceOverlaps<'overlaps, 'a, PackedCell, Co>,
+		) -> Option<Self::Output>
+		where
+			Co: GridCoord,
+		{
+			let mut volume = 0u16;
+			for overlap in overlaps {
+				let size = overlap.source_region.size().as_uvec3();
+				volume += (size.x * size.y * size.z) as u16;
+			}
+			(volume != 0).then_some(volume)
+		}
+	}
+
+	#[test]
+	fn reduce_keeps_source_region_clipping_when_reusing_overlaps() {
+		let mut source = GridTree::<PackedCell, U16Coord>::new();
+		source.add_area(&U16Vec3::ZERO, IVec3::splat(8), 1);
+
+		let sources = [SourceTree { tree: &source, scale_down: 1, output_offset: IVec3::ZERO }];
+		let output_region = GridRegion::from_min_size(IVec3::ZERO, IVec3::splat(4)).expect("output region");
+		let output = reduce_grid_trees(output_region, &sources, SourceVolumeReducer).expect("reduced output");
+
+		assert_eq!(output.get(&U16Vec3::new(0, 0, 0)), Some(8));
+		assert_eq!(output.get(&U16Vec3::new(3, 3, 3)), Some(8));
 	}
 }

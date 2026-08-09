@@ -61,7 +61,7 @@ fn voxel_place_break_system(
 
 	if place {
 		let pos = hit.voxel_pos + hit.normal;
-		edits.add_voxel(&pos, PLACE_VOXEL.into_voxel().clone());
+		edits.add_voxel(&pos, PLACE_VOXEL.into_voxel());
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 		}

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use basic_voxel::BasicVoxel;
 use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource};
 use voxel_data::grid::Grid;
-use voxel_data::voxels::{Voxel, VoxelType};
+use voxel_data::voxels::VoxelType;
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
@@ -155,8 +155,8 @@ fn spawn_ball_cluster(
 	}
 }
 
-fn voxel(color: [u8; 4], mass: u32) -> Voxel {
-	BasicVoxel { color, mass }.into_voxel()
+fn voxel(color: [u8; 4], mass: u32) -> BasicVoxel {
+	BasicVoxel { color, mass }
 }
 
 fn spawn_bb8(

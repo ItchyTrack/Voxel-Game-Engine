@@ -2,7 +2,11 @@ use std::{
 	collections::HashMap,
 	num::NonZero,
 	ops::*,
-	sync::mpsc::{self, Receiver, Sender},
+	sync::{
+		atomic::{AtomicUsize, Ordering},
+		mpsc::{self, Receiver, Sender},
+		Mutex,
+	},
 };
 
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
@@ -78,6 +82,8 @@ pub struct PackedDynamicBuffer {
 	max_binding_size: u32,
 	cleanup_tx: Sender<u32>,
 	cleanup_rx: Receiver<u32>,
+	pending_uploads: Mutex<Vec<(u32, Vec<u8>)>>,
+	pending_upload_count: AtomicUsize,
 }
 
 impl std::fmt::Debug for PackedDynamicBuffer {
@@ -119,6 +125,8 @@ impl PackedDynamicBuffer {
 			max_binding_size: raw_device.limits().max_storage_buffer_binding_size.min(u32::MAX as u64) as u32,
 			cleanup_tx,
 			cleanup_rx,
+			pending_uploads: Mutex::new(Vec::new()),
+			pending_upload_count: AtomicUsize::new(0),
 		})
 	}
 
@@ -127,10 +135,12 @@ impl PackedDynamicBuffer {
 	}
 
 	pub fn held_bytes(&self) -> u32 {
+		self.complete_uploads();
 		self.held_bytes
 	}
 
 	fn grow_buffer(&mut self, min_size: u64) {
+		self.complete_uploads();
 		let old_size = self.buffer_size;
 		let new_size = self.buffer_size.max(min_size).next_power_of_two().next_multiple_of(self.alignment as u64);
 		let new_buffer = WgpuWrapper::new(self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -170,7 +180,7 @@ impl PackedDynamicBuffer {
 		}
 	}
 
-	pub fn add_buffer(&mut self, data_buffer: &[u8]) -> Result<PackedBufferAllocation, &'static str> {
+	pub fn add_buffer(&mut self, data_buffer: Vec<u8>) -> Result<PackedBufferAllocation, &'static str> {
 		self.collect_garbage();
 		let id = self.add_buffer_raw(data_buffer)?;
 		Ok(PackedBufferAllocation { id: AllocationId(id), cleanup: self.cleanup_tx.clone() })
@@ -182,7 +192,7 @@ impl PackedDynamicBuffer {
 	}
 
 	/// If the new buffer does not fit the old buffer will still be removed.
-	pub fn replace_buffer(&mut self, allocation: PackedBufferAllocation, buffer: &[u8]) -> Result<PackedBufferAllocation, &'static str> {
+	pub fn replace_buffer(&mut self, allocation: PackedBufferAllocation, buffer: Vec<u8>) -> Result<PackedBufferAllocation, &'static str> {
 		self.collect_garbage();
 		let id = self.replace_buffer_raw(allocation.into_id().0, buffer)?;
 		Ok(PackedBufferAllocation { id: AllocationId(id), cleanup: self.cleanup_tx.clone() })
@@ -194,14 +204,11 @@ impl PackedDynamicBuffer {
 		}
 	}
 
-	fn add_buffer_raw(&mut self, data_buffer: &[u8]) -> Result<u32, &'static str> {
+	fn add_buffer_raw(&mut self, data_buffer: Vec<u8>) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer add_buffer");
 		// tracy_client::plot!("packed dynamic upload bytes", data_buffer.len() as f64);
 		let allocation = self.allocate_buffer(data_buffer.len() as u32)?;
-		{
-			let _write_zone = span!("wgpu queue write_buffer");
-			self.queue.write_buffer(&self.buffer, allocation.offset as u64, data_buffer);
-		}
+		self.queue_upload(allocation.offset, data_buffer);
 		self.held_bytes += allocation.size();
 		let id = allocation.offset / self.alignment;
 		self.held_buffers.insert(id, HeldBuffer { offset: allocation.offset, size: allocation.size() });
@@ -218,7 +225,7 @@ impl PackedDynamicBuffer {
 		}
 	}
 
-	fn replace_buffer_raw(&mut self, id: u32, buffer: &[u8]) -> Result<u32, &'static str> {
+	fn replace_buffer_raw(&mut self, id: u32, buffer: Vec<u8>) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer replace_buffer");
 		// tracy_client::plot!("packed dynamic upload bytes", buffer.len() as f64);
 		let Some(held_buffer) = self.held_buffers.get_mut(&id) else {
@@ -228,8 +235,8 @@ impl PackedDynamicBuffer {
 			return Err("Buffer max size hit!");
 		};
 		if new_size == held_buffer.size {
-			let _write_zone = span!("wgpu queue write_buffer");
-			self.queue.write_buffer(&self.buffer, held_buffer.offset as u64, buffer);
+			let offset = held_buffer.offset;
+			self.queue_upload(offset, buffer);
 			return Ok(id);
 		}
 		match self.allocator.try_reallocate(held_buffer.allocation(), new_size) {
@@ -237,8 +244,7 @@ impl PackedDynamicBuffer {
 				self.held_bytes = self.held_bytes - held_buffer.size + allocation.size();
 				held_buffer.offset = allocation.offset;
 				held_buffer.size = allocation.size();
-				let _write_zone = span!("wgpu queue write_buffer");
-				self.queue.write_buffer(&self.buffer, allocation.offset as u64, buffer);
+				self.queue_upload(allocation.offset, buffer);
 				Ok(id)
 			},
 			Err(orderly_allocator::ReallocateError::InsufficientSpace { .. }) => {
@@ -249,11 +255,29 @@ impl PackedDynamicBuffer {
 		}
 	}
 
+	fn queue_upload(&mut self, offset: u32, data: Vec<u8>) {
+		self.pending_uploads.get_mut().unwrap().push((offset, data));
+		self.pending_upload_count.fetch_add(1, Ordering::Release);
+	}
+
+	fn complete_uploads(&self) {
+		if self.pending_upload_count.load(Ordering::Acquire) == 0 { return; }
+		let mut pending = self.pending_uploads.lock().unwrap();
+		let upload_count = pending.len();
+		let _write_zone = span!("PackedDynamicBuffer complete uploads");
+		for (offset, data) in pending.drain(..) {
+			self.queue.write_buffer(&self.buffer, offset as u64, &data);
+		}
+		self.pending_upload_count.fetch_sub(upload_count, Ordering::AcqRel);
+	}
+
 	pub fn held_buffer(&self, id: AllocationId) -> Option<&HeldBuffer> {
+		self.complete_uploads();
 		self.held_buffers.get(&id.0)
 	}
 
 	pub fn buffer(&self) -> &GpuBuffer {
+		self.complete_uploads();
 		&self.buffer
 	}
 }

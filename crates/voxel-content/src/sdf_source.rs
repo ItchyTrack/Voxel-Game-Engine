@@ -6,7 +6,7 @@ use bevy::math::{IVec2, IVec3, Vec3};
 
 use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
-use voxel_data::voxels::{Voxel, VoxelTypeId, Voxels};
+use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::CHUNK_SIZE;
 
@@ -15,9 +15,9 @@ use voxel_streaming::CHUNK_SIZE;
 /// Coordinates are grid-local voxel coordinates. Negative distances are solid,
 /// positive distances are empty, and zero is treated as solid.
 pub trait VoxelSdf: Sdf + Send + Sync + 'static {
-	fn voxel(&self) -> &Voxel;
+	fn voxel(&self) -> VoxelRef<'_>;
 
-	fn lod_voxel(&self) -> &Voxel {
+	fn lod_voxel(&self) -> VoxelRef<'_> {
 		self.voxel()
 	}
 
@@ -147,7 +147,7 @@ impl SdfSource {
 			&local_sdf,
 			IVec2::splat(9),
 			8,
-			voxel.get_ref(),
+			voxel,
 		);
 		(!voxels.is_empty()).then_some(voxels)
 	}

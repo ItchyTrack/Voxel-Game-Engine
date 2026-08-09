@@ -20,6 +20,10 @@ impl GridType for PackedCell {
 	}
 }
 
+impl<'a> AsGridData<'a, PackedCell> for &'a u16 {
+	fn as_grid_data(self) -> u16 { *self }
+}
+
 /// Voxel grid storage type. The tree stores voxel bytes directly in each data slot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct VoxelGridType {

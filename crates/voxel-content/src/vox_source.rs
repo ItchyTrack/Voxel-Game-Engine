@@ -8,7 +8,7 @@ use bevy::math::{IVec3, Quat, U16Vec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::grid_tree::GridRegion;
-use voxel_data::voxels::{Voxel, VoxelType, VoxelTypeId, Voxels};
+use voxel_data::voxels::{VoxelType, VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
 use voxel_streaming::{CHUNK_SIZE, chunk_of};
 
@@ -74,11 +74,12 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 	}
 
 	fn ensure_file_loaded(&self, path: &PathBuf) {
-		let mut files = self.inner.files.write().unwrap();
-		let cache = files.entry(path.clone()).or_default();
-		if cache.load_attempted {
+		if let Some(cache)= self.inner.files.read().unwrap().get(path) && cache.load_attempted{
 			return;
 		}
+
+		let mut files = self.inner.files.write().unwrap();
+		let cache = files.entry(path.clone()).or_default();
 		cache.load_attempted = true;
 
 		let Ok(bytes) = std::fs::read(path) else {
@@ -97,7 +98,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 			flip: IVec3,
 		}
 
-		let mut chunk_points: HashMap<IVec3, Vec<(U16Vec3, Voxel)>> = HashMap::new();
+		let mut chunk_points: HashMap<IVec3, Vec<(U16Vec3, T)>> = HashMap::new();
 		let mut current_chunk: Option<IVec3> = None;
 		let mut current_points = Vec::new();
 		let mut touched_bounds: Option<(IVec3, IVec3)> = None;
@@ -108,9 +109,9 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 		})];
 		while let Some((scene_id, pose)) = stack.pop() {
 			let flush_current_chunk = |
-				chunk_points: &mut HashMap<IVec3, Vec<(U16Vec3, Voxel)>>,
+				chunk_points: &mut HashMap<IVec3, Vec<(U16Vec3, T)>>,
 				current_chunk: &mut Option<IVec3>,
-				current_points: &mut Vec<(U16Vec3, Voxel)>
+				current_points: &mut Vec<(U16Vec3, T)>
 			| {
 				if let Some(chunk) = current_chunk.take() {
 					chunk_points.insert(chunk, std::mem::take(current_points));
@@ -163,7 +164,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 								palette_index: voxel.i,
 								color: [palette.r, palette.g, palette.b, palette.a],
 							};
-							current_points.push((local, T::from_vox_material(material).into_voxel()));
+							current_points.push((local, T::from_vox_material(material)));
 							touched_bounds = Some(match touched_bounds {
 								Some((min, max)) => (min.min(chunk), max.max(chunk)),
 								None => (chunk, chunk),

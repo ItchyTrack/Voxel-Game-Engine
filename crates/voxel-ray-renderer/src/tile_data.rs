@@ -83,8 +83,8 @@ impl TileGenerator for VoxelRayTileGenerator {
 		let (tree, voxels) = make_gpu_grid_tree(input.voxels.grid_tree(), voxel_type, &self.readers);
 		let mut gpu = self.gpu.lock();
 		Some(Box::new(RayTileData {
-			tree: gpu.trees.add_buffer(&tree).expect("failed to allocate ray tile tree data"),
-			voxels: gpu.voxels.add_buffer(&voxels).expect("failed to allocate ray tile voxel data"),
+			tree: gpu.trees.add_buffer(tree).expect("failed to allocate ray tile tree data"),
+			voxels: gpu.voxels.add_buffer(voxels).expect("failed to allocate ray tile voxel data"),
 			generation: gpu.next_generation(),
 			placement,
 			voxel_type,
