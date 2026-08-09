@@ -1,5 +1,7 @@
 #pragma once
 
+#include "voxel_sampler_api.slang"
+
 StructuredBuffer<uint> residency_voxel_data_buf : register(t0, space2);
 StructuredBuffer<uint> main_voxel_data_buf : register(t1, space2);
 
@@ -20,10 +22,6 @@ uint voxel_sampler_u8(uint data_source, uint byte_off) {
 
 uint voxel_reader_buffer_offset(uint voxels_base, uint voxel_data_index) {
 	return voxels_base + voxel_data_index * VOXELS_NODE_OFFSET_UNIT_BYTES;
-}
-
-interface IVoxelSampler {
-	float4 color(uint data_source, uint data_header_offset, uint node_data_offset, uint item_index, float3 surface_pos);
 }
 
 float4 voxel_sampler_color(uint voxel_type_id, uint data_source, uint voxels_base, uint voxel_data_index, uint voxel_index, float3 surface_pos) {
