@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use bevy::ecs::entity::Entity;
-use bevy::render::render_resource::Buffer;
 use bevy::render::renderer::WgpuWrapper;
 use voxel_data::bvh;
 
@@ -340,10 +339,9 @@ impl VoxelRenderer {
 		voxel_buffer: &GpuBuffer,
 		main_tree_buffer: &GpuBuffer,
 		main_voxel_buffer: &GpuBuffer,
-		direction_mask_buffer: &Buffer,
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
 	) -> GpuBvh {
-		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data, direction_mask_buffer);
+		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
 		let tree_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &self.tree_bind_group_layout,
 			entries: &[
@@ -395,6 +393,14 @@ impl VoxelRenderer {
 			render_pass.set_pipeline(&self.coloring_pipeline);
 			render_pass.draw(0..3, 0..1);
 		}
+
+		encoder.copy_buffer_to_buffer(
+			&gpu_bvh.item_direction_mask_buffer,
+			0,
+			&gpu_bvh.item_direction_mask_staging_buffer,
+			0,
+			gpu_bvh.item_direction_mask_buffer.size(),
+		);
 
 		gpu_bvh
 	}

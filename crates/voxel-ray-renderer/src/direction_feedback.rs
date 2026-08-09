@@ -1,28 +1,32 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use bevy::asset::{AssetEvent, Assets, RenderAssetUsages};
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, Query, ResMut};
-use bevy::prelude::{Component, Entity, On};
-use bevy::render::gpu_readback::{Readback, ReadbackComplete};
-use bevy::render::storage::ShaderBuffer;
-use bevy::render::MainWorld;
+use bevy::ecs::component::Component;
+use bevy::ecs::system::{Query, Res};
+use bevy::prelude::Entity;
+use bevy::render::renderer::RenderDevice;
 
-use crate::extract::ExtractedVoxelScene;
+use crate::gpu_bvh::GpuBvh;
 use crate::incoming_ray_directions::IncomingRayDirections;
 
-#[derive(Resource, Clone, Default)]
-pub struct DirectionFeedback(pub HashMap<Entity, IncomingRayDirections>);
-
-#[derive(Component)]
-struct DirectionMaskReadback {
-	item_ids: Vec<Entity>,
-	completed: bool,
+#[derive(Component, Default)]
+pub struct DirectionFeedback {
+	directions: HashMap<Entity, IncomingRayDirections>,
+	rendered: Option<GpuBvh>,
 }
 
-/// GPU-side render stats published by the render world for the main world to read.
-#[derive(Resource, Clone, Default)]
+impl DirectionFeedback {
+	pub fn directions_for(&self, entity: Entity) -> IncomingRayDirections {
+		self.directions.get(&entity).copied().unwrap_or_default()
+	}
+
+	pub fn push_rendered(&mut self, gpu_bvh: GpuBvh) {
+		assert!(self.rendered.is_none(), "direction feedback from the previous render was not consumed");
+		self.rendered = Some(gpu_bvh);
+	}
+}
+
+#[derive(bevy::ecs::resource::Resource, Clone, Default)]
 pub struct RenderStats {
 	pub inner: Arc<Mutex<RenderStatsData>>,
 }
@@ -33,48 +37,31 @@ pub struct RenderStatsData {
 	pub bvh_leaf_bytes: u64,
 }
 
-/// Create a GPU buffer and an entity that will asynchronously read its direction masks back.
-pub fn prepare_direction_mask_readback(
-	mut main_world: ResMut<MainWorld>,
-	mut extracted_scenes: Query<&mut ExtractedVoxelScene>,
+pub fn read_back_direction_masks(
+	render_device: Res<RenderDevice>,
+	mut view_feedback: Query<&mut DirectionFeedback>,
 ) {
-	for mut extracted in &mut extracted_scenes {
-		let Some(item_ids) = extracted.bvh.as_ref().map(|bvh| {
-			bvh.internals().1.iter().map(|item| item.0).collect::<Vec<_>>()
-		}) else { continue };
+	for mut feedback in &mut view_feedback {
+		let Some(gpu_bvh) = feedback.rendered.take() else { continue };
+		gpu_bvh.item_direction_mask_staging_buffer.slice(..).map_async(
+			wgpu::MapMode::Read,
+			|result| result.expect("failed to map voxel direction feedback"),
+		);
+		render_device.wgpu_device().poll(wgpu::PollType::Wait {
+			submission_index: None,
+			timeout: None,
+		}).expect("failed while waiting for voxel direction feedback");
 
-		let direction_mask_size = item_ids.len().div_ceil(4) * size_of::<u32>();
-		let mut buffer = ShaderBuffer::with_size(direction_mask_size, RenderAssetUsages::RENDER_WORLD);
-		buffer.buffer_description.label = Some("bvh_item_direction_mask_buffer");
-		buffer.buffer_description.usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC;
-
-		let handle = main_world.resource_mut::<Assets<ShaderBuffer>>().add(buffer);
-		main_world.write_message(AssetEvent::Added { id: handle.id() });
-		extracted.direction_mask_buffer = Some(handle.clone());
-		main_world
-			.spawn((Readback::buffer(handle), DirectionMaskReadback { item_ids, completed: false }))
-			.observe(read_back_direction_masks);
+		let staging = gpu_bvh.item_direction_mask_staging_buffer.slice(..);
+		feedback.directions = {
+			let view = staging.get_mapped_range();
+			let words: &[u32] = bytemuck::cast_slice(&view);
+			gpu_bvh.item_ids.iter().enumerate().map(|(item_index, id)| {
+				let word = words[item_index / 4];
+				let shift = (item_index % 4) * 8;
+				(*id, IncomingRayDirections::from_bits_truncate((word >> shift) as u8))
+			}).collect()
+		};
+		gpu_bvh.item_direction_mask_staging_buffer.unmap();
 	}
-}
-
-fn read_back_direction_masks(
-	event: On<ReadbackComplete>,
-	mut readbacks: Query<&mut DirectionMaskReadback>,
-	mut feedback: ResMut<DirectionFeedback>,
-	mut commands: Commands,
-) {
-	let Ok(mut readback) = readbacks.get_mut(event.entity) else { return };
-	if readback.completed { return; }
-	readback.completed = true;
-
-	feedback.0.clear();
-	for (item_index, id) in readback.item_ids.iter().enumerate() {
-		let byte_index = (item_index / 4) * size_of::<u32>();
-		let Some(bytes) = event.data.get(byte_index..byte_index + size_of::<u32>()) else { break };
-		let word = u32::from_ne_bytes(bytes.try_into().expect("direction mask word has four bytes"));
-		let shift = (item_index % 4) * 8;
-		feedback.0.insert(*id, IncomingRayDirections::from_bits_truncate((word >> shift) as u8));
-	}
-
-	commands.entity(event.entity).despawn();
 }

@@ -22,7 +22,6 @@ use bevy::core_pipeline::core_3d::main_opaque_pass_3d;
 use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::render::extract_resource::ExtractResourcePlugin;
-use bevy::render::render_asset::AssetExtractionSystems;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 
 use ::tile_data::{TileCapabilityRegistry, TileData};
@@ -30,7 +29,7 @@ use voxel_data::VoxelDataPlugin;
 use voxel_gpu::{GpuVoxelDataPlugin, SlangShader};
 
 use graphics_settings::GraphicsSettings;
-use direction_feedback::{DirectionFeedback, RenderStats};
+use direction_feedback::RenderStats;
 
 #[derive(Component)]
 pub struct VoxelRayShader;
@@ -73,6 +72,7 @@ impl Plugin for VoxelRayRendererPlugin {
 		bevy::asset::embedded_asset!(app, "shaders/shared/bvh/data.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/bvh/raycast.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/combined_raycast.slang");
+		bevy::asset::embedded_asset!(app, "shaders/shared/occlusion_raycast.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/dda/beam_raycast.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/dda/data.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/dda/raycast.slang");
@@ -80,6 +80,7 @@ impl Plugin for VoxelRayRendererPlugin {
 		bevy::asset::embedded_asset!(app, "shaders/shared/helpers/aabb.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/helpers/quat.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/voxel_reader.slang");
+		bevy::asset::embedded_asset!(app, "shaders/shared/voxel_sampler_api.slang");
 		if !app.is_plugin_added::<VoxelDataPlugin>() {
 			app.add_plugins(VoxelDataPlugin);
 		}
@@ -89,7 +90,6 @@ impl Plugin for VoxelRayRendererPlugin {
 		let render_stats = RenderStats::default();
 		app.init_resource::<gpu_data::RayWorldGpuData>()
 			.init_resource::<RayTileCapabilityRegistry>()
-			.init_resource::<DirectionFeedback>()
 			.insert_resource(render_stats.clone())
 			.init_resource::<GraphicsSettings>()
 			.add_systems(bevy::prelude::Update, (
@@ -101,11 +101,14 @@ impl Plugin for VoxelRayRendererPlugin {
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
 			.insert_resource(render_stats)
-			.add_systems(ExtractSchedule, (
-				extract::extract_voxel_scene,
-				direction_feedback::prepare_direction_mask_readback
-					.before(AssetExtractionSystems),
-			).chain())
+			.init_resource::<extract::ExtractedVoxelScenes>()
+			.add_systems(
+				ExtractSchedule,
+				(
+					direction_feedback::read_back_direction_masks,
+					extract::extract_voxel_scene,
+				).chain(),
+			)
 			.add_systems(
 				Render,
 				render_node::prepare_voxel_view_bind_groups

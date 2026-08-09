@@ -19,6 +19,7 @@ const SHARED_FILES: &[&str] = &[
 	"bvh/data.slang",
 	"bvh/raycast.slang",
 	"combined_raycast.slang",
+	"occlusion_raycast.slang",
 	"dda/beam_raycast.slang",
 	"dda/data.slang",
 	"dda/raycast.slang",
@@ -26,6 +27,7 @@ const SHARED_FILES: &[&str] = &[
 	"helpers/aabb.slang",
 	"helpers/quat.slang",
 	"voxel_reader.slang",
+	"voxel_sampler_api.slang",
 ];
 
 #[derive(Clone, PartialEq)]

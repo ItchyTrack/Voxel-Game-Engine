@@ -1,12 +1,10 @@
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use bevy::render::render_asset::RenderAssets;
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
-use bevy::render::storage::GpuShaderBuffer;
 use bevy::render::view::{ExtractedView, ViewTarget, ViewUniformOffset, ViewUniforms};
 
 use crate::camera::CameraUniform;
-use crate::direction_feedback::RenderStats;
-use crate::extract::ExtractedVoxelScene;
+use crate::direction_feedback::{DirectionFeedback, RenderStats};
+use crate::extract::ExtractedVoxelScenes;
 use crate::graphics_settings::{GraphicsSettings, RenderSettingsUniform};
 use crate::voxel_renderer_resource::{VoxelRendererResource, VoxelViewResources};
 use crate::VoxelRayShader;
@@ -18,6 +16,7 @@ pub fn prepare_voxel_view_bind_groups(
 	render_queue: Res<RenderQueue>,
 	view_uniforms: Res<ViewUniforms>,
 	graphics_settings: Res<GraphicsSettings>,
+	extracted_scenes: Res<ExtractedVoxelScenes>,
 	mut shader: SlangShaderParam<VoxelRayShader>,
 	mut voxel_resource: ResMut<VoxelRendererResource>,
 	mut views: Query<(
@@ -26,7 +25,7 @@ pub fn prepare_voxel_view_bind_groups(
 		&ViewTarget,
 		&ViewUniformOffset,
 		Option<&mut VoxelViewResources>,
-	), bevy::ecs::query::With<ExtractedVoxelScene>>,
+	)>,
 ) {
 	let view_uniforms_ready = view_uniforms.uniforms.binding().is_some();
 	let settings = RenderSettingsUniform::from_graphics_settings(&graphics_settings);
@@ -35,6 +34,10 @@ pub fn prepare_voxel_view_bind_groups(
 	let shader = shader.get();
 
 	for (entity, extracted_view, view_target, _view_uniform_offset, prepared) in &mut views {
+		if !extracted_scenes.0.contains_key(&entity) {
+			if let Some(mut prepared) = prepared { prepared.ready = false; }
+			continue;
+		}
 		let Some(shader) = shader.as_ref() else {
 			if let Some(mut prepared) = prepared { prepared.ready = false; }
 			continue;
@@ -87,20 +90,20 @@ pub fn prepare_voxel_view_bind_groups(
 
 pub fn voxel_render_pass(
 	render_stats: Res<RenderStats>,
-	shader_buffers: Res<RenderAssets<GpuShaderBuffer>>,
+	extracted_scenes: Res<ExtractedVoxelScenes>,
 	view: ViewQuery<(
+		bevy::ecs::entity::Entity,
 		&ViewTarget,
-		&ExtractedVoxelScene,
 		&VoxelViewResources,
+		&mut DirectionFeedback,
 	)>,
 	mut render_context: RenderContext,
 ) {
-	let (view_target, extracted, prepared) = view.into_inner();
+	let (entity, view_target, prepared, mut feedback) = view.into_inner();
 	if !prepared.ready { return; }
 	let Some(voxel_renderer) = prepared.voxel_renderer.as_ref() else { return };
+	let Some(extracted) = extracted_scenes.0.get(&entity) else { return };
 	let Some(bvh) = extracted.bvh.as_ref() else { return };
-	let Some(direction_mask_handle) = extracted.direction_mask_buffer.as_ref() else { return };
-	let Some(direction_mask_buffer) = shader_buffers.get(direction_mask_handle) else { return };
 
 	let device = render_context.render_device().wgpu_device().clone();
 	let encoder = render_context.command_encoder();
@@ -119,7 +122,6 @@ pub fn voxel_render_pass(
 		&extracted.voxel_buffer,
 		&extracted.main_tree_buffer,
 		&extracted.main_voxel_buffer,
-		&direction_mask_buffer.buffer,
 		color_attachment,
 	);
 
@@ -127,4 +129,5 @@ pub fn voxel_render_pass(
 		stats.bvh_bytes = gpu_bvh.bvh_buffer.size();
 		stats.bvh_leaf_bytes = gpu_bvh.items_buffer.size();
 	}
+	feedback.push_rendered(gpu_bvh);
 }

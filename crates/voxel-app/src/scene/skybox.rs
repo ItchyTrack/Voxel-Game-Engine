@@ -1,5 +1,4 @@
 use bevy::asset::{Handle, embedded_asset, load_embedded_asset};
-use bevy::camera::{Camera, Projection};
 use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -7,9 +6,8 @@ use bevy::render::render_resource::{
 	RenderPipelineDescriptor, UniformBuffer, VertexState,
 };
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery, WgpuWrapper};
-use bevy::render::view::ViewTarget;
-use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
-use bevy::transform::components::GlobalTransform;
+use bevy::render::view::{ExtractedView, ViewTarget};
+use bevy::render::{Render, RenderApp, RenderSystems};
 
 use voxel_raster_renderer::render_node::voxel_raster_render_pass;
 use voxel_ray_renderer::camera::CameraUniform;
@@ -27,9 +25,7 @@ impl Plugin for SkyboxPlugin {
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
 			.insert_resource(SkyboxShader(shader))
-			.init_resource::<SkyboxCamera>()
 			.init_resource::<SkyboxResource>()
-			.add_systems(ExtractSchedule, extract_skybox_camera)
 			.add_systems(Render, prepare_skybox.in_set(RenderSystems::PrepareBindGroups))
 			.add_systems(
 				Core3d,
@@ -43,9 +39,6 @@ impl Plugin for SkyboxPlugin {
 
 #[derive(Resource)]
 struct SkyboxShader(Handle<Shader>);
-
-#[derive(Resource, Default)]
-struct SkyboxCamera(Option<(Transform, Projection)>);
 
 #[derive(Resource, Default)]
 struct SkyboxResource {
@@ -134,26 +127,15 @@ impl SkyboxRenderer {
 	}
 }
 
-fn extract_skybox_camera(
-	mut skybox_camera: ResMut<SkyboxCamera>,
-	cameras: Extract<Query<(&Camera, &Projection, &GlobalTransform)>>,
-) {
-	skybox_camera.0 = cameras
-		.iter()
-		.find(|(camera, _, _)| camera.is_active)
-		.map(|(_, projection, global_transform)| (global_transform.compute_transform(), projection.clone()));
-}
-
 fn prepare_skybox(
 	render_device: Res<RenderDevice>,
 	render_queue: Res<RenderQueue>,
 	pipeline_cache: Res<PipelineCache>,
 	shader: Res<SkyboxShader>,
 	mut skybox: ResMut<SkyboxResource>,
-	skybox_camera: Res<SkyboxCamera>,
-	views: Query<&ViewTarget>,
+	views: Query<(&ViewTarget, &ExtractedView)>,
 ) {
-	let Some(view_target) = views.iter().next() else { return };
+	let Some((view_target, view)) = views.iter().next() else { return };
 	skybox.ensure(
 		&render_device,
 		&render_queue,
@@ -163,8 +145,7 @@ fn prepare_skybox(
 	);
 
 	let Some(renderer) = skybox.renderer.as_mut() else { return };
-	let Some((transform, projection)) = skybox_camera.0.as_ref() else { return };
-	let Ok(uniform) = CameraUniform::from_camera(transform, projection) else { return };
+	let Ok(uniform) = CameraUniform::from_view(view) else { return };
 	renderer.buffer.set(uniform);
 	renderer.buffer.write_buffer(&render_device, &render_queue);
 }

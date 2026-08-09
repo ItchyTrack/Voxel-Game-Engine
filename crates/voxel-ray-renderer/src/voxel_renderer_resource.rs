@@ -5,6 +5,7 @@ use bevy::render::render_resource::{ShaderType, UniformBuffer};
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 
 use crate::camera::CameraUniform;
+use crate::direction_feedback::DirectionFeedback;
 use crate::graphics_settings::RenderSettingsUniform;
 use crate::shader_sources::VoxelShaderSources;
 use crate::voxel_renderer::VoxelRenderer;
@@ -20,6 +21,7 @@ pub struct VoxelRendererResource {
 }
 
 #[derive(Component)]
+#[require(DirectionFeedback)]
 pub struct VoxelViewResources {
 	pub ready: bool,
 	pub voxel_renderer: Option<VoxelRenderer>,
