@@ -1,12 +1,11 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{BindGroupEntries, PipelineCache, StoreOp};
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
-use bevy::render::view::{ExtractedView, ViewDepthTexture, ViewTarget, ViewUniformOffset, ViewUniforms};
+use bevy::render::view::{ViewDepthTexture, ViewTarget, ViewUniformOffset, ViewUniforms};
 
 use voxel_gpu::SlangShaderParam;
 use crate::{
 	MarchingShader,
-	camera::CameraUniform,
 	extract::ExtractedMarchingScene,
 	model::ModelUniform,
 	renderer_resource::{MarchingRendererResource, MarchingViewResources},
@@ -20,18 +19,33 @@ pub fn prepare_marching_view_bind_groups(
 	view_uniforms: Res<ViewUniforms>,
 	mut shader: SlangShaderParam<MarchingShader>,
 	mut shared: ResMut<MarchingRendererResource>,
-	mut views: Query<(Entity, &ExtractedView, &ViewTarget, &ViewUniformOffset, &ExtractedMarchingScene, Option<&mut MarchingViewResources>)>,
+	mut views: Query<(Entity, &ViewTarget, &ViewUniformOffset, &ExtractedMarchingScene, Option<&mut MarchingViewResources>)>,
 ) {
+	let Some(view_binding) = view_uniforms.uniforms.binding() else {
+		shared.view_bind_group = None;
+		for (_, _, _, _, prepared) in &mut views {
+			if let Some(mut prepared) = prepared { prepared.pipeline = None; }
+		}
+		return;
+	};
+	shared.view_bind_group = Some(device.create_bind_group(
+		"marching_view_bind_group",
+		&cache.get_bind_group_layout(&shared.view_layout),
+		&BindGroupEntries::single(view_binding),
+	));
+
 	let shader = shader.get().and_then(|shader| shader.bevy_shader().cloned());
-	for (entity, view, target, _, extracted, prepared) in &mut views {
-		let Some(shader) = shader.as_ref() else { continue };
-		if view_uniforms.uniforms.binding().is_none() { continue; }
+	for (entity, target, view_offset, extracted, prepared) in &mut views {
+		let Some(shader) = shader.as_ref() else {
+			if let Some(mut prepared) = prepared { prepared.pipeline = None; }
+			continue;
+		};
 		let pipeline = shared.pipeline(&cache, target.main_texture_format(), shader);
 		if let Some(mut prepared) = prepared {
-			prepare_view(&mut prepared, view, extracted, pipeline, &device, &queue, &cache, &shared);
+			prepare_view(&mut prepared, view_offset.offset, extracted, pipeline, &device, &queue, &cache, &shared);
 		} else {
 			let mut prepared = MarchingViewResources::new(&device, &queue, &cache, &shared);
-			prepare_view(&mut prepared, view, extracted, pipeline, &device, &queue, &cache, &shared);
+			prepare_view(&mut prepared, view_offset.offset, extracted, pipeline, &device, &queue, &cache, &shared);
 			commands.entity(entity).insert(prepared);
 		}
 	}
@@ -39,7 +53,7 @@ pub fn prepare_marching_view_bind_groups(
 
 fn prepare_view(
 	prepared: &mut MarchingViewResources,
-	view: &ExtractedView,
+	view_uniform_offset: u32,
 	extracted: &ExtractedMarchingScene,
 	pipeline: bevy::render::render_resource::CachedRenderPipelineId,
 	device: &RenderDevice,
@@ -47,8 +61,7 @@ fn prepare_view(
 	cache: &PipelineCache,
 	shared: &MarchingRendererResource,
 ) {
-	prepared.camera_buffer.set(CameraUniform::from_view(view));
-	prepared.camera_buffer.write_buffer(device, queue);
+	prepared.view_uniform_offset = view_uniform_offset;
 	let models = extracted.items.iter().map(|item| ModelUniform::from_mat4(item.transform.to_matrix())).collect();
 	prepared.write_models(models, device, queue, cache, shared);
 	prepared.pipeline = Some(pipeline);
@@ -63,6 +76,7 @@ pub fn marching_render_pass(
 	let (target, depth, extracted, prepared) = view.into_inner();
 	let Some(pipeline_id) = prepared.pipeline else { return };
 	let Some(pipeline) = cache.get_render_pipeline(pipeline_id) else { return };
+	let Some(view_bind_group) = shared.view_bind_group.as_ref() else { return };
 	if extracted.items.is_empty() { return; }
 
 	let vertex_layout = cache.get_bind_group_layout(&shared.vertex_layout);
@@ -83,7 +97,7 @@ pub fn marching_render_pass(
 		multiview_mask: None,
 	});
 	pass.set_pipeline(pipeline);
-	pass.set_bind_group(0, &*prepared.camera_bind_group, &[]);
+	pass.set_bind_group(0, view_bind_group, &[prepared.view_uniform_offset]);
 	pass.set_bind_group(1, &*prepared.model_bind_group, &[]);
 	for (index, (item, vertex_bind_group)) in extracted.items.iter().zip(&vertex_bind_groups).enumerate() {
 		pass.set_bind_group(2, &**vertex_bind_group, &[]);

@@ -330,7 +330,8 @@ impl VoxelRenderer {
 		encoder: &mut wgpu::CommandEncoder,
 		view_width: u32,
 		view_height: u32,
-		camera_transform_bind_group: &GpuBindGroup,
+		view_bind_group: &GpuBindGroup,
+		view_uniform_offset: u32,
 		bvh: &bvh::BVH<Entity>,
 		bvh_item_data: &HashMap<Entity, crate::gpu_bvh::BvhItemData>,
 		tree_buffer: &GpuBuffer,
@@ -372,7 +373,7 @@ impl VoxelRenderer {
 
 		{
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Beam Pass"), timestamp_writes: None });
-			compute_pass.set_bind_group(0, &**camera_transform_bind_group, &[]);
+			compute_pass.set_bind_group(0, &**view_bind_group, &[view_uniform_offset]);
 			compute_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &*beam_bind_group, &[]);
@@ -381,7 +382,7 @@ impl VoxelRenderer {
 		}
 		{
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Ray Pass"), timestamp_writes: None });
-			compute_pass.set_bind_group(0, &**camera_transform_bind_group, &[]);
+			compute_pass.set_bind_group(0, &**view_bind_group, &[view_uniform_offset]);
 			compute_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &*ray_bind_group, &[]);
@@ -405,7 +406,7 @@ impl VoxelRenderer {
 				timestamp_writes: None,
 				multiview_mask: None,
 			});
-			render_pass.set_bind_group(0, &**camera_transform_bind_group, &[]);
+			render_pass.set_bind_group(0, &**view_bind_group, &[view_uniform_offset]);
 			render_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);
 			render_pass.set_bind_group(2, &*voxels_bind_group, &[]);
 			render_pass.set_bind_group(3, &*self.intermediate_textured_read_bind_group, &[]);

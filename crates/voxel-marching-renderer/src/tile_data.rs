@@ -74,7 +74,7 @@ impl TileGenerator for MarchingTileGenerator {
 		let (vertices, vertex_count, bounds_min, bounds_max) =
 			make_marching_cubes_mesh_in_region(&input.voxels, cell_min, cell_size);
 		if vertex_count == 0 { return None; }
-		let vertices = self.gpu.create_vertex_buffer(&vertices);
+		let vertices = self.gpu.create_vertex_buffer(bytemuck::cast_slice(&vertices));
 		Some(Box::new(MarchingTileData {
 			vertices,
 			vertex_count,

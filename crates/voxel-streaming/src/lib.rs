@@ -140,6 +140,11 @@ impl Plugin for VoxelStreamingPlugin {
 				),
 			)
 			.add_systems(StreamingMaintenance, (systems::cleanup_released_tiles, systems::apply_chunk_clears).chain())
-			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain());
+			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain())
+			.add_systems(
+				PostUpdate,
+				bevy::transform::systems::propagate_transforms_for::<Added<LoadedTile>>
+					.after(bevy::transform::TransformSystems::Propagate),
+			);
 	}
 }

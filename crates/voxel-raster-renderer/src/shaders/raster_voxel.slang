@@ -1,7 +1,7 @@
-struct CameraUniform {
-	float4x4 view_proj;
+struct ViewUniform {
+	float4x4 clip_from_world;
 };
-ConstantBuffer<CameraUniform> camera : register(b0, space0);
+ConstantBuffer<ViewUniform> view : register(b0, space0);
 
 struct ModelUniform {
 	float4x4 model;
@@ -90,7 +90,7 @@ VertexOutput vs_main(uint vertex_index : SV_VertexID, uint instance_index : SV_I
 	let world = mul(model.model, float4(local, 1.0));
 	out.world_position = world.xyz;
 	out.world_normal = normalize(mul(model.model, float4(local_normal, 0.0)).xyz);
-	out.clip_position = mul(camera.view_proj, world);
+	out.clip_position = mul(view.clip_from_world, world);
 	return out;
 }
 

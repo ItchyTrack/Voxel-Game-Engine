@@ -1,4 +1,3 @@
-pub mod camera;
 pub mod graphics_settings;
 pub mod gpu_bvh;
 pub mod gpu_data;

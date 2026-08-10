@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bevy::math::IVec3;
 use voxel_data::voxel_grid_tree::VoxelGridTree;
 use voxel_data::voxels::VoxelTypeInfo;
 
@@ -10,6 +9,88 @@ use voxel_gpu::voxel_color::VoxelGpuDataReaders;
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MeshFace {
 	pub packed: u32,
+}
+
+const TILE_EXTENT: usize = 64;
+const OCCUPANCY_ROW_COUNT: usize = TILE_EXTENT * TILE_EXTENT;
+
+struct TileOccupancy {
+	// One x-axis bit row for every (y, z) coordinate in the tile.
+	rows: Box<[u64]>,
+}
+
+impl TileOccupancy {
+	fn new() -> Self {
+		Self { rows: vec![0; OCCUPANCY_ROW_COUNT].into_boxed_slice() }
+	}
+
+	#[inline]
+	fn row_index(y: usize, z: usize) -> usize { z * TILE_EXTENT + y }
+
+	#[inline]
+	fn x_mask(x: usize, size: usize) -> u64 {
+		if size == TILE_EXTENT { u64::MAX } else { ((1u64 << size) - 1) << x }
+	}
+
+	fn fill(&mut self, position: [u32; 3], size: u32) {
+		let [x, y, z] = position.map(|coordinate| coordinate as usize);
+		let size = size as usize;
+		debug_assert!(x + size <= TILE_EXTENT && y + size <= TILE_EXTENT && z + size <= TILE_EXTENT);
+		let mask = Self::x_mask(x, size);
+		for z in z..z + size {
+			for y in y..y + size {
+				self.rows[Self::row_index(y, z)] |= mask;
+			}
+		}
+	}
+
+	fn face_is_filled(&self, position: [u32; 3], size: u32, orientation: u8) -> bool {
+		let [x, y, z] = position.map(|coordinate| coordinate as usize);
+		let size = size as usize;
+		match orientation {
+			0 => {
+				let neighbor_x = x + size;
+				neighbor_x < TILE_EXTENT && self.x_plane_is_filled(neighbor_x, y, z, size)
+			}
+			1 => x > 0 && self.x_plane_is_filled(x - 1, y, z, size),
+			2 => {
+				let neighbor_y = y + size;
+				neighbor_y < TILE_EXTENT && self.y_plane_is_filled(x, neighbor_y, z, size)
+			}
+			3 => y > 0 && self.y_plane_is_filled(x, y - 1, z, size),
+			4 => {
+				let neighbor_z = z + size;
+				neighbor_z < TILE_EXTENT && self.z_plane_is_filled(x, y, neighbor_z, size)
+			}
+			5 => z > 0 && self.z_plane_is_filled(x, y, z - 1, size),
+			_ => unreachable!("raster face orientation is out of range"),
+		}
+	}
+
+	#[inline]
+	fn x_plane_is_filled(&self, x: usize, y: usize, z: usize, size: usize) -> bool {
+		let bit = 1u64 << x;
+		(z..z + size).all(|z| (y..y + size).all(|y| self.rows[Self::row_index(y, z)] & bit != 0))
+	}
+
+	#[inline]
+	fn y_plane_is_filled(&self, x: usize, y: usize, z: usize, size: usize) -> bool {
+		let mask = Self::x_mask(x, size);
+		(z..z + size).all(|z| self.rows[Self::row_index(y, z)] & mask == mask)
+	}
+
+	#[inline]
+	fn z_plane_is_filled(&self, x: usize, y: usize, z: usize, size: usize) -> bool {
+		let mask = Self::x_mask(x, size);
+		(y..y + size).all(|y| self.rows[Self::row_index(y, z)] & mask == mask)
+	}
+}
+
+#[derive(Clone, Copy)]
+struct RasterLeaf {
+	position: [u32; 3],
+	size: u32,
+	palette_index: u8,
 }
 
 impl MeshFace {
@@ -79,31 +160,25 @@ pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, _voxel_type: VoxelTypeInf
 	let mut palette_vec: Vec<[u8; 4]> = Vec::new();
 	let mut palette_map: HashMap<[u8; 4], u8> = HashMap::new();
 	let mut palette_overflowed = false;
+	let mut occupancy = TileOccupancy::new();
+	let mut leaves = Vec::new();
 
+	// Stage occupancy in one tree traversal. Face generation can then use cache-friendly
+	// bit tests instead of recursively searching the grid tree six times per leaf.
 	for (pos, size, _voxel_ref) in grid_tree.iter() {
 		let color = [255, 255, 255, 255];
-		let size_u32 = size as u32;
-		let size_i32 = size as i32;
 		let position = [pos.x as u32, pos.y as u32, pos.z as u32];
+		let size = size as u32;
 		let palette_index = palette_index_for_color(color, &mut palette_map, &mut palette_vec, &mut palette_overflowed);
+		occupancy.fill(position, size);
+		leaves.push(RasterLeaf { position, size, palette_index });
+	}
 
-		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::X * size), IVec3::new(1, size_i32, size_i32)) {
-			faces.push(MeshFace::new(position, size_u32, palette_index, 0));
-		}
-		if pos.x == 0 || !grid_tree.is_area_filled(&(pos - bevy::math::U16Vec3::X), IVec3::new(1, size_i32, size_i32)) {
-			faces.push(MeshFace::new(position, size_u32, palette_index, 1));
-		}
-		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::Y * size), IVec3::new(size_i32, 1, size_i32)) {
-			faces.push(MeshFace::new(position, size_u32, palette_index, 2));
-		}
-		if pos.y == 0 || !grid_tree.is_area_filled(&(pos - bevy::math::U16Vec3::Y), IVec3::new(size_i32, 1, size_i32)) {
-			faces.push(MeshFace::new(position, size_u32, palette_index, 3));
-		}
-		if !grid_tree.is_area_filled(&(pos + bevy::math::U16Vec3::Z * size), IVec3::new(size_i32, size_i32, 1)) {
-			faces.push(MeshFace::new(position, size_u32, palette_index, 4));
-		}
-		if pos.z == 0 || !grid_tree.is_area_filled(&(pos - bevy::math::U16Vec3::Z), IVec3::new(size_i32, size_i32, 1)) {
-			faces.push(MeshFace::new(position, size_u32, palette_index, 5));
+	for leaf in leaves {
+		for orientation in 0..6 {
+			if !occupancy.face_is_filled(leaf.position, leaf.size, orientation) {
+				faces.push(MeshFace::new(leaf.position, leaf.size, leaf.palette_index, orientation));
+			}
 		}
 	}
 

@@ -20,7 +20,7 @@ impl VoxelRasterRendererResource {
 		let pipeline = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
 			label: Some("raster_voxel_pipeline".into()),
 			layout: vec![
-				self.camera_bind_group_layout.clone(),
+				self.view_bind_group_layout.clone(),
 				self.model_bind_group_layout.clone(),
 				self.face_bind_group_layout.clone(),
 			],

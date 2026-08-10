@@ -11,12 +11,18 @@ WTexture2D<uint4> intermediate_textured : register(u0, space3);
 Texture2D<float> bvh_beam_textured_read : register(t1, space3);
 Texture2D<float> scene_depth : register(t2, space3);
 
-struct CameraUniform {
-	float4 camera_transform[4];
+struct ViewUniform {
+	float4x4 clip_from_world;
+	float4x4 unjittered_clip_from_world;
 	float4x4 world_from_clip;
-	float2 camera_view_size;
+	float4x4 world_from_view;
+	float4x4 view_from_world;
+	float4x4 clip_from_view;
+	float4x4 view_from_clip;
+	float3 world_position;
+	float exposure;
 };
-ConstantBuffer<CameraUniform> camera : register(b0, space0);
+ConstantBuffer<ViewUniform> view : register(b0, space0);
 
 struct RenderSettings {
 	uint4 values;
@@ -35,25 +41,16 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 
 	let screen_pos = (float2(pixel) + float2(0.5)) / float2(texture_size);
 
-	let ray_start = camera.camera_transform[3].xyz;
-	let view_ray = float4(
-		(screen_pos.x - 0.5) * camera.camera_view_size.x * 2.0,
-		(0.5 - screen_pos.y) * camera.camera_view_size.y * 2.0,
-		-1.0,
-		0.0
-	);
-	let ray_dir = normalize((
-		camera.camera_transform[0] * view_ray.x
-		+ camera.camera_transform[1] * view_ray.y
-		+ camera.camera_transform[2] * view_ray.z
-		+ camera.camera_transform[3] * view_ray.w
-	).xyz);
+	let ray_start = view.world_position;
+	let ray_clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, 1.0, 1.0);
+	let ray_world_h = mul(view.world_from_clip, ray_clip);
+	let ray_dir = normalize(ray_world_h.xyz / ray_world_h.w - ray_start);
 
 	let depth = scene_depth.Load(int3(int2(pixel), 0)).r;
 	var max_dist = 1e38;
 	if (depth > 0.0) {
 		let clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, depth, 1.0);
-		let world_h = mul(camera.world_from_clip, clip);
+		let world_h = mul(view.world_from_clip, clip);
 		let depth_world = world_h.xyz / world_h.w;
 		max_dist = max(0.0, dot(depth_world - ray_start, ray_dir));
 	}

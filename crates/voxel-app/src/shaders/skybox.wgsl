@@ -1,3 +1,5 @@
+#import bevy_render::view::View
+
 struct VertexOutput {
 	@builtin(position) clip_position: vec4<f32>,
 	@location(0) screen_pos: vec2<f32>,
@@ -11,21 +13,13 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 	return out;
 }
 
-struct CameraUniform {
-	camera_transform: mat4x4<f32>,
-	world_from_clip: mat4x4<f32>,
-	camera_view_size: vec2<f32>,
-}
-@group(0) @binding(0) var<uniform> camera: CameraUniform;
+@group(0) @binding(0) var<uniform> view: View;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-	let ray_dir = normalize((camera.camera_transform * vec4<f32>(
-		(in.screen_pos.x - 0.5) * camera.camera_view_size.x * 2.0,
-		(in.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
-		-1.0,
-		0.0,
-	)).xyz);
+	let clip = vec4<f32>(in.screen_pos * 2.0 - 1.0, 1.0, 1.0);
+	let world_h = view.world_from_clip * clip;
+	let ray_dir = normalize(world_h.xyz / world_h.w - view.world_position);
 
 	let sun_dir = normalize(vec3<f32>(0.5, 1.0, 0.2));
 	let t = ray_dir.y * 0.5 + 0.5;

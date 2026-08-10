@@ -17,12 +17,18 @@ VertexOutput vs_main(uint vertex_index : SV_VertexID) {
 
 Texture2D<uint4> intermediate_textured_read : register(t0, space3);
 
-struct CameraUniform {
-	float4 camera_transform[4];
+struct ViewUniform {
+	float4x4 clip_from_world;
+	float4x4 unjittered_clip_from_world;
 	float4x4 world_from_clip;
-	float2 camera_view_size;
+	float4x4 world_from_view;
+	float4x4 view_from_world;
+	float4x4 clip_from_view;
+	float4x4 view_from_clip;
+	float3 world_position;
+	float exposure;
 };
-ConstantBuffer<CameraUniform> camera : register(b0, space0);
+ConstantBuffer<ViewUniform> view : register(b0, space0);
 
 float3 voxel_color(uint value) {
 	let h = float(value % 17u) / 17.0 * 6.0;
@@ -92,19 +98,10 @@ float4 fs_main(VertexOutput input) : SV_Target {
 	let item = bvh_items[bvh_item_idx];
 	let item_index_2 = item.item_index_2;
 	let distance = asfloat(data.w);
-	let view_ray = float4(
-		(input.screen_pos.x - 0.5) * camera.camera_view_size.x * 2.0,
-		(input.screen_pos.y - 0.5) * camera.camera_view_size.y * 2.0,
-		-1.0,
-		0.0
-	);
-	let ray_dir = normalize((
-		camera.camera_transform[0] * view_ray.x
-		+ camera.camera_transform[1] * view_ray.y
-		+ camera.camera_transform[2] * view_ray.z
-		+ camera.camera_transform[3] * view_ray.w
-	).xyz);
-	let world_hit = camera.camera_transform[3].xyz + ray_dir * distance;
+	let ray_clip = float4(input.screen_pos.x * 2.0 - 1.0, input.screen_pos.y * 2.0 - 1.0, 1.0, 1.0);
+	let ray_world_h = mul(view.world_from_clip, ray_clip);
+	let ray_dir = normalize(ray_world_h.xyz / ray_world_h.w - view.world_position);
+	let world_hit = view.world_position + ray_dir * distance;
 	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
 	let local_hit = Quat::inv_rotate(transform_quat, world_hit - float3(item.pos_x, item.pos_y, item.pos_z)) / item.scale;
 	let raw_surface_pos = frac(local_hit);

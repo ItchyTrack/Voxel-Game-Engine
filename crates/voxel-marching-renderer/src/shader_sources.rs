@@ -5,7 +5,10 @@ pub const ROOT_SHADER_ASSET: &str = "embedded://voxel_marching_renderer/shaders/
 
 pub fn asset_settings() -> SlangShaderSettings {
 	SlangShaderSettings {
-		files: vec![SlangAssetFile { asset_path: ROOT_SHADER_ASSET.into(), compile_path: "marching/marching_cubes.slang".into() }],
+		files: vec![SlangAssetFile {
+			asset_path: ROOT_SHADER_ASSET.into(),
+			compile_path: "marching/marching_cubes.slang".into()
+		}],
 		base_dir: "marching".into(),
 		include_dirs: vec!["marching".into()],
 		entries: vec![

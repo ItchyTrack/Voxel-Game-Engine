@@ -1,4 +1,3 @@
-pub mod camera;
 pub mod render_node;
 pub mod gpu_data;
 pub mod gpu_raster_mesh;

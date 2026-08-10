@@ -1,4 +1,3 @@
-pub mod camera;
 pub mod gpu_data;
 pub mod marching_cubes;
 pub mod tile_data;
