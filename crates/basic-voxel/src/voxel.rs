@@ -18,6 +18,10 @@ pub struct LodVoxel {
 	pub colors: [[u8; 4]; 8],
 }
 
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MarchingVoxel(pub BasicVoxel);
+
 impl LodVoxel {
 	pub fn solid(color: [u8; 4]) -> Self {
 		Self { colors: [color; 8] }
@@ -32,9 +36,19 @@ impl VoxelType for LodVoxel {
 	const TYPE_ID: VoxelTypeId = VoxelTypeId(2);
 }
 
+impl VoxelType for MarchingVoxel {
+	const TYPE_ID: VoxelTypeId = VoxelTypeId(3);
+}
+
 impl VoxMaterialVoxel for BasicVoxel {
 	fn from_vox_material(material: VoxMaterial) -> Self {
 		Self { color: material.color, mass: 100 }
+	}
+}
+
+impl VoxMaterialVoxel for MarchingVoxel {
+	fn from_vox_material(material: VoxMaterial) -> Self {
+		Self(BasicVoxel::from_vox_material(material))
 	}
 }
 
@@ -245,4 +259,8 @@ impl VoxelMassValue for BasicVoxel {
 	fn voxel_mass(&self) -> f64 {
 		self.mass as f64
 	}
+}
+
+impl VoxelMassValue for MarchingVoxel {
+	fn voxel_mass(&self) -> f64 { self.0.voxel_mass() }
 }

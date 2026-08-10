@@ -1,6 +1,6 @@
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
-use bevy::render::view::{ExtractedView, ViewTarget, ViewUniformOffset, ViewUniforms};
+use bevy::render::view::{ExtractedView, ViewDepthTexture, ViewTarget, ViewUniformOffset, ViewUniforms};
 
 use crate::camera::CameraUniform;
 use crate::direction_feedback::{DirectionFeedback, RenderStats};
@@ -94,12 +94,13 @@ pub fn voxel_render_pass(
 	view: ViewQuery<(
 		bevy::ecs::entity::Entity,
 		&ViewTarget,
+		&ViewDepthTexture,
 		&VoxelViewResources,
 		&mut DirectionFeedback,
 	)>,
 	mut render_context: RenderContext,
 ) {
-	let (entity, view_target, prepared, mut feedback) = view.into_inner();
+	let (entity, view_target, view_depth, prepared, mut feedback) = view.into_inner();
 	if !prepared.ready { return; }
 	let Some(voxel_renderer) = prepared.voxel_renderer.as_ref() else { return };
 	let Some(extracted) = extracted_scenes.0.get(&entity) else { return };
@@ -109,6 +110,17 @@ pub fn voxel_render_pass(
 	let encoder = render_context.command_encoder();
 	let main_texture = view_target.main_texture();
 	let color_attachment = view_target.get_color_attachment();
+	let depth_sample_view = view_depth.texture.create_view(&wgpu::TextureViewDescriptor {
+		label: Some("voxel_raycast_depth_sample_view"),
+		format: None,
+		dimension: None,
+		usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
+		aspect: wgpu::TextureAspect::DepthOnly,
+		base_mip_level: 0,
+		mip_level_count: None,
+		base_array_layer: 0,
+		array_layer_count: None,
+	});
 
 	let gpu_bvh = voxel_renderer.render(
 		&device,
@@ -122,6 +134,7 @@ pub fn voxel_render_pass(
 		&extracted.voxel_buffer,
 		&extracted.main_tree_buffer,
 		&extracted.main_voxel_buffer,
+		&depth_sample_view,
 		color_attachment,
 	);
 

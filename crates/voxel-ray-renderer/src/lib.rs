@@ -17,12 +17,13 @@ mod shader_asset;
 mod shader_sources;
 
 use bevy::app::{App, Plugin};
-use bevy::prelude::{Component, Resource};
+use bevy::prelude::{Camera3d, Component, Query, Resource};
 use bevy::core_pipeline::core_3d::main_opaque_pass_3d;
 use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
+use bevy::render::render_resource::TextureUsages;
 
 use ::tile_data::{TileCapabilityRegistry, TileData};
 use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
@@ -86,6 +87,14 @@ impl VoxelRayTileAppExt for App {
 #[derive(Default)]
 pub struct VoxelRayRendererPlugin;
 
+fn configure_depth_texture_usage(mut cameras: Query<&mut Camera3d>) {
+	for mut camera in &mut cameras {
+		let mut usages = TextureUsages::from(camera.depth_texture_usages);
+		usages |= TextureUsages::TEXTURE_BINDING;
+		camera.depth_texture_usages = usages.into();
+	}
+}
+
 impl Plugin for VoxelRayRendererPlugin {
 	fn build(&self, app: &mut App) {
 		bevy::asset::embedded_asset!(app, "shaders/beam.slang");
@@ -117,6 +126,7 @@ impl Plugin for VoxelRayRendererPlugin {
 		app.register_ray_tile_data::<tile_data::RayTileData>();
 		app.insert_resource(render_stats.clone())
 			.init_resource::<GraphicsSettings>()
+			.add_systems(bevy::prelude::Last, configure_depth_texture_usage)
 			.add_systems(bevy::prelude::Update, (
 				gpu_data::collect_ray_gpu_garbage,
 				shader_asset::reload_voxel_ray_shader_on_type_change,
@@ -143,7 +153,7 @@ impl Plugin for VoxelRayRendererPlugin {
 				Core3d,
 				render_node::voxel_render_pass
 					.in_set(Core3dSystems::MainPass)
-					.before(main_opaque_pass_3d),
+					.after(main_opaque_pass_3d),
 			);
 	}
 

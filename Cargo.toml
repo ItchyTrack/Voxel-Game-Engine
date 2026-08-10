@@ -13,6 +13,7 @@ members = [
 	"crates/voxel-lightyear",
 	"crates/voxel-ray-renderer",
 	"crates/voxel-raster-renderer",
+	"crates/voxel-marching-renderer",
 	"crates/voxel-physics",
 	"crates/voxel-content",
 	"crates/basic-voxel",

@@ -4,13 +4,15 @@ use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
 use std::path::PathBuf;
 
-use basic_voxel::BasicVoxel;
+use basic_voxel::{BasicVoxel, MarchingVoxel};
 use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_data::voxels::VoxelType;
 use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
+use voxel_gpu::{RenderingContext, RenderingType};
+use tile_data::TileGenerationContext;
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, RotationalInertia, VoxelPhysicsAppExt
 };
@@ -20,17 +22,21 @@ use voxel_streaming::{GridStreaming, RequestChunkPresence};
 use crate::voxel::spawn_grid::spawn_grid;
 
 type SceneVoxFileSource = VoxFileSource<BasicVoxel>;
+type MarchingVoxFileSource = VoxFileSource<MarchingVoxel>;
 
 pub struct ScenePlugin;
 
 impl Plugin for ScenePlugin {
 	fn build(&self, app: &mut App) {
 		let vox_source = SceneVoxFileSource::new();
+		let marching_vox_source = MarchingVoxFileSource::new();
 		let sdf_source = SdfSource::new();
 		app
 			.insert_resource(vox_source.clone())
+			.insert_resource(marching_vox_source.clone())
 			.insert_resource(sdf_source.clone())
 			.register_voxel_source(vox_source)
+			.register_voxel_source(marching_vox_source)
 			.register_voxel_source(sdf_source)
 			.add_systems(Startup, setup_scene)
 			.add_physics_apply_systems(drive_orientation);
@@ -71,9 +77,11 @@ fn setup_scene(
 	mut commands: Commands,
 	store: Res<VoxelStoreSource>,
 	vox_source: Res<SceneVoxFileSource>,
+	marching_vox_source: Res<MarchingVoxFileSource>,
 	_sdf_source: Res<SdfSource>,
 ) {
 	spawn_church(&mut commands, &vox_source);
+	spawn_sponza(&mut commands, &marching_vox_source);
 	// spawn_ball_cluster(&mut commands, &mut store);
 	// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
 	spawn_bb8(&mut commands, &store, Vec3::new(30.0, 120.0, 0.0));
@@ -85,6 +93,20 @@ fn setup_scene(
 	// 		}
 	// 	}
 	// }
+}
+
+fn spawn_sponza(commands: &mut Commands, vox_source: &MarchingVoxFileSource) {
+	let Some(path) = sponza_vox_path() else { return };
+	let grid = commands.spawn((
+		Transform::from_xyz(1500.0, 0.0, 0.0),//.rotate_y(f32::to_radians(90.0)),
+		Grid::new::<MarchingVoxel>(),
+		GridEdits::default(),
+		GridStreaming::default(),
+		RequestChunkPresence,
+		ReplicateVoxels,
+		TileGenerationContext::new(RenderingContext { rendering_type: RenderingType::Raster }),
+	)).id();
+	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
 }
 
 fn spawn_church(commands: &mut Commands, vox_source: &SceneVoxFileSource) {
@@ -110,6 +132,19 @@ fn spawn_church(commands: &mut Commands, vox_source: &SceneVoxFileSource) {
 		.id();
 	commands.entity(parent).add_child(grid);
 	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn sponza_vox_path() -> Option<PathBuf> { None }
+
+#[cfg(not(target_arch = "wasm32"))]
+fn sponza_vox_path() -> Option<PathBuf> {
+	[
+		PathBuf::from("res/sponza.vox"),
+		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../res/sponza.vox"),
+	]
+	.into_iter()
+	.find(|p| p.exists())
 }
 
 #[cfg(target_arch = "wasm32")]

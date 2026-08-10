@@ -6,8 +6,8 @@
 #include "dda/beam_raycast.slang"
 #include "helpers/quat.slang"
 
-float beam_raycast(float3 ray_pos, float3 ray_dir, float expand_k) {
-	var best_total_dist = 1e38;
+float beam_raycast(float3 ray_pos, float3 ray_dir, float expand_k, float max_dist) {
+	var best_total_dist = max_dist;
 	BVH::BeamRaycastPolicy bvh_policy;
 	bvh_policy.expand_k = expand_k;
 	var iter = BVH::iter_new(ray_pos, ray_dir, bvh_policy);

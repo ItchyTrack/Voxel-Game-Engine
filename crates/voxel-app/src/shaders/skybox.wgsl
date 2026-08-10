@@ -13,6 +13,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 
 struct CameraUniform {
 	camera_transform: mat4x4<f32>,
+	world_from_clip: mat4x4<f32>,
 	camera_view_size: vec2<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: CameraUniform;

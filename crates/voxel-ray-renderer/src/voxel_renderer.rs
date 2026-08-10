@@ -20,7 +20,6 @@ pub struct VoxelRenderer {
 	// Beam optimisation for BVH
 	pub bvh_beam_textured: GpuTexture,
 	pub bvh_beam_textured_storage_bind_group_layout: GpuBindGroupLayout,
-	pub bvh_beam_textured_storage_bind_group: GpuBindGroup,
 	// 64 tree
 	pub tree_bind_group_layout: GpuBindGroupLayout,
 	// voxel data
@@ -28,7 +27,6 @@ pub struct VoxelRenderer {
 	// intermediate textured
 	pub intermediate_textured: GpuTexture,
 	pub ray_marching_bind_group_layout: GpuBindGroupLayout,
-	pub ray_marching_bind_group: GpuBindGroup,
 	pub intermediate_textured_read_bind_group_layout: GpuBindGroupLayout,
 	pub intermediate_textured_read_bind_group: GpuBindGroup,
 	// pipelines
@@ -116,16 +114,28 @@ impl VoxelRenderer {
 		}));
 
 		let bvh_beam_textured_storage_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-			entries: &[wgpu::BindGroupLayoutEntry {
-				binding: 0,
-				visibility: wgpu::ShaderStages::COMPUTE,
-				ty: wgpu::BindingType::StorageTexture {
-					access: wgpu::StorageTextureAccess::WriteOnly,
-					format: wgpu::TextureFormat::R32Float,
-					view_dimension: wgpu::TextureViewDimension::D2,
+			entries: &[
+				wgpu::BindGroupLayoutEntry {
+					binding: 0,
+					visibility: wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::StorageTexture {
+						access: wgpu::StorageTextureAccess::WriteOnly,
+						format: wgpu::TextureFormat::R32Float,
+						view_dimension: wgpu::TextureViewDimension::D2,
+					},
+					count: None,
 				},
-				count: None,
-			}],
+				wgpu::BindGroupLayoutEntry {
+					binding: 1,
+					visibility: wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::Texture {
+						sample_type: wgpu::TextureSampleType::Float { filterable: false },
+						view_dimension: wgpu::TextureViewDimension::D2,
+						multisampled: false,
+					},
+					count: None,
+				},
+			],
 			label: Some("bvh_beam_storage_layout"),
 		}));
 		let bvh_beam_textured = WgpuWrapper::new(device.create_texture(&wgpu::TextureDescriptor {
@@ -138,14 +148,6 @@ impl VoxelRenderer {
 			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
 			view_formats: &[],
 		}));
-		let bvh_beam_textured_storage_bind_group = {
-			let view = texture_view(&bvh_beam_textured, wgpu::TextureUsages::STORAGE_BINDING)(&bvh_beam_textured);
-			WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
-				layout: &bvh_beam_textured_storage_bind_group_layout,
-				entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
-				label: Some("bvh_beam_storage_bind_group"),
-			}))
-		};
 		let ray_marching_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[
 				wgpu::BindGroupLayoutEntry {
@@ -160,6 +162,16 @@ impl VoxelRenderer {
 				},
 				wgpu::BindGroupLayoutEntry {
 					binding: 1,
+					visibility: wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::Texture {
+						sample_type: wgpu::TextureSampleType::Float { filterable: false },
+						view_dimension: wgpu::TextureViewDimension::D2,
+						multisampled: false,
+					},
+					count: None,
+				},
+				wgpu::BindGroupLayoutEntry {
+					binding: 2,
 					visibility: wgpu::ShaderStages::COMPUTE,
 					ty: wgpu::BindingType::Texture {
 						sample_type: wgpu::TextureSampleType::Float { filterable: false },
@@ -194,18 +206,6 @@ impl VoxelRenderer {
 			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
 			view_formats: &[],
 		}));
-		let ray_marching_bind_group = {
-			let intermediate_view = texture_view(&intermediate_textured, wgpu::TextureUsages::STORAGE_BINDING)(&intermediate_textured);
-			let beam_view = texture_view(&bvh_beam_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&bvh_beam_textured);
-			WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
-				layout: &ray_marching_bind_group_layout,
-				entries: &[
-					wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&intermediate_view) },
-					wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&beam_view) },
-				],
-				label: Some("ray_marching_bind_group"),
-			}))
-		};
 		let intermediate_textured_read_bind_group = {
 			let view = texture_view(&intermediate_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&intermediate_textured);
 			WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -308,7 +308,6 @@ impl VoxelRenderer {
 			// bvh beam optimization
 			bvh_beam_textured_storage_bind_group_layout,
 			bvh_beam_textured,
-			bvh_beam_textured_storage_bind_group,
 			bvh_beam_pipeline,
 			// 64 tree
 			tree_bind_group_layout,
@@ -317,7 +316,6 @@ impl VoxelRenderer {
 			// intermediate textured
 			intermediate_textured,
 			ray_marching_bind_group_layout,
-			ray_marching_bind_group,
 			intermediate_textured_read_bind_group_layout,
 			intermediate_textured_read_bind_group,
 			// pipelines
@@ -339,9 +337,30 @@ impl VoxelRenderer {
 		voxel_buffer: &GpuBuffer,
 		main_tree_buffer: &GpuBuffer,
 		main_voxel_buffer: &GpuBuffer,
+		depth_view: &wgpu::TextureView,
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
 	) -> GpuBvh {
 		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
+		let beam_storage_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.bvh_beam_textured);
+		let beam_read_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&self.bvh_beam_textured);
+		let intermediate_view = texture_view(&self.intermediate_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.intermediate_textured);
+		let beam_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+			layout: &self.bvh_beam_textured_storage_bind_group_layout,
+			entries: &[
+				wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&beam_storage_view) },
+				wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(depth_view) },
+			],
+			label: Some("bvh_beam_storage_bind_group"),
+		}));
+		let ray_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+			layout: &self.ray_marching_bind_group_layout,
+			entries: &[
+				wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&intermediate_view) },
+				wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&beam_read_view) },
+				wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(depth_view) },
+			],
+			label: Some("ray_marching_bind_group"),
+		}));
 		let tree_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &self.tree_bind_group_layout,
 			entries: &[
@@ -356,7 +375,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(0, &**camera_transform_bind_group, &[]);
 			compute_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
-			compute_pass.set_bind_group(3, &*self.bvh_beam_textured_storage_bind_group, &[]);
+			compute_pass.set_bind_group(3, &*beam_bind_group, &[]);
 			compute_pass.set_pipeline(&self.bvh_beam_pipeline);
 			compute_pass.dispatch_workgroups((view_width / BVH_BEAM_TEXTURE_FACTOR).div_ceil(4), (view_height / BVH_BEAM_TEXTURE_FACTOR).div_ceil(4), 1);
 		}
@@ -365,7 +384,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(0, &**camera_transform_bind_group, &[]);
 			compute_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
-			compute_pass.set_bind_group(3, &*self.ray_marching_bind_group, &[]);
+			compute_pass.set_bind_group(3, &*ray_bind_group, &[]);
 			compute_pass.set_pipeline(&self.ray_marching_pipeline);
 			compute_pass.dispatch_workgroups(view_width.div_ceil(8), view_height.div_ceil(4), 1);
 		}

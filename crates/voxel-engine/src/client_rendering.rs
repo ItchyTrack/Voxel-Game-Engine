@@ -2,6 +2,7 @@ use bevy::app::{PluginGroup, PluginGroupBuilder};
 use bevy::prelude::*;
 use camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderPlugin, CameraVoxelLoaderSet, CameraVoxelTileClass};
 use voxel_gpu::{RenderingGenerationPlugin, RenderingTileClass};
+use voxel_marching_renderer::{VoxelMarchingRendererPlugin, voxel_camera::VoxelMarchingCamera};
 use voxel_raster_renderer::{VoxelRasterRendererPlugin, voxel_camera::VoxelRasterCamera};
 use voxel_ray_renderer::{VoxelRayRendererPlugin, voxel_camera::VoxelCamera};
 
@@ -14,6 +15,7 @@ impl PluginGroup for ClientRenderingPlugins {
 			.add(RenderingGenerationPlugin)
 			.add(VoxelRayRendererPlugin)
 			.add(VoxelRasterRendererPlugin)
+			.add(VoxelMarchingRendererPlugin)
 			.add(CameraVoxelLoaderPlugin)
 			.add(ClientRenderingLinkPlugin)
 	}
@@ -36,9 +38,10 @@ fn sync_voxel_camera_components(
 		Option<&CameraVoxelTileClass>,
 		Option<&mut VoxelCamera>,
 		Option<&mut VoxelRasterCamera>,
+		Option<&mut VoxelMarchingCamera>,
 	), With<Camera3d>>,
 ) {
-	for (entity, loader, current_class, ray_camera, raster_camera) in &mut cameras {
+	for (entity, loader, current_class, ray_camera, raster_camera, marching_camera) in &mut cameras {
 		let tiles_to_render = loader.map(|loader| loader.tiles_to_render().collect::<Vec<_>>()).unwrap_or_default();
 		let mut entity_commands = commands.entity(entity);
 		if current_class.map(|class| class.0) != Some(rendering_class.0) {
@@ -47,6 +50,8 @@ fn sync_voxel_camera_components(
 		if let Some(mut camera) = ray_camera { camera.tiles_to_render = tiles_to_render.clone(); }
 		else { entity_commands.insert(VoxelCamera { tiles_to_render: tiles_to_render.clone() }); }
 		if let Some(mut camera) = raster_camera { camera.tiles_to_render = tiles_to_render.clone(); }
-		else { entity_commands.insert(VoxelRasterCamera { tiles_to_render }); }
+		else { entity_commands.insert(VoxelRasterCamera { tiles_to_render: tiles_to_render.clone() }); }
+		if let Some(mut camera) = marching_camera { camera.tiles_to_render = tiles_to_render.clone(); }
+		else { entity_commands.insert(VoxelMarchingCamera { tiles_to_render }); }
 	}
 }

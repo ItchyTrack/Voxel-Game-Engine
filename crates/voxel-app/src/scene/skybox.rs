@@ -1,15 +1,15 @@
 use bevy::asset::{Handle, embedded_asset, load_embedded_asset};
+use bevy::core_pipeline::core_3d::{main_opaque_pass_3d, main_transparent_pass_3d};
 use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
 	BindGroupLayoutDescriptor, CachedRenderPipelineId, FragmentState, PipelineCache,
-	RenderPipelineDescriptor, UniformBuffer, VertexState,
+	RenderPipelineDescriptor, StoreOp, UniformBuffer, VertexState,
 };
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery, WgpuWrapper};
-use bevy::render::view::{ExtractedView, ViewTarget};
+use bevy::render::view::{ExtractedView, ViewDepthTexture, ViewTarget};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
-use voxel_raster_renderer::render_node::voxel_raster_render_pass;
 use voxel_ray_renderer::camera::CameraUniform;
 use voxel_ray_renderer::render_node::voxel_render_pass;
 
@@ -31,8 +31,9 @@ impl Plugin for SkyboxPlugin {
 				Core3d,
 				skybox_pass
 					.in_set(Core3dSystems::MainPass)
-					.before(voxel_render_pass)
-					.before(voxel_raster_render_pass),
+					.after(main_opaque_pass_3d)
+					.before(main_transparent_pass_3d)
+					.before(voxel_render_pass),
 			);
 	}
 }
@@ -120,6 +121,13 @@ impl SkyboxRenderer {
 				..default()
 			}),
 			primitive: wgpu::PrimitiveState::default(),
+			depth_stencil: Some(wgpu::DepthStencilState {
+				format: wgpu::TextureFormat::Depth32Float,
+				depth_write_enabled: Some(false),
+				depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+				stencil: wgpu::StencilState::default(),
+				bias: wgpu::DepthBiasState::default(),
+			}),
 			multisample: wgpu::MultisampleState::default(),
 			..default()
 		});
@@ -153,19 +161,19 @@ fn prepare_skybox(
 fn skybox_pass(
 	skybox: Res<SkyboxResource>,
 	pipeline_cache: Res<PipelineCache>,
-	view: ViewQuery<&ViewTarget>,
+	view: ViewQuery<(&ViewTarget, &ViewDepthTexture)>,
 	mut render_context: RenderContext,
 ) {
 	let Some(renderer) = skybox.renderer.as_ref() else { return };
 	let Some(pipeline) = pipeline_cache.get_render_pipeline(renderer.pipeline) else { return };
 
-	let view_target = view.into_inner();
+	let (view_target, view_depth) = view.into_inner();
 	let color_attachment = view_target.get_color_attachment();
 	let encoder = render_context.command_encoder();
 	let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 		label: Some("Skybox Pass"),
 		color_attachments: &[Some(color_attachment)],
-		depth_stencil_attachment: None,
+		depth_stencil_attachment: Some(view_depth.get_attachment(StoreOp::Store)),
 		occlusion_query_set: None,
 		timestamp_writes: None,
 		multiview_mask: None,

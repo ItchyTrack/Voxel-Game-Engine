@@ -9,9 +9,11 @@
 
 WTexture2D<uint4> intermediate_textured : register(u0, space3);
 Texture2D<float> bvh_beam_textured_read : register(t1, space3);
+Texture2D<float> scene_depth : register(t2, space3);
 
 struct CameraUniform {
 	float4 camera_transform[4];
+	float4x4 world_from_clip;
 	float2 camera_view_size;
 };
 ConstantBuffer<CameraUniform> camera : register(b0, space0);
@@ -47,6 +49,15 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 		+ camera.camera_transform[3] * view_ray.w
 	).xyz);
 
+	let depth = scene_depth.Load(int3(int2(pixel), 0)).r;
+	var max_dist = 1e38;
+	if (depth > 0.0) {
+		let clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, depth, 1.0);
+		let world_h = mul(camera.world_from_clip, clip);
+		let depth_world = world_h.xyz / world_h.w;
+		max_dist = max(0.0, dot(depth_world - ray_start, ray_dir));
+	}
+
 	uint beam_width;
 	uint beam_height;
 	bvh_beam_textured_read.GetDimensions(beam_width, beam_height);
@@ -65,12 +76,12 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 	let d11 = bvh_beam_textured_read.Load(int3(c11, 0)).r;
 	let beam_min_dist = min(min(d00, d10), min(d01, d11));
 
-	if (beam_min_dist >= 1e37) {
+	if (beam_min_dist >= min(1e37, max_dist)) {
 		intermediate_textured.Store(pixel, uint4(0, 0, 0, 0));
 		return;
 	}
 
-	let hit = full_raycast(ray_start + ray_dir * beam_min_dist, ray_dir, 1e38);
+	let hit = full_raycast(ray_start + ray_dir * beam_min_dist, ray_dir, max_dist - beam_min_dist);
 	let sun_dir = normalize(float3(0.5, 1.0, 0.2));
 
 	if (hit.normal == 0u) {

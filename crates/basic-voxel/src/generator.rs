@@ -5,13 +5,16 @@ use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, Vox
 use voxel_sources::VoxelLodGenerator;
 use voxel_streaming::CHUNK_SIZE;
 
-use crate::{BasicVoxel, LodVoxel};
+use crate::{BasicVoxel, LodVoxel, MarchingVoxel};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BasicVoxelLodGenerator;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LodVoxelLodGenerator;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MarchingVoxelLodGenerator;
 
 impl VoxelLodGenerator for BasicVoxelLodGenerator {
 	fn input_type_id(&self) -> VoxelTypeId {
@@ -32,6 +35,70 @@ impl VoxelLodGenerator for LodVoxelLodGenerator {
 	fn output_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_INFO.id }
 	fn generate(&self, min: IVec3, size: IVec3, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 		downsample_region(min, size, lod, fetch)
+	}
+}
+
+impl VoxelLodGenerator for MarchingVoxelLodGenerator {
+	fn input_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_INFO.id }
+	fn output_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_INFO.id }
+	fn generate(&self, min: IVec3, size: IVec3, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+		downsample_marching_region(min, size, lod, fetch)
+	}
+}
+
+pub fn downsample_marching_region(min: IVec3, size: IVec3, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+	let scale_down = lod.max(0.0).floor() as u8;
+	let step = 1i32 << scale_down as u32;
+	let mut loaded = Vec::new();
+	for z in 0..size.z {
+		for y in 0..size.y {
+			for x in 0..size.x {
+				let local = IVec3::new(x, y, z);
+				if let Some(voxels) = fetch(min + local) { loaded.push((local, voxels)); }
+			}
+		}
+	}
+	if loaded.is_empty() { return None; }
+	let sources: Vec<_> = loaded.iter().map(|(local, voxels)| SourceTree {
+		voxels,
+		scale_down,
+		output_offset: (*local * CHUNK_SIZE).div_euclid(IVec3::splat(step)),
+	}).collect();
+	let output_size = div_ceil_ivec3(size * CHUNK_SIZE, step);
+	let output_region = GridRegion::from_min_size(IVec3::ZERO, output_size)?;
+	Voxels::reduce_voxels(output_region, &sources, MarchingVoxelReducer)
+}
+
+struct MarchingVoxelReducer;
+
+impl VoxelReducer for MarchingVoxelReducer {
+	type Output = MarchingVoxel;
+
+	fn reduce<'overlaps, 'a, Co>(
+		&mut self,
+		_region: GridRegion,
+		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
+	) -> Option<Self::Output>
+	where
+		Co: GridCoord,
+	{
+		let mut color = [0u64; 4];
+		let mut mass = 0u64;
+		let mut weight = 0u64;
+		for overlap in overlaps {
+			let voxel = MarchingVoxel::from_voxel_ref(&overlap.data);
+			let volume = region_volume(overlap.source_region);
+			for (sum, channel) in color.iter_mut().zip(voxel.0.color) {
+				*sum += u64::from(channel) * volume;
+			}
+			mass += u64::from(voxel.0.mass) * volume;
+			weight += volume;
+		}
+		if weight == 0 { return None; }
+		Some(MarchingVoxel(BasicVoxel {
+			color: color.map(|sum| ((sum + weight / 2) / weight).min(255) as u8),
+			mass: ((mass + weight / 2) / weight).min(u64::from(u32::MAX)) as u32,
+		}))
 	}
 }
 

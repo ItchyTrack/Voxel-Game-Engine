@@ -19,6 +19,7 @@ Texture2D<uint4> intermediate_textured_read : register(t0, space3);
 
 struct CameraUniform {
 	float4 camera_transform[4];
+	float4x4 world_from_clip;
 	float2 camera_view_size;
 };
 ConstantBuffer<CameraUniform> camera : register(b0, space0);
