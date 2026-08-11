@@ -14,7 +14,6 @@ impl TileKey {
 }
 
 impl TileIndexKey for TileKey {
-	fn lod(self) -> u8 { self.lod }
 	fn min(self) -> IVec3 { self.min }
 	fn size(self) -> IVec3 { self.size() }
 }

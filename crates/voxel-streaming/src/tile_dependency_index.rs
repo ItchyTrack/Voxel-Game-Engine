@@ -12,7 +12,6 @@ struct TileDependency {
 }
 
 impl TileIndexKey for TileDependency {
-	fn lod(self) -> u8 { 0 }
 	fn min(self) -> IVec3 { self.area.min }
 	fn size(self) -> IVec3 { self.area.size }
 }
@@ -37,6 +36,6 @@ impl TileDependencyIndex {
 	}
 
 	pub(crate) fn tiles_for_chunk(&self, chunk: IVec3) -> impl Iterator<Item = TileKey> {
-		self.index.keys_covering_point(chunk, 0).into_iter().map(|dependency| dependency.tile)
+		self.index.keys_covering_point(chunk).into_iter().map(|dependency| dependency.tile)
 	}
 }

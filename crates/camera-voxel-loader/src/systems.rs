@@ -119,7 +119,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 				ChunkAvailabilityChangeKind::BecameEmpty => {
 					let Ok(streaming) = grids.get_mut(event.grid) else { continue };
 					let streaming = streaming.into_inner();
-					loader.tiles.desired_in_area(event.grid, event.min, event.size, loader.settings.max_lod, &mut changed);
+					loader.tiles.desired_in_area(event.grid, event.min, event.size, &mut changed);
 					changed.retain(|&key| !tile_has_present_source(streaming, key));
 					loader.tiles.apply_delta(&[], &changed, &mut acquire, &mut release);
 					release_tiles(streaming, camera_entity, release.drain(..));
