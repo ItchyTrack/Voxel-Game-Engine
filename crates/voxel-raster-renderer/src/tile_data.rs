@@ -3,16 +3,15 @@ use std::any::Any;
 use bevy::math::U16Vec3;
 use tile_data::{TileData, TileGenerationSession, TileGenerator, VoxelArea, VoxelAreaRequest};
 use voxel_data::voxels::VoxelTypeId;
-use voxel_gpu::{AllocationId, PackedBufferAllocation, VoxelGpuDataReaders};
+use voxel_gpu::{VoxelGpuDataReaders, packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupId}};
 
 use crate::{gpu_data::RasterWorldGpuData, gpu_raster_mesh::make_gpu_raster_mesh};
 
 #[derive(Debug)]
 pub struct RasterTileData {
-	pub faces: PackedBufferAllocation,
-	pub palette: PackedBufferAllocation,
+	pub faces: PackedBufferGroupAllocation,
+	pub palette: PackedBufferGroupAllocation,
 	pub face_count: u32,
-	pub generation: u64,
 	pub bounds_min: U16Vec3,
 	pub bounds_max: U16Vec3,
 	pub voxel_lod: u8,
@@ -24,10 +23,9 @@ impl TileData for RasterTileData {
 
 #[derive(Clone, Copy, Debug)]
 pub struct RasterTileCapabilityData {
-	pub faces: AllocationId,
-	pub palette: AllocationId,
+	pub faces: PackedBufferGroupId,
+	pub palette: PackedBufferGroupId,
 	pub face_count: u32,
-	pub generation: u64,
 	pub bounds_min: U16Vec3,
 	pub bounds_max: U16Vec3,
 	pub voxel_lod: u8,
@@ -44,7 +42,6 @@ impl RasterTileCapability for RasterTileData {
 			faces: self.faces.id(),
 			palette: self.palette.id(),
 			face_count: self.face_count,
-			generation: self.generation,
 			bounds_min: self.bounds_min,
 			bounds_max: self.bounds_max,
 			voxel_lod: self.voxel_lod,
@@ -77,12 +74,10 @@ impl TileGenerator for VoxelRasterTileGenerator {
 		let mut gpu = self.gpu.lock();
 		let faces = gpu.faces.add_buffer(faces).expect("failed to allocate raster tile face data");
 		let palette = gpu.palettes.add_buffer(palette).expect("failed to allocate raster tile palette data");
-		let generation = gpu.next_generation();
 		Some(Box::new(RasterTileData {
 			faces,
 			palette,
 			face_count,
-			generation,
 			bounds_min,
 			bounds_max,
 			voxel_lod: input.lod,

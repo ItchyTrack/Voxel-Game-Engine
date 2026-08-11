@@ -9,7 +9,7 @@ use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
-use voxel_streaming::GridStreaming;
+use voxel_streaming::{ForgottenChunks, GridStreaming};
 
 use super::config::PLANET_COST;
 use super::generation::{build_planet_chunk, build_planet_lod_region};
@@ -24,6 +24,7 @@ impl Plugin for ProceduralPlanetPlugin {
 		app.register_voxel_source(ProceduralPlanetSource {
 			grids: grids.clone(),
 			handle: OnceLock::new(),
+			forgotten: ForgottenChunks::default(),
 		})
 		.insert_resource(PlanetGridMap(grids))
 		.add_systems(Startup, spawn_planet);
@@ -36,6 +37,7 @@ struct PlanetGridMap(Arc<OnceLock<HashMap<GridId, usize>>>);
 struct ProceduralPlanetSource {
 	grids: Arc<OnceLock<HashMap<GridId, usize>>>,
 	handle: OnceLock<SourceHandle>,
+	forgotten: ForgottenChunks,
 }
 
 impl ProceduralPlanetSource {
@@ -56,15 +58,19 @@ impl ChunkSource for ProceduralPlanetSource {
 	}
 
 	fn cost(&self, grid_id: GridId, chunk: IVec3) -> Option<u32> {
+		if self.forgotten.contains(grid_id, chunk) { return None; }
 		let tile = planet_tiles().get(self.tile_index(grid_id)?)?;
 		tile_has_chunk(tile, chunk).then_some(PLANET_COST)
 	}
 
 	fn request_load(&self, grid_id: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
 		let _zone = span!("planet source request_load chunk");
-		let voxels = self
-			.tile_index(grid_id)
-			.and_then(|tile_index| build_planet_chunk(tile_index, chunk, &cancellation));
+		let voxels = (!self.forgotten.contains(grid_id, chunk))
+			.then(|| {
+				self.tile_index(grid_id)
+					.and_then(|tile_index| build_planet_chunk(tile_index, chunk, &cancellation))
+			})
+			.flatten();
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
 			let _zone = span!("planet source publish chunk");
@@ -73,6 +79,7 @@ impl ChunkSource for ProceduralPlanetSource {
 	}
 
 	fn cost_voxels(&self, grid_id: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+		if !self.forgotten.any_remembered_in(grid_id, min, size) { return None; }
 		let tile = planet_tiles().get(self.tile_index(grid_id)?)?;
 		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "planet source does not support requested voxel type");
 		tile_has_any_chunk_in_region(tile, min, size).then_some(PLANET_COST)
@@ -98,6 +105,10 @@ impl ChunkSource for ProceduralPlanetSource {
 			let _zone = span!("planet source publish lod");
 			handle.voxels_loaded(grid_id, min, size, lod, voxel_type, generation, voxels);
 		}
+	}
+
+	fn forget(&self, grid_id: GridId, chunk: IVec3) {
+		self.forgotten.forget(grid_id, chunk);
 	}
 }
 

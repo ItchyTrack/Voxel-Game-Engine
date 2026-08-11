@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 mod chunk;
 mod consumer;
+mod forgotten_chunks;
 mod tile_dependency_index;
 mod presence;
 mod streaming;
@@ -15,6 +16,7 @@ mod edit;
 
 pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
+pub use forgotten_chunks::ForgottenChunks;
 pub use presence::{ChunkPresence, ChunkState};
 pub use tile_data::{
 	DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData,

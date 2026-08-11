@@ -1,5 +1,6 @@
 pub mod packed_dynamic_buffer;
 pub mod packed_residency_buffer;
+pub mod packed_buffer_group;
 pub mod rendering_generator;
 pub mod residency_packing;
 pub mod shader_compiler;

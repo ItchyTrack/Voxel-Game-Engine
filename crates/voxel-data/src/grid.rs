@@ -39,6 +39,10 @@ impl SubGridSlot {
 		pos.cmpge(self.owned_min).all() && pos.cmplt(self.owned_hi()).all()
 	}
 
+	pub(crate) fn owns_exactly(&self, min: IVec3, hi: IVec3) -> bool {
+		min == self.owned_min && hi == self.owned_hi()
+	}
+
 	fn owned_intersection(&self, min: IVec3, hi: IVec3) -> Option<(IVec3, IVec3)> {
 		let cell_lo = min.max(self.owned_min);
 		let cell_hi = hi.min(self.owned_hi());
@@ -475,7 +479,7 @@ mod tests {
 		src.add_area(U16Vec3::ZERO, U16Vec3::splat(16), vox(7).get_ref());
 
 		let mut grid = Grid::new_with_type(test_type_info());
-		let touched = crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::ZERO, voxels: &src }]);
+		let touched = crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::ZERO, voxels: &src, replace: None }]);
 
 		assert_eq!(touched.get(&0).cloned().unwrap_or_default(), HashSet::from([IVec3::ZERO]));
 		let slot = grid.subgrids.get(&IVec3::ZERO).unwrap();
@@ -556,7 +560,7 @@ mod tests {
 		src.add_area(U16Vec3::ZERO, U16Vec3::splat(8), vox(7).get_ref());
 		let mut grid = Grid::new_with_type(test_type_info());
 
-		crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::new(64, 0, 0), voxels: &src }]);
+		crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::new(64, 0, 0), voxels: &src, replace: None }]);
 
 		assert_eq!(grid.subgrid_origins_in_area(IVec3::new(64, 0, 0), IVec3::splat(64)), vec![IVec3::new(64, 0, 0)]);
 	}

@@ -28,6 +28,7 @@ pub struct MarchingViewResources {
 	pub view_uniform_offset: u32,
 	pub model_buffer: StorageBuffer<Vec<ModelUniform>>,
 	pub model_bind_group: BindGroup,
+	pub vertex_bind_groups: Vec<BindGroup>,
 }
 
 impl FromWorld for MarchingRendererResource {
@@ -48,7 +49,13 @@ impl MarchingViewResources {
 		model_buffer.set_label(Some("marching_model_buffer"));
 		model_buffer.write_buffer(device, queue);
 		let model_bind_group = device.create_bind_group("marching_model_bind_group", &cache.get_bind_group_layout(&shared.model_layout), &BindGroupEntries::single(model_buffer.binding().expect("model storage buffer must be initialized")));
-		Self { pipeline: None, view_uniform_offset: 0, model_buffer, model_bind_group }
+		Self {
+			pipeline: None,
+			view_uniform_offset: 0,
+			model_buffer,
+			model_bind_group,
+			vertex_bind_groups: Vec::new(),
+		}
 	}
 
 	pub fn write_models(&mut self, mut models: Vec<ModelUniform>, device: &RenderDevice, queue: &RenderQueue, cache: &PipelineCache, shared: &MarchingRendererResource) {

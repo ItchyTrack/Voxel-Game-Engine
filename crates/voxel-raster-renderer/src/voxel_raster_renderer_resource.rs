@@ -29,6 +29,7 @@ pub struct RasterViewResources {
 	pub view_uniform_offset: u32,
 	pub model_buffer: StorageBuffer<Vec<ModelUniform>>,
 	pub model_bind_group: BindGroup,
+	pub face_bind_groups: Vec<BindGroup>,
 }
 
 impl FromWorld for VoxelRasterRendererResource {
@@ -85,7 +86,13 @@ impl RasterViewResources {
 			),
 		);
 
-		Self { pipeline: None, view_uniform_offset: 0, model_buffer, model_bind_group }
+		Self {
+			pipeline: None,
+			view_uniform_offset: 0,
+			model_buffer,
+			model_bind_group,
+			face_bind_groups: Vec::new(),
+		}
 	}
 
 	pub fn write_models(

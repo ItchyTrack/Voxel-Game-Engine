@@ -13,7 +13,7 @@ use voxel_edit::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
-use voxel_streaming::{GridStreaming, chunk_of, chunk_origin};
+use voxel_streaming::{ForgottenChunks, GridStreaming, chunk_of, chunk_origin};
 
 const SOURCE_COST: u32 = 2;
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
@@ -69,7 +69,14 @@ impl Plugin for TreeSourcePlugin {
 	fn build(&self, app: &mut App) {
 		let grid = Arc::new(OnceLock::new());
 		let bounds = estimated_chunk_bounds(self.settings);
-		app.register_voxel_source(TreeSource { grid: grid.clone(), settings: self.settings, bounds, model: OnceLock::new(), handle: OnceLock::new() })
+		app.register_voxel_source(TreeSource {
+			grid: grid.clone(),
+			settings: self.settings,
+			bounds,
+			model: OnceLock::new(),
+			handle: OnceLock::new(),
+			forgotten: ForgottenChunks::default(),
+		})
 			.insert_resource(TreeGrid { grid, bounds, position: self.position })
 			.add_systems(Startup, spawn_tree);
 	}
@@ -105,6 +112,7 @@ struct TreeSource {
 	bounds: ChunkBounds,
 	model: OnceLock<TreeModel>,
 	handle: OnceLock<SourceHandle>,
+	forgotten: ForgottenChunks,
 }
 
 impl TreeSource {
@@ -122,13 +130,17 @@ impl ChunkSource for TreeSource {
 		}
 	}
 
-	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> { (self.is_mine(grid) && self.bounds.contains(chunk)).then_some(SOURCE_COST) }
+	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
+		(self.is_mine(grid) && self.bounds.contains(chunk) && !self.forgotten.contains(grid, chunk)).then_some(SOURCE_COST)
+	}
 
 	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() {
 			return;
 		}
-		let voxels = rasterize_tree_chunk(self.model(), chunk, &cancellation);
+		let voxels = (!self.forgotten.contains(grid, chunk))
+			.then(|| rasterize_tree_chunk(self.model(), chunk, &cancellation))
+			.flatten();
 		if cancellation.is_cancelled() {
 			return;
 		}
@@ -138,7 +150,7 @@ impl ChunkSource for TreeSource {
 	}
 
 	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if !self.is_mine(grid) { return None; }
+		if !self.is_mine(grid) || !self.forgotten.any_remembered_in(grid, min, size) { return None; }
 		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "tree source does not support requested voxel type");
 		self.bounds.intersects(min, size).then_some(SOURCE_COST)
 	}
@@ -148,13 +160,20 @@ impl ChunkSource for TreeSource {
 			return;
 		}
 		let model = self.model();
-		let voxels = downsample_region(min, size, lod, |chunk| rasterize_tree_chunk(model, chunk, &cancellation));
+		// Skipping the fetch keeps the hole exact at every LOD, unlike punching the result.
+		let voxels = downsample_region(min, size, lod, |chunk| {
+			(!self.forgotten.contains(grid, chunk)).then(|| rasterize_tree_chunk(model, chunk, &cancellation)).flatten()
+		});
 		if cancellation.is_cancelled() {
 			return;
 		}
 		if let Some(handle) = self.handle.get() {
 			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
 		}
+	}
+
+	fn forget(&self, grid: GridId, chunk: IVec3) {
+		self.forgotten.forget(grid, chunk);
 	}
 }
 
@@ -519,7 +538,14 @@ mod tests {
 		let settings = TreeSettings { attraction_points: 0, max_iterations: 0, ..default() };
 		let grid = Arc::new(OnceLock::new());
 		let _ = grid.set(GridId::PLACEHOLDER);
-		let source = TreeSource { grid, settings, bounds: estimated_chunk_bounds(settings), model: OnceLock::new(), handle: OnceLock::new() };
+		let source = TreeSource {
+			grid,
+			settings,
+			bounds: estimated_chunk_bounds(settings),
+			model: OnceLock::new(),
+			handle: OnceLock::new(),
+			forgotten: ForgottenChunks::default(),
+		};
 
 		assert_eq!(source.cost(GridId::PLACEHOLDER, IVec3::ZERO), Some(SOURCE_COST));
 		assert!(source.model.get().is_none());

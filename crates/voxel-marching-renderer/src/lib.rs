@@ -11,9 +11,12 @@ mod shader_sources;
 
 use basic_voxel::MarchingVoxel;
 use bevy::app::{App, Plugin};
-use bevy::core_pipeline::{Core3d, Core3dSystems, core_3d::main_opaque_pass_3d};
+use bevy::core_pipeline::core_3d::Opaque3d;
 use bevy::prelude::*;
-use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
+use bevy::render::{
+	ExtractSchedule, Render, RenderApp, RenderSystems,
+	render_phase::AddRenderCommand,
+};
 use ::tile_data::{TileAppExt, TileCapabilityRegistry, TileData};
 use voxel_data::voxels::VoxelType;
 use voxel_gpu::{
@@ -46,7 +49,8 @@ impl Plugin for VoxelMarchingRendererPlugin {
 			.with_settings(move |current: &mut SlangShaderSettings| *current = settings.clone())
 			.load(shader_sources::ROOT_SHADER_ASSET);
 		app.init_resource::<gpu_data::MarchingWorldGpuData>()
-			.init_resource::<MarchingTileCapabilityRegistry>();
+			.init_resource::<MarchingTileCapabilityRegistry>()
+			.add_systems(Update, gpu_data::collect_marching_gpu_garbage);
 		app.world_mut().resource_mut::<MarchingTileCapabilityRegistry>().register::<tile_data::MarchingTileData>();
 
 		let gpu = app.world().resource::<gpu_data::MarchingWorldGpuData>().clone();
@@ -68,14 +72,20 @@ impl Plugin for VoxelMarchingRendererPlugin {
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app.world_mut().spawn((MarchingShader, SlangShader::new(shader)));
 		render_app
+			.add_render_command::<Opaque3d, render_node::DrawMarchingCommands>()
 			.add_systems(ExtractSchedule, extract::extract_marching_scene)
-			.add_systems(Render, render_node::prepare_marching_view_bind_groups.in_set(RenderSystems::PrepareBindGroups))
-			.add_systems(Core3d, render_node::marching_render_pass.in_set(Core3dSystems::MainPass).before(main_opaque_pass_3d));
+			.add_systems(
+				Render,
+				(
+					render_node::queue_marching_phase.in_set(RenderSystems::Queue),
+					render_node::prepare_marching_view_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+				),
+			);
 	}
 
 	fn finish(&self, app: &mut App) {
 		let gpu = app.world().resource::<gpu_data::MarchingWorldGpuData>().clone();
-		gpu.initialize(app.world().resource());
+		gpu.initialize(app.world().resource(), app.world().resource());
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app.init_resource::<renderer_resource::MarchingRendererResource>();
 	}

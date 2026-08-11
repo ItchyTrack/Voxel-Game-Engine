@@ -10,7 +10,7 @@ use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
 use voxel_data::grid::GridId;
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
-use voxel_streaming::{chunk_origin, GridStreaming, CHUNK_SIZE};
+use voxel_streaming::{chunk_origin, ForgottenChunks, GridStreaming, CHUNK_SIZE};
 use voxel_lightyear::ReplicateVoxels;
 use basic_voxel::{BasicVoxel, LodVoxel};
 
@@ -163,6 +163,7 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: f32, cancellation: &Cancellati
 struct SphereSource {
 	grid: Arc<OnceLock<GridId>>,
 	handle: OnceLock<SourceHandle>,
+	forgotten: ForgottenChunks,
 }
 
 impl SphereSource {
@@ -183,7 +184,7 @@ impl ChunkSource for SphereSource {
 	}
 
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
-		if !self.is_mine(grid) {
+		if !self.is_mine(grid) || self.forgotten.contains(grid, chunk) {
 			return None;
 		}
 		let min = chunk_origin(chunk).as_vec3();
@@ -191,7 +192,7 @@ impl ChunkSource for SphereSource {
 	}
 
 	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
-		let voxels = build_chunk(chunk, &cancellation);
+		let voxels = (!self.forgotten.contains(grid, chunk)).then(|| build_chunk(chunk, &cancellation)).flatten();
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.handle.get() {
 			handle.loaded(grid, chunk, generation, voxels);
@@ -199,7 +200,7 @@ impl ChunkSource for SphereSource {
 	}
 
 	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if !self.is_mine(grid) { return None; }
+		if !self.is_mine(grid) || !self.forgotten.any_remembered_in(grid, min, size) { return None; }
 		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "sphere source does not support requested voxel type");
 		let lo = chunk_origin(min).as_vec3();
 		let hi = chunk_origin(min + size).as_vec3();
@@ -213,6 +214,10 @@ impl ChunkSource for SphereSource {
 			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels);
 		}
 	}
+
+	fn forget(&self, grid: GridId, chunk: IVec3) {
+		self.forgotten.forget(grid, chunk);
+	}
 }
 
 #[derive(Resource, Clone)]
@@ -223,7 +228,11 @@ pub struct SphereSourcePlugin;
 impl Plugin for SphereSourcePlugin {
 	fn build(&self, app: &mut App) {
 		let grid = Arc::new(OnceLock::new());
-		app.register_voxel_source(SphereSource { grid: grid.clone(), handle: OnceLock::new() });
+		app.register_voxel_source(SphereSource {
+			grid: grid.clone(),
+			handle: OnceLock::new(),
+			forgotten: ForgottenChunks::default(),
+		});
 		app.insert_resource(SphereGrid(grid));
 		app.add_systems(Startup, spawn_sphere_grid);
 	}

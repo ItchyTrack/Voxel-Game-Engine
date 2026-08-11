@@ -21,6 +21,7 @@ impl ChunkSource for AreaSource {
 			.then_some(0)
 	}
 	fn request_voxel_area(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _voxel_type: VoxelTypeId, _generation: u64, _cancellation: CancellationToken) {}
+	fn forget(&self, _grid: GridId, _chunk: IVec3) {}
 }
 
 fn test_type_info() -> VoxelTypeInfo {

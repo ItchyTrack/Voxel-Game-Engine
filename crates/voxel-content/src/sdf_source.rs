@@ -8,7 +8,7 @@ use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
-use voxel_streaming::CHUNK_SIZE;
+use voxel_streaming::{CHUNK_SIZE, ForgottenChunks};
 
 /// Procedural SDF contract used by [`SdfSource`].
 ///
@@ -46,6 +46,7 @@ pub struct SdfSource {
 struct SdfSourceInner {
 	handle: OnceLock<SourceHandle>,
 	bindings: RwLock<HashMap<GridId, GridBinding>>,
+	forgotten: ForgottenChunks,
 }
 
 #[derive(Clone)]
@@ -61,6 +62,7 @@ impl SdfSource {
 			inner: Arc::new(SdfSourceInner {
 				handle: OnceLock::new(),
 				bindings: RwLock::new(HashMap::new()),
+				forgotten: ForgottenChunks::default(),
 			}),
 		}
 	}
@@ -165,13 +167,16 @@ impl ChunkSource for SdfSource {
 	}
 
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
+		if self.inner.forgotten.contains(grid, chunk) { return None; }
 		let binding = self.binding(grid)?;
 		Self::might_intersect_region(&binding, chunk, IVec3::ONE).then_some(binding.options.cost)
 	}
 
 	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
 		if cancellation.is_cancelled() { return; }
-		let voxels = self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, None, None, Some(&cancellation)));
+		let voxels = (!self.inner.forgotten.contains(grid, chunk))
+			.then(|| self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, None, None, Some(&cancellation))))
+			.flatten();
 		if cancellation.is_cancelled() { return; }
 		if let Some(handle) = self.inner.handle.get() {
 			handle.loaded(grid, chunk, generation, voxels);
@@ -179,6 +184,7 @@ impl ChunkSource for SdfSource {
 	}
 
 	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
+		if !self.inner.forgotten.any_remembered_in(grid, min, size) { return None; }
 		let binding = self.binding(grid)?;
 		assert!(
 			binding.sdf.voxel().type_id() == voxel_type || binding.sdf.lod_voxel().type_id() == voxel_type,
@@ -219,6 +225,10 @@ impl ChunkSource for SdfSource {
 			handle.claim(grid, chunk_min, chunk_max - chunk_min + IVec3::ONE);
 		}
 		handle.presence_loaded(grid);
+	}
+
+	fn forget(&self, grid: GridId, chunk: IVec3) {
+		self.inner.forgotten.forget(grid, chunk);
 	}
 }
 

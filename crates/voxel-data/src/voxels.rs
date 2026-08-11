@@ -367,6 +367,12 @@ impl Voxels {
 		}
 	}
 
+	pub fn overwrite_region_from(&mut self, source: &Voxels, source_region: GridRegion, offset: IVec3) {
+		self.assert_type(source.voxel_type_id());
+		self.voxels.overwrite_region_from(&source.voxels, source_region, offset);
+		self.bounding_box_dirty.store(true, Ordering::Release);
+	}
+
 	pub fn voxel(&self, pos: &U16Vec3) -> Option<VoxelRef<'_>> { self.voxels.get(pos) }
 	pub fn raw(&self, pos: &U16Vec3) -> Option<&[u8]> {
 		let voxel = self.voxels.get(pos)?;

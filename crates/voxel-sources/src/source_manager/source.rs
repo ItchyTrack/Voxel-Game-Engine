@@ -50,7 +50,5 @@ pub trait ChunkSource: Send + Sync {
 		false
 	}
 
-	fn forget(&self, grid: GridId, chunk: IVec3) {
-		let _ = (grid, chunk);
-	}
+	fn forget(&self, grid: GridId, chunk: IVec3);
 }

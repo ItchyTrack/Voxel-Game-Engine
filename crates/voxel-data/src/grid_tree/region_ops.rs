@@ -236,7 +236,27 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 			return;
 		}
 		let Some(source_bounds) = other.occupied_bounds_in_region(source_region) else { return };
-		self.merge_region_from_with_bounds(other, source_region, source_bounds, offset);
+		self.merge_region_from_with_bounds(other, source_region, source_bounds, offset, false);
+	}
+
+	pub fn overwrite_region_from(&mut self, other: &Self, source_region: GridRegion, offset: IVec3) {
+		let destination_region = source_region.translated(offset);
+		let source_bounds = source_region
+			.intersection(other.root_region())
+			.filter(|_| !other.is_empty())
+			.and_then(|region| other.occupied_bounds_in_region(region));
+		let Some(source_bounds) = source_bounds else {
+			self.clear_region(destination_region);
+			return;
+		};
+		if self.occupied_bounds().is_none_or(|bounds| destination_region.contains_region(bounds)) {
+			let grid_type = self.grid_type.clone();
+			*self = Self::new_with_type(grid_type);
+			self.merge_region_from(other, source_bounds, offset);
+			return;
+		}
+		self.clear_region_outside(destination_region, source_bounds.translated(offset));
+		self.merge_region_from_with_bounds(other, source_bounds, source_bounds, offset, true);
 	}
 
 	pub fn merge_region_from_mapped<'a>(&'a mut self, other: &'a Self, source_region: GridRegion, offset: IVec3, mut map: impl FnMut(G::Data<'a>) -> G::Data<'a>) {
@@ -257,16 +277,18 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		}
 	}
 
-	fn merge_region_from_with_bounds(&mut self, other: &Self, source_region: GridRegion, source_bounds: GridRegion, offset: IVec3) {
-		let source_count = other.occupied_count_in_region(source_bounds);
-		let walk_destination = !self.is_empty() && self.len() < source_count;
-		if walk_destination {
-			self.clear_destination_covered_by_source(other, source_bounds, offset);
+	fn merge_region_from_with_bounds(&mut self, other: &Self, source_region: GridRegion, source_bounds: GridRegion, offset: IVec3, overwrite: bool) {
+		if !overwrite {
+			let source_count = other.occupied_count_in_region(source_bounds);
+			let walk_destination = !self.is_empty() && self.len() < source_count;
+			if walk_destination {
+				self.clear_destination_covered_by_source(other, source_bounds, offset);
+			}
 		}
-		self.merge_region_from_source_walk(other, source_bounds, source_region.contains_region(other.root_region()), offset);
+		self.merge_region_from_source_walk(other, source_bounds, source_region.contains_region(other.root_region()), offset, overwrite);
 	}
 
-	fn merge_region_from_source_walk(&mut self, other: &Self, source_bounds: GridRegion, full_root_covered: bool, offset: IVec3) {
+	fn merge_region_from_source_walk(&mut self, other: &Self, source_bounds: GridRegion, full_root_covered: bool, offset: IVec3, overwrite: bool) {
 		let dest_bounds = source_bounds.translated(offset);
 		if !self.make_sure_root_covers_area(dest_bounds.min, dest_bounds.max_inclusive()) || !self.has_node_budget() {
 			return;
@@ -274,12 +296,12 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 
 		if full_root_covered {
 			if let Some(dest_node_index) = self.node_for_region(other.raw.root_pos() + offset, other.raw.root_depth()) {
-				if self.merge_aligned_nodes_from(other, 0, dest_node_index, other.raw.root_depth()) {
+				if self.merge_aligned_nodes_from(other, 0, dest_node_index, other.raw.root_depth(), overwrite) {
 					return;
 				}
 			}
 		}
-		let _ = self.merge_region_from_recurse(other, 0, other.raw.root_depth(), other.raw.root_pos(), source_bounds, offset);
+		let _ = self.merge_region_from_recurse(other, 0, other.raw.root_depth(), other.raw.root_pos(), source_bounds, offset, overwrite);
 	}
 
 	fn node_for_region(&mut self, target_origin: IVec3, target_depth: u8) -> Option<u32> {
@@ -304,10 +326,14 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		(node_origin == target_origin && node_depth == target_depth).then_some(node_index)
 	}
 
-	fn merge_aligned_nodes_from(&mut self, other: &Self, src_node_index: u32, dest_node_index: u32, node_depth: u8) -> bool {
+	fn merge_aligned_nodes_from(&mut self, other: &Self, src_node_index: u32, dest_node_index: u32, node_depth: u8, overwrite: bool) -> bool {
 		for child_index in 0..SIZE_CUBED {
 			match other.raw.cell_kind(src_node_index, child_index) {
-				CellKind::Empty => {}
+				CellKind::Empty => {
+					if overwrite {
+						self.set_child_area_to_empty(dest_node_index, node_depth, child_index);
+					}
+				}
 				CellKind::Data => {
 					let data = other.cell_data(src_node_index, child_index);
 					self.set_child_area_to_data(dest_node_index, node_depth, child_index, data);
@@ -320,7 +346,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 						Some(index) => index,
 						None => return false,
 					};
-					if !self.merge_aligned_nodes_from(other, other.raw.child_index(src_node_index, child_index), dest_child_node, node_depth - 1) {
+					if !self.merge_aligned_nodes_from(other, other.raw.child_index(src_node_index, child_index), dest_child_node, node_depth - 1, overwrite) {
 						return false;
 					}
 					self.collapse_child_node_if_possible(dest_node_index, child_index);
@@ -330,7 +356,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		true
 	}
 
-	fn merge_region_from_recurse(&mut self, other: &Self, src_node_index: u32, src_node_depth: u8, src_node_origin: IVec3, source_region: GridRegion, offset: IVec3) -> bool {
+	fn merge_region_from_recurse(&mut self, other: &Self, src_node_index: u32, src_node_depth: u8, src_node_origin: IVec3, source_region: GridRegion, offset: IVec3, overwrite: bool) -> bool {
 		let node_region = GridRegion { min: src_node_origin, end: src_node_origin + IVec3::splat(size(src_node_depth) as i32) };
 		let Some(overlap) = source_region.intersection(node_region) else { return true };
 		let cell_size = child_size(src_node_depth) as i32;
@@ -342,12 +368,12 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 				for x in child_min.x..=child_max.x {
 					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
 					let cell_kind = other.raw.cell_kind(src_node_index, child_index);
-					if cell_kind == CellKind::Empty { continue; }
+					if cell_kind == CellKind::Empty && !overwrite { continue; }
 					let child_origin = src_node_origin + IVec3::new(x, y, z) * cell_size;
 					let child_region = GridRegion { min: child_origin, end: child_origin + IVec3::splat(cell_size) };
 					let Some(clipped_source) = source_region.intersection(child_region) else { continue };
 					match cell_kind {
-						CellKind::Empty => unreachable!(),
+						CellKind::Empty => self.clear_region(clipped_source.translated(offset)),
 						CellKind::Data => {
 							let data = other.cell_data(src_node_index, child_index);
 							if !self.fill_region_recurse_entry(clipped_source.translated(offset), data) { return false; }
@@ -357,11 +383,11 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 							let child_depth = src_node_depth - 1;
 							if source_region.contains_region(child_region) {
 								if let Some(dest_node_index) = self.node_for_region(child_origin + offset, child_depth) {
-									if !self.merge_aligned_nodes_from(other, child_node_index, dest_node_index, child_depth) { return false; }
+									if !self.merge_aligned_nodes_from(other, child_node_index, dest_node_index, child_depth, overwrite) { return false; }
 									continue;
 								}
 							}
-							if !self.merge_region_from_recurse(other, child_node_index, child_depth, child_origin, source_region, offset) { return false; }
+							if !self.merge_region_from_recurse(other, child_node_index, child_depth, child_origin, source_region, offset, overwrite) { return false; }
 						}
 					}
 				}
@@ -521,6 +547,24 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		}
 
 		let _ = self.clear_region_recurse(0, self.raw.root_depth(), self.raw.root_pos(), region);
+	}
+
+	fn clear_region_outside(&mut self, region: GridRegion, keep: GridRegion) {
+		let mut remaining = region;
+		for axis in 0..3 {
+			if keep.min[axis] > remaining.min[axis] {
+				let mut slab = remaining;
+				slab.end[axis] = keep.min[axis];
+				self.clear_region(slab);
+				remaining.min[axis] = keep.min[axis];
+			}
+			if keep.end[axis] < remaining.end[axis] {
+				let mut slab = remaining;
+				slab.min[axis] = keep.end[axis];
+				self.clear_region(slab);
+				remaining.end[axis] = keep.end[axis];
+			}
+		}
 	}
 
 	pub fn remove_area(&mut self, pos: &Co::Pos, size: IVec3) {

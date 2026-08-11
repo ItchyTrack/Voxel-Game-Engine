@@ -6,14 +6,13 @@ use tile_data::{TileData, TileGenerationSession, TileGenerator, VoxelArea, Voxel
 use voxel_data::voxels::VoxelType;
 use voxel_streaming::CHUNK_SIZE;
 
-use crate::{
-	gpu_data::{MarchingGpuBuffer, MarchingWorldGpuData},
-	marching_cubes::make_marching_cubes_mesh_in_region,
-};
+use voxel_gpu::packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupId};
+
+use crate::{gpu_data::MarchingWorldGpuData, marching_cubes::make_marching_cubes_mesh_in_region};
 
 #[derive(Debug)]
 pub struct MarchingTileData {
-	pub vertices: MarchingGpuBuffer,
+	pub vertices: PackedBufferGroupAllocation,
 	pub vertex_count: u32,
 	pub bounds_min: Vec3,
 	pub bounds_max: Vec3,
@@ -24,9 +23,9 @@ impl TileData for MarchingTileData {
 	fn as_any(&self) -> &dyn Any { self }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct MarchingTileCapabilityData {
-	pub vertices: MarchingGpuBuffer,
+	pub vertices: PackedBufferGroupId,
 	pub vertex_count: u32,
 	pub bounds_min: Vec3,
 	pub bounds_max: Vec3,
@@ -40,7 +39,7 @@ pub trait MarchingTileCapability: TileData {
 impl MarchingTileCapability for MarchingTileData {
 	fn marching_tile_data(&self) -> MarchingTileCapabilityData {
 		MarchingTileCapabilityData {
-			vertices: self.vertices.clone(),
+			vertices: self.vertices.id(),
 			vertex_count: self.vertex_count,
 			bounds_min: self.bounds_min,
 			bounds_max: self.bounds_max,
@@ -74,7 +73,7 @@ impl TileGenerator for MarchingTileGenerator {
 		let (vertices, vertex_count, bounds_min, bounds_max) =
 			make_marching_cubes_mesh_in_region(&input.voxels, cell_min, cell_size);
 		if vertex_count == 0 { return None; }
-		let vertices = self.gpu.create_vertex_buffer(bytemuck::cast_slice(&vertices));
+		let vertices = self.gpu.create_vertex_buffer(bytemuck::cast_slice(&vertices).to_vec());
 		Some(Box::new(MarchingTileData {
 			vertices,
 			vertex_count,

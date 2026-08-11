@@ -126,7 +126,7 @@ fn bench_splat_voxels_blocking(c: &mut Criterion) {
 		b.iter_batched(
 			Grid::new,
 			|mut grid| {
-				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &uniform }];
+				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &uniform, replace: None }];
 				let touched = splat_voxels_blocking(std::slice::from_mut(&mut grid), black_box(&splats));
 				black_box(touched.len())
 			},
@@ -137,7 +137,7 @@ fn bench_splat_voxels_blocking(c: &mut Criterion) {
 		b.iter_batched(
 			Grid::new,
 			|mut grid| {
-				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &gradient }];
+				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &gradient, replace: None }];
 				let touched = splat_voxels_blocking(std::slice::from_mut(&mut grid), black_box(&splats));
 				black_box(touched.len())
 			},
@@ -148,7 +148,7 @@ fn bench_splat_voxels_blocking(c: &mut Criterion) {
 		b.iter_batched(
 			Grid::new,
 			|mut grid| {
-				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &sphere }];
+				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &sphere, replace: None }];
 				let touched = splat_voxels_blocking(std::slice::from_mut(&mut grid), black_box(&splats));
 				black_box(touched.len())
 			},
@@ -160,10 +160,10 @@ fn bench_splat_voxels_blocking(c: &mut Criterion) {
 			Grid::new,
 			|mut grid| {
 				let splats = [
-					GridSplat { grid: 0, base: IVec3::new(0, 0, 0), voxels: &uniform },
-					GridSplat { grid: 0, base: IVec3::new(32, 0, 0), voxels: &uniform },
-					GridSplat { grid: 0, base: IVec3::new(0, 32, 0), voxels: &uniform },
-					GridSplat { grid: 0, base: IVec3::new(0, 0, 32), voxels: &uniform },
+					GridSplat { grid: 0, base: IVec3::new(0, 0, 0), voxels: &uniform, replace: None },
+					GridSplat { grid: 0, base: IVec3::new(32, 0, 0), voxels: &uniform, replace: None },
+					GridSplat { grid: 0, base: IVec3::new(0, 32, 0), voxels: &uniform, replace: None },
+					GridSplat { grid: 0, base: IVec3::new(0, 0, 32), voxels: &uniform, replace: None },
 				];
 				let touched = splat_voxels_blocking(std::slice::from_mut(&mut grid), black_box(&splats));
 				black_box(touched.len())
@@ -175,12 +175,12 @@ fn bench_splat_voxels_blocking(c: &mut Criterion) {
 		b.iter_batched(
 			|| {
 				let mut grid = Grid::new_with_type(test_type_info());
-				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &uniform }];
+				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &uniform, replace: None }];
 				splat_voxels_blocking(std::slice::from_mut(&mut grid), &splats);
 				grid
 			},
 			|mut grid| {
-				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &gradient }];
+				let splats = [GridSplat { grid: 0, base: IVec3::ZERO, voxels: &gradient, replace: None }];
 				let touched = splat_voxels_blocking(std::slice::from_mut(&mut grid), black_box(&splats));
 				black_box(touched.len())
 			},

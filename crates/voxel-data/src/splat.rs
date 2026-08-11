@@ -5,12 +5,14 @@ use bevy::tasks::ComputeTaskPool;
 use tracy_client::span;
 
 use crate::grid::{Grid, SubGridSlot};
+use crate::grid_tree::GridRegion;
 use crate::voxels::{VoxelTypeInfo, Voxels};
 
 pub struct GridSplat<'a> {
 	pub grid: usize,
 	pub base: IVec3,
 	pub voxels: &'a Voxels,
+	pub replace: Option<GridRegion>,
 }
 
 #[derive(Clone, Copy)]
@@ -19,6 +21,18 @@ struct SourceSlice<'a> {
 	voxels: &'a Voxels,
 	source_min: I16Vec3,
 	source_size: I16Vec3,
+	replace: bool,
+}
+
+impl<'a> SourceSlice<'a> {
+	fn source_region(&self) -> GridRegion {
+		GridRegion::from_min_size(self.source_min.as_ivec3(), self.source_size.as_ivec3()).unwrap()
+	}
+
+	fn replaces(&self, slot: &SubGridSlot) -> bool {
+		let region = self.source_region().translated(self.base);
+		self.replace && slot.owns_exactly(region.min, region.end)
+	}
 }
 
 struct SubGridSplatJob<'a> {
@@ -67,9 +81,13 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 	let mut grouped: Vec<SubGridSliceGroup<'_>> = Vec::new();
 	for splat in splats {
 		if splat.grid >= grids.len() { continue; }
-		let Some((bounds_min, bounds_max)) = splat.voxels.bounding_box() else { continue };
-		let world_min = splat.base + bounds_min.as_ivec3();
-		let world_end = splat.base + bounds_max.as_ivec3() + IVec3::ONE;
+		let (world_min, world_end) = match splat.replace {
+			Some(region) => (splat.base + region.min, splat.base + region.end),
+			None => {
+				let Some((bounds_min, bounds_max)) = splat.voxels.bounding_box() else { continue };
+				(splat.base + bounds_min.as_ivec3(), splat.base + bounds_max.as_ivec3() + IVec3::ONE)
+			}
+		};
 
 		for (sub_origin, cell_lo, cell_hi) in grids[splat.grid].write_regions(world_min, world_end) {
 			let source_min = (cell_lo - splat.base).as_i16vec3();
@@ -78,7 +96,7 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 				&mut grouped,
 				splat.grid,
 				sub_origin,
-				SourceSlice { base: splat.base, voxels: splat.voxels, source_min, source_size },
+				SourceSlice { base: splat.base, voxels: splat.voxels, source_min, source_size, replace: splat.replace.is_some() },
 			);
 		}
 	}
@@ -87,12 +105,16 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 	let _job_zone = span!("prepare subgrid splat jobs");
 	let jobs: Vec<_> = grouped
 		.into_iter()
-		.map(|group| SubGridSplatJob {
-			grid: group.grid,
-			sub_origin: group.sub_origin,
-			voxel_type_info: grids[group.grid].voxel_type_info(),
-			existing: grids[group.grid].subgrids.get(&group.sub_origin).map(|slot| slot.voxels.clone()),
-			slices: group.slices,
+		.map(|group| {
+			let slot = grids[group.grid].subgrids.get(&group.sub_origin);
+			let replaces_slot = slot.is_some_and(|slot| group.slices.iter().any(|slice| slice.replaces(slot)));
+			SubGridSplatJob {
+				grid: group.grid,
+				sub_origin: group.sub_origin,
+				voxel_type_info: grids[group.grid].voxel_type_info(),
+				existing: (!replaces_slot).then(|| slot.map(|slot| slot.voxels.clone())).flatten(),
+				slices: group.slices,
+			}
 		})
 		.collect();
 	drop(_job_zone);
@@ -104,8 +126,13 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 				let _zone = span!("build one subgrid splat");
 				let mut destination = job.existing.unwrap_or_else(|| Voxels::new_with_type(job.voxel_type_info));
 				for slice in job.slices {
-					let source_region = crate::grid_tree::GridRegion::from_min_size(slice.source_min.as_ivec3(), slice.source_size.as_ivec3()).unwrap();
-					destination.merge_region_from(slice.voxels, Some(source_region), slice.base - job.sub_origin);
+					let source_region = slice.source_region();
+					let offset = slice.base - job.sub_origin;
+					if slice.replace {
+						destination.overwrite_region_from(slice.voxels, source_region, offset);
+					} else {
+						destination.merge_region_from(slice.voxels, Some(source_region), offset);
+					}
 				}
 				SubGridSplatResult { grid: job.grid, sub_origin: job.sub_origin, voxels: destination }
 			});
@@ -119,10 +146,12 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 		let Some(grid) = grids.get_mut(result.grid) else { continue };
 		if let Some(slot) = grid.subgrids.get_mut(&result.sub_origin) {
 			slot.voxels = result.voxels;
-		} else {
+		} else if !result.voxels.is_empty() {
 			let mut slot = SubGridSlot::new_default(result.sub_origin, grid.voxel_type_info());
 			slot.voxels = result.voxels;
 			grid.subgrids.insert(result.sub_origin, slot);
+		} else {
+			continue;
 		}
 		grid.mark_subgrid_bvh_dirty();
 		touched.entry(result.grid).or_default().insert(result.sub_origin);
