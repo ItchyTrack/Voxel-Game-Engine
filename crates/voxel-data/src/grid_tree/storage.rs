@@ -7,8 +7,8 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 	}
 
 	#[inline]
-	pub(super) fn canonical_extent_region() -> GridRegion {
-		GridRegion { min: IVec3::ZERO, end: IVec3::splat(Self::max_extent()) }
+	pub(super) fn canonical_extent_region() -> NonZeroVoxelRegion {
+		NonZeroVoxelRegion::from_min_end(IVec3::ZERO, IVec3::splat(Self::max_extent())).unwrap()
 	}
 
 	#[inline]

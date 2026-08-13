@@ -1,7 +1,7 @@
 use bevy::math::IVec3;
 use bevy::transform::components::Transform;
 
-use voxel_data::grid_tree::GridRegion;
+use voxel_data::grid_tree::NonZeroVoxelRegion;
 use voxel_data::signed_grid_tree::SignedGridTree;
 use voxel_data::voxel_grid_tree::PackedCell;
 
@@ -15,8 +15,6 @@ pub enum ChunkState {
 	InFlight,
 	Loaded,
 	InternalDirty,
-	ExternalDirty,
-	ExternalDirtyInFlight,
 }
 
 impl ChunkState {
@@ -26,8 +24,6 @@ impl ChunkState {
 			ChunkState::InFlight => 1,
 			ChunkState::Loaded => 2,
 			ChunkState::InternalDirty => 3,
-			ChunkState::ExternalDirty => 4,
-			ChunkState::ExternalDirtyInFlight => 5,
 		}
 	}
 
@@ -36,16 +32,14 @@ impl ChunkState {
 			1 => ChunkState::InFlight,
 			2 => ChunkState::Loaded,
 			3 => ChunkState::InternalDirty,
-			4 => ChunkState::ExternalDirty,
-			5 => ChunkState::ExternalDirtyInFlight,
 			_ => ChunkState::Available,
 		}
 	}
 }
 
-// A present chunk's cell value packs its state in the low 3 bits and the count
+// A present chunk's cell value packs its state in the low 2 bits and the count
 // of objects requesting it in the remaining bits.
-const STATE_BITS: u16 = 3;
+const STATE_BITS: u16 = 2;
 const STATE_MASK: u16 = (1 << STATE_BITS) - 1;
 
 fn encode(state: ChunkState, count: u16) -> u16 {
@@ -125,7 +119,7 @@ impl ChunkPresence {
 	}
 
 	pub fn any_present_in_region(&self, min: IVec3, max: IVec3) -> bool {
-		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return false };
+		let Some(region) = NonZeroVoxelRegion::from_min_max_inclusive(min, max) else { return false };
 		self.tree.any_in_region(region)
 	}
 
@@ -135,7 +129,7 @@ impl ChunkPresence {
 	}
 
 	pub fn for_each_occupied_tile_cover(&self, min: IVec3, max: IVec3, tile_size: i32, f: impl FnMut(IVec3)) {
-		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return };
+		let Some(region) = NonZeroVoxelRegion::from_min_max_inclusive(min, max) else { return };
 		self.tree.for_each_occupied_tile_cover(region, tile_size, f);
 	}
 
@@ -157,7 +151,7 @@ impl ChunkPresence {
 	/// descending only into subtrees that overlap it. Used for collision
 	/// broad-phase so cost scales with the region, not the whole footprint.
 	pub fn for_each_in_region(&self, min: IVec3, max: IVec3, mut f: impl FnMut(IVec3)) {
-		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return };
+		let Some(region) = NonZeroVoxelRegion::from_min_max_inclusive(min, max) else { return };
 		self.tree.for_each_in_region(region, |origin, size, _| {
 			let lo = origin.max(min);
 			let hi = (origin + IVec3::splat(size as i32) - IVec3::ONE).min(max);
@@ -173,7 +167,7 @@ impl ChunkPresence {
 
 	/// Visit every occupied presence node or leaf whose box intersects the inclusive chunk region `[min, max]`.
 	pub fn for_each_node_in_region(&self, min: IVec3, max: IVec3, f: impl FnMut(IVec3, u32, bool)) {
-		let Some(region) = GridRegion::from_min_max_inclusive(min, max) else { return };
+		let Some(region) = NonZeroVoxelRegion::from_min_max_inclusive(min, max) else { return };
 		self.tree.for_each_node_in_region(region, f);
 	}
 }

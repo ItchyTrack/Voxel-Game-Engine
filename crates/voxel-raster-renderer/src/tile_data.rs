@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use bevy::math::U16Vec3;
-use tile_data::{TileData, TileGenerationSession, TileGenerator, VoxelArea, VoxelAreaRequest};
+use tile_data::{TileData, TileGenerationSession, TileGenerator, ChunkRegion, VoxelAreaRequest};
 use voxel_data::voxels::VoxelTypeId;
 use voxel_gpu::{VoxelGpuDataReaders, packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupId}};
 
@@ -59,7 +59,7 @@ pub struct VoxelRasterTileGenerator {
 #[tile_data::async_trait]
 impl TileGenerator for VoxelRasterTileGenerator {
 	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
-		let area = VoxelArea { min: session.key.min, size: session.key.size };
+		let area = ChunkRegion::new(session.key.min(), session.key.size());
 		session.request_voxels(VoxelAreaRequest {
 			area,
 			lod: session.key.lod.saturating_sub(self.lod_levels),

@@ -4,7 +4,7 @@ mod tests {
 	use bevy::transform::components::Transform;
 	use std::{collections::{HashMap, HashSet}, io::Cursor};
 	use voxel_data::{
-		grid_tree::{CellKind, GridRegion, SIZE},
+		grid_tree::{CellKind, NonZeroVoxelRegion, SIZE},
 		voxel_grid_tree::PackedGridTree,
 	};
 	use bincode;
@@ -38,12 +38,12 @@ mod tests {
 		bytes
 	}
 
-	fn bounds_from_positions(positions: impl Iterator<Item = U16Vec3>) -> Option<GridRegion> {
+	fn bounds_from_positions(positions: impl Iterator<Item = U16Vec3>) -> Option<NonZeroVoxelRegion> {
 		positions.fold(None, |bounds, pos| {
 			let pos = pos.as_ivec3();
 			Some(match bounds {
-				Some(existing) => GridRegion::from_min_max_inclusive(existing.min.min(pos), existing.max_inclusive().max(pos)).unwrap(),
-				None => GridRegion::from_min_max_inclusive(pos, pos).unwrap(),
+				Some(existing) => NonZeroVoxelRegion::from_min_max_inclusive(existing.min().min(pos), existing.max_inclusive().max(pos)).unwrap(),
+				None => NonZeroVoxelRegion::from_min_max_inclusive(pos, pos).unwrap(),
 			})
 		})
 	}
@@ -103,7 +103,7 @@ mod tests {
 				}
 			}
 		}
-		let region = GridRegion::from_min_max_inclusive(IVec3::new(4, 4, 4), IVec3::new(10, 10, 10)).unwrap();
+		let region = NonZeroVoxelRegion::from_min_max_inclusive(IVec3::new(4, 4, 4), IVec3::new(10, 10, 10)).unwrap();
 		let mut actual = HashMap::new();
 		t.for_each_in_region(region, |origin, size, value| {
 			for dx in 0..size {
@@ -131,11 +131,11 @@ mod tests {
 		let voxels = tree_voxels(&t);
 		assert_eq!(t.occupied_bounds(), bounds_from_positions(voxels.keys().copied()));
 
-		let region = GridRegion::from_min_max_inclusive(IVec3::new(3, 4, 5), IVec3::new(8, 9, 10)).unwrap();
+		let region = NonZeroVoxelRegion::from_min_max_inclusive(IVec3::new(3, 4, 5), IVec3::new(8, 9, 10)).unwrap();
 		let expected = bounds_from_positions(voxels.keys().copied().filter(|pos| region.contains(pos.as_ivec3())));
 		assert_eq!(t.occupied_bounds_in_region(region), expected);
 
-		let empty_region = GridRegion::from_min_max_inclusive(IVec3::new(30, 30, 30), IVec3::new(35, 35, 35)).unwrap();
+		let empty_region = NonZeroVoxelRegion::from_min_max_inclusive(IVec3::new(30, 30, 30), IVec3::new(35, 35, 35)).unwrap();
 		assert_eq!(t.occupied_bounds_in_region(empty_region), None);
 	}
 
@@ -151,7 +151,7 @@ mod tests {
 				}
 			}
 		}
-		let region = GridRegion::from_min_max_inclusive(IVec3::new(3, 2, 1), IVec3::new(21, 17, 15)).unwrap();
+		let region = NonZeroVoxelRegion::from_min_max_inclusive(IVec3::new(3, 2, 1), IVec3::new(21, 17, 15)).unwrap();
 		let tile_size = 5;
 
 		let mut actual = HashSet::new();
@@ -171,7 +171,7 @@ mod tests {
 	fn occupied_tile_cover_does_not_report_occupancy_from_an_adjacent_tile() {
 		let mut t = PackedGridTree::new();
 		t.add_area(&p(2, 0, 0), IVec3::splat(2), 1);
-		let region = GridRegion::from_min_size(IVec3::ZERO, IVec3::ONE).unwrap();
+		let region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::ONE).unwrap();
 		let mut actual = Vec::new();
 
 		t.for_each_occupied_tile_cover(region, 2, |tile| actual.push(tile));

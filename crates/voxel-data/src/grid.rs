@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use tracy_client::span;
 
-use crate::{bvh::BVH, voxels::VoxelRef};
+use crate::{bvh::BVH, region::NonZeroVoxelRegion, voxels::VoxelRef};
 use crate::sdf::Sdf;
 use crate::subgrid::{SubGrid, SubGridId, SubGridRef};
 use crate::voxels::{VoxelType, VoxelTypeInfo, Voxels};
@@ -22,31 +22,29 @@ pub type GridId = Entity;
 pub(crate) struct SubGridSlot {
 	pub(crate) voxels: Voxels,
 	pub(crate) entity: SubGridId,
-	owned_min: IVec3,
-	owned_size: IVec3,
+	owned_region: NonZeroVoxelRegion,
 }
 
 impl SubGridSlot {
 	pub(crate) fn new_default(sub_grid_pos: IVec3, voxel_type_info: VoxelTypeInfo) -> Self {
-		Self { voxels: Voxels::new_with_type(voxel_type_info), entity: Entity::PLACEHOLDER, owned_min: sub_grid_pos, owned_size: IVec3::splat(SUB_GRID_SIZE) }
+		Self {
+			voxels: Voxels::new_with_type(voxel_type_info),
+			entity: Entity::PLACEHOLDER,
+			owned_region: NonZeroVoxelRegion::new(sub_grid_pos, UVec3::splat(SUB_GRID_SIZE as u32)).unwrap(),
+		}
 	}
 
-	fn owned_hi(&self) -> IVec3 {
-		self.owned_min + self.owned_size
-	}
+	fn owned_hi(&self) -> IVec3 { self.owned_region.end() }
 
-	fn owns(&self, pos: IVec3) -> bool {
-		pos.cmpge(self.owned_min).all() && pos.cmplt(self.owned_hi()).all()
-	}
+	fn owns(&self, pos: IVec3) -> bool { self.owned_region.contains(pos) }
 
 	pub(crate) fn owns_exactly(&self, min: IVec3, hi: IVec3) -> bool {
-		min == self.owned_min && hi == self.owned_hi()
+		min == self.owned_region.min() && hi == self.owned_region.end()
 	}
 
 	fn owned_intersection(&self, min: IVec3, hi: IVec3) -> Option<(IVec3, IVec3)> {
-		let cell_lo = min.max(self.owned_min);
-		let cell_hi = hi.min(self.owned_hi());
-		cell_lo.cmplt(cell_hi).all().then_some((cell_lo, cell_hi))
+		let overlap = self.owned_region.intersection(NonZeroVoxelRegion::from_min_end(min, hi)?)?;
+		Some((overlap.min(), overlap.end()))
 	}
 }
 
@@ -195,9 +193,9 @@ impl Grid {
 		let region_lo = Self::local_of(sub_grid_pos, cell_lo);
 		let region_hi = Self::local_of(sub_grid_pos, cell_hi);
 		let mut areas = Vec::new();
-		let read_region = crate::grid_tree::GridRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_ivec3()).unwrap();
+		let read_region = crate::grid_tree::NonZeroVoxelRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_ivec3()).unwrap();
 		for (pos, run, voxel) in slot.voxels.grid_tree().iter() {
-			let leaf_region = crate::grid_tree::GridRegion { min: pos.as_ivec3(), end: pos.as_ivec3() + IVec3::splat(run as i32) };
+			let leaf_region = crate::grid_tree::NonZeroVoxelRegion::from_min_end(pos.as_ivec3(), pos.as_ivec3() + IVec3::splat(run as i32)).unwrap();
 			if !leaf_region.intersects(read_region) { continue; }
 			let run_lo = pos.max(region_lo);
 			let run_hi = (pos + U16Vec3::splat(run)).min(region_hi);
@@ -228,23 +226,33 @@ impl Grid {
 		sub_grid_pos
 	}
 
-	pub fn clear_area(&mut self, min: IVec3, size: IVec3) -> HashSet<IVec3> {
+	pub fn set_area(&mut self, min: IVec3, size: IVec3, voxel: Option<VoxelRef<'_>>) -> HashSet<IVec3> {
 		let mut touched = HashSet::new();
 		if size.cmple(IVec3::ZERO).any() {
 			return touched;
 		}
 		let hi = min + size;
-		for sub_grid_pos in self.intersecting_subgrids(min, hi) {
-			let Some(slot) = self.subgrids.get_mut(&sub_grid_pos) else { continue };
-			let Some((cell_lo, cell_hi)) = slot.owned_intersection(min, hi) else { continue };
-			let local = Self::local_of(sub_grid_pos, cell_lo);
-			let extent = (cell_hi - cell_lo).as_u16vec3();
-			if cell_lo == slot.owned_min && cell_hi == slot.owned_hi() {
-				slot.voxels = Voxels::new_with_type(self.voxel_type_info);
-			} else {
-				slot.voxels.remove_area(local, extent);
+		if let Some(voxel) = voxel {
+			for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(min, hi) {
+				let local = Self::local_of(sub_grid_pos, cell_lo);
+				let extent = (cell_hi - cell_lo).as_u16vec3();
+				let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos, self.voxel_type_info));
+				slot.voxels.add_area(local, extent, voxel);
+				touched.insert(sub_grid_pos);
 			}
-			touched.insert(sub_grid_pos);
+		} else {
+			for sub_grid_pos in self.intersecting_subgrids(min, hi) {
+				let Some(slot) = self.subgrids.get_mut(&sub_grid_pos) else { continue };
+				let Some((cell_lo, cell_hi)) = slot.owned_intersection(min, hi) else { continue };
+				let local = Self::local_of(sub_grid_pos, cell_lo);
+				let extent = (cell_hi - cell_lo).as_u16vec3();
+				if cell_lo == slot.owned_region.min() && cell_hi == slot.owned_hi() {
+					slot.voxels = Voxels::new_with_type(self.voxel_type_info);
+				} else {
+					slot.voxels.remove_area(local, extent);
+				}
+				touched.insert(sub_grid_pos);
+			}
 		}
 		if !touched.is_empty() {
 			self.mark_subgrid_bvh_dirty();
@@ -252,30 +260,9 @@ impl Grid {
 		touched
 	}
 
-	pub fn read_clear_area(&mut self, min: IVec3, size: IVec3) -> (HashSet<IVec3>, Voxels) {
-		let mut touched = HashSet::new();
-		let mut out = Voxels::new_with_type(self.voxel_type_info);
-		if size.cmple(IVec3::ZERO).any() {
-			return (touched, out);
-		}
-		let hi = min + size;
-		for sub_grid_pos in self.intersecting_subgrids(min, hi) {
-			let Some(slot) = self.subgrids.get_mut(&sub_grid_pos) else { continue };
-			let Some((cell_lo, cell_hi)) = slot.owned_intersection(min, hi) else { continue };
-			Self::read_region_into(&mut out, min, sub_grid_pos, slot, cell_lo, cell_hi);
-
-			let local = Self::local_of(sub_grid_pos, cell_lo);
-			let extent = (cell_hi - cell_lo).as_u16vec3();
-			if cell_lo == slot.owned_min && cell_hi == slot.owned_hi() {
-				slot.voxels = Voxels::new_with_type(self.voxel_type_info);
-			} else {
-				slot.voxels.remove_area(local, extent);
-			}
-			touched.insert(sub_grid_pos);
-		}
-		if !touched.is_empty() {
-			self.mark_subgrid_bvh_dirty();
-		}
+	pub fn read_set_area(&mut self, min: IVec3, size: IVec3, voxel: Option<VoxelRef<'_>>) -> (HashSet<IVec3>, Voxels) {
+		let out = self.read_area(min, size);
+		let touched = self.set_area(min, size, voxel);
 		(touched, out)
 	}
 
@@ -307,7 +294,7 @@ impl Grid {
 		for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(world_min, world_end) {
 			let source_min = cell_lo - base;
 			let source_size = cell_hi - cell_lo;
-			let Some(source_region) = crate::grid_tree::GridRegion::from_min_size(source_min, source_size) else { continue };
+			let Some(source_region) = crate::grid_tree::NonZeroVoxelRegion::from_min_size(source_min, source_size) else { continue };
 			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos, self.voxel_type_info));
 			slot.voxels.merge_region_from(src, Some(source_region), base - sub_grid_pos);
 			touched.insert(sub_grid_pos);

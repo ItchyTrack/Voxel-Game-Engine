@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeInfo, Voxels};
-use voxel_streaming::{CHUNK_SIZE, chunk_of};
+use tile_data::chunk_of;
+use tile_data::CHUNK_SIZE;
 
 use crate::VoxelSdf;
 

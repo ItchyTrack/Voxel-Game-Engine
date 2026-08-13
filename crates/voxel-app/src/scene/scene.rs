@@ -9,9 +9,9 @@ use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource}
 use voxel_data::grid::Grid;
 use voxel_data::voxels::VoxelType;
 use voxel_edit::GridEdits;
-use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_gpu::{RenderingContext, RenderingType};
+use voxel_lightyear::ReplicateVoxels;
 use tile_data::TileGenerationContext;
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, RotationalInertia, VoxelPhysicsAppExt
@@ -97,15 +97,25 @@ fn setup_scene(
 
 fn spawn_sponza(commands: &mut Commands, vox_source: &MarchingVoxFileSource) {
 	let Some(path) = sponza_vox_path() else { return };
+
+	let parent = commands
+		.spawn((
+			RigidBody,
+			IsStatic,
+			Transform::from_xyz(1500.0, 0.0, 0.0),
+		))
+		.id();
 	let grid = commands.spawn((
-		Transform::from_xyz(1500.0, 0.0, 0.0),//.rotate_y(f32::to_radians(90.0)),
+		Transform::IDENTITY,
 		Grid::new::<MarchingVoxel>(),
 		GridEdits::default(),
 		GridStreaming::default(),
 		RequestChunkPresence,
 		ReplicateVoxels,
+		VoxelCollider,
 		TileGenerationContext::new(RenderingContext { rendering_type: RenderingType::Raster }),
 	)).id();
+	commands.entity(parent).add_child(grid);
 	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
 }
 
@@ -116,11 +126,10 @@ fn spawn_church(commands: &mut Commands, vox_source: &SceneVoxFileSource) {
 		.spawn((
 			RigidBody,
 			IsStatic,
-			Transform::from_translation(Vec3::new(0.0, -350.0, 0.0)),
+			Transform::from_xyz(0.0, -350.0, 0.0),
 		))
 		.id();
-	let grid = commands
-		.spawn((
+	let grid = commands.spawn((
 			Transform::IDENTITY,
 			Grid::new::<BasicVoxel>(),
 			GridEdits::default(),

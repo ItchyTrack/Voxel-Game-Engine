@@ -1,20 +1,19 @@
 use bevy::ecs::entity::{EntityMapper, MapEntities};
-use bevy::math::IVec3;
 use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
 use voxel_data::grid::GridId;
+use tile_data::ChunkRegion;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteChunkChangeKind {
-	Changed { generation: u64 },
-	Removed { generation: u64 },
+	Changed { edit_index: u64 },
+	Removed { edit_index: u64 },
 }
 
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RemoteChunkChanged {
 	pub grid: GridId,
-	pub min: IVec3,
-	pub size: IVec3,
+	pub region: ChunkRegion,
 	pub kind: RemoteChunkChangeKind,
 }
 

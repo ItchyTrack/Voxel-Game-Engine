@@ -2,33 +2,33 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use bevy::math::IVec3;
+use tile_data::ChunkRegion;
 use crossbeam_channel::Sender;
 use tracy_client::span;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo, Voxels};
 use voxel_tasks::{AsyncTaskPusher, CancellationToken, PriorityTask};
 
-use super::handle::{SourceChunkResult, SourceId, SourceMessage, SourceVoxelsResult};
-use super::source::SharedSource;
+use super::handle::{ChunksBorrowed, SourceChunkResult, SourceId, SourceMessage, SourceVoxelsResult};
+use super::source::{LendResult, SharedSource};
 use super::worker::SourceWork;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct VoxelRequestKey {
 	grid: GridId,
-	min: IVec3,
-	size: IVec3,
+	region: ChunkRegion,
 	lod_bits: u32,
 	voxel_type: VoxelTypeId,
 }
 
 impl VoxelRequestKey {
-	fn new(grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId) -> Self {
-		Self { grid, min, size, lod_bits: lod.to_bits(), voxel_type }
+	fn new(grid: GridId, region: ChunkRegion, lod: f32, voxel_type: VoxelTypeId) -> Self {
+		Self { grid, region, lod_bits: lod.to_bits(), voxel_type }
 	}
 }
 
 struct PendingVoxelJob {
-	required_generation: u64,
+	required_edit_index: u64,
 	cancellation: CancellationToken,
 	kind: PendingVoxelJobKind,
 }
@@ -65,29 +65,29 @@ impl RequestState {
 	}
 
 	pub(super) fn take_voxels_completion(&self, result: SourceVoxelsResult) -> Option<(f32, Option<Voxels>, u64)> {
-		let key = VoxelRequestKey::new(result.grid, result.min, result.size, result.lod, result.voxel_type);
+		let key = VoxelRequestKey::new(result.grid, result.region, result.lod, result.voxel_type);
 		let mut pending = self.pending_voxels.lock().unwrap();
 		let job = pending.get_mut(&key)?;
 		if job.cancellation.is_cancelled() {
 			pending.remove(&key);
 			return None;
 		}
-		if result.generation < job.required_generation { return None; }
+		if result.edit_index < job.required_edit_index { return None; }
 		match &mut job.kind {
 			PendingVoxelJobKind::Direct => {
 				pending.remove(&key);
-				Some((result.lod, result.voxels, result.generation))
+				Some((result.lod, result.voxels, result.edit_index))
 			}
 			PendingVoxelJobKind::Composite { expected, received } => {
-				received.insert(result.source, (result.generation, result.voxels));
+				received.insert(result.source, (result.edit_index, result.voxels));
 				if !expected.iter().all(|source| received.contains_key(source)) {
 					return None;
 				}
-				let generation = received.values().map(|(generation, _)| *generation).min().unwrap();
+				let edit_index = received.values().map(|(edit_index, _)| *edit_index).min().unwrap();
 				let parts: Vec<_> = received.values().filter_map(|(_, voxels)| voxels.clone()).collect();
 				pending.remove(&key);
 				let voxels = parts.first().map(|first| first.voxel_type_info()).map(|info| merge_voxels(info, parts));
-				Some((result.lod, voxels.filter(|voxels| !voxels.is_empty()), generation))
+				Some((result.lod, voxels.filter(|voxels| !voxels.is_empty()), edit_index))
 			}
 		}
 	}
@@ -121,18 +121,24 @@ impl RequestProcessor {
 					&self.message_tx,
 				)
 			}
-			SourceWork::Chunk { grid, chunk, generation, cancellation } => {
+			SourceWork::Chunk { grid, chunk, edit_index, cancellation } => {
 				request_chunk(
 					grid,
 					chunk,
-					generation,
+					edit_index,
 					cancellation,
-					&self.sources,
+					self.sources.clone(),
 					&self.pusher,
-					&self.message_tx,
+					self.message_tx.clone(),
 				)
 			}
-			SourceWork::Voxels { grid, min, size, lod, voxel_type, priority, generation, cancellation } => {
+			SourceWork::Borrow { request, borrower, grid, min, size, edit_index, cancellation } => {
+				borrow_area(request, borrower, grid, min, size, edit_index, cancellation, &self.sources, &self.message_tx)
+			}
+			SourceWork::Return { grid, min, size } => {
+				return_area(grid, min, size, &self.sources);
+			}
+			SourceWork::Voxels { grid, min, size, lod, voxel_type, priority, edit_index, cancellation } => {
 				request_voxels(
 					grid,
 					min,
@@ -140,12 +146,12 @@ impl RequestProcessor {
 					lod,
 					voxel_type,
 					priority,
-					generation,
+					edit_index,
 					cancellation,
-					&self.sources,
-					&self.state.pending_voxels,
+					self.sources.clone(),
+					self.state.pending_voxels.clone(),
 					&self.pusher,
-					&self.message_tx,
+					self.message_tx.clone(),
 				)
 			}
 		}
@@ -177,115 +183,153 @@ fn request_presence(
 fn request_chunk(
 	grid: GridId,
 	chunk: bevy::math::IVec3,
-	generation: u64,
+	edit_index: u64,
+	cancellation: CancellationToken,
+	sources: Arc<[SharedSource]>,
+	pusher: &AsyncTaskPusher,
+	message_tx: Sender<SourceMessage>,
+) {
+	pusher.push(PriorityTask::new(0.0, async move {
+		if cancellation.is_cancelled() { return; }
+		if let Some(id) = cheapest(&sources, grid, chunk) {
+			let _zone = span!("source request_load chunk");
+			if sources[id.0].request_load(grid, chunk, edit_index, cancellation.clone()) { return; }
+			// Ownership changed after routing. Re-evaluate once without retaining
+			// any manager lock across the source call.
+			if let Some(retry) = cheapest(&sources, grid, chunk)
+				&& sources[retry.0].request_load(grid, chunk, edit_index, cancellation.clone()) { return; }
+		}
+		if !cancellation.is_cancelled() {
+			let _ = message_tx.send(SourceMessage::Chunk(SourceChunkResult { grid, chunk, edit_index, voxels: None }));
+		}
+	}));
+}
+
+fn borrow_area(
+	request: u64,
+	borrower: SourceId,
+	grid: GridId,
+	min: IVec3,
+	size: IVec3,
+	edit_index: u64,
 	cancellation: CancellationToken,
 	sources: &[SharedSource],
-	pusher: &AsyncTaskPusher,
 	message_tx: &Sender<SourceMessage>,
 ) {
-	if cancellation.is_cancelled() { return; }
-	if let Some(id) = cheapest(sources, grid, chunk) {
-		let source = sources[id.0].clone();
-		pusher.push(PriorityTask::new(0.0, async move {
-			if cancellation.is_cancelled() { return; }
-			let _zone = span!("source request_load chunk");
-			source.request_load(grid, chunk, generation, cancellation);
-		}));
-	} else if !cancellation.is_cancelled() {
-		let _ = message_tx.send(SourceMessage::Chunk(SourceChunkResult {
-			grid,
-			chunk,
-			generation,
-			voxels: None,
-		}));
+	let target = &sources[borrower.0];
+	let mut transferred: Vec<(IVec3, Option<SourceId>)> = Vec::new();
+	let mut success = true;
+
+	'area: for z in min.z..min.z + size.z {
+		for y in min.y..min.y + size.y {
+			for x in min.x..min.x + size.x {
+				if cancellation.is_cancelled() { success = false; break 'area; }
+				let chunk = IVec3::new(x, y, z);
+				if target.cost(grid, chunk).is_some() { continue; }
+				let owners: Vec<_> = sources
+					.iter()
+					.enumerate()
+					.filter(|(index, source)| *index != borrower.0 && source.cost(grid, chunk).is_some())
+					.map(|(index, _)| SourceId(index))
+					.collect();
+				assert!(owners.len() <= 1, "multiple voxel sources own {grid:?} chunk {chunk:?}");
+				let (voxels, owner) = match owners.first().copied() {
+					Some(owner) => match sources[owner.0].lend(grid, chunk, cancellation.clone()) {
+						LendResult::Borrowed(voxels) => (voxels, Some(owner)),
+						LendResult::Unavailable => { success = false; break 'area; }
+					},
+					None => (None, None),
+				};
+				let accepted = if owner.is_some() {
+					target.accept_borrow(grid, chunk, voxels)
+				} else {
+					target.create_owned(grid, chunk)
+				};
+				if !accepted {
+					if let Some(owner) = owner { sources[owner.0].return_area(grid, chunk, IVec3::ONE); }
+					success = false;
+					break 'area;
+				}
+				transferred.push((chunk, owner));
+			}
+		}
 	}
+
+	if !success {
+		for (chunk, owner) in transferred {
+			target.forget(grid, chunk);
+			if let Some(owner) = owner { sources[owner.0].return_area(grid, chunk, IVec3::ONE); }
+		}
+	}
+	let _ = message_tx.send(SourceMessage::Borrowed(ChunksBorrowed {
+		request,
+		borrower,
+		grid,
+		region: ChunkRegion::new(min, size.as_uvec3()),
+		edit_index,
+		success,
+	}));
+}
+
+fn return_area(grid: GridId, min: IVec3, size: IVec3, sources: &[SharedSource]) {
+	for source in sources { source.return_area(grid, min, size); }
 }
 
 fn request_voxels(
 	grid: GridId,
-	min: bevy::math::IVec3,
-	size: bevy::math::IVec3,
+	min: IVec3,
+	size: IVec3,
 	lod: f32,
 	voxel_type: VoxelTypeId,
 	priority: f32,
-	generation: u64,
+	edit_index: u64,
 	cancellation: CancellationToken,
-	sources: &[SharedSource],
-	pending_voxels: &Arc<Mutex<HashMap<VoxelRequestKey, PendingVoxelJob>>>,
+	sources: Arc<[SharedSource]>,
+	pending_voxels: Arc<Mutex<HashMap<VoxelRequestKey, PendingVoxelJob>>>,
 	pusher: &AsyncTaskPusher,
-	message_tx: &Sender<SourceMessage>,
+	message_tx: Sender<SourceMessage>,
 ) {
-	if cancellation.is_cancelled() { return; }
-	let source_ids = voxel_sources_for_region(sources, grid, min, size, lod, voxel_type);
-	let key = VoxelRequestKey::new(grid, min, size, lod, voxel_type);
+	pusher.push(PriorityTask::new(priority, async move {
+		if cancellation.is_cancelled() { return; }
+		let source_ids = voxel_sources_for_region(&sources, grid, min, size, lod, voxel_type);
+		let key = VoxelRequestKey::new(grid, ChunkRegion::new(min, size.as_uvec3()), lod, voxel_type);
+		{
+			let mut pending = pending_voxels.lock().unwrap();
+			if pending.get(&key).is_some_and(|job| edit_index <= job.required_edit_index) { return; }
+			if let Some(previous) = pending.remove(&key) { previous.cancellation.cancel(); }
+			let kind = if source_ids.len() > 1 {
+				PendingVoxelJobKind::Composite {
+					expected: source_ids.iter().copied().collect(),
+					received: Default::default(),
+				}
+			} else {
+				PendingVoxelJobKind::Direct
+			};
+			pending.insert(key, PendingVoxelJob { required_edit_index: edit_index, cancellation: cancellation.clone(), kind });
+		}
 
-	{
-		let mut pending = pending_voxels.lock().unwrap();
-		if pending.get(&key).is_some_and(|job| generation <= job.required_generation) {
+		if source_ids.is_empty() {
+			let _ = message_tx.send(SourceMessage::Voxels(SourceVoxelsResult {
+				source: SourceId(usize::MAX), grid, region: ChunkRegion::new(min, size.as_uvec3()), lod, voxel_type, edit_index, voxels: None,
+			}));
 			return;
 		}
-
-		if let Some(previous) = pending.remove(&key) {
-			previous.cancellation.cancel();
+		for id in source_ids {
+			if cancellation.is_cancelled() { return; }
+			let _zone = span!("source request_voxel_area");
+			sources[id.0].request_voxel_area(grid, min, size, lod, voxel_type, edit_index, cancellation.clone());
 		}
-
-		let kind = if source_ids.len() > 1 {
-			PendingVoxelJobKind::Composite {
-				expected: source_ids.iter().copied().collect(),
-				received: Default::default(),
-			}
-		} else {
-			PendingVoxelJobKind::Direct
-		};
-		pending.insert(key, PendingVoxelJob {
-			required_generation: generation,
-			cancellation: cancellation.clone(),
-			kind,
-		});
-	}
-
-	match source_ids.as_slice() {
-		[] => {
-			let _ = message_tx.send(SourceMessage::Voxels(SourceVoxelsResult {
-				source: SourceId(usize::MAX),
-				grid,
-				min,
-				size,
-				lod,
-				voxel_type,
-				generation,
-				voxels: None,
-			}));
-		}
-		[id] => {
-			let source = sources[id.0].clone();
-			pusher.push(PriorityTask::new(priority, async move {
-				if cancellation.is_cancelled() { return; }
-				let _zone = span!("source request_voxel_area direct");
-				source.request_voxel_area(grid, min, size, lod, voxel_type, generation, cancellation);
-			}));
-		}
-		_ => {
-			for id in source_ids {
-				let source = sources[id.0].clone();
-				let cancellation = cancellation.clone();
-				pusher.push(PriorityTask::new(priority, async move {
-					if cancellation.is_cancelled() { return; }
-					let _zone = span!("source request_voxel_area composite part");
-					source.request_voxel_area(grid, min, size, lod, voxel_type, generation, cancellation);
-				}));
-			}
-		}
-	}
+	}));
 }
 
 fn cheapest(sources: &[SharedSource], grid: GridId, chunk: bevy::math::IVec3) -> Option<SourceId> {
-	sources
+	let owners: Vec<_> = sources
 		.iter()
 		.enumerate()
 		.filter_map(|(i, source)| source.cost(grid, chunk).map(|cost| (cost, SourceId(i))))
-		.min_by_key(|(cost, _)| *cost)
-		.map(|(_, id)| id)
+		.collect();
+	assert!(owners.len() <= 1, "multiple voxel sources own {grid:?} chunk {chunk:?}");
+	owners.into_iter().min_by_key(|(cost, _)| *cost).map(|(_, id)| id)
 }
 
 fn voxel_sources_for_region(
@@ -296,6 +340,11 @@ fn voxel_sources_for_region(
 	lod: f32,
 	voxel_type: VoxelTypeId,
 ) -> Vec<SourceId> {
+	for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
+		let chunk = min + IVec3::new(x, y, z);
+		let owner_count = sources.iter().filter(|source| source.cost(grid, chunk).is_some()).count();
+		assert!(owner_count <= 1, "multiple voxel sources own {grid:?} chunk {chunk:?}");
+	}}}
 	sources
 		.iter()
 		.enumerate()
@@ -318,25 +367,24 @@ fn merge_voxels(voxel_type_info: VoxelTypeInfo, parts: Vec<Voxels>) -> Voxels {
 mod tests {
 	use super::*;
 
-	fn voxel_result(source: SourceId, generation: u64) -> SourceVoxelsResult {
+	fn voxel_result(source: SourceId, edit_index: u64) -> SourceVoxelsResult {
 		SourceVoxelsResult {
 			source,
 			grid: GridId::PLACEHOLDER,
-			min: IVec3::ZERO,
-			size: IVec3::ONE,
+			region: ChunkRegion::new(IVec3::ZERO, UVec3::ONE),
 			lod: 0.0,
 			voxel_type: VoxelTypeId(1),
-			generation,
+			edit_index,
 			voxels: None,
 		}
 	}
 
 	#[test]
-	fn direct_voxel_results_must_meet_the_jobs_generation() {
+	fn direct_voxel_results_must_meet_the_jobs_edit_index() {
 		let state = RequestState::default();
-		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, IVec3::ZERO, IVec3::ONE, 0.0, VoxelTypeId(1));
+		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, ChunkRegion::new(IVec3::ZERO, UVec3::ONE), 0.0, VoxelTypeId(1));
 		state.pending_voxels.lock().unwrap().insert(key, PendingVoxelJob {
-			required_generation: 5,
+			required_edit_index: 5,
 			cancellation: CancellationToken::new(),
 			kind: PendingVoxelJobKind::Direct,
 		});
@@ -347,11 +395,11 @@ mod tests {
 	}
 
 	#[test]
-	fn composite_voxel_results_reject_old_contributors_and_publish_the_minimum_generation() {
+	fn composite_voxel_results_reject_old_contributors_and_publish_the_minimum_edit_index() {
 		let state = RequestState::default();
-		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, IVec3::ZERO, IVec3::ONE, 0.0, VoxelTypeId(1));
+		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, ChunkRegion::new(IVec3::ZERO, UVec3::ONE), 0.0, VoxelTypeId(1));
 		state.pending_voxels.lock().unwrap().insert(key, PendingVoxelJob {
-			required_generation: 5,
+			required_edit_index: 5,
 			cancellation: CancellationToken::new(),
 			kind: PendingVoxelJobKind::Composite {
 				expected: HashSet::from([SourceId(0), SourceId(1)]),

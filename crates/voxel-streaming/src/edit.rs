@@ -3,7 +3,7 @@ use tracy_client::span;
 
 use voxel_edit::{EditGate, GridEdit, GridEdits};
 
-use crate::chunk::chunk_of;
+use tile_data::chunks_covering_voxel_region;
 use crate::presence::ChunkState;
 
 use crate::GridStreaming;
@@ -25,42 +25,26 @@ impl GridStreaming {
 
 impl EditGate for GridStreaming {
 	fn admit(&mut self, edit: &GridEdit) -> bool {
-		let (min, max) = edit.voxel_bounds();
-		let chunk_min = chunk_of(min);
-		let chunk_max = chunk_of(max - IVec3::ONE);
-		let mut blocked_chunks = Vec::new();
-		for z in chunk_min.z..=chunk_max.z {
-			for y in chunk_min.y..=chunk_max.y {
-				for x in chunk_min.x..=chunk_max.x {
-					let chunk = IVec3::new(x, y, z);
-					if matches!(
-						self.presence.state(chunk),
-						Some(ChunkState::Available | ChunkState::ExternalDirty | ChunkState::ExternalDirtyInFlight)
-					) {
-						blocked_chunks.push(chunk);
-					}
-				}
-			}
-		}
-		if blocked_chunks.is_empty() {
-			return true;
-		}
-		for chunk in blocked_chunks {
-			self.stalled_edits.entry(chunk).or_default().push(edit.clone());
-		}
+		let region = chunks_covering_voxel_region(edit.voxel_bounds());
+		let all_borrowed = (region.min().z..region.end().z).all(|z| {
+			(region.min().y..region.end().y).all(|y| {
+				(region.min().x..region.end().x).all(|x| self.borrowed_chunks.contains(&IVec3::new(x, y, z)))
+			})
+		});
+		if all_borrowed { return true; }
+		self.pending_borrow_edits.push(edit.clone());
 		false
 	}
 
 	fn touched(&mut self, edit: &GridEdit) {
-		let (min, max) = edit.voxel_bounds();
-		let chunk_min = chunk_of(min);
-		let chunk_max = chunk_of(max - IVec3::ONE);
-		for z in chunk_min.z..=chunk_max.z {
-			for y in chunk_min.y..=chunk_max.y {
-				for x in chunk_min.x..=chunk_max.x {
+		let region = chunks_covering_voxel_region(edit.voxel_bounds());
+		self.completed_edits.push(edit.clone());
+		for z in region.min().z..region.end().z {
+			for y in region.min().y..region.end().y {
+				for x in region.min().x..region.end().x {
 					let chunk = IVec3::new(x, y, z);
 					let was_absent = self.presence.state(chunk).is_none();
-					if let None | Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) = self.presence.state(chunk) {
+					if let None | Some(ChunkState::Available) | Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) = self.presence.state(chunk) {
 						self.presence.set_state(chunk, ChunkState::InternalDirty);
 						self.newly_dirty.push(chunk);
 						if was_absent {

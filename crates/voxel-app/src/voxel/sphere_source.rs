@@ -8,10 +8,12 @@ use voxel_data::voxels::{VoxelType, VoxelTypeId, Voxels};
 use voxel_edit::GridEdits;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
-use voxel_data::grid::GridId;
-use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
-use voxel_streaming::{chunk_origin, ForgottenChunks, GridStreaming, CHUNK_SIZE};
 use voxel_lightyear::ReplicateVoxels;
+use voxel_data::grid::GridId;
+use voxel_sources::{CancellationToken, ChunkSource, LendResult, LentChunks, SourceHandle, VoxelSourcesAppExt};
+use tile_data::chunk_origin;
+use tile_data::CHUNK_SIZE;
+use voxel_streaming::{ForgottenChunks, GridStreaming};
 use basic_voxel::{BasicVoxel, LodVoxel};
 
 const RADIUS: i32 = 2_000;
@@ -164,6 +166,7 @@ struct SphereSource {
 	grid: Arc<OnceLock<GridId>>,
 	handle: OnceLock<SourceHandle>,
 	forgotten: ForgottenChunks,
+	lent: LentChunks,
 }
 
 impl SphereSource {
@@ -184,39 +187,64 @@ impl ChunkSource for SphereSource {
 	}
 
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
-		if !self.is_mine(grid) || self.forgotten.contains(grid, chunk) {
+		if !self.is_mine(grid) || self.forgotten.contains(grid, chunk) || self.lent.contains(grid, chunk) {
 			return None;
 		}
 		let min = chunk_origin(chunk).as_vec3();
 		region_intersects(min, min + Vec3::splat(CHUNK_SIZE as f32)).then_some(COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
-		let voxels = (!self.forgotten.contains(grid, chunk)).then(|| build_chunk(chunk, &cancellation)).flatten();
-		if cancellation.is_cancelled() { return; }
-		if let Some(handle) = self.handle.get() {
-			handle.loaded(grid, chunk, generation, voxels);
-		}
+	fn request_load(&self, grid: GridId, chunk: IVec3, edit_index: u64, cancellation: CancellationToken) -> bool {
+		if cancellation.is_cancelled() || !self.is_mine(grid) || self.forgotten.contains(grid, chunk) || self.lent.contains(grid, chunk) { return false; }
+		let voxels = (!self.forgotten.contains(grid, chunk) && !self.lent.contains(grid, chunk)).then(|| build_chunk(chunk, &cancellation)).flatten();
+		if cancellation.is_cancelled() { return false; }
+		if let Some(handle) = self.handle.get() { handle.loaded(grid, chunk, edit_index, voxels); }
+		true
 	}
 
 	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if !self.is_mine(grid) || !self.forgotten.any_remembered_in(grid, min, size) { return None; }
+		if !self.is_mine(grid) || !self.forgotten.any_remembered_in(grid, min, size) || !self.lent.any_available_in(grid, min, size) { return None; }
 		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "sphere source does not support requested voxel type");
 		let lo = chunk_origin(min).as_vec3();
 		let hi = chunk_origin(min + size).as_vec3();
 		region_intersects(lo, hi).then_some(COST)
 	}
 
-	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) {
-		let voxels = build_lod_region(min, size, lod, &cancellation);
-		if cancellation.is_cancelled() { return; }
-		if let Some(handle) = self.handle.get() {
-			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels);
-		}
+	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, edit_index: u64, cancellation: CancellationToken) -> bool {
+		if cancellation.is_cancelled() || !self.is_mine(grid) || !self.lent.any_available_in(grid, min, size) { return false; }
+		let step = 1i32 << lod.max(0.0).floor() as u32;
+		let extent = IVec3::splat(CHUNK_SIZE / step);
+		let mut voxels: Option<Voxels> = None;
+		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
+			let offset = IVec3::new(x, y, z);
+			let chunk = min + offset;
+			if self.forgotten.contains(grid, chunk) || self.lent.contains(grid, chunk) { continue; }
+			let Some(part) = build_lod_region(chunk, IVec3::ONE, lod, &cancellation) else { continue };
+			voxels.get_or_insert_with(|| Voxels::new_with_type(part.voxel_type_info())).merge_from(&part, offset * extent);
+		}}}
+		if cancellation.is_cancelled() { return false; }
+		if let Some(handle) = self.handle.get() { handle.voxels_loaded(grid, min, size, lod, voxel_type, edit_index, voxels); }
+		true
 	}
+
+	fn lend(&self, grid: GridId, chunk: IVec3, cancellation: CancellationToken) -> LendResult {
+		if !self.is_mine(grid) || self.forgotten.contains(grid, chunk) || !self.lent.begin(grid, chunk) {
+			return LendResult::Unavailable;
+		}
+		let voxels = build_chunk(chunk, &cancellation);
+		if cancellation.is_cancelled() {
+			self.lent.end(grid, chunk);
+			return LendResult::Unavailable;
+		}
+		LendResult::Borrowed(voxels)
+	}
+
+
+	fn return_area(&self, grid: GridId, min: IVec3, size: IVec3) { self.lent.end_area(grid, min, size); }
 
 	fn forget(&self, grid: GridId, chunk: IVec3) {
 		self.forgotten.forget(grid, chunk);
+		self.lent.end(grid, chunk);
 	}
 }
 
@@ -232,6 +260,7 @@ impl Plugin for SphereSourcePlugin {
 			grid: grid.clone(),
 			handle: OnceLock::new(),
 			forgotten: ForgottenChunks::default(),
+			lent: LentChunks::default(),
 		});
 		app.insert_resource(SphereGrid(grid));
 		app.add_systems(Startup, spawn_sphere_grid);
@@ -259,9 +288,9 @@ fn spawn_sphere_grid(mut commands: Commands, grid: Res<SphereGrid>) {
 		.spawn((
 			Transform::IDENTITY,
 			Grid::new::<BasicVoxel>(),
-			ReplicateVoxels,
 			VoxelCollider,
 			GridEdits::default(),
+			ReplicateVoxels,
 			streaming,
 		))
 		.id();

@@ -5,7 +5,8 @@ use bevy::prelude::*;
 
 use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
 use voxel_data::bvh::BVH;
-use voxel_streaming::{GridStreaming, StreamingSourceRequestHandle, CHUNK_SIZE};
+use tile_data::CHUNK_SIZE;
+use voxel_streaming::{GridStreaming, StreamingSourceRequestHandle};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
 

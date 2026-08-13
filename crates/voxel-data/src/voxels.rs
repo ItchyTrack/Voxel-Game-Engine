@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{io::{self, Read, Write}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 
-use super::{grid_tree::{self, AsGridData, GridReducer, GridRegion, SourceOverlaps as GridSourceOverlaps, U16Coord}, sdf::Sdf, voxel_grid_tree::{VoxelGridTree, VoxelGridType}};
+use super::{grid_tree::{self, AsGridData, GridReducer, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps, U16Coord}, sdf::Sdf, voxel_grid_tree::{VoxelGridTree, VoxelGridType}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VoxelTypeId(pub u16);
@@ -110,10 +110,10 @@ pub struct SourceOverlap<'a> {
 	pub source_index: usize,
 
 	/// Source-local region contributing to the current output region.
-	pub source_region: GridRegion,
+	pub source_region: NonZeroVoxelRegion,
 
 	/// Projected/clipped region in output coordinates.
-	pub output_region: GridRegion,
+	pub output_region: NonZeroVoxelRegion,
 
 	pub data: VoxelRef<'a>,
 }
@@ -166,7 +166,7 @@ pub trait VoxelReducer {
 
 	fn reduce<'overlaps, 'a, Co>(
 		&mut self,
-		region: GridRegion,
+		region: NonZeroVoxelRegion,
 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
 	) -> Option<Self::Output>
 	where
@@ -186,7 +186,7 @@ where
 
 	fn reduce<'overlaps, 'a, Co>(
 		&mut self,
-		region: GridRegion,
+		region: NonZeroVoxelRegion,
 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
 	) -> Option<Self::Output>
 	where
@@ -205,7 +205,7 @@ impl Voxels {
 		Self { voxels: VoxelGridTree::new_with_type(VoxelGridType::new(voxel_type)), bounding_box: Mutex::new(None), bounding_box_dirty: AtomicBool::new(false) }
 	}
 
-	pub fn reduce_voxels<'a, R>(output_region: GridRegion, sources: &[SourceTree<'a>], reducer: R) -> Option<Self>
+	pub fn reduce_voxels<'a, R>(output_region: NonZeroVoxelRegion, sources: &[SourceTree<'a>], reducer: R) -> Option<Self>
 	where
 		R: VoxelReducer,
 		for<'d> &'d R::Output: AsGridData<'d, VoxelGridType>,
@@ -333,7 +333,7 @@ impl Voxels {
 	}
 
 	pub fn remove_area(&mut self, pos: U16Vec3, size: U16Vec3) {
-		let Some(region) = GridRegion::from_min_size(pos.as_ivec3(), size.as_ivec3()) else { return };
+		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size.as_ivec3()) else { return };
 		self.voxels.clear_region(region);
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
@@ -351,12 +351,12 @@ impl Voxels {
 
 	pub fn merge_from(&mut self, source: &Voxels, offset: IVec3) { self.merge_region_from(source, None, offset); }
 
-	pub fn merge_region_from(&mut self, source: &Voxels, source_region: Option<GridRegion>, offset: IVec3) {
+	pub fn merge_region_from(&mut self, source: &Voxels, source_region: Option<NonZeroVoxelRegion>, offset: IVec3) {
 		self.assert_type(source.voxel_type_id());
 		let bounds = match source_region {
 			Some(region) => source.voxels.occupied_bounds_in_region(region),
 			None => source.voxels.occupied_bounds(),
-		}.map(|region| ((region.min + offset).as_u16vec3(), (region.end + offset - IVec3::ONE).as_u16vec3()));
+		}.map(|region| ((region.min() + offset).as_u16vec3(), (region.end() + offset - IVec3::ONE).as_u16vec3()));
 		match source_region {
 			Some(region) => self.voxels.merge_region_from(&source.voxels, region, offset),
 			None => self.voxels.merge_tree(&source.voxels, offset),
@@ -367,7 +367,7 @@ impl Voxels {
 		}
 	}
 
-	pub fn overwrite_region_from(&mut self, source: &Voxels, source_region: GridRegion, offset: IVec3) {
+	pub fn overwrite_region_from(&mut self, source: &Voxels, source_region: NonZeroVoxelRegion, offset: IVec3) {
 		self.assert_type(source.voxel_type_id());
 		self.voxels.overwrite_region_from(&source.voxels, source_region, offset);
 		self.bounding_box_dirty.store(true, Ordering::Release);
@@ -384,7 +384,7 @@ impl Voxels {
 	pub fn bounding_box(&self) -> Option<(U16Vec3, U16Vec3)> {
 		if self.bounding_box_dirty.load(Ordering::Acquire) {
 			let _zone = span!("rebuild voxel bounding box");
-			let bounds = self.voxels.occupied_bounds().map(|region| (region.min.as_u16vec3(), (region.end - IVec3::ONE).as_u16vec3()));
+			let bounds = self.voxels.occupied_bounds().map(|region| (region.min().as_u16vec3(), (region.end() - IVec3::ONE).as_u16vec3()));
 			self.bounding_box_dirty.store(false, Ordering::Release);
 			*(self.bounding_box.lock()).unwrap() = bounds;
 		}

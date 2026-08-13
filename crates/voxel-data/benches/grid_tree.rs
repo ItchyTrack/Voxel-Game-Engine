@@ -3,7 +3,7 @@ use std::time::Duration;
 use bevy::math::{I16Vec3, IVec3, Vec3};
 use bevy::transform::components::Transform;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
-use voxel_data::grid_tree::GridRegion;
+use voxel_data::grid_tree::NonZeroVoxelRegion;
 use voxel_data::voxel_grid_tree::VoxelGridTree;
 
 const CHUNK: i32 = 64;
@@ -201,7 +201,7 @@ fn bench_query_mutate(c: &mut Criterion) {
 	group.bench_function("for_each_in_region_mixed_32", |b| {
 		b.iter(|| {
 			let mut sum = 0u64;
-			mixed.for_each_in_region(black_box(GridRegion::from_min_size(IVec3::splat(16), IVec3::splat(32)).unwrap()), |_, size, value| {
+			mixed.for_each_in_region(black_box(NonZeroVoxelRegion::from_min_size(IVec3::splat(16), IVec3::splat(32)).unwrap()), |_, size, value| {
 				sum = sum.wrapping_add(size as u64).wrapping_add(value as u64);
 			});
 			black_box(sum)
@@ -256,7 +256,7 @@ fn bench_region_transfer(c: &mut Criterion) {
 		)
 	});
 
-	let region = GridRegion::from_min_size(IVec3::splat(8), IVec3::splat(32)).unwrap();
+	let region = NonZeroVoxelRegion::from_min_size(IVec3::splat(8), IVec3::splat(32)).unwrap();
 	group.throughput(Throughput::Elements(32 * 32 * 32));
 	group.bench_function("merge_region_uniform_32_into_empty", |b| {
 		b.iter_batched(
@@ -295,7 +295,7 @@ fn bench_region_transfer(c: &mut Criterion) {
 	});
 
 	let gradient = gradient_tree(SMALL);
-	let gradient_region = GridRegion::from_min_size(IVec3::ZERO, IVec3::splat(SMALL)).unwrap();
+	let gradient_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::splat(SMALL)).unwrap();
 	group.throughput(Throughput::Elements((SMALL * SMALL * SMALL) as u64));
 	group.bench_function("merge_region_mapped_gradient_16_into_existing", |b| {
 		b.iter_batched(

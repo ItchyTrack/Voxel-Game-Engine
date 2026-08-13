@@ -1,7 +1,7 @@
 use bevy::math::{I8Vec3, IVec3, UVec3, Vec3};
 use bevy::transform::components::Transform;
 
-use crate::grid_tree::{GridRegion, GridTree, GridType, U32Coord};
+use crate::grid_tree::{NonZeroVoxelRegion, GridTree, GridType, U32Coord};
 
 #[derive(Clone, Debug)]
 pub struct SignedGridTree<G: GridType> {
@@ -41,42 +41,42 @@ impl<G: GridType + Default> SignedGridTree<G> {
 	}
 
 	pub fn add_area(&mut self, pos: &IVec3, size: IVec3, data: G::Data<'_>) {
-		let Some(region) = GridRegion::from_min_size(*pos, size) else { return };
+		let Some(region) = NonZeroVoxelRegion::from_min_size(*pos, size) else { return };
 		for (oct, local) in split_region(region) {
 			self.trees[oct].fill_region(local, data);
 		}
 	}
 
 	pub fn remove_area(&mut self, pos: &IVec3, size: IVec3) {
-		let Some(region) = GridRegion::from_min_size(*pos, size) else { return };
+		let Some(region) = NonZeroVoxelRegion::from_min_size(*pos, size) else { return };
 		for (oct, local) in split_region(region) {
 			self.trees[oct].clear_region(local);
 		}
 	}
 
-	pub fn any_in_region(&self, region: GridRegion) -> bool {
+	pub fn any_in_region(&self, region: NonZeroVoxelRegion) -> bool {
 		split_region(region).into_iter().any(|(oct, local)| self.trees[oct].any_in_region(local))
 	}
 
 	pub fn is_area_filled(&self, pos: &IVec3, size: IVec3) -> bool {
-		let Some(region) = GridRegion::from_min_size(*pos, size) else { return true };
+		let Some(region) = NonZeroVoxelRegion::from_min_size(*pos, size) else { return true };
 		let parts = split_region(region);
 		!parts.is_empty() && parts.into_iter().all(|(oct, local)| self.trees[oct].is_region_filled(local))
 	}
 
-	pub fn for_each_in_region(&self, region: GridRegion, mut f: impl FnMut(IVec3, u32, G::Data<'_>)) {
+	pub fn for_each_in_region(&self, region: NonZeroVoxelRegion, mut f: impl FnMut(IVec3, u32, G::Data<'_>)) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].for_each_in_region(local, |origin, size, value| f(join_region_origin(oct, origin, size), size, value));
 		}
 	}
 
-	pub fn for_each_node_in_region(&self, region: GridRegion, mut f: impl FnMut(IVec3, u32, bool)) {
+	pub fn for_each_node_in_region(&self, region: NonZeroVoxelRegion, mut f: impl FnMut(IVec3, u32, bool)) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].for_each_node_in_region(local, |origin, size, is_leaf| f(join_region_origin(oct, origin, size), size, is_leaf));
 		}
 	}
 
-	pub fn for_each_occupied_tile_cover(&self, region: GridRegion, tile_size: i32, mut f: impl FnMut(IVec3)) {
+	pub fn for_each_occupied_tile_cover(&self, region: NonZeroVoxelRegion, tile_size: i32, mut f: impl FnMut(IVec3)) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].for_each_occupied_tile_cover(local, tile_size, |tile| {
 				f(join_region_origin(oct, tile.as_uvec3(), tile_size as u32));
@@ -178,16 +178,16 @@ fn split_axis(min: i32, end: i32) -> [(bool, u32, u32); 2] {
 	out
 }
 
-fn split_region(region: GridRegion) -> Vec<(usize, GridRegion)> {
-	let xs = split_axis(region.min.x, region.end.x);
-	let ys = split_axis(region.min.y, region.end.y);
-	let zs = split_axis(region.min.z, region.end.z);
+fn split_region(region: NonZeroVoxelRegion) -> Vec<(usize, NonZeroVoxelRegion)> {
+	let xs = split_axis(region.min().x, region.end().x);
+	let ys = split_axis(region.min().y, region.end().y);
+	let zs = split_axis(region.min().z, region.end().z);
 	let mut out = Vec::new();
 	for (x_sign, x0, x1) in xs.into_iter().filter(|(_, a, b)| a < b) {
 		for (y_sign, y0, y1) in ys.into_iter().filter(|(_, a, b)| a < b) {
 			for (z_sign, z0, z1) in zs.into_iter().filter(|(_, a, b)| a < b) {
 				let oct = (x_sign as usize) | ((y_sign as usize) << 1) | ((z_sign as usize) << 2);
-				out.push((oct, GridRegion { min: IVec3::new(x0 as i32, y0 as i32, z0 as i32), end: IVec3::new(x1 as i32, y1 as i32, z1 as i32) }));
+				out.push((oct, NonZeroVoxelRegion::from_min_end(IVec3::new(x0 as i32, y0 as i32, z0 as i32), IVec3::new(x1 as i32, y1 as i32, z1 as i32)).unwrap()));
 			}
 		}
 	}

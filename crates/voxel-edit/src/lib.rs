@@ -5,7 +5,8 @@ use bevy::math::{IVec2, IVec3, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::{reconcile_subgrids, Grid, GridId};
-use voxel_data::sdf::Sdf;
+use voxel_data::region::{NonZeroVoxelRegion, VoxelRegion};
+use voxel_data::sdf::{Sdf, shrink_aabb_with_sdf, voxel_center, voxel_region_from_bounds};
 use voxel_data::subgrid::SubGrid;
 use voxel_data::voxels::Voxel;
 
@@ -13,6 +14,8 @@ use voxel_data::voxels::Voxel;
 pub enum GridEdit {
 	Add { voxel_pos: IVec3, voxel: Voxel },
 	Remove { voxel_pos: IVec3 },
+	AddArea { region: NonZeroVoxelRegion, voxel: Voxel },
+	RemoveArea { region: NonZeroVoxelRegion },
 	ApplySdf {
 		bounds_min: Vec3,
 		bounds_max: Vec3,
@@ -31,11 +34,13 @@ pub enum GridEdit {
 }
 
 impl GridEdit {
-	pub fn voxel_bounds(&self) -> (IVec3, IVec3) {
+	pub fn voxel_bounds(&self) -> VoxelRegion {
 		match self {
-			GridEdit::Add { voxel_pos, .. } | GridEdit::Remove { voxel_pos } => (*voxel_pos, *voxel_pos + IVec3::ONE),
+			GridEdit::Add { voxel_pos, .. } | GridEdit::Remove { voxel_pos } => VoxelRegion::new(*voxel_pos, UVec3::ONE),
+			GridEdit::AddArea { region, .. } | GridEdit::RemoveArea { region } => (*region).into(),
 			GridEdit::ApplySdf { bounds_min, bounds_max, .. } | GridEdit::ClearSdf { bounds_min, bounds_max, .. } => {
-				(bounds_min.floor().as_ivec3(), bounds_max.ceil().as_ivec3())
+				let min = bounds_min.floor().as_ivec3();
+				VoxelRegion::new(min, (bounds_max.ceil().as_ivec3() - min).as_uvec3())
 			}
 		}
 	}
@@ -55,6 +60,14 @@ impl GridEdits {
 		self.pending.push(GridEdit::Remove { voxel_pos: *voxel_pos });
 	}
 
+	pub fn add_area(&mut self, region: NonZeroVoxelRegion, voxel: Voxel) {
+		self.pending.push(GridEdit::AddArea { region, voxel });
+	}
+
+	pub fn remove_area(&mut self, region: NonZeroVoxelRegion) {
+		self.pending.push(GridEdit::RemoveArea { region });
+	}
+
 	pub fn apply_sdf(&mut self, bounds_min: Vec3, bounds_max: Vec3, voxel: Voxel, sdf: Arc<dyn Sdf>) {
 		self.pending.push(GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution: IVec2::splat(9), iterations: 6, voxel, sdf });
 	}
@@ -67,6 +80,42 @@ impl GridEdits {
 	pub fn push_edit(&mut self, edit: GridEdit) {
 		self.pending.push(edit);
 	}
+}
+
+fn sdf_area_edits(
+	bounds_min: Vec3,
+	bounds_max: Vec3,
+	face_resolution: IVec2,
+	iterations: usize,
+	sdf: &(impl Sdf + ?Sized),
+	voxel: Option<Voxel>,
+) -> Vec<GridEdit> {
+	let (min, max) = shrink_aabb_with_sdf(bounds_min, bounds_max, sdf, face_resolution, iterations);
+	let Some(region) = voxel_region_from_bounds(min, max) else { return Vec::new() };
+	let mut edits = Vec::new();
+	for z in region.min().z..region.end().z {
+		for y in region.min().y..region.end().y {
+			let mut x = region.min().x;
+			while x < region.end().x {
+				if sdf.sample(voxel_center(IVec3::new(x, y, z))) > 0.0 {
+					x += 1;
+					continue;
+				}
+				let run_start = x;
+				x += 1;
+				while x < region.end().x && sdf.sample(voxel_center(IVec3::new(x, y, z))) <= 0.0 {
+					x += 1;
+				}
+				let min = IVec3::new(run_start, y, z);
+				let region = NonZeroVoxelRegion::new(min, UVec3::new((x - run_start) as u32, 1, 1)).unwrap();
+				edits.push(match &voxel {
+					Some(voxel) => GridEdit::AddArea { region, voxel: voxel.clone() },
+					None => GridEdit::RemoveArea { region },
+				});
+			}
+		}
+	}
+	edits
 }
 
 #[bevy_trait_query::queryable]
@@ -124,12 +173,27 @@ pub fn apply_grid_edits(
 		for edit in std::mem::take(&mut edits.pending) {
 			if !gate_list.iter_mut().all(|gate| gate.admit(&edit)) { continue; }
 
+			let resolved = match &edit {
+				GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
+					Some(sdf_area_edits(*bounds_min, *bounds_max, *face_resolution, *iterations, &**sdf, Some(voxel.clone())))
+				}
+				GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution, iterations, sdf } => {
+					Some(sdf_area_edits(*bounds_min, *bounds_max, *face_resolution, *iterations, &**sdf, None))
+				}
+				_ => None,
+			};
 			match &edit {
 				GridEdit::Add { voxel_pos, voxel } => {
 					touched.insert(grid.set_voxel(*voxel_pos, Some(voxel.get_ref())));
 				}
 				GridEdit::Remove { voxel_pos } => {
 					touched.insert(grid.set_voxel(*voxel_pos, None));
+				}
+				GridEdit::AddArea { region, voxel } => {
+					touched.extend(grid.set_area(region.min(), region.size().as_ivec3(), Some(voxel.get_ref())));
+				}
+				GridEdit::RemoveArea { region } => {
+					touched.extend(grid.set_area(region.min(), region.size().as_ivec3(), None));
 				}
 				GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
 					touched.extend(grid.apply_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations, voxel.get_ref()));
@@ -138,8 +202,12 @@ pub fn apply_grid_edits(
 					touched.extend(grid.clear_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations));
 				}
 			}
-			for gate in gate_list.iter_mut() {
-				gate.touched(&edit);
+			if let Some(resolved) = resolved {
+				for edit in &resolved {
+					for gate in gate_list.iter_mut() { gate.touched(edit); }
+				}
+			} else {
+				for gate in gate_list.iter_mut() { gate.touched(&edit); }
 			}
 		}
 

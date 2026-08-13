@@ -1,22 +1,22 @@
 use super::*;
 
 impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
-	pub fn fill_region(&mut self, region: GridRegion, data: G::Data<'_>) {
+	pub fn fill_region(&mut self, region: NonZeroVoxelRegion, data: G::Data<'_>) {
 		self.add_regions(&[(region, data)]);
 	}
 
 	pub fn add_area(&mut self, pos: &Co::Pos, size: IVec3, data: G::Data<'_>) {
-		let Some(region) = GridRegion::from_min_size(Co::to_ivec3(*pos), size) else { return };
+		let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), size) else { return };
 		self.fill_region(region, data);
 	}
 
-	pub fn add_regions<'a>(&mut self, regions: &[(GridRegion, G::Data<'a>)]) {
+	pub fn add_regions<'a>(&mut self, regions: &[(NonZeroVoxelRegion, G::Data<'a>)]) {
 		let mut ops = Vec::with_capacity(regions.len());
-		let mut bounds: Option<GridRegion> = None;
+		let mut bounds: Option<NonZeroVoxelRegion> = None;
 		for (region, data) in regions {
-			ops.push(AreaOp { min: region.min, end: region.end, data: *data });
+			ops.push(AreaOp { region: *region, data: *data });
 			bounds = Some(match bounds {
-				Some(bounds) => GridRegion { min: bounds.min.min(region.min), end: bounds.end.max(region.end) },
+				Some(bounds) => NonZeroVoxelRegion::from_min_end(bounds.min().min(region.min()), bounds.end().max(region.end())).unwrap(),
 				None => *region,
 			});
 		}
@@ -52,20 +52,20 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 	pub fn add_areas<'a>(&mut self, areas: &[(Co::Pos, IVec3, G::Data<'a>)]) {
 		let mut regions = Vec::with_capacity(areas.len());
 		for (pos, size, data) in areas {
-			let Some(region) = GridRegion::from_min_size(Co::to_ivec3(*pos), *size) else { continue };
+			let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), *size) else { continue };
 			regions.push((region, *data));
 		}
 		self.add_regions(&regions);
 	}
 
-	pub(super) fn apply_area_ops<'a>(&mut self, ops: &[AreaOp<'a, G>], bounds: GridRegion) {
+	pub(super) fn apply_area_ops<'a>(&mut self, ops: &[AreaOp<'a, G>], bounds: NonZeroVoxelRegion) {
 		if ops.is_empty() {
 			return;
 		}
-		if self.is_empty() && ops.iter().all(|op| op.end - op.min == IVec3::ONE) && self.build_single_voxel_batch(bounds.min, bounds.max_inclusive(), ops) {
+		if self.is_empty() && ops.iter().all(|op| op.region.end() - op.region.min() == IVec3::ONE) && self.build_single_voxel_batch(bounds.min(), bounds.max_inclusive(), ops) {
 			return;
 		}
-		if !self.make_sure_root_covers_area(bounds.min, bounds.max_inclusive()) || !self.has_node_budget() {
+		if !self.make_sure_root_covers_area(bounds.min(), bounds.max_inclusive()) || !self.has_node_budget() {
 			return;
 		}
 

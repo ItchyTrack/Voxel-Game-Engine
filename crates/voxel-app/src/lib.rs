@@ -1,4 +1,5 @@
 mod audio;
+#[cfg(not(target_arch = "wasm32"))]
 mod networking;
 mod scene;
 mod ui;
@@ -43,7 +44,6 @@ use crate::voxel::tree_source::TreeSourcePlugin;
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SelectedClientId(pub u64);
-
 
 pub fn build_app(window: Window) -> App {
 	build_app_with_mode(window, selected_engine_mode())

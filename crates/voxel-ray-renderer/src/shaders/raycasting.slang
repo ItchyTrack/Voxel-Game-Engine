@@ -43,8 +43,9 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 
 	let ray_start = view.world_position;
 	let ray_clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, 1.0, 1.0);
-	let ray_world_h = mul(view.world_from_clip, ray_clip);
-	let ray_dir = normalize(ray_world_h.xyz / ray_world_h.w - ray_start);
+	let ray_view_h = mul(view.view_from_clip, ray_clip);
+	let ray_view = ray_view_h.xyz / ray_view_h.w;
+	let ray_dir = normalize(mul(view.world_from_view, float4(ray_view, 0.0)).xyz);
 
 	let depth = scene_depth.Load(int3(int2(pixel), 0)).r;
 	var max_dist = 1e38;

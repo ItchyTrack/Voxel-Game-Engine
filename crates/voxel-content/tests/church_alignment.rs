@@ -2,7 +2,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use bevy::math::{IVec3, Quat, Vec3};
-use voxel_streaming::{chunk_of, CHUNK_SIZE};
+use tile_data::chunk_of;
+use tile_data::CHUNK_SIZE;
 
 #[derive(Clone, Copy)]
 struct Frame {

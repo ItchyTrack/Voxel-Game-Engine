@@ -21,13 +21,14 @@ struct VertexOutput {
 	float3 world_normal : TEXCOORD1;
 };
 
-static const float3 EDGE_MIDPOINTS[12] = {
+static const float3 MC33_VERTICES[13] = {
 	float3(0.5, 0.0, 0.0), float3(1.0, 0.5, 0.0),
 	float3(0.5, 1.0, 0.0), float3(0.0, 0.5, 0.0),
 	float3(0.5, 0.0, 1.0), float3(1.0, 0.5, 1.0),
 	float3(0.5, 1.0, 1.0), float3(0.0, 0.5, 1.0),
 	float3(0.0, 0.0, 0.5), float3(1.0, 0.0, 0.5),
 	float3(1.0, 1.0, 0.5), float3(0.0, 1.0, 0.5),
+	float3(0.5, 0.5, 0.5),
 };
 
 float3 triangle_position(Triangle triangle, uint corner) {
@@ -36,9 +37,9 @@ float3 triangle_position(Triangle triangle, uint corner) {
 		triangle.packed_origin_xy >> 16,
 		triangle.packed_origin_z_edges & 0xffff
 	);
-	let packed_edges = triangle.packed_origin_z_edges >> 16;
-	let edge = (packed_edges >> (corner * 4)) & 0xf;
-	return origin + EDGE_MIDPOINTS[edge];
+	let packed_vertices = triangle.packed_origin_z_edges >> 16;
+	let vertex = (packed_vertices >> (corner * 4)) & 0xf;
+	return origin + MC33_VERTICES[vertex] + float3(0.5);
 }
 
 [shader("vertex")]

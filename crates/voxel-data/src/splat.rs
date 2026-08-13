@@ -1,37 +1,34 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy::math::{I16Vec3, IVec3};
+use bevy::math::IVec3;
 use bevy::tasks::ComputeTaskPool;
 use tracy_client::span;
 
 use crate::grid::{Grid, SubGridSlot};
-use crate::grid_tree::GridRegion;
+use crate::grid_tree::NonZeroVoxelRegion;
 use crate::voxels::{VoxelTypeInfo, Voxels};
 
 pub struct GridSplat<'a> {
 	pub grid: usize,
 	pub base: IVec3,
 	pub voxels: &'a Voxels,
-	pub replace: Option<GridRegion>,
+	pub replace: Option<NonZeroVoxelRegion>,
 }
 
 #[derive(Clone, Copy)]
 struct SourceSlice<'a> {
 	base: IVec3,
 	voxels: &'a Voxels,
-	source_min: I16Vec3,
-	source_size: I16Vec3,
+	source_region: NonZeroVoxelRegion,
 	replace: bool,
 }
 
 impl<'a> SourceSlice<'a> {
-	fn source_region(&self) -> GridRegion {
-		GridRegion::from_min_size(self.source_min.as_ivec3(), self.source_size.as_ivec3()).unwrap()
-	}
+	fn source_region(&self) -> NonZeroVoxelRegion { self.source_region }
 
 	fn replaces(&self, slot: &SubGridSlot) -> bool {
 		let region = self.source_region().translated(self.base);
-		self.replace && slot.owns_exactly(region.min, region.end)
+		self.replace && slot.owns_exactly(region.min(), region.end())
 	}
 }
 
@@ -82,7 +79,7 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 	for splat in splats {
 		if splat.grid >= grids.len() { continue; }
 		let (world_min, world_end) = match splat.replace {
-			Some(region) => (splat.base + region.min, splat.base + region.end),
+			Some(region) => (splat.base + region.min(), splat.base + region.end()),
 			None => {
 				let Some((bounds_min, bounds_max)) = splat.voxels.bounding_box() else { continue };
 				(splat.base + bounds_min.as_ivec3(), splat.base + bounds_max.as_ivec3() + IVec3::ONE)
@@ -90,13 +87,12 @@ pub fn splat_voxels_blocking(grids: &mut [Grid], splats: &[GridSplat<'_>]) -> Ha
 		};
 
 		for (sub_origin, cell_lo, cell_hi) in grids[splat.grid].write_regions(world_min, world_end) {
-			let source_min = (cell_lo - splat.base).as_i16vec3();
-			let source_size = (cell_hi - cell_lo).as_i16vec3();
+			let source_region = NonZeroVoxelRegion::from_min_end(cell_lo - splat.base, cell_hi - splat.base).unwrap();
 			SubGridSliceGroup::push(
 				&mut grouped,
 				splat.grid,
 				sub_origin,
-				SourceSlice { base: splat.base, voxels: splat.voxels, source_min, source_size, replace: splat.replace.is_some() },
+				SourceSlice { base: splat.base, voxels: splat.voxels, source_region, replace: splat.replace.is_some() },
 			);
 		}
 	}

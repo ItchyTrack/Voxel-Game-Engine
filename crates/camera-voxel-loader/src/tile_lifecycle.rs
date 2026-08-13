@@ -139,7 +139,7 @@ impl TileLifecycle {
 	}
 
 	fn remove_releasable(&mut self, keys: &mut Vec<TileKey>) {
-		keys.sort_by_key(|key| (key.grid.to_bits(), key.lod, key.min.x, key.min.y, key.min.z));
+		keys.sort_by_key(|key| (key.grid.to_bits(), key.lod, key.min().x, key.min().y, key.min().z));
 		keys.dedup();
 		keys.retain(|key| {
 			if self.desired.contains(key) {
@@ -155,7 +155,7 @@ mod tests {
 	use super::*;
 
 	fn grid() -> Entity { Entity::from_bits(1) }
-	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey { grid: grid(), class: voxel_streaming::TileClassId(0), lod, min } }
+	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey::new(grid(), voxel_streaming::TileClassId(0), lod, min) }
 	fn apply(lifecycle: &mut TileLifecycle, added: &[TileKey], removed: &[TileKey]) -> (Vec<TileKey>, Vec<TileKey>) {
 		let mut acquire = Vec::new();
 		let mut release = Vec::new();

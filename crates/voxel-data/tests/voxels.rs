@@ -1,6 +1,6 @@
 use bevy::math::{IVec3, U16Vec3};
 use voxel_data::{
-	grid_tree::GridRegion,
+	grid_tree::NonZeroVoxelRegion,
 	voxels::{Voxel, VoxelTypeInfo, Voxels},
 };
 
@@ -27,7 +27,7 @@ fn merge_region_from_updates_bounds_from_exact_occupied_region() {
 	let mut source = Voxels::new_with_type(test_type_info());
 	source.add_voxel(U16Vec3::new(1, 1, 1), vox(1).get_ref());
 	source.add_voxel(U16Vec3::new(10, 10, 10), vox(2).get_ref());
-	let region = GridRegion::from_min_size(IVec3::new(9, 9, 9), IVec3::splat(4)).unwrap();
+	let region = NonZeroVoxelRegion::from_min_size(IVec3::new(9, 9, 9), IVec3::splat(4)).unwrap();
 
 	let mut dest = Voxels::new_with_type(test_type_info());
 	dest.merge_region_from(&source, Some(region), IVec3::new(5, 0, 0));

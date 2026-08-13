@@ -7,13 +7,14 @@ use bevy_egui::input::EguiWantsInput;
 
 use std::sync::Arc;
 
-use voxel_data::voxels::VoxelType;
+use voxel_data::grid::Grid;
+use voxel_data::voxels::{Voxel, VoxelType};
 use voxel_data::world_query::VoxelWorldQueryParam;
 use voxel_edit::GridEdits;
 use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, Velocity, VoxelPhysicsAppExt};
 
 use crate::audio::plugin::PlaySfx;
-use basic_voxel::BasicVoxel;
+use basic_voxel::{BasicVoxel, MarchingVoxel};
 
 pub struct WorldInteractionPlugin;
 
@@ -41,12 +42,24 @@ const PLACE_VOXEL: BasicVoxel = BasicVoxel { color: [180, 180, 180, 255], mass: 
 const PLACE_SDF_VOXEL: BasicVoxel = BasicVoxel { color: [80, 180, 255, 255], mass: 100 };
 const PLACE_SDF_RADIUS: f32 = 5.0;
 
+fn edit_voxel_for_grid(grid: &Grid, voxel: BasicVoxel) -> Option<Voxel> {
+	let voxel_type = grid.voxel_type_info().id;
+	if voxel_type == BasicVoxel::TYPE_ID {
+		Some(voxel.into_voxel())
+	} else if voxel_type == MarchingVoxel::TYPE_ID {
+		Some(MarchingVoxel(voxel).into_voxel())
+	} else {
+		warn!(?voxel_type, "cannot edit grid with unsupported voxel type");
+		None
+	}
+}
+
 fn voxel_place_break_system(
 	keys: Res<ButtonInput<KeyCode>>,
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	voxel_world: VoxelWorldQueryParam,
-	mut grids: Query<(&GlobalTransform, &mut GridEdits)>,
+	mut grids: Query<(&GlobalTransform, &Grid, &mut GridEdits)>,
 	mut sfx: Option<MessageWriter<PlaySfx>>,
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
@@ -57,11 +70,12 @@ fn voxel_place_break_system(
 	let Some((origin, dir)) = camera_ray(&cameras) else { return };
 	let Some(hit) = voxel_world.raycast(origin, dir, None) else { return };
 
-	let Ok((grid_global_transform, mut edits)) = grids.get_mut(hit.grid) else { return };
+	let Ok((grid_global_transform, grid, mut edits)) = grids.get_mut(hit.grid) else { return };
 
 	if place {
+		let Some(voxel) = edit_voxel_for_grid(grid, PLACE_VOXEL) else { return };
 		let pos = hit.voxel_pos + hit.normal;
-		edits.add_voxel(&pos, PLACE_VOXEL.into_voxel());
+		edits.add_voxel(&pos, voxel);
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 		}
@@ -78,7 +92,7 @@ fn sdf_place_system(
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	voxel_world: VoxelWorldQueryParam,
-	mut grids: Query<(&GlobalTransform, &mut GridEdits)>,
+	mut grids: Query<(&GlobalTransform, &Grid, &mut GridEdits)>,
 	mut sfx: Option<MessageWriter<PlaySfx>>,
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
@@ -86,7 +100,8 @@ fn sdf_place_system(
 
 	let Some((origin, dir)) = camera_ray(&cameras) else { return };
 	let Some(hit) = voxel_world.raycast(origin, dir, None) else { return };
-	let Ok((grid_global_transform, mut edits)) = grids.get_mut(hit.grid) else { return };
+	let Ok((grid_global_transform, grid, mut edits)) = grids.get_mut(hit.grid) else { return };
+	let Some(voxel) = edit_voxel_for_grid(grid, PLACE_SDF_VOXEL) else { return };
 
 	let center_voxel = hit.voxel_pos + hit.normal;
 	let center = center_voxel.as_vec3() + Vec3::splat(0.5);
@@ -120,7 +135,7 @@ fn sdf_place_system(
 		let capsule = d.max(Vec2::ZERO).length() + d.x.max(d.y).min(0.0);
 		blob.max(-capsule)
 	});
-	edits.apply_sdf(center - Vec3::splat(reach), center + Vec3::splat(reach), PLACE_SDF_VOXEL.into_voxel(), sdf);
+	edits.apply_sdf(center - Vec3::splat(reach), center + Vec3::splat(reach), voxel, sdf);
 	if let Some(sfx) = &mut sfx {
 		sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(center)));
 	}

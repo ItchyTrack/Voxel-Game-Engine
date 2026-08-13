@@ -10,8 +10,8 @@ use crate::tile_lifecycle::{TileLifecycle, TileResolution};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CameraVoxelLoaderSettings {
 	pub max_lod: u8,
-	pub near_radius_chunks: i32,
-	pub rings_per_lod: i32,
+	pub near_radius_chunks: u32,
+	pub rings_per_lod: u32,
 }
 
 impl Default for CameraVoxelLoaderSettings {
@@ -78,7 +78,7 @@ impl CameraVoxelLoader {
 		}
 		let mut tiles: Vec<_> = states
 			.into_iter()
-			.map(|(key, state)| CoverageDebugTile { grid: key.grid, min: key.min, size: key.size(), lod: key.lod, state })
+			.map(|(key, state)| CoverageDebugTile { grid: key.grid, min: key.min(), size: key.size(), lod: key.lod, state })
 			.collect();
 		tiles.sort_by_key(|tile| (tile.grid.to_bits(), tile.lod, tile.min.x, tile.min.y, tile.min.z));
 		tiles

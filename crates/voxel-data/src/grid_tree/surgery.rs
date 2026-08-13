@@ -136,8 +136,8 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		let node_end = node_origin + IVec3::splat(size(node_depth) as i32);
 		let cell_size_i = cell_size as i32;
 		for op in ops {
-			let overlap_min = op.min.max(node_origin);
-			let overlap_end = op.end.min(node_end);
+			let overlap_min = op.region.min().max(node_origin);
+			let overlap_end = op.region.end().min(node_end);
 			if overlap_min.cmpge(overlap_end).any() {
 				continue;
 			}
@@ -173,7 +173,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 
 			for op_index in 0..bucket.len() {
 				let op = bucket[op_index];
-				let fully_covered = op.min.cmple(child_origin).all() && child_end.cmple(op.end).all();
+				let fully_covered = op.region.min().cmple(child_origin).all() && child_end.cmple(op.region.end()).all();
 				if !fully_covered && node_depth != 0 {
 					continue;
 				}

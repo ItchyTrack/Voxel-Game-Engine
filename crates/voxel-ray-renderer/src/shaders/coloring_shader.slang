@@ -99,8 +99,9 @@ float4 fs_main(VertexOutput input) : SV_Target {
 	let item_index_2 = item.item_index_2;
 	let distance = asfloat(data.w);
 	let ray_clip = float4(input.screen_pos.x * 2.0 - 1.0, input.screen_pos.y * 2.0 - 1.0, 1.0, 1.0);
-	let ray_world_h = mul(view.world_from_clip, ray_clip);
-	let ray_dir = normalize(ray_world_h.xyz / ray_world_h.w - view.world_position);
+	let ray_view_h = mul(view.view_from_clip, ray_clip);
+	let ray_view = ray_view_h.xyz / ray_view_h.w;
+	let ray_dir = normalize(mul(view.world_from_view, float4(ray_view, 0.0)).xyz);
 	let world_hit = view.world_position + ray_dir * distance;
 	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
 	let local_hit = Quat::inv_rotate(transform_quat, world_hit - float3(item.pos_x, item.pos_y, item.pos_z)) / item.scale;

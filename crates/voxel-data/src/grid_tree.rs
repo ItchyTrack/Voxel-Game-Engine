@@ -49,8 +49,7 @@ pub struct GridTree<G: GridType, Co: GridCoord> {
 
 #[derive(Debug)]
 struct AreaOp<'a, G: GridType> {
-	min: IVec3,
-	end: IVec3,
+	region: NonZeroVoxelRegion,
 	data: G::Data<'a>,
 }
 
@@ -92,12 +91,12 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		self.get(pos).is_some()
 	}
 
-	pub fn is_region_filled(&self, region: GridRegion) -> bool {
-		traversal::is_area_filled(self.view(), Co::from_ivec3(region.min), region.size())
+	pub fn is_region_filled(&self, region: NonZeroVoxelRegion) -> bool {
+		traversal::is_area_filled(self.view(), Co::from_ivec3(region.min()), region.size().as_ivec3())
 	}
 
 	pub fn is_area_filled(&self, pos: &Co::Pos, size: IVec3) -> bool {
-		let Some(region) = GridRegion::from_min_size(Co::to_ivec3(*pos), size) else { return true };
+		let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), size) else { return true };
 		self.is_region_filled(region)
 	}
 
@@ -140,14 +139,13 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 mod serialize;
 mod bulk;
 mod point_ops;
-mod region;
 mod region_ops;
 mod reduce;
 mod single_build;
 mod storage;
 mod surgery;
 
-pub use region::GridRegion;
+pub use crate::region::NonZeroVoxelRegion;
 pub use reduce::{reduce_grid_trees, GridReducer, SourceOverlap, SourceOverlaps, SourceTree};
 
 impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
@@ -162,21 +160,21 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 	}
 
 	/// Visit every DATA leaf whose cell box intersects a half-open region.
-	pub fn for_each_in_region(&self, region: GridRegion, f: impl FnMut(Co::Pos, Co::Size, G::Data<'_>)) {
-		traversal::for_each_in_region(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), f);
+	pub fn for_each_in_region(&self, region: NonZeroVoxelRegion, f: impl FnMut(Co::Pos, Co::Size, G::Data<'_>)) {
+		traversal::for_each_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max_inclusive()), f);
 	}
 
-	pub fn any_in_region(&self, region: GridRegion) -> bool {
-		traversal::any_in_region(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()))
+	pub fn any_in_region(&self, region: NonZeroVoxelRegion) -> bool {
+		traversal::any_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max_inclusive()))
 	}
 
 	/// Visit every occupied cell (internal node or data leaf) whose cell box intersects a half-open region.
-	pub fn for_each_node_in_region(&self, region: GridRegion, f: impl FnMut(Co::Pos, Co::Size, bool)) {
-		traversal::for_each_node_in_region(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), f);
+	pub fn for_each_node_in_region(&self, region: NonZeroVoxelRegion, f: impl FnMut(Co::Pos, Co::Size, bool)) {
+		traversal::for_each_node_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max_inclusive()), f);
 	}
 
-	pub fn for_each_occupied_tile_cover(&self, region: GridRegion, tile_size: i32, f: impl FnMut(IVec3)) {
-		traversal::for_each_occupied_tile_cover(self.view(), Co::from_ivec3(region.min), Co::from_ivec3(region.max_inclusive()), tile_size, f)
+	pub fn for_each_occupied_tile_cover(&self, region: NonZeroVoxelRegion, tile_size: i32, f: impl FnMut(IVec3)) {
+		traversal::for_each_occupied_tile_cover(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max_inclusive()), tile_size, f)
 	}
 
 	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(Co::Pos, I8Vec3, f32)> {

@@ -1,6 +1,7 @@
 use bevy::log::warn;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerMetadata, RemoteEvent};
+use tile_data::ChunkRegion;
 use voxel_streaming::GridStreaming;
 
 use super::{PresenceLoad, PresenceRequest};
@@ -25,11 +26,11 @@ pub(super) fn receive_request(
 	};
 	let payload = if let Ok((streaming, restriction)) = grids.get(request.grid) {
 		let area = chunk_presence_aabb(streaming)
-			.and_then(|(min, size)| {
+			.and_then(|area| {
 				restriction
 					.and_then(|restriction| restriction.readable_aabb(from))
-					.map(|(restriction_min, restriction_size)| intersect_aabbs(min, size, restriction_min, restriction_size))
-					.unwrap_or(Some((min, size)))
+					.map(|(restriction_min, restriction_size)| area.intersection(ChunkRegion::new(restriction_min, restriction_size.as_uvec3())).map(Into::into))
+					.unwrap_or(Some(area))
 			});
 		PresenceLoad { grid: request.grid, area }
 	} else {
@@ -38,7 +39,7 @@ pub(super) fn receive_request(
 	sender.trigger::<crate::chunks::ServerToClientChannel>(payload);
 }
 
-fn chunk_presence_aabb(streaming: &GridStreaming) -> Option<(IVec3, IVec3)> {
+fn chunk_presence_aabb(streaming: &GridStreaming) -> Option<ChunkRegion> {
 	let mut min = IVec3::splat(i32::MAX);
 	let mut max = IVec3::splat(i32::MIN);
 	let mut any = false;
@@ -48,13 +49,6 @@ fn chunk_presence_aabb(streaming: &GridStreaming) -> Option<(IVec3, IVec3)> {
 		max = max.max(node_max);
 		any = true;
 	}
-	any.then_some((min, max - min + IVec3::ONE))
+	any.then(|| ChunkRegion::from_min_max_inclusive(min, max).unwrap())
 }
 
-fn intersect_aabbs(min_a: IVec3, size_a: IVec3, min_b: IVec3, size_b: IVec3) -> Option<(IVec3, IVec3)> {
-	let max_a = min_a + size_a - IVec3::ONE;
-	let max_b = min_b + size_b - IVec3::ONE;
-	let min = min_a.max(min_b);
-	let max = max_a.min(max_b);
-	(max.cmpge(min).all()).then_some((min, max - min + IVec3::ONE))
-}

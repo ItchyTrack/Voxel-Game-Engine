@@ -1,7 +1,7 @@
 use bevy::{ecs::message::MessageReader, prelude::*};
+use tile_data::CHUNK_SIZE;
 use voxel_data::grid::GridId;
 use voxel_streaming::{
-	CHUNK_SIZE,
 	ChunkAvailabilityChangeKind,
 	ChunkAvailabilityChanged,
 	ChunkConsumer,
@@ -60,7 +60,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			release_tiles(streaming, camera_entity, release.drain(..));
 
 			for &key in &acquire {
-				let center_local = ((key.min + key.size() / 2) * CHUNK_SIZE).as_vec3();
+				let center_local = ((key.min() + key.size() / 2) * CHUNK_SIZE).as_vec3();
 				let priority = -camera_world.distance(grid_global.transform_point(center_local));
 				acquire_tile(&mut loader.tiles, camera_entity, key, priority, streaming);
 			}
@@ -76,7 +76,7 @@ pub(crate) fn receive_camera_voxel_loader_results(
 	for mut consumer in &mut consumers {
 		for result in consumer.drain_tiles() {
 			let Ok(mut loader) = loaders.get_mut(result.requester) else { continue };
-			let key = TileKey { grid: result.grid, class: result.key.class, lod: result.key.lod, min: result.key.min };
+			let key = TileKey::new(result.grid, result.key.class, result.key.lod, result.key.min());
 			if !loader.tiles.contains_source(key) { continue; }
 			let Ok(streaming) = grids.get_mut(result.grid) else { continue };
 			let streaming = streaming.into_inner();
@@ -108,8 +108,8 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 					let Ok(streaming) = grids.get_mut(event.grid) else { continue };
 					let streaming = streaming.into_inner();
 					changed.clear();
-					for_each_tile_in_bands(bands, event.min, event.size, |lod, min| {
-						let key = TileKey { grid: event.grid, class, lod, min };
+					for_each_tile_in_bands(bands, event.region.min(), event.region.size().as_ivec3(), |lod, min| {
+						let key = TileKey::new(event.grid, class, lod, min);
 						if !loader.tiles.contains_desired(key) && tile_has_present_source(streaming, key) { changed.push(key); }
 					});
 					loader.tiles.apply_delta(&changed, &[], &mut acquire, &mut release);
@@ -119,7 +119,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 				ChunkAvailabilityChangeKind::BecameEmpty => {
 					let Ok(streaming) = grids.get_mut(event.grid) else { continue };
 					let streaming = streaming.into_inner();
-					loader.tiles.desired_in_area(event.grid, event.min, event.size, &mut changed);
+					loader.tiles.desired_in_area(event.grid, event.region.min(), event.region.size().as_ivec3(), &mut changed);
 					changed.retain(|&key| !tile_has_present_source(streaming, key));
 					loader.tiles.apply_delta(&[], &changed, &mut acquire, &mut release);
 					release_tiles(streaming, camera_entity, release.drain(..));

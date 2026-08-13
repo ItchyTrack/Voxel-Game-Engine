@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use bevy::math::IVec3;
 
-use super::{raw::RawGridTree, CellKind, GridCoord, GridRegion, GridTreeNode, GridType, MAX_TREE_DEPTH_USIZE, SIZE_CUBED, child_size, get_child_contents_index, get_child_contents_pos, size};
+use super::{raw::RawGridTree, CellKind, GridCoord, NonZeroVoxelRegion, GridTreeNode, GridType, MAX_TREE_DEPTH_USIZE, SIZE_CUBED, child_size, get_child_contents_index, get_child_contents_pos, size};
 
 /// Borrowed, read-only view over a grid tree's raw node arena.
 #[derive(Debug)]
@@ -122,7 +122,7 @@ impl<'a, G: GridType, Co: GridCoord> GridTreeView<'a, G, Co> {
 	}
 
 	#[inline]
-	pub fn occupied_children_in_region(self, node: NodeRef, region: GridRegion) -> ChildCellsInRegion<'a, G, Co> {
+	pub fn occupied_children_in_region(self, node: NodeRef, region: NonZeroVoxelRegion) -> ChildCellsInRegion<'a, G, Co> {
 		ChildCellsInRegion::new(self, node, region)
 	}
 
@@ -199,7 +199,7 @@ impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCells<'a, G, Co> {
 pub struct ChildCellsInRegion<'a, G: GridType, Co: GridCoord> {
 	view: GridTreeView<'a, G, Co>,
 	node: NodeRef,
-	region: GridRegion,
+	region: NonZeroVoxelRegion,
 	data_mask: u64,
 	remaining_mask: u64,
 }
@@ -211,16 +211,16 @@ impl<'a, G: GridType, Co: GridCoord> Clone for ChildCellsInRegion<'a, G, Co> {
 
 impl<'a, G: GridType, Co: GridCoord> ChildCellsInRegion<'a, G, Co> {
 	#[inline]
-	fn new(view: GridTreeView<'a, G, Co>, node: NodeRef, region: GridRegion) -> Self {
+	fn new(view: GridTreeView<'a, G, Co>, node: NodeRef, region: NonZeroVoxelRegion) -> Self {
 		let data_mask = view.raw.data_mask(node.index);
 		let occupied_mask = data_mask | view.raw.node_mask(node.index);
-		let node_region = GridRegion { min: node.origin, end: node.origin + IVec3::splat(size(node.depth) as i32) };
+		let node_region = NonZeroVoxelRegion::from_min_end(node.origin, node.origin + IVec3::splat(size(node.depth) as i32)).unwrap();
 		let Some(overlap) = node_region.intersection(region) else {
 			return Self { view, node, region, data_mask, remaining_mask: 0 };
 		};
 		let cell_size = child_size(node.depth) as i32;
-		let min = (overlap.min - node.origin).div_euclid(IVec3::splat(cell_size));
-		let max = (overlap.end - node.origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		let min = (overlap.min() - node.origin).div_euclid(IVec3::splat(cell_size));
+		let max = (overlap.end() - node.origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
 		let mut region_mask = 0u64;
 		for z in min.z..=max.z {
 			for y in min.y..=max.y {
@@ -235,7 +235,7 @@ impl<'a, G: GridType, Co: GridCoord> ChildCellsInRegion<'a, G, Co> {
 }
 
 impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCellsInRegion<'a, G, Co> {
-	type Item = (CellRef<'a, G>, GridRegion);
+	type Item = (CellRef<'a, G>, NonZeroVoxelRegion);
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
@@ -260,7 +260,7 @@ impl<'a, G: GridType, Co: GridCoord> Iterator for ChildCellsInRegion<'a, G, Co> 
 			grid_type: self.view.grid_type,
 			bytes: self.view.raw.cell_bytes(self.node.index, child_index),
 		};
-		let child_region = GridRegion { min: child.origin, end: child.origin + IVec3::splat(child.size as i32) };
+		let child_region = NonZeroVoxelRegion::from_min_end(child.origin, child.origin + IVec3::splat(child.size as i32)).unwrap();
 		let clipped = child_region.intersection(self.region).expect("masked child intersects region");
 		Some((child, clipped))
 	}

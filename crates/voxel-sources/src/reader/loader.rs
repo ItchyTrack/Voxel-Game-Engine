@@ -1,6 +1,6 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
-use bevy::math::IVec3;
+use bevy::math::{IVec3, UVec3};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use futures::channel::mpsc::UnboundedSender;
 use serde::{Deserialize, Serialize};
@@ -8,13 +8,14 @@ use serde::{Deserialize, Serialize};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_tasks::CancellationToken;
+use tile_data::ChunkRegion;
 
 use super::request_handle::VoxelSourceRequesterId;
 
-#[derive(Debug)]
 pub struct ChunkSaveRequest {
 	pub grid: GridId,
 	pub chunk: IVec3,
+	pub edit_index: u64,
 	pub voxels: Voxels,
 }
 
@@ -54,9 +55,17 @@ pub struct ChunkLoadRequest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VoxelAreaKey {
-	pub min: IVec3,
-	pub size: IVec3,
+	pub region: ChunkRegion,
 	pub lod: u8,
+}
+
+impl VoxelAreaKey {
+	pub const fn new(min: IVec3, size: UVec3, lod: u8) -> Self {
+		Self { region: ChunkRegion::new(min, size), lod }
+	}
+
+	pub const fn min(self) -> IVec3 { self.region.min() }
+	pub const fn size(self) -> UVec3 { self.region.size() }
 }
 
 #[derive(Clone)]
@@ -98,7 +107,7 @@ pub struct VoxelAreaLoadResult {
 	pub grid: GridId,
 	pub key: VoxelAreaKey,
 	pub voxel_type: VoxelTypeId,
-	pub generation: u64,
+	pub edit_index: u64,
 	pub voxels: Option<Voxels>,
 }
 

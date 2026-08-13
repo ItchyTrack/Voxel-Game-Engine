@@ -39,8 +39,9 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 	let screen_pos = (float2(pixel) + float2(0.5)) / float2(texture_size);
 	let ray_pos = view.world_position;
 	let clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, 1.0, 1.0);
-	let world_h = mul(view.world_from_clip, clip);
-	let ray_dir = normalize(world_h.xyz / world_h.w - ray_pos);
+	let ray_view_h = mul(view.view_from_clip, clip);
+	let ray_view = ray_view_h.xyz / ray_view_h.w;
+	let ray_dir = normalize(mul(view.world_from_view, float4(ray_view, 0.0)).xyz);
 	let camera_view_size = float2(view.view_from_clip[0][0], view.view_from_clip[1][1]);
 	let angle_step = float2(
 		camera_view_size.x * 2.0 / float(texture_size.x),

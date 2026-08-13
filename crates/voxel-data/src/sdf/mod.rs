@@ -1,6 +1,6 @@
 use bevy::math::{IVec2, IVec3, Vec3};
 
-use crate::grid_tree::GridRegion;
+use crate::grid_tree::NonZeroVoxelRegion;
 
 pub trait Sdf: Send + Sync {
 	fn sample(&self, pos: Vec3) -> f32;
@@ -19,13 +19,13 @@ pub fn voxel_center(pos: IVec3) -> Vec3 {
 	pos.as_vec3() + Vec3::splat(0.5)
 }
 
-pub fn voxel_region_from_bounds(min: Vec3, max: Vec3) -> Option<GridRegion> {
+pub fn voxel_region_from_bounds(min: Vec3, max: Vec3) -> Option<NonZeroVoxelRegion> {
 	if !min.cmplt(max).all() {
 		return None;
 	}
 	let voxel_min = min.floor().as_ivec3();
 	let voxel_end = max.ceil().as_ivec3();
-	GridRegion::new(voxel_min, voxel_end)
+	NonZeroVoxelRegion::from_min_end(voxel_min, voxel_end)
 }
 
 pub fn shrink_aabb_with_sdf(

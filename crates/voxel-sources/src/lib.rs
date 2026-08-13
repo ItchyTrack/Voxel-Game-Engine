@@ -11,8 +11,8 @@ pub use reader::{
 	VoxelSourcesRequestHandle, VoxelSourcesRequestHandleGetter,
 };
 pub use source_manager::{
-	ChunkChangeKind, ChunkChanged, ChunkSource, Completed, SourceHandle, SourceId, SourceManager,
-	VoxelLodGenerator,
+	ChunkPresence, ChunksBorrowed, ChunksEdited, ChunkSource, Completed, LendResult, LentChunks,
+	SourceHandle, SourceId, SourceManager, VoxelLodGenerator,
 };
 pub use voxel_tasks::CancellationToken;
 
@@ -25,7 +25,7 @@ pub struct ChunkPresenceLoaded {
 pub struct ChunkLoaded {
 	pub grid: voxel_data::grid::GridId,
 	pub chunk: bevy::math::IVec3,
-	pub generation: u64,
+	pub edit_index: u64,
 	pub voxels: Option<voxel_data::voxels::Voxels>,
 }
 
@@ -37,7 +37,7 @@ pub struct VoxelAreaLoaded {
 	pub voxel_type: voxel_data::voxels::VoxelTypeId,
 	pub tag: u64,
 	pub priority: f32,
-	pub generation: u64,
+	pub edit_index: u64,
 	pub voxels: Option<voxel_data::voxels::Voxels>,
 }
 
@@ -67,7 +67,9 @@ impl Plugin for VoxelSourcesPlugin {
 			.init_resource::<reader::VoxelReader>()
 			.init_resource::<VoxelSourcesRequestHandleGetter>()
 			.init_resource::<ChunkSaveChannel>()
-			.add_message::<ChunkChanged>()
+			.add_message::<ChunkPresence>()
+			.add_message::<ChunksEdited>()
+			.add_message::<ChunksBorrowed>()
 			.add_message::<ChunkPresenceLoaded>()
 			.add_message::<ChunkLoaded>()
 			.add_message::<VoxelAreaLoaded>()

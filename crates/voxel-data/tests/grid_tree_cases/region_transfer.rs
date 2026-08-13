@@ -1,7 +1,7 @@
 use super::{assert_matches_oracle, lcg, p, tree_voxels};
 use bevy::math::{I16Vec3, IVec3};
 use std::collections::HashMap;
-use voxel_data::{grid_tree::GridRegion, voxel_grid_tree::VoxelGridTree};
+use voxel_data::{grid_tree::NonZeroVoxelRegion, voxel_grid_tree::VoxelGridTree};
 
 fn in_half_open_region(pos: I16Vec3, min: I16Vec3, size: IVec3) -> bool {
 	let pos = pos.as_ivec3();
@@ -16,7 +16,7 @@ fn split_region_empty_size_is_noop() {
 	tree.add_area(&p(0, 0, 0), IVec3::splat(8), 5);
 	let before = tree_voxels(&tree);
 
-	assert!(GridRegion::from_min_size(p(2, 2, 2).as_ivec3(), IVec3::ZERO).is_none());
+	assert!(NonZeroVoxelRegion::from_min_size(p(2, 2, 2).as_ivec3(), IVec3::ZERO).is_none());
 	assert_matches_oracle(&tree, &before);
 }
 
@@ -26,7 +26,7 @@ fn split_region_disjoint_returns_empty_and_preserves_source() {
 	tree.add_area(&p(0, 0, 0), IVec3::splat(8), 5);
 	let before = tree_voxels(&tree);
 
-	let moved = tree.split_region(GridRegion::from_min_size(p(64, 64, 64).as_ivec3(), IVec3::splat(8)).unwrap());
+	let moved = tree.split_region(NonZeroVoxelRegion::from_min_size(p(64, 64, 64).as_ivec3(), IVec3::splat(8)).unwrap());
 
 	assert!(moved.is_empty());
 	assert_matches_oracle(&tree, &before);
@@ -41,7 +41,7 @@ fn split_region_partial_uniform_cell_matches_oracle() {
 	let region_min = p(-3, -2, -1);
 	let region_size = IVec3::new(13, 11, 9);
 
-	let moved = tree.split_region(GridRegion::from_min_size(region_min.as_ivec3(), region_size).unwrap());
+	let moved = tree.split_region(NonZeroVoxelRegion::from_min_size(region_min.as_ivec3(), region_size).unwrap());
 
 	let mut source_oracle = before.clone();
 	let mut moved_oracle = HashMap::new();
@@ -140,7 +140,7 @@ fn split_then_merge_with_offset_matches_oracle() {
 	let region_size = IVec3::new(9, 8, 7);
 	let offset = IVec3::new(20, -1, 5);
 
-	let moved = tree.split_region(GridRegion::from_min_size(region_min.as_ivec3(), region_size).unwrap());
+	let moved = tree.split_region(NonZeroVoxelRegion::from_min_size(region_min.as_ivec3(), region_size).unwrap());
 	tree.merge_tree(&moved, offset);
 
 	let mut oracle = before.clone();
@@ -182,7 +182,7 @@ fn randomized_split_and_merge_match_oracle() {
 		let offset = IVec3::new((lcg(&mut seed) % 17) as i32 - 8, (lcg(&mut seed) % 17) as i32 - 8, (lcg(&mut seed) % 17) as i32 - 8);
 		let before = oracle.clone();
 
-		let moved = tree.split_region(GridRegion::from_min_size(region_min.as_ivec3(), region_size).unwrap());
+		let moved = tree.split_region(NonZeroVoxelRegion::from_min_size(region_min.as_ivec3(), region_size).unwrap());
 		tree.merge_tree(&moved, offset);
 
 		let mut moved_oracle = Vec::new();

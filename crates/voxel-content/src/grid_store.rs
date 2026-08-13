@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bevy::math::IVec3;
+use tile_data::ChunkRegion;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 
@@ -10,7 +11,7 @@ pub struct GridStore {
 }
 
 impl GridStore {
-	pub fn available_area(&self) -> Option<(IVec3, IVec3)> {
+	pub fn available_area(&self) -> Option<ChunkRegion> {
 		let mut iter = self.chunks.keys().copied();
 		let first = iter.next()?;
 		let (mut min, mut max) = (first, first);
@@ -18,7 +19,7 @@ impl GridStore {
 			min = min.min(chunk);
 			max = max.max(chunk);
 		}
-		Some((min, max - min + IVec3::ONE))
+		ChunkRegion::from_min_max_inclusive(min, max)
 	}
 
 	pub fn contains_chunk(&self, chunk: IVec3) -> bool {
@@ -62,7 +63,7 @@ impl GridStore {
 						let chunk = min + IVec3::new(x, y, z);
 						let Some(voxels) = self.load_chunk(chunk) else { continue };
 						out.get_or_insert_with(|| Voxels::new_with_type(voxels.voxel_type_info()))
-							.merge_from(&voxels, IVec3::new(x, y, z) * voxel_streaming::CHUNK_SIZE);
+							.merge_from(&voxels, IVec3::new(x, y, z) * tile_data::CHUNK_SIZE);
 					}
 				}
 			}
@@ -90,7 +91,7 @@ mod tests {
 	use super::*;
 	use bevy::math::U16Vec3;
 	use voxel_data::voxels::{Voxel, VoxelTypeId, VoxelTypeInfo};
-	use voxel_streaming::CHUNK_SIZE;
+	use tile_data::CHUNK_SIZE;
 
 	fn test_type_info() -> VoxelTypeInfo {
 		VoxelTypeInfo { id: VoxelTypeId(7), size_bytes: 4 }

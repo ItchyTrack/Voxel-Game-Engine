@@ -14,6 +14,7 @@ tracy-client = { workspace = true }
 rustc-hash = { workspace = true }
 bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
+tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

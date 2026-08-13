@@ -151,7 +151,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 			0 => {
 				let mut root = TempNode::new(self.raw.cell_stride());
 				for op in ops {
-					let rel = op.min - origin;
+					let rel = op.region.min() - origin;
 					let i = (rel.x + rel.y * SIZE as i32 + rel.z * SIZE as i32 * SIZE as i32) as usize;
 					root.set_data(&self.grid_type, i, op.data);
 				}
@@ -162,7 +162,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 			1 => {
 				let mut leaves: Vec<_> = (0..SIZE_USIZE_CUBED).map(|_| TempNode::new(self.raw.cell_stride())).collect();
 				for op in ops {
-					let rel = op.min - origin;
+					let rel = op.region.min() - origin;
 					let child = rel / SIZE as i32;
 					let leaf_i = (child.x + child.y * SIZE as i32 + child.z * SIZE as i32 * SIZE as i32) as usize;
 					let local = rel - child * SIZE as i32;
@@ -184,7 +184,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 			2 => {
 				let mut leaves: Vec<_> = (0..SIZE_USIZE_CUBED * SIZE_USIZE_CUBED).map(|_| TempNode::new(self.raw.cell_stride())).collect();
 				for op in ops {
-					let rel = op.min - origin;
+					let rel = op.region.min() - origin;
 					let root_child = rel / 16;
 					let mid_rel = rel - root_child * 16;
 					let mid_child = mid_rel / 4;
@@ -225,7 +225,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		let cell_size = child_size(node_depth) as i32;
 		let mut child_ops: [Vec<AreaOp<'a, G>>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
 		for op in ops {
-			let child = (op.min - node_origin).div_euclid(IVec3::splat(cell_size));
+			let child = (op.region.min() - node_origin).div_euclid(IVec3::splat(cell_size));
 			debug_assert!(child.cmpge(IVec3::ZERO).all() && child.cmplt(IVec3::splat(SIZE as i32)).all());
 			let i = (child.x + child.y * SIZE as i32 + child.z * SIZE as i32 * SIZE as i32) as usize;
 			child_ops[i].push(*op);

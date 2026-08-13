@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use voxel_data::grid_tree::GridRegion;
+use voxel_data::grid_tree::NonZeroVoxelRegion;
 
 use crate::{types::TileKey, unresolved_tile_index::UnresolvedTileIndex};
 
@@ -22,7 +22,7 @@ impl Coverage {
 			roles.entry(key).or_default().1 = true;
 		}
 		let mut tiles: Vec<_> = roles.into_iter().map(|(key, (pending, retained))| (key, pending, retained)).collect();
-		tiles.sort_by_key(|(key, _, _)| (key.grid.to_bits(), key.lod, key.min.x, key.min.y, key.min.z));
+		tiles.sort_by_key(|(key, _, _)| (key.grid.to_bits(), key.lod, key.min().x, key.min().y, key.min().z));
 		tiles
 	}
 
@@ -74,7 +74,7 @@ impl Coverage {
 		}
 
 		let mut replacements = HashSet::new();
-		if let Some(region) = GridRegion::from_min_size(key.min, key.size()) {
+		if let Some(region) = NonZeroVoxelRegion::from_min_size(key.min(), key.size()) {
 			self.pending.for_each_in_region(key.grid, key.class, region, u8::MAX, Some(key.lod), |candidate| {
 				replacements.insert(candidate);
 			});
@@ -151,7 +151,7 @@ impl Coverage {
 }
 
 fn tiles_overlap(a: TileKey, b: TileKey) -> bool {
-	a.grid == b.grid && a.min.cmplt(b.min + b.size()).all() && b.min.cmplt(a.min + a.size()).all()
+	a.grid == b.grid && a.min().cmplt(b.min() + b.size()).all() && b.min().cmplt(a.min() + a.size()).all()
 }
 
 #[cfg(test)]
@@ -164,7 +164,7 @@ mod tests {
 	use crate::types::TileKey;
 
 	fn grid() -> Entity { Entity::from_bits(1) }
-	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey { grid: grid(), class: voxel_streaming::TileClassId(0), lod, min } }
+	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey::new(grid(), voxel_streaming::TileClassId(0), lod, min) }
 	fn children(parent: TileKey) -> Vec<TileKey> {
 		let child_lod = parent.lod - 1;
 		let child_size = 1 << child_lod;

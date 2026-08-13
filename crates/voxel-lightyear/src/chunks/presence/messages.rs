@@ -1,8 +1,8 @@
 use bevy::ecs::entity::{EntityMapper, MapEntities};
-use bevy::math::IVec3;
 use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
 use voxel_data::grid::GridId;
+use tile_data::ChunkRegion;
 
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PresenceRequest {
@@ -18,7 +18,7 @@ impl MapEntities for PresenceRequest {
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PresenceLoad {
 	pub grid: GridId,
-	pub area: Option<(IVec3, IVec3)>,
+	pub area: Option<ChunkRegion>,
 }
 
 impl MapEntities for PresenceLoad {

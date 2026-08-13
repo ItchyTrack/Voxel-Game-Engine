@@ -4,12 +4,12 @@ use bevy::prelude::*;
 use lightyear::prelude::{AppChannelExt, ChannelMode, ChannelSettings, NetworkDirection, ReliableSettings};
 
 mod client_source;
-mod invalidation;
+mod edit_stream;
 mod presence;
 mod voxel_load;
 
 use client_source::ClientChunkSource;
-use invalidation::InvalidationPlugin;
+use edit_stream::EditStreamPlugin;
 use presence::PresencePlugin;
 use voxel_load::VoxelLoadPlugin;
 
@@ -47,7 +47,7 @@ impl Plugin for ChunkSourcePlugin {
 				enable_client: self.enable_client_chunk_source,
 				enable_server: self.enable_server_chunk_source,
 			},
-			InvalidationPlugin {
+			EditStreamPlugin {
 				enable_client: self.enable_client_chunk_source,
 				enable_server: self.enable_server_chunk_source,
 			},

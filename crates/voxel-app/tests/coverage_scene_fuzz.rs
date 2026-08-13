@@ -170,7 +170,7 @@ fn rendered_chunks(world: &World, camera: Entity) -> HashSet<(Entity, IVec3)> {
 	for &entity in &voxel_camera.tiles_to_render {
 		let entity_ref = world.entity(entity);
 		let Some(tile) = entity_ref.get::<LoadedTile>() else { continue };
-		insert_chunk_box(&mut chunks, tile.grid, tile.key.min, tile.key.min + tile.key.size - IVec3::ONE);
+		insert_chunk_box(&mut chunks, tile.grid, tile.key.min(), tile.key.min() + tile.key.size().as_ivec3() - IVec3::ONE);
 	}
 
 	chunks

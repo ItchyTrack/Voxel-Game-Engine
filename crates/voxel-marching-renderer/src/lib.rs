@@ -4,6 +4,7 @@ pub mod tile_data;
 pub mod voxel_camera;
 
 mod extract;
+mod mc33_table;
 mod model;
 mod render_node;
 mod renderer_resource;

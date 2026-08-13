@@ -5,6 +5,8 @@ use bevy::ecs::message::Message;
 use bevy::math::IVec3;
 use crossbeam_channel::Sender;
 use rustc_hash::FxHashMap;
+use voxel_edit::GridEdit;
+use tile_data::ChunkRegion;
 
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
@@ -27,98 +29,92 @@ pub trait VoxelLodGenerator: Send + Sync {
 
 pub(super) type VoxelLodGenerators = Arc<RwLock<FxHashMap<(VoxelTypeId, VoxelTypeId), Arc<dyn VoxelLodGenerator>>>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChunkChangeKind {
-	Changed { generation: u64 },
-	Removed { generation: u64 },
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkPresence {
+	pub grid: GridId,
+	pub region: ChunkRegion,
+}
+
+/// One authoritative edit, published after every chunk in the area has been
+/// mutated by the source that owns or borrows it.
+#[derive(Message, Clone)]
+pub struct ChunksEdited {
+	pub source: SourceId,
+	pub grid: GridId,
+	pub region: ChunkRegion,
+	pub edit_index: u64,
+	pub edit: GridEdit,
 }
 
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ChunkChanged {
+pub struct ChunksBorrowed {
+	pub request: u64,
+	pub borrower: SourceId,
 	pub grid: GridId,
-	pub min: IVec3,
-	pub size: IVec3,
-	pub kind: ChunkChangeKind,
-	pub from_save: bool,
+	pub region: ChunkRegion,
+	pub edit_index: u64,
+	pub success: bool,
 }
 
 pub(super) struct SourceChunkResult {
 	pub grid: GridId,
 	pub chunk: IVec3,
-	pub generation: u64,
+	pub edit_index: u64,
 	pub voxels: Option<Voxels>,
 }
 
 pub(super) struct SourceVoxelsResult {
 	pub source: SourceId,
 	pub grid: GridId,
-	pub min: IVec3,
-	pub size: IVec3,
+	pub region: ChunkRegion,
 	pub lod: f32,
 	pub voxel_type: VoxelTypeId,
-	pub generation: u64,
+	pub edit_index: u64,
 	pub voxels: Option<Voxels>,
 }
 
 pub(super) enum SourceMessage {
-	Claim { source: SourceId, grid: GridId, min: IVec3, size: IVec3, generation: u64 },
-	Unavailable { grid: GridId, min: IVec3, size: IVec3, generation: u64 },
-	Changed(ChunkChanged),
+	Presence(ChunkPresence),
+	Edited(ChunksEdited),
+	Borrowed(ChunksBorrowed),
 	PresenceLoaded(GridId),
 	Chunk(SourceChunkResult),
 	Voxels(SourceVoxelsResult),
 }
 
 #[derive(Clone)]
-pub(super) struct SourceChangeEmitter {
-	generations: Arc<Mutex<HashMap<GridId, u64>>>,
+pub(super) struct SourceEditEmitter {
+	edit_indices: Arc<Mutex<HashMap<GridId, u64>>>,
 	messages: Sender<SourceMessage>,
 	emission_lock: Arc<Mutex<()>>,
 }
 
-impl SourceChangeEmitter {
-	pub(super) fn new(generations: Arc<Mutex<HashMap<GridId, u64>>>, messages: Sender<SourceMessage>) -> Self {
-		Self { generations, messages, emission_lock: Arc::new(Mutex::new(())) }
+impl SourceEditEmitter {
+	pub(super) fn new(edit_indices: Arc<Mutex<HashMap<GridId, u64>>>, messages: Sender<SourceMessage>) -> Self {
+		Self { edit_indices, messages, emission_lock: Arc::new(Mutex::new(())) }
 	}
 
-	fn emit(&self, grid: GridId, message: impl FnOnce(u64) -> SourceMessage) -> u64 {
+	fn current(&self, grid: GridId) -> u64 {
+		self.edit_indices.lock().unwrap().get(&grid).copied().unwrap_or(0)
+	}
+
+	fn synchronize(&self, grid: GridId, edit_index: u64) {
 		let _emission = self.emission_lock.lock().unwrap();
-		let generation = {
-			let mut generations = self.generations.lock().unwrap();
-			let generation = generations.entry(grid).or_default();
-			*generation += 1;
-			*generation
+		let mut edit_indices = self.edit_indices.lock().unwrap();
+		let current = edit_indices.entry(grid).or_default();
+		*current = (*current).max(edit_index);
+	}
+
+	fn edited(&self, source: SourceId, grid: GridId, min: IVec3, size: IVec3, edit: GridEdit) -> u64 {
+		let _emission = self.emission_lock.lock().unwrap();
+		let edit_index = {
+			let mut edit_indices = self.edit_indices.lock().unwrap();
+			let edit_index = edit_indices.entry(grid).or_default();
+			*edit_index += 1;
+			*edit_index
 		};
-		let _ = self.messages.send(message(generation));
-		generation
-	}
-
-	fn claim(&self, source: SourceId, grid: GridId, min: IVec3, size: IVec3) -> u64 {
-		self.emit(grid, |generation| SourceMessage::Claim { source, grid, min, size, generation })
-	}
-
-	fn unavailable(&self, grid: GridId, min: IVec3, size: IVec3) -> u64 {
-		self.emit(grid, |generation| SourceMessage::Unavailable { grid, min, size, generation })
-	}
-
-	pub(super) fn changed(&self, grid: GridId, min: IVec3, size: IVec3, from_save: bool) -> u64 {
-		self.emit(grid, |generation| SourceMessage::Changed(ChunkChanged {
-			grid,
-			min,
-			size,
-			kind: ChunkChangeKind::Changed { generation },
-			from_save,
-		}))
-	}
-
-	pub(super) fn removed(&self, grid: GridId, min: IVec3, size: IVec3, from_save: bool) -> u64 {
-		self.emit(grid, |generation| SourceMessage::Changed(ChunkChanged {
-			grid,
-			min,
-			size,
-			kind: ChunkChangeKind::Removed { generation },
-			from_save,
-		}))
+		let _ = self.messages.send(SourceMessage::Edited(ChunksEdited { source, grid, region: ChunkRegion::new(min, size.as_uvec3()), edit_index, edit }));
+		edit_index
 	}
 }
 
@@ -127,20 +123,28 @@ pub struct SourceHandle {
 	pub(super) id: SourceId,
 	pub(super) messages: Sender<SourceMessage>,
 	pub(super) lod_generators: VoxelLodGenerators,
-	pub(super) changes: SourceChangeEmitter,
+	pub(super) edits: SourceEditEmitter,
 }
 
 impl SourceHandle {
-	pub fn id(&self) -> SourceId {
-		self.id
-	}
+	pub fn id(&self) -> SourceId { self.id }
 
 	pub fn voxel_lod_generator(&self, input: VoxelTypeId, output: VoxelTypeId) -> Option<Arc<dyn VoxelLodGenerator>> {
 		self.lod_generators.read().unwrap().get(&(input, output)).cloned()
 	}
 
-	pub fn loaded(&self, grid: GridId, chunk: IVec3, generation: u64, voxels: Option<Voxels>) {
-		let _ = self.messages.send(SourceMessage::Chunk(SourceChunkResult { grid, chunk, generation, voxels }));
+	pub fn current_edit_index(&self, grid: GridId) -> u64 { self.edits.current(grid) }
+
+	pub fn synchronize_edit_index(&self, grid: GridId, edit_index: u64) {
+		self.edits.synchronize(grid, edit_index);
+	}
+
+	pub fn edited(&self, grid: GridId, min: IVec3, size: IVec3, edit: GridEdit) -> u64 {
+		self.edits.edited(self.id, grid, min, size, edit)
+	}
+
+	pub fn loaded(&self, grid: GridId, chunk: IVec3, edit_index: u64, voxels: Option<Voxels>) {
+		let _ = self.messages.send(SourceMessage::Chunk(SourceChunkResult { grid, chunk, edit_index, voxels }));
 	}
 
 	pub fn voxels_loaded(
@@ -150,27 +154,22 @@ impl SourceHandle {
 		size: IVec3,
 		lod: f32,
 		voxel_type: VoxelTypeId,
-		generation: u64,
+		edit_index: u64,
 		voxels: Option<Voxels>,
 	) {
 		let _ = self.messages.send(SourceMessage::Voxels(SourceVoxelsResult {
 			source: self.id,
 			grid,
-			min,
-			size,
+			region: ChunkRegion::new(min, size.as_uvec3()),
 			lod,
 			voxel_type,
-			generation,
+			edit_index,
 			voxels,
 		}));
 	}
 
-	pub fn claim(&self, grid: GridId, min: IVec3, size: IVec3) -> u64 {
-		self.changes.claim(self.id, grid, min, size)
-	}
-
-	pub fn unavailable(&self, grid: GridId, min: IVec3, size: IVec3) -> u64 {
-		self.changes.unavailable(grid, min, size)
+	pub fn presence(&self, grid: GridId, min: IVec3, size: IVec3) {
+		let _ = self.messages.send(SourceMessage::Presence(ChunkPresence { grid, region: ChunkRegion::new(min, size.as_uvec3()) }));
 	}
 
 	pub fn presence_loaded(&self, grid: GridId) {

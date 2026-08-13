@@ -1,8 +1,9 @@
 use basic_voxel::MarchingVoxel;
 use bevy::math::{IVec3, Vec3};
-use earcut::int::EarcutI32;
 use rustc_hash::FxHashMap;
-use voxel_data::{grid_tree::GridRegion, voxels::{VoxelType, Voxels}};
+use voxel_data::{grid_tree::NonZeroVoxelRegion, voxels::{VoxelType, Voxels}};
+
+use crate::mc33_table::MC33_CASES;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
@@ -25,23 +26,28 @@ const CORNERS: [IVec3; 8] = [
 	IVec3::new(1, 1, 1), IVec3::new(0, 1, 1),
 ];
 
+#[cfg(test)]
 const EDGES: [(usize, usize); 12] = [
 	(0, 1), (1, 2), (2, 3), (3, 0),
 	(4, 5), (5, 6), (6, 7), (7, 4),
 	(0, 4), (1, 5), (2, 6), (3, 7),
 ];
 
-// Edge midpoints in exact half-voxel units.
-const EDGE_MIDPOINTS: [IVec3; 12] = [
+// Edge midpoints followed by the optional MC33 interior vertex, in exact
+// half-voxel units. The shader applies the separate sample-center offset.
+#[cfg(test)]
+const VERTEX_POSITIONS_HALF: [IVec3; 13] = [
 	IVec3::new(1, 0, 0), IVec3::new(2, 1, 0),
 	IVec3::new(1, 2, 0), IVec3::new(0, 1, 0),
 	IVec3::new(1, 0, 2), IVec3::new(2, 1, 2),
 	IVec3::new(1, 2, 2), IVec3::new(0, 1, 2),
 	IVec3::new(0, 0, 1), IVec3::new(2, 0, 1),
 	IVec3::new(2, 2, 1), IVec3::new(0, 2, 1),
+	IVec3::new(1, 1, 1),
 ];
 
 // Face corners and the edge following each corner around that face.
+#[cfg(test)]
 const FACES: [([usize; 4], [usize; 4]); 6] = [
 	([0, 1, 2, 3], [0, 1, 2, 3]),
 	([4, 5, 6, 7], [4, 5, 6, 7]),
@@ -69,32 +75,29 @@ pub fn make_marching_cubes_mesh_in_region(
 		return (Vec::new(), 0, Vec3::ZERO, Vec3::ZERO);
 	}
 	let cell_end = cell_min + cell_size;
-	let cell_region = GridRegion { min: cell_min, end: cell_end };
+	let cell_region = NonZeroVoxelRegion::from_min_end(cell_min, cell_end).unwrap();
 	let mut cells: Vec<_> = stage_cells(voxels, cell_region).into_iter().collect();
 	cells.sort_unstable_by_key(|(origin, _)| (origin.z, origin.y, origin.x));
 	let mut triangles = Vec::new();
-	let mut earcut = EarcutI32::new();
-	let mut triangle_indices = Vec::new();
 	for (origin, samples) in cells {
-		polygonize_cell(
-			origin,
-			cell_min,
-			samples,
-			&mut earcut,
-			&mut triangle_indices,
-			&mut triangles,
-		);
+		polygonize_cell(origin, cell_min, samples, &mut triangles);
 	}
 
 	let vertex_count = (triangles.len() * 3) as u32;
-	(triangles, vertex_count, Vec3::ZERO, cell_size.as_vec3())
+	let sample_center_offset = Vec3::splat(0.5);
+	(
+		triangles,
+		vertex_count,
+		sample_center_offset,
+		cell_size.as_vec3() + sample_center_offset,
+	)
 }
 
-fn stage_cells(voxels: &Voxels, cell_region: GridRegion) -> FxHashMap<IVec3, CellSamples> {
-	let sample_min = cell_region.min.max(IVec3::ZERO);
-	let sample_end = (cell_region.end + IVec3::ONE).min(IVec3::splat(u16::MAX as i32 + 1));
+fn stage_cells(voxels: &Voxels, cell_region: NonZeroVoxelRegion) -> FxHashMap<IVec3, CellSamples> {
+	let sample_min = cell_region.min().max(IVec3::ZERO);
+	let sample_end = (cell_region.end() + IVec3::ONE).min(IVec3::splat(u16::MAX as i32 + 1));
 	let mut cells = FxHashMap::default();
-	if let Some(sample_region) = GridRegion::new(sample_min, sample_end) {
+	if let Some(sample_region) = NonZeroVoxelRegion::from_min_end(sample_min, sample_end) {
 		voxels.grid_tree().for_each_in_region(sample_region, |origin, size, voxel| {
 			let leaf_min = origin.as_ivec3();
 			let leaf_end = leaf_min + IVec3::splat(i32::from(size));
@@ -112,15 +115,15 @@ fn stage_cells(voxels: &Voxels, cell_region: GridRegion) -> FxHashMap<IVec3, Cel
 
 fn stage_leaf_boundary(
 	cells: &mut FxHashMap<IVec3, CellSamples>,
-	cell_region: GridRegion,
+	cell_region: NonZeroVoxelRegion,
 	leaf_min: IVec3,
 	leaf_end: IVec3,
 	value: MarchingVoxel,
 ) {
 	let shell_min = leaf_min - IVec3::ONE;
 	let shell_max = leaf_end - IVec3::ONE;
-	let min = shell_min.max(cell_region.min);
-	let max = shell_max.min(cell_region.end - IVec3::ONE);
+	let min = shell_min.max(cell_region.min());
+	let max = shell_max.min(cell_region.end() - IVec3::ONE);
 	if min.cmpgt(max).any() { return; }
 
 	for x in [shell_min.x, shell_max.x] {
@@ -176,99 +179,16 @@ fn stage_cell(
 	}
 }
 
-fn polygonize_cell(
-	origin: IVec3,
-	output_offset: IVec3,
-	samples: CellSamples,
-	earcut: &mut EarcutI32,
-	triangle_indices: &mut Vec<u16>,
-	out: &mut Vec<MarchingTriangle>,
-) {
-	let occupied = std::array::from_fn(|index| samples.occupied & (1 << index) != 0);
-	let occupied_count = samples.occupied.count_ones();
-	if occupied_count == 0 || occupied_count == 8 { return; }
+fn polygonize_cell(origin: IVec3, output_offset: IVec3, samples: CellSamples, out: &mut Vec<MarchingTriangle>) {
+	if samples.occupied == 0 || samples.occupied == u8::MAX { return; }
 
-	let crossing = EDGES.map(|(a, b)| occupied[a] != occupied[b]);
-	let mut adjacency = [0u16; 12];
-	for (corners, edges) in FACES {
-		let crossing_count = edges.iter().filter(|edge| crossing[**edge]).count();
-		match crossing_count {
-			2 => {
-				let mut pair = edges.into_iter().filter(|edge| crossing[*edge]);
-				connect(&mut adjacency, pair.next().unwrap(), pair.next().unwrap());
-			}
-			4 => {
-				// Resolve checkerboard faces by connecting the solid side.
-				for index in 0..4 {
-					if !occupied[corners[index]] {
-						connect(&mut adjacency, edges[(index + 3) % 4], edges[index]);
-					}
-				}
-			}
-			_ => {}
-		}
-	}
-
+	let case = MC33_CASES[samples.occupied as usize];
 	let color = average_color(&samples);
 	let packed_origin = pack_origin(origin - output_offset);
-	let mut visited = [false; 12];
-	for start in 0..12 {
-		if !crossing[start] || visited[start] || adjacency[start] == 0 { continue; }
-		let mut polygon = [0usize; 12];
-		let mut polygon_len = 0;
-		let mut previous = usize::MAX;
-		let mut current = start;
-		loop {
-			if visited[current] { break; }
-			visited[current] = true;
-			polygon[polygon_len] = current;
-			polygon_len += 1;
-			let next_mask = if previous < 12 {
-				adjacency[current] & !(1u16 << previous)
-			} else {
-				adjacency[current]
-			};
-			if next_mask == 0 { break; }
-			previous = current;
-			current = next_mask.trailing_zeros() as usize;
-			if current == start { break; }
-		}
-		if polygon_len < 3 || current != start { continue; }
-		let normal = outward_polygon_normal(&polygon, polygon_len, &occupied);
-		let (projection_x, projection_y) = projection_basis(normal);
-		earcut.earcut(
-			polygon[..polygon_len].iter().map(|&edge| {
-				let point = EDGE_MIDPOINTS[edge];
-				[point.dot(projection_x), point.dot(projection_y)]
-			}),
-			&[] as &[u16],
-			triangle_indices,
-		);
-		let reverse_winding = triangle_indices.chunks_exact(3).next().is_some_and(|triangle| {
-			let edges = [
-				polygon[triangle[0] as usize],
-				polygon[triangle[1] as usize],
-				polygon[triangle[2] as usize],
-			];
-			let triangle_normal = (EDGE_MIDPOINTS[edges[1]] - EDGE_MIDPOINTS[edges[0]])
-				.cross(EDGE_MIDPOINTS[edges[2]] - EDGE_MIDPOINTS[edges[0]]);
-			triangle_normal.dot(normal) < 0
-		});
-		for triangle in triangle_indices.chunks_exact(3) {
-			let mut edges = [
-				polygon[triangle[0] as usize],
-				polygon[triangle[1] as usize],
-				polygon[triangle[2] as usize],
-			];
-			if reverse_winding { edges.swap(1, 2); }
-			push_triangle(out, packed_origin, edges, color);
-		}
+	for triangle in case.vertices[..usize::from(case.triangle_count) * 3].chunks_exact(3) {
+		let vertices = [triangle[0] as usize, triangle[1] as usize, triangle[2] as usize];
+		push_triangle(out, packed_origin, vertices, color);
 	}
-}
-
-fn connect(adjacency: &mut [u16; 12], a: usize, b: usize) {
-	adjacency[a] |= 1u16 << b;
-	adjacency[b] |= 1u16 << a;
 }
 
 fn average_color(samples: &CellSamples) -> u32 {
@@ -282,38 +202,6 @@ fn average_color(samples: &CellSamples) -> u32 {
 	let count = samples.occupied.count_ones();
 	let channels = sum.map(|total| (total / count) as u8);
 	u32::from_le_bytes(channels)
-}
-
-fn outward_polygon_normal(polygon: &[usize; 12], polygon_len: usize, occupied: &[bool; 8]) -> IVec3 {
-	let mut normal = IVec3::ZERO;
-	for index in 0..polygon_len {
-		let current = EDGE_MIDPOINTS[polygon[index]];
-		let next = EDGE_MIDPOINTS[polygon[(index + 1) % polygon_len]];
-		normal += current.cross(next);
-	}
-
-	let mut orientation: i32 = 0;
-	for &edge in &polygon[..polygon_len] {
-		let (a, b) = EDGES[edge];
-		let toward_empty = if occupied[a] { CORNERS[b] - CORNERS[a] } else { CORNERS[a] - CORNERS[b] };
-		let candidate = normal.dot(toward_empty);
-		if candidate.abs() > orientation.abs() { orientation = candidate; }
-	}
-	if orientation < 0 { -normal } else { normal }
-}
-
-fn projection_basis(normal: IVec3) -> (IVec3, IVec3) {
-	let absolute = normal.abs();
-	let helper = if absolute.x <= absolute.y && absolute.x <= absolute.z {
-		IVec3::X
-	} else if absolute.y <= absolute.z {
-		IVec3::Y
-	} else {
-		IVec3::Z
-	};
-	let x = normal.cross(helper);
-	let y = normal.cross(x);
-	(x, y)
 }
 
 fn pack_origin(origin: IVec3) -> [u32; 2] {
@@ -342,17 +230,8 @@ mod tests {
 
 	fn triangulate_case(occupied: u8) -> Vec<[usize; 3]> {
 		let samples = CellSamples { colors: [u32::MAX; 8], occupied };
-		let mut earcut = EarcutI32::new();
-		let mut triangle_indices = Vec::new();
 		let mut triangles = Vec::new();
-		polygonize_cell(
-			IVec3::ZERO,
-			IVec3::ZERO,
-			samples,
-			&mut earcut,
-			&mut triangle_indices,
-			&mut triangles,
-		);
+		polygonize_cell(IVec3::ZERO, IVec3::ZERO, samples, &mut triangles);
 		triangles.into_iter().map(|triangle| {
 			let packed = triangle.packed_origin_z_edges >> 16;
 			[
@@ -361,6 +240,11 @@ mod tests {
 				((packed >> 8) & 0xf) as usize,
 			]
 		}).collect()
+	}
+
+	fn connect(adjacency: &mut [u16; 12], a: usize, b: usize) {
+		adjacency[a] |= 1u16 << b;
+		adjacency[b] |= 1u16 << a;
 	}
 
 	fn case_adjacency(occupied: u8) -> ([bool; 12], [u16; 12]) {
@@ -433,11 +317,11 @@ mod tests {
 		voxels.add_voxel(U16Vec3::new(0, 0, 0), blue.get_ref());
 		voxels.add_voxel(U16Vec3::new(12, 11, 10), blue.get_ref());
 
-		let region = GridRegion { min: IVec3::splat(-1), end: IVec3::splat(15) };
+		let region = NonZeroVoxelRegion::from_min_end(IVec3::splat(-1), IVec3::splat(15)).unwrap();
 		let staged = stage_cells(&voxels, region);
-		for z in region.min.z..region.end.z {
-			for y in region.min.y..region.end.y {
-				for x in region.min.x..region.end.x {
+		for z in region.min().z..region.end().z {
+			for y in region.min().y..region.end().y {
+				for x in region.min().x..region.end().x {
 					let origin = IVec3::new(x, y, z);
 					let expected = directly_sample_cell(&voxels, origin);
 					if expected.occupied == 0 || expected.occupied == u8::MAX {
@@ -465,21 +349,12 @@ mod tests {
 		let cell_size = IVec3::splat(15);
 		let (actual, _, _, _) = make_marching_cubes_mesh_in_region(&voxels, cell_min, cell_size);
 		let mut expected = Vec::new();
-		let mut earcut = EarcutI32::new();
-		let mut triangle_indices = Vec::new();
 		let cell_end = cell_min + cell_size;
 		for z in cell_min.z..cell_end.z {
 			for y in cell_min.y..cell_end.y {
 				for x in cell_min.x..cell_end.x {
 					let origin = IVec3::new(x, y, z);
-					polygonize_cell(
-						origin,
-						cell_min,
-						directly_sample_cell(&voxels, origin),
-						&mut earcut,
-						&mut triangle_indices,
-						&mut expected,
-					);
+					polygonize_cell(origin, cell_min, directly_sample_cell(&voxels, origin), &mut expected);
 				}
 			}
 		}
@@ -492,14 +367,58 @@ mod tests {
 			let triangles = triangulate_case(occupied);
 			assert!(!triangles.is_empty(), "case {occupied:#010b} produced no triangles");
 			for edges in triangles {
-				for &edge in &edges {
-					assert!(edge < EDGES.len(), "case {occupied:#010b} emitted invalid edge {edge}");
-					let (a, b) = EDGES[edge];
-					assert_ne!(occupied & (1 << a), occupied & (1 << b));
+				for &vertex in &edges {
+					assert!(vertex < VERTEX_POSITIONS_HALF.len(), "case {occupied:#010b} emitted invalid vertex {vertex}");
+					if let Some(&(a, b)) = EDGES.get(vertex) {
+						assert_ne!(occupied & (1 << a), occupied & (1 << b));
+					}
 				}
-				let normal = (EDGE_MIDPOINTS[edges[1]] - EDGE_MIDPOINTS[edges[0]])
-					.cross(EDGE_MIDPOINTS[edges[2]] - EDGE_MIDPOINTS[edges[0]]);
+				let normal = (VERTEX_POSITIONS_HALF[edges[1]] - VERTEX_POSITIONS_HALF[edges[0]])
+					.cross(VERTEX_POSITIONS_HALF[edges[2]] - VERTEX_POSITIONS_HALF[edges[0]]);
 				assert_ne!(normal, IVec3::ZERO, "case {occupied:#010b} emitted a degenerate triangle");
+			}
+		}
+	}
+
+	#[test]
+	fn marching_table_is_rotation_equivariant() {
+		fn rotated_case(occupied: u8, corner_map: [usize; 8]) -> u8 {
+			let mut rotated = 0;
+			for (corner, mapped) in corner_map.into_iter().enumerate() {
+				if occupied & (1 << corner) != 0 { rotated |= 1 << mapped; }
+			}
+			rotated
+		}
+
+		fn edge_map(corner_map: [usize; 8]) -> [usize; 13] {
+			let mut result = [12; 13];
+			for (edge, (a, b)) in EDGES.into_iter().enumerate() {
+				let mapped = [corner_map[a], corner_map[b]];
+				result[edge] = EDGES.iter().position(|&(x, y)| {
+					(x == mapped[0] && y == mapped[1]) || (x == mapped[1] && y == mapped[0])
+				}).unwrap();
+			}
+			result
+		}
+
+		fn canonical(mut triangles: Vec<[usize; 3]>) -> Vec<[usize; 3]> {
+			for triangle in &mut triangles { triangle.sort_unstable(); }
+			triangles.sort_unstable();
+			triangles
+		}
+
+		let rotations = [
+			[1, 2, 3, 0, 5, 6, 7, 4], // Quarter turn around Z.
+			[3, 2, 6, 7, 0, 1, 5, 4], // Quarter turn around X.
+		];
+		for occupied in 0..=u8::MAX {
+			for corner_map in rotations {
+				let vertex_map = edge_map(corner_map);
+				let actual = triangulate_case(occupied).into_iter()
+					.map(|triangle| triangle.map(|vertex| vertex_map[vertex]))
+					.collect();
+				let expected = triangulate_case(rotated_case(occupied, corner_map));
+				assert_eq!(canonical(actual), canonical(expected), "case {occupied:#010b} is not rotation-equivariant");
 			}
 		}
 	}
@@ -550,8 +469,8 @@ mod tests {
 			for (origin, mask) in [(IVec3::ZERO, left_mask), (IVec3::new(2, 0, 0), right_mask)] {
 				for [a, b, c] in triangulate_case(mask) {
 					for (from, to) in [(a, b), (b, c), (c, a)] {
-						let from = EDGE_MIDPOINTS[from] + origin;
-						let to = EDGE_MIDPOINTS[to] + origin;
+						let from = VERTEX_POSITIONS_HALF[from] + origin;
+						let to = VERTEX_POSITIONS_HALF[to] + origin;
 						if from.x != 2 || to.x != 2 { continue; }
 						let (a, b, direction) = pair_key(from, to);
 						let entry = shared_edges.entry((a, b)).or_default();
@@ -586,9 +505,10 @@ mod tests {
 				}
 			}
 
-			let expected_vertices: HashSet<_> = crossing.iter().enumerate()
+			let mut expected_vertices: HashSet<_> = crossing.iter().enumerate()
 				.filter_map(|(edge, crossing)| crossing.then_some(edge))
 				.collect();
+			if used_vertices.contains(&12) { expected_vertices.insert(12); }
 			assert_eq!(used_vertices, expected_vertices, "case {occupied:#010b} omitted polygon vertices");
 			for boundary in &expected_boundary {
 				assert_eq!(edge_counts.get(boundary), Some(&1), "case {occupied:#010b} changed boundary edge {boundary:?}");

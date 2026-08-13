@@ -1,10 +1,11 @@
 use bevy::ecs::message::Message;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
+use tile_data::{ChunkRegion, NonZeroChunkRegion};
 
-mod chunk;
 mod consumer;
 mod forgotten_chunks;
+mod grid_source;
 mod tile_dependency_index;
 mod presence;
 mod streaming;
@@ -14,17 +15,16 @@ mod generation;
 pub mod systems;
 mod edit;
 
-pub use chunk::{chunk_of, chunk_origin, CHUNK_SIZE};
 pub use consumer::{chunks_ready, ChunkConsumer, VoxelStreamingAppExt};
 pub use forgotten_chunks::ForgottenChunks;
 pub use presence::{ChunkPresence, ChunkState};
 pub use tile_data::{
 	DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData,
 	TileGenerationContext, TileGenerationSession, TileGenerator, TileGeneratorRegistry, TileKey,
-	VoxelArea, VoxelAreaRequest, VoxelAreaResult,
+	VoxelAreaRequest, VoxelAreaResult,
 };
 pub use tile_updates::{TileLoadStatus, TileLoadUpdate};
-pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunkSaveChannel, ChunkSaveRequest, VoxelAreaKey, VoxelAreaMessageRequest, VoxelAreaLoaded, PresenceLoadRequest};
+pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunksEdited, ChunkSaveChannel, ChunkSaveRequest, VoxelAreaKey, VoxelAreaMessageRequest, VoxelAreaLoaded, PresenceLoadRequest};
 pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
 pub use source_request_handle::StreamingSourceRequestHandle;
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
@@ -53,9 +53,15 @@ pub enum ChunkAvailabilityChangeKind {
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChunkAvailabilityChanged {
 	pub grid: voxel_data::grid::GridId,
-	pub min: IVec3,
-	pub size: IVec3,
+	pub region: ChunkRegion,
 	pub kind: ChunkAvailabilityChangeKind,
+}
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChunkEditInterestChanged {
+	pub grid: voxel_data::grid::GridId,
+	pub region: ChunkRegion,
+	pub interested: bool,
 }
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,10 +93,14 @@ pub struct VoxelStreamingPlugin;
 impl Plugin for VoxelStreamingPlugin {
 	fn build(&self, app: &mut App) {
 		use voxel_edit::VoxelEditAppExt;
+		use voxel_sources::VoxelSourcesAppExt;
 		if !app.is_plugin_added::<voxel_sources::VoxelSourcesPlugin>() {
 			app.add_plugins(voxel_sources::VoxelSourcesPlugin);
 		}
+		let grid_source = grid_source::StreamingGridSource::default();
+		app.insert_resource(grid_source.clone()).register_voxel_source(grid_source);
 		app.add_message::<ChunkAvailabilityChanged>()
+			.add_message::<ChunkEditInterestChanged>()
 			.add_message::<ChunkLoadResolved>()
 			.init_resource::<TileClassRegistry>()
 			.init_resource::<TileGeneratorRegistry>()
@@ -101,9 +111,15 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_systems(
 				StreamingSchedule,
 				(
-					(systems::receive_chunk_presence_loaded,systems::apply_source_events)
+					(
+						systems::receive_chunk_presence_loaded,
+						systems::apply_source_presence,
+						systems::apply_edit_events,
+						systems::receive_borrowed_areas,
+					)
 						.in_set(StreamingPhase::Ingest),
 					(
+						grid_source::serve_grid_source_requests,
 						systems::serve_saves,
 					)
 						.chain()
@@ -127,7 +143,13 @@ impl Plugin for VoxelStreamingPlugin {
 				(
 					(
 						systems::invalidate_changed_generation_contexts,
-						(systems::request_presence_for_new_grids, systems::handle_dirty_chunks, systems::request_stalled_chunks, systems::request_tiles),
+						systems::request_presence_for_new_grids,
+						systems::request_edit_borrows,
+						systems::publish_completed_edits,
+						systems::handle_dirty_chunks,
+						systems::request_stalled_chunks,
+						systems::request_tiles,
+						systems::publish_edit_interest_changes,
 					)
 						.chain()
 						.in_set(StreamingPhase::Request),

@@ -3,7 +3,8 @@ use std::sync::OnceLock;
 
 use bevy::{math::DVec2, prelude::*};
 use tracy_client::span;
-use voxel_streaming::{CHUNK_SIZE, chunk_of, chunk_origin};
+use tile_data::{ChunkRegion, chunk_of, chunk_origin};
+use tile_data::CHUNK_SIZE;
 
 use super::config::{
 	PLANET_RADIUS, PLANET_TILE_COUNT, TILE_BOUND_PADDING, TILE_INWARD_DEPTH, TILE_OUTWARD_HEIGHT,
@@ -26,8 +27,7 @@ pub(super) struct PlanetTile {
 	pub(super) axis_y: Vec3,
 	pub(super) halfspaces: Vec<Halfspace>,
 	pub(super) present_chunks: Vec<IVec3>,
-	pub(super) present_min: IVec3,
-	pub(super) present_max_exclusive: IVec3,
+	pub(super) present_region: ChunkRegion,
 }
 
 pub(super) fn planet_tiles() -> &'static [PlanetTile] {
@@ -75,7 +75,7 @@ fn build_planet_tiles() -> Vec<PlanetTile> {
 			.map(|&(other, _)| voronoi_halfspace(normal, normals[other], axis_x, axis_y))
 			.collect();
 		let present_chunks = build_present_chunks(&halfspaces);
-		let (present_min, present_max_exclusive) = chunk_bounds(&present_chunks);
+		let present_region = chunk_bounds(&present_chunks);
 		let active_halfspaces = remove_redundant_halfspaces(&halfspaces);
 
 		tiles.push(PlanetTile {
@@ -86,8 +86,7 @@ fn build_planet_tiles() -> Vec<PlanetTile> {
 			axis_y,
 			halfspaces: active_halfspaces,
 			present_chunks,
-			present_min,
-			present_max_exclusive,
+			present_region,
 		});
 	}
 
@@ -245,14 +244,14 @@ fn build_present_chunks(halfspaces: &[Halfspace]) -> Vec<IVec3> {
 	chunks
 }
 
-fn chunk_bounds(chunks: &[IVec3]) -> (IVec3, IVec3) {
+fn chunk_bounds(chunks: &[IVec3]) -> ChunkRegion {
 	let Some((&first, rest)) = chunks.split_first() else {
-		return (IVec3::ZERO, IVec3::ZERO);
+		return ChunkRegion::new(IVec3::ZERO, UVec3::ZERO);
 	};
 	let (min, max) = rest.iter().fold((first, first), |(min, max), &chunk| {
 		(min.min(chunk), max.max(chunk))
 	});
-	(min, max + IVec3::ONE)
+	ChunkRegion::from_min_max_inclusive(min, max).unwrap()
 }
 
 fn voronoi_xy_bounds(halfspaces: &[Halfspace]) -> (Vec2, Vec2) {
@@ -321,10 +320,10 @@ pub(super) fn tile_has_chunk(tile: &PlanetTile, chunk: IVec3) -> bool {
 
 pub(super) fn tile_has_any_chunk_in_region(tile: &PlanetTile, min: IVec3, size: IVec3) -> bool {
 	let max = min + size;
-	if !aabb_intersects(min, max, tile.present_min, tile.present_max_exclusive) {
+	if !aabb_intersects(min, max, tile.present_region.min(), tile.present_region.end()) {
 		return false;
 	}
-	if min.cmple(tile.present_min).all() && max.cmpge(tile.present_max_exclusive).all() {
+	if min.cmple(tile.present_region.min()).all() && max.cmpge(tile.present_region.end()).all() {
 		return !tile.present_chunks.is_empty();
 	}
 	tile.present_chunks.iter().any(|&chunk| {

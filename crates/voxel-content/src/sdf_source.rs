@@ -7,8 +7,9 @@ use bevy::math::{IVec2, IVec3, Vec3};
 use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
-use voxel_sources::{CancellationToken, ChunkSource, SourceHandle};
-use voxel_streaming::{CHUNK_SIZE, ForgottenChunks};
+use voxel_sources::{CancellationToken, ChunkSource, LendResult, LentChunks, SourceHandle};
+use tile_data::CHUNK_SIZE;
+use voxel_streaming::ForgottenChunks;
 
 /// Procedural SDF contract used by [`SdfSource`].
 ///
@@ -47,6 +48,7 @@ struct SdfSourceInner {
 	handle: OnceLock<SourceHandle>,
 	bindings: RwLock<HashMap<GridId, GridBinding>>,
 	forgotten: ForgottenChunks,
+	lent: LentChunks,
 }
 
 #[derive(Clone)]
@@ -63,6 +65,7 @@ impl SdfSource {
 				handle: OnceLock::new(),
 				bindings: RwLock::new(HashMap::new()),
 				forgotten: ForgottenChunks::default(),
+				lent: LentChunks::default(),
 			}),
 		}
 	}
@@ -167,24 +170,23 @@ impl ChunkSource for SdfSource {
 	}
 
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
-		if self.inner.forgotten.contains(grid, chunk) { return None; }
+		if self.inner.forgotten.contains(grid, chunk) || self.inner.lent.contains(grid, chunk) { return None; }
 		let binding = self.binding(grid)?;
 		Self::might_intersect_region(&binding, chunk, IVec3::ONE).then_some(binding.options.cost)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
-		if cancellation.is_cancelled() { return; }
-		let voxels = (!self.inner.forgotten.contains(grid, chunk))
+	fn request_load(&self, grid: GridId, chunk: IVec3, edit_index: u64, cancellation: CancellationToken) -> bool {
+		if cancellation.is_cancelled() || self.inner.forgotten.contains(grid, chunk) || self.inner.lent.contains(grid, chunk) { return false; }
+		let voxels = (!self.inner.forgotten.contains(grid, chunk) && !self.inner.lent.contains(grid, chunk))
 			.then(|| self.binding(grid).and_then(|binding| self.build_region(&binding, chunk, IVec3::ONE, None, None, Some(&cancellation))))
 			.flatten();
-		if cancellation.is_cancelled() { return; }
-		if let Some(handle) = self.inner.handle.get() {
-			handle.loaded(grid, chunk, generation, voxels);
-		}
+		if cancellation.is_cancelled() { return false; }
+		if let Some(handle) = self.inner.handle.get() { handle.loaded(grid, chunk, edit_index, voxels); }
+		true
 	}
 
 	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if !self.inner.forgotten.any_remembered_in(grid, min, size) { return None; }
+		if !self.inner.forgotten.any_remembered_in(grid, min, size) || !self.inner.lent.any_available_in(grid, min, size) { return None; }
 		let binding = self.binding(grid)?;
 		assert!(
 			binding.sdf.voxel().type_id() == voxel_type || binding.sdf.lod_voxel().type_id() == voxel_type,
@@ -200,17 +202,26 @@ impl ChunkSource for SdfSource {
 		size: IVec3,
 		lod: f32,
 		voxel_type: VoxelTypeId,
-		generation: u64,
+		edit_index: u64,
 		cancellation: CancellationToken,
-	) {
-		if cancellation.is_cancelled() { return; }
+	) -> bool {
+		if cancellation.is_cancelled() || !self.inner.lent.any_available_in(grid, min, size) { return false; }
 		let voxels = self.binding(grid).and_then(|binding| {
-			self.build_region(&binding, min, size, Some(lod), Some(voxel_type), Some(&cancellation))
+			let step = step_for_lod(lod)?;
+			let chunk_extent = IVec3::splat(CHUNK_SIZE / step);
+			let mut out: Option<Voxels> = None;
+			for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
+				let offset = IVec3::new(x, y, z);
+				let chunk = min + offset;
+				if self.inner.forgotten.contains(grid, chunk) || self.inner.lent.contains(grid, chunk) { continue; }
+				let Some(voxels) = self.build_region(&binding, chunk, IVec3::ONE, Some(lod), Some(voxel_type), Some(&cancellation)) else { continue };
+				out.get_or_insert_with(|| Voxels::new_with_type(voxels.voxel_type_info())).merge_from(&voxels, offset * chunk_extent);
+			}}}
+			out.filter(|voxels| !voxels.is_empty())
 		});
-		if cancellation.is_cancelled() { return; }
-		if let Some(handle) = self.inner.handle.get() {
-			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels);
-		}
+		if cancellation.is_cancelled() { return false; }
+		if let Some(handle) = self.inner.handle.get() { handle.voxels_loaded(grid, min, size, lod, voxel_type, edit_index, voxels); }
+		true
 	}
 
 	fn request_available_area(&self, grid: GridId) {
@@ -222,13 +233,29 @@ impl ChunkSource for SdfSource {
 			let voxel_max = bounds_max.ceil().as_ivec3() - IVec3::ONE;
 			let chunk_min = Self::chunk_of(voxel_min);
 			let chunk_max = Self::chunk_of(voxel_max);
-			handle.claim(grid, chunk_min, chunk_max - chunk_min + IVec3::ONE);
+			handle.presence(grid, chunk_min, chunk_max - chunk_min + IVec3::ONE);
 		}
 		handle.presence_loaded(grid);
 	}
 
+	fn lend(&self, grid: GridId, chunk: IVec3, cancellation: CancellationToken) -> LendResult {
+		if self.inner.forgotten.contains(grid, chunk) || !self.inner.lent.begin(grid, chunk) { return LendResult::Unavailable; }
+		let voxels = self.binding(grid).and_then(|binding| {
+			self.build_region(&binding, chunk, IVec3::ONE, None, None, Some(&cancellation))
+		});
+		if cancellation.is_cancelled() {
+			self.inner.lent.end(grid, chunk);
+			return LendResult::Unavailable;
+		}
+		LendResult::Borrowed(voxels)
+	}
+
+
+	fn return_area(&self, grid: GridId, min: IVec3, size: IVec3) { self.inner.lent.end_area(grid, min, size); }
+
 	fn forget(&self, grid: GridId, chunk: IVec3) {
 		self.inner.forgotten.forget(grid, chunk);
+		self.inner.lent.end(grid, chunk);
 	}
 }
 

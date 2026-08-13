@@ -7,13 +7,16 @@ use bevy::{prelude::*};
 use basic_voxel::{BasicVoxel, LodVoxel, downsample_region};
 use voxel_data::{
 	grid::{Grid, GridId},
+	region::NonZeroVoxelRegion,
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
+use tile_data::{ChunkRegion, NonZeroChunkRegion};
 use voxel_edit::GridEdits;
-use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
-use voxel_sources::{CancellationToken, ChunkSource, SourceHandle, VoxelSourcesAppExt};
-use voxel_streaming::{ForgottenChunks, GridStreaming, chunk_of, chunk_origin};
+use voxel_lightyear::ReplicateVoxels;
+use voxel_sources::{CancellationToken, ChunkSource, LendResult, LentChunks, SourceHandle, VoxelSourcesAppExt};
+use tile_data::{chunk_of, chunk_origin};
+use voxel_streaming::{ForgottenChunks, GridStreaming};
 
 const SOURCE_COST: u32 = 2;
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
@@ -76,43 +79,28 @@ impl Plugin for TreeSourcePlugin {
 			model: OnceLock::new(),
 			handle: OnceLock::new(),
 			forgotten: ForgottenChunks::default(),
+			lent: LentChunks::default(),
 		})
 			.insert_resource(TreeGrid { grid, bounds, position: self.position })
 			.add_systems(Startup, spawn_tree);
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
-struct ChunkBounds {
-	min: IVec3,
-	max: IVec3,
-}
-
-impl ChunkBounds {
-	fn size(self) -> IVec3 { self.max - self.min }
-
-	fn contains(self, chunk: IVec3) -> bool { chunk.cmpge(self.min).all() && chunk.cmplt(self.max).all() }
-
-	fn intersects(self, min: IVec3, size: IVec3) -> bool {
-		let max = min + size;
-		min.cmplt(self.max).all() && max.cmpgt(self.min).all()
-	}
-}
-
 #[derive(Resource, Clone)]
 struct TreeGrid {
 	grid: Arc<OnceLock<GridId>>,
-	bounds: ChunkBounds,
+	bounds: NonZeroChunkRegion,
 	position: Vec3,
 }
 
 struct TreeSource {
 	grid: Arc<OnceLock<GridId>>,
 	settings: TreeSettings,
-	bounds: ChunkBounds,
+	bounds: NonZeroChunkRegion,
 	model: OnceLock<TreeModel>,
 	handle: OnceLock<SourceHandle>,
 	forgotten: ForgottenChunks,
+	lent: LentChunks,
 }
 
 impl TreeSource {
@@ -131,49 +119,61 @@ impl ChunkSource for TreeSource {
 	}
 
 	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
-		(self.is_mine(grid) && self.bounds.contains(chunk) && !self.forgotten.contains(grid, chunk)).then_some(SOURCE_COST)
+		(self.is_mine(grid) && self.bounds.contains(chunk) && !self.forgotten.contains(grid, chunk) && !self.lent.contains(grid, chunk)).then_some(SOURCE_COST)
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) {
-		if cancellation.is_cancelled() {
-			return;
+	fn request_load(&self, grid: GridId, chunk: IVec3, edit_index: u64, cancellation: CancellationToken) -> bool {
+		if cancellation.is_cancelled() || !self.is_mine(grid) || self.forgotten.contains(grid, chunk) || self.lent.contains(grid, chunk) {
+			return false;
 		}
-		let voxels = (!self.forgotten.contains(grid, chunk))
+		let voxels = (!self.forgotten.contains(grid, chunk) && !self.lent.contains(grid, chunk))
 			.then(|| rasterize_tree_chunk(self.model(), chunk, &cancellation))
 			.flatten();
-		if cancellation.is_cancelled() {
-			return;
-		}
-		if let Some(handle) = self.handle.get() {
-			handle.loaded(grid, chunk, generation, voxels);
-		}
+		if cancellation.is_cancelled() { return false; }
+		if let Some(handle) = self.handle.get() { handle.loaded(grid, chunk, edit_index, voxels); }
+		true
 	}
 
 	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if !self.is_mine(grid) || !self.forgotten.any_remembered_in(grid, min, size) { return None; }
+		if !self.is_mine(grid) || !self.forgotten.any_remembered_in(grid, min, size) || !self.lent.any_available_in(grid, min, size) { return None; }
 		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "tree source does not support requested voxel type");
-		self.bounds.intersects(min, size).then_some(SOURCE_COST)
+		self.bounds.intersects(ChunkRegion::new(min, size.as_uvec3())).then_some(SOURCE_COST)
 	}
 
-	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) {
-		if cancellation.is_cancelled() {
-			return;
+	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, edit_index: u64, cancellation: CancellationToken) -> bool {
+		if cancellation.is_cancelled() || !self.is_mine(grid) || !self.lent.any_available_in(grid, min, size) {
+			return false;
 		}
 		let model = self.model();
 		// Skipping the fetch keeps the hole exact at every LOD, unlike punching the result.
 		let voxels = downsample_region(min, size, lod, |chunk| {
-			(!self.forgotten.contains(grid, chunk)).then(|| rasterize_tree_chunk(model, chunk, &cancellation)).flatten()
+			(!self.forgotten.contains(grid, chunk) && !self.lent.contains(grid, chunk)).then(|| rasterize_tree_chunk(model, chunk, &cancellation)).flatten()
 		});
-		if cancellation.is_cancelled() {
-			return;
-		}
+		if cancellation.is_cancelled() { return false; }
 		if let Some(handle) = self.handle.get() {
-			handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
+			handle.voxels_loaded(grid, min, size, lod, voxel_type, edit_index, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
 		}
+		true
 	}
+
+	fn lend(&self, grid: GridId, chunk: IVec3, cancellation: CancellationToken) -> LendResult {
+		if !self.is_mine(grid) || self.forgotten.contains(grid, chunk) || !self.lent.begin(grid, chunk) {
+			return LendResult::Unavailable;
+		}
+		let voxels = rasterize_tree_chunk(self.model(), chunk, &cancellation);
+		if cancellation.is_cancelled() {
+			self.lent.end(grid, chunk);
+			return LendResult::Unavailable;
+		}
+		LendResult::Borrowed(voxels)
+	}
+
+
+	fn return_area(&self, grid: GridId, min: IVec3, size: IVec3) { self.lent.end_area(grid, min, size); }
 
 	fn forget(&self, grid: GridId, chunk: IVec3) {
 		self.forgotten.forget(grid, chunk);
+		self.lent.end(grid, chunk);
 	}
 }
 
@@ -181,7 +181,7 @@ fn spawn_tree(mut commands: Commands, tree: Res<TreeGrid>) {
 	let body = commands.spawn((RigidBody, IsStatic, Transform::from_translation(tree.position))).id();
 
 	let mut streaming = GridStreaming::default();
-	streaming.mark_present_area(tree.bounds.min, tree.bounds.size());
+	streaming.mark_present_area(tree.bounds.min(), tree.bounds.size().as_ivec3());
 
 	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEdits::default(), ReplicateVoxels, VoxelCollider, streaming)).id();
 	let _ = tree.grid.set(grid);
@@ -214,17 +214,9 @@ struct TreeModel {
 	settings: TreeSettings,
 }
 
-#[derive(Clone, Copy)]
-struct VoxelBounds {
-	min: IVec3,
-	max: IVec3,
-}
+type VoxelBounds = NonZeroVoxelRegion;
 
-impl VoxelBounds {
-	fn contains(self, position: IVec3) -> bool { position.cmpge(self.min).all() && position.cmplt(self.max).all() }
-}
-
-fn estimated_chunk_bounds(settings: TreeSettings) -> ChunkBounds {
+fn estimated_chunk_bounds(settings: TreeSettings) -> NonZeroChunkRegion {
 	let segment_length = settings.segment_length.abs();
 	let influence_distance = settings.influence_distance.abs();
 	let canopy_radius = settings.canopy_radius.abs();
@@ -243,7 +235,7 @@ fn estimated_chunk_bounds(settings: TreeSettings) -> ChunkBounds {
 	let voxel_max = (tree_max + Vec3::splat(raster_padding)).ceil().as_ivec3();
 	let min = chunk_of(voxel_min);
 	let max = chunk_of(voxel_max) + IVec3::ONE;
-	ChunkBounds { min, max }
+	NonZeroChunkRegion::from_min_end(min, max).unwrap()
 }
 
 fn build_tree_model(settings: TreeSettings) -> TreeModel {
@@ -278,8 +270,8 @@ fn build_tree_model(settings: TreeSettings) -> TreeModel {
 }
 
 fn index_primitive(chunks: &mut HashMap<IVec3, ChunkPrimitives>, bounds: VoxelBounds, mut add: impl FnMut(&mut ChunkPrimitives)) {
-	let min = chunk_of(bounds.min);
-	let max = chunk_of(bounds.max - IVec3::ONE);
+	let min = chunk_of(bounds.min());
+	let max = chunk_of(bounds.end() - IVec3::ONE);
 	for z in min.z..=max.z {
 		for y in min.y..=max.y {
 			for x in min.x..=max.x {
@@ -292,22 +284,22 @@ fn index_primitive(chunks: &mut HashMap<IVec3, ChunkPrimitives>, bounds: VoxelBo
 fn segment_voxel_bounds(branch: BranchSegment) -> VoxelBounds {
 	let extent = branch.radius.max(1.0).ceil() as i32;
 	let extent = IVec3::splat(extent);
-	VoxelBounds {
-		min: branch.start.min(branch.end).round().as_ivec3() - extent,
-		max: branch.start.max(branch.end).round().as_ivec3() + extent + IVec3::ONE,
-	}
+	VoxelBounds::from_min_end(
+		branch.start.min(branch.end).round().as_ivec3() - extent,
+		branch.start.max(branch.end).round().as_ivec3() + extent + IVec3::ONE,
+	).unwrap()
 }
 
 fn sphere_voxel_bounds(center: Vec3, radius: f32) -> VoxelBounds {
 	let extent = IVec3::splat(radius.ceil() as i32);
 	let center = center.round().as_ivec3();
-	VoxelBounds { min: center - extent, max: center + extent + IVec3::ONE }
+	VoxelBounds::from_min_end(center - extent, center + extent + IVec3::ONE).unwrap()
 }
 
 fn rasterize_tree_chunk(model: &TreeModel, chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels> {
 	let primitives = model.primitive_index.get(&chunk)?;
 	let origin = chunk_origin(chunk);
-	let bounds = VoxelBounds { min: origin, max: origin + IVec3::splat(voxel_streaming::CHUNK_SIZE) };
+	let bounds = VoxelBounds::from_min_end(origin, origin + IVec3::splat(tile_data::CHUNK_SIZE)).unwrap();
 	let mut points = HashMap::new();
 
 	for &index in &primitives.branches {
@@ -545,6 +537,7 @@ mod tests {
 			model: OnceLock::new(),
 			handle: OnceLock::new(),
 			forgotten: ForgottenChunks::default(),
+			lent: LentChunks::default(),
 		};
 
 		assert_eq!(source.cost(GridId::PLACEHOLDER, IVec3::ZERO), Some(SOURCE_COST));
@@ -568,7 +561,7 @@ mod tests {
 	}
 
 	#[test]
-	fn generation_is_deterministic() {
+	fn edit_index_is_deterministic() {
 		let settings = TreeSettings::default();
 		assert_eq!(generate_tree_voxels(settings), generate_tree_voxels(settings));
 	}

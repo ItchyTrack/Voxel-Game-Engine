@@ -2,7 +2,7 @@ use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 
 use crate::source_manager::{Completed, SourceManager};
-use crate::{ChunkChanged, ChunkLoaded, ChunkPresenceLoaded, VoxelAreaLoaded, VoxelAreaKey};
+use crate::{ChunkLoaded, ChunkPresence, ChunkPresenceLoaded, ChunksBorrowed, ChunksEdited, VoxelAreaLoaded, VoxelAreaKey};
 
 use super::VoxelReader;
 use super::loader::{VoxelAreaLoadEvent, VoxelAreaLoadResult, VoxelCompletionTarget};
@@ -18,16 +18,20 @@ pub(crate) fn process_source_requests(mut reader: ResMut<VoxelReader>, manager: 
 pub(crate) fn publish_source_messages(
 	mut reader: ResMut<VoxelReader>,
 	mut manager: ResMut<SourceManager>,
-	mut chunk_changed: MessageWriter<ChunkChanged>,
+	mut chunk_presence: MessageWriter<ChunkPresence>,
+	mut chunks_edited: MessageWriter<ChunksEdited>,
+	mut chunks_borrowed: MessageWriter<ChunksBorrowed>,
 	mut presence_loaded: MessageWriter<ChunkPresenceLoaded>,
 	mut chunk_writer: MessageWriter<ChunkLoaded>,
 	mut voxel_area_writer: MessageWriter<VoxelAreaLoaded>,
 ) {
 	reader.process_requests(&manager);
 
-	for change in manager.get_source_changes() {
-		chunk_changed.write(change);
+	for presence in manager.get_source_presence() {
+		chunk_presence.write(presence);
 	}
+	for edited in manager.get_edited() { chunks_edited.write(edited); }
+	for borrowed in manager.get_borrowed() { chunks_borrowed.write(borrowed); }
 
 	for completed in manager.get_completed() {
 		match completed {
@@ -36,28 +40,28 @@ pub(crate) fn publish_source_messages(
 					presence_loaded.write(ChunkPresenceLoaded { grid });
 				}
 			}
-			Completed::ChunkLoaded { grid, chunk, generation, voxels } => {
-				if reader.complete_chunk(grid, chunk, generation) {
-					chunk_writer.write(ChunkLoaded { grid, chunk, generation, voxels });
+			Completed::ChunkLoaded { grid, chunk, edit_index, voxels } => {
+				if reader.complete_chunk(grid, chunk, edit_index) {
+					chunk_writer.write(ChunkLoaded { grid, chunk, edit_index, voxels });
 				}
 			}
-			Completed::VoxelsLoaded { grid, min, size, lod, voxel_type, generation, voxels } => {
-				let requests = reader.complete_voxels(grid, min, size, lod, voxel_type, generation);
+			Completed::VoxelsLoaded { grid, min, size, lod, voxel_type, edit_index, voxels } => {
+				let requests = reader.complete_voxels(grid, min, size, lod, voxel_type, edit_index);
 				for request in requests {
 					match request.target {
 						VoxelCompletionTarget::Message { requester, tag } => {
 							voxel_area_writer.write(VoxelAreaLoaded {
 								grid: request.request.grid,
 								requester,
-								key: VoxelAreaKey {
-									min: request.request.key.min,
-									size: request.request.key.size,
-									lod: lod.max(0.0).floor() as u8,
-								},
+								key: VoxelAreaKey::new(
+									request.request.key.min(),
+									request.request.key.size(),
+									lod.max(0.0).floor() as u8,
+								),
 								voxel_type: request.request.voxel_type,
 								tag,
 								priority: request.request.priority,
-								generation,
+								edit_index,
 								voxels: voxels.clone(),
 							});
 						}
@@ -66,7 +70,7 @@ pub(crate) fn publish_source_messages(
 								grid,
 								key: request.request.key,
 								voxel_type,
-								generation,
+								edit_index,
 								voxels: voxels.clone(),
 							}));
 						}

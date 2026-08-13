@@ -18,8 +18,8 @@ pub(super) fn flush_requests(
 pub(super) fn receive_load(trigger: On<RemoteEvent<PresenceLoad>>, source: Res<ClientChunkSource>) {
 	let Some(handle) = source.state.handle.get() else { return };
 	let event = trigger.event().trigger;
-	if let Some((min, size)) = event.area {
-		handle.claim(event.grid, min, size);
+	if let Some(area) = event.area {
+		handle.presence(event.grid, area.min(), area.size().as_ivec3());
 	}
 	handle.presence_loaded(event.grid);
 }

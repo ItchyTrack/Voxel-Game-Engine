@@ -1,10 +1,12 @@
 use bevy::prelude::*;
 use tracy_client::span;
 use voxel_data::grid::GridId;
-use voxel_streaming::{GridStreaming, TileClassId, CHUNK_SIZE};
+use tile_data::ChunkRegion;
+use tile_data::CHUNK_SIZE;
+use voxel_streaming::{GridStreaming, TileClassId};
 
 use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
-use crate::lod_bands::{run_over_diff, BandBounds, LodBand};
+use crate::lod_bands::{run_over_diff, LodBand};
 use crate::types::TileKey;
 
 pub(crate) struct DesiredSourceDelta {
@@ -33,13 +35,13 @@ pub(crate) fn update_desired_sources_delta(
 	let mut removed = Vec::new();
 	if old_class.is_none_or(|old| old == class) {
 		run_over_diff(&old_bands, &new_bands, streaming, |lod, min, is_added| {
-			let key = TileKey { grid, class, lod, min };
+			let key = TileKey::new(grid, class, lod, min);
 			if is_added { added.push(key); } else { removed.push(key); }
 		});
 	} else {
 		let old_class = old_class.unwrap();
-		run_over_diff(&old_bands, &[], streaming, |lod, min, _| removed.push(TileKey { grid, class: old_class, lod, min }));
-		run_over_diff(&[], &new_bands, streaming, |lod, min, _| added.push(TileKey { grid, class, lod, min }));
+		run_over_diff(&old_bands, &[], streaming, |lod, min, _| removed.push(TileKey::new(grid, old_class, lod, min)));
+		run_over_diff(&[], &new_bands, streaming, |lod, min, _| added.push(TileKey::new(grid, class, lod, min)));
 	}
 
 	loader.bands.insert(grid, new_bands);
@@ -48,10 +50,10 @@ pub(crate) fn update_desired_sources_delta(
 
 pub(crate) fn tile_has_present_source(streaming: &GridStreaming, key: TileKey) -> bool {
 	if key.lod == 0 {
-		streaming.presence().is_present(key.min)
+		streaming.presence().is_present(key.min())
 	} else {
 		let size = 1i32 << key.lod;
-		streaming.presence().any_present_in_region(key.min, key.min + IVec3::splat(size) - IVec3::ONE)
+		streaming.presence().any_present_in_region(key.min(), key.min() + IVec3::splat(size) - IVec3::ONE)
 	}
 }
 
@@ -59,21 +61,21 @@ fn desired_lod_bands(center: IVec3, settings: &CameraVoxelLoaderSettings) -> Vec
 	let mut bands = Vec::with_capacity(settings.max_lod as usize + 1);
 
 	let (near_min, near_max) = near_bounds(center, settings);
-	bands.push(LodBand { lod: 0, outer: BandBounds { min: near_min, max: near_max }, inner: None });
+	bands.push(LodBand { lod: 0, outer: ChunkRegion::from_min_end(near_min, near_max).unwrap(), inner: None });
 
 	let mut prev_outer = (near_min, near_max);
 	for lod in 1..=settings.max_lod {
 		let size = 1i32 << lod;
 		let inner = prev_outer;
-		let expand = IVec3::splat(size * settings.rings_per_lod);
+		let expand = IVec3::splat(size * settings.rings_per_lod as i32);
 		let mut outer = (inner.0 - expand, inner.1 + expand);
 		if lod < settings.max_lod {
 			outer = align_bounds_to_tile(outer.0, outer.1, 1i32 << (lod + 1));
 		}
 		bands.push(LodBand {
 			lod,
-			outer: BandBounds { min: outer.0, max: outer.1 },
-			inner: Some(BandBounds { min: inner.0, max: inner.1 }),
+			outer: ChunkRegion::from_min_end(outer.0, outer.1).unwrap(),
+			inner: Some(ChunkRegion::from_min_end(inner.0, inner.1).unwrap()),
 		});
 		prev_outer = outer;
 	}
@@ -82,7 +84,8 @@ fn desired_lod_bands(center: IVec3, settings: &CameraVoxelLoaderSettings) -> Vec
 }
 
 fn near_bounds(center: IVec3, settings: &CameraVoxelLoaderSettings) -> (IVec3, IVec3) {
-	align_bounds_to_tile(center - IVec3::splat(settings.near_radius_chunks), center + IVec3::splat(settings.near_radius_chunks + 1), 2)
+	let radius = settings.near_radius_chunks as i32;
+	align_bounds_to_tile(center - IVec3::splat(radius), center + IVec3::splat(radius + 1), 2)
 }
 
 fn align_bounds_to_tile(min: IVec3, max: IVec3, size: i32) -> (IVec3, IVec3) {
@@ -181,11 +184,12 @@ mod tests {
 		let desired = desired_at(&settings, grid, &streaming, IVec3::new(3, -2, 5));
 		assert!(!desired.is_empty(), "control setup produced no desired tiles");
 		for tile in &desired {
-			let max = tile.min + tile.size();
+			let min = tile.min();
+			let max = min + tile.size();
 			let mut covers_present = false;
-			'scan: for x in tile.min.x..max.x {
-				for y in tile.min.y..max.y {
-					for z in tile.min.z..max.z {
+			'scan: for x in min.x..max.x {
+				for y in min.y..max.y {
+					for z in min.z..max.z {
 						if streaming.presence().is_present(IVec3::new(x, y, z)) {
 							covers_present = true;
 							break 'scan;
@@ -210,10 +214,11 @@ mod tests {
 			let desired = desired_at(&settings, grid, &streaming, center);
 			let mut owners: std::collections::HashMap<IVec3, u32> = std::collections::HashMap::new();
 			for tile in &desired {
-				let max = tile.min + tile.size();
-				for x in tile.min.x..max.x {
-					for y in tile.min.y..max.y {
-						for z in tile.min.z..max.z {
+				let min = tile.min();
+				let max = min + tile.size();
+				for x in min.x..max.x {
+					for y in min.y..max.y {
+						for z in min.z..max.z {
 							let chunk = IVec3::new(x, y, z);
 							if streaming.presence().is_present(chunk) {
 								*owners.entry(chunk).or_default() += 1;

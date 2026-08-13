@@ -3,6 +3,7 @@ pub mod bvh;
 pub mod compressed_voxels;
 pub mod grid;
 pub mod grid_tree;
+pub mod region;
 pub mod sdf;
 pub mod signed_grid_tree;
 pub mod splat;

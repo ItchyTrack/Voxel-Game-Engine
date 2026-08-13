@@ -3,6 +3,7 @@ use bevy::log::warn;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerId, PeerMetadata};
 use voxel_sources::ChunkChanged;
+use tile_data::ChunkRegion;
 
 use super::{RemoteChunkChangeKind, RemoteChunkChanged};
 use crate::ReplicateVoxelsRestriction;
@@ -16,8 +17,8 @@ pub(super) fn flush_changed(
 	let Some(peer_metadata) = peer_metadata else { return };
 	for event in changed.read().copied() {
 		let kind = match event.kind {
-			voxel_sources::ChunkChangeKind::Changed { generation } => RemoteChunkChangeKind::Changed { generation },
-			voxel_sources::ChunkChangeKind::Removed { generation } => RemoteChunkChangeKind::Removed { generation },
+			voxel_sources::ChunkChangeKind::Changed { edit_index } => RemoteChunkChangeKind::Changed { edit_index },
+			voxel_sources::ChunkChangeKind::Removed { edit_index } => RemoteChunkChangeKind::Removed { edit_index },
 		};
 		for (&peer, &entity) in &peer_metadata.mapping {
 			if peer == PeerId::Server { continue; }
@@ -33,7 +34,7 @@ pub(super) fn flush_changed(
 				warn!(grid=?event.grid, peer=?peer, entity=?entity, "missing sender for remote chunk changed");
 				continue
 			};
-			sender.trigger::<crate::chunks::ServerToClientChannel>(RemoteChunkChanged { grid: event.grid, min, size, kind });
+			sender.trigger::<crate::chunks::ServerToClientChannel>(RemoteChunkChanged { grid: event.grid, region: ChunkRegion::new(min, size.as_uvec3()), kind });
 		}
 	}
 }

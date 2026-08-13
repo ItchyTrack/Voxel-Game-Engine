@@ -11,7 +11,8 @@ use crate::voxel::rendering::VoxelRenderMode;
 use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::GraphicsSettings};
 use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
-use voxel_streaming::{ChunkState, GridStreaming, CHUNK_SIZE};
+use tile_data::CHUNK_SIZE;
+use voxel_streaming::{ChunkState, GridStreaming};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
@@ -254,8 +255,6 @@ fn chunk_state_color(state: ChunkState) -> Color {
 		ChunkState::InFlight => Color::srgb(0.9, 0.9, 0.1),
 		ChunkState::Loaded => Color::srgb(0.1, 0.8, 0.1),
 		ChunkState::InternalDirty => Color::srgb(0.9, 0.9, 0.9),
-		ChunkState::ExternalDirty => Color::srgb(0.9, 0.1, 0.1),
-		ChunkState::ExternalDirtyInFlight => Color::srgb(0.9, 0.1, 0.9),
 	}
 }
 
@@ -288,7 +287,7 @@ fn draw_coverage(
 				CoverageDebugState::Pending => chunk_state_color(ChunkState::InFlight),
 				CoverageDebugState::Loaded => chunk_state_color(ChunkState::Loaded),
 				CoverageDebugState::Empty => chunk_state_color(ChunkState::Available),
-				CoverageDebugState::Waiting => chunk_state_color(ChunkState::ExternalDirty),
+				CoverageDebugState::Waiting => Color::srgb(0.9, 0.1, 0.1),
 			};
 			draw_box_edges(&mut gizmos, gt, lo, hi, color);
 		}

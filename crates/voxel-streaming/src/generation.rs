@@ -5,7 +5,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use futures::{StreamExt, channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded as async_unbounded}};
 use tile_data::{
 	GenerationVoxelReader, TileData, TileGenerationContext, TileGenerationSession, TileKey,
-	VoxelArea, VoxelAreaRequest, VoxelAreaResult,
+	ChunkRegion, VoxelAreaRequest, VoxelAreaResult,
 };
 use voxel_data::grid::GridId;
 use voxel_sources::{
@@ -13,10 +13,12 @@ use voxel_sources::{
 };
 use voxel_tasks::CancellationToken;
 
+use crate::tile_dependency_index::TileDependency;
+
 #[derive(Default)]
 pub(crate) struct TileGenerationMetadata {
-	pub(crate) dependencies: HashSet<VoxelArea>,
-	pub(crate) source_generation: Option<u64>,
+	pub(crate) dependencies: HashSet<TileDependency>,
+	pub(crate) source_edit_index: Option<u64>,
 }
 
 pub(crate) struct StreamingVoxelReader {
@@ -57,14 +59,13 @@ impl StreamingVoxelReader {
 
 impl GenerationVoxelReader for StreamingVoxelReader {
 	fn request_voxels(&mut self, request: VoxelAreaRequest) {
-		assert!(request.area.size.cmpgt(IVec3::ZERO).all(), "voxel area request must have positive size");
+		assert!(request.area.size().cmpgt(UVec3::ZERO).all(), "voxel area request must have positive size");
 		if self.cancellation.is_cancelled() { return; }
-		self.metadata.lock().unwrap().dependencies.insert(request.area);
 		self.outstanding += 1;
 		let _cancellation = self.requests.request_voxels(
 			VoxelAreaLoadRequest {
 				grid: self.grid,
-				key: VoxelAreaKey { min: request.area.min, size: request.area.size, lod: request.lod },
+				key: VoxelAreaKey::new(request.area.min(), request.area.size(), request.lod),
 				voxel_type: request.voxel_type,
 				priority: self.priority,
 			},
@@ -84,11 +85,16 @@ impl GenerationVoxelReader for StreamingVoxelReader {
 					VoxelAreaLoadEvent::Loaded(result) => {
 						self.outstanding -= 1;
 						let mut metadata = self.metadata.lock().unwrap();
-						metadata.source_generation = Some(metadata.source_generation.map_or(result.generation, |current| current.min(result.generation)));
+						metadata.dependencies.insert(TileDependency {
+							area: ChunkRegion::new(result.key.min(), result.key.region.size()),
+							edit_index: result.edit_index,
+						});
+						metadata.source_edit_index = Some(metadata.source_edit_index.map_or(result.edit_index, |current| current.min(result.edit_index)));
 						drop(metadata);
+
 						if let Some(voxels) = result.voxels {
 							return Some(VoxelAreaResult {
-								area: VoxelArea { min: result.key.min, size: result.key.size },
+								area: ChunkRegion::new(result.key.min(), result.key.region.size()),
 								lod: result.key.lod,
 								voxels,
 							});
@@ -122,8 +128,8 @@ pub(crate) struct TileGenerationResult {
 	pub(crate) grid: GridId,
 	pub(crate) tag: u64,
 	pub(crate) context_version: u64,
-	pub(crate) source_generation: Option<u64>,
-	pub(crate) dependencies: HashSet<VoxelArea>,
+	pub(crate) source_edit_index: Option<u64>,
+	pub(crate) dependencies: HashSet<TileDependency>,
 	pub(crate) data: Option<Box<dyn TileData>>,
 }
 
@@ -155,5 +161,5 @@ pub(crate) fn session(
 	metadata: Arc<Mutex<TileGenerationMetadata>>,
 ) -> (TileGenerationSession, UnboundedSender<VoxelAreaLoadEvent>) {
 	let (reader, wake) = StreamingVoxelReader::new(grid, priority, requests, cancellation, metadata);
-	(TileGenerationSession::new(grid, key, crate::CHUNK_SIZE, context, Box::new(reader)), wake)
+	(TileGenerationSession::new(grid, key, tile_data::CHUNK_SIZE, context, Box::new(reader)), wake)
 }
