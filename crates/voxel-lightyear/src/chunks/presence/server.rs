@@ -49,6 +49,6 @@ fn chunk_presence_aabb(streaming: &GridStreaming) -> Option<ChunkRegion> {
 		max = max.max(node_max);
 		any = true;
 	}
-	any.then(|| ChunkRegion::from_min_max_inclusive(min, max).unwrap())
+	any.then(|| ChunkRegion::from_min_max(min, max).unwrap())
 }
 

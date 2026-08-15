@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::math::IVec3;
-use tile_data::{ChunkRegion, TileIndex, TileIndexKey};
+use tile_data::{ChunkRegion, NonZeroChunkRegion, TileIndex, TileIndexKey};
 
 use crate::TileKey;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TileDependency {
-	pub(crate) area: ChunkRegion,
+	pub(crate) area: NonZeroChunkRegion,
 	pub(crate) generation: u64,
 }
 
@@ -18,8 +18,7 @@ struct IndexedTileDependency {
 }
 
 impl TileIndexKey for IndexedTileDependency {
-	fn min(self) -> IVec3 { self.dependency.area.min() }
-	fn size(self) -> IVec3 { self.dependency.area.size().as_ivec3() }
+	fn region(self) -> NonZeroChunkRegion { self.dependency.area }
 }
 
 #[derive(Debug, Default)]
@@ -45,9 +44,9 @@ impl TileDependencyIndex {
 		}
 	}
 
-	pub(crate) fn stale_tiles(&self, region: ChunkRegion, generation: u64) -> impl Iterator<Item = TileKey> {
+	pub(crate) fn stale_tiles(&self, region: NonZeroChunkRegion, generation: u64) -> impl Iterator<Item = TileKey> {
 		let mut stale = Vec::new();
-		self.index.for_each_overlapping(region.min(), region.size().as_ivec3(), |dependency| {
+		self.index.for_each_overlapping(region, |dependency| {
 			if dependency.dependency.generation < generation { stale.push(dependency.tile); }
 		});
 		stale.into_iter()

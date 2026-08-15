@@ -10,8 +10,8 @@ pub struct TileKey {
 }
 
 impl TileKey {
-	pub fn new(min: IVec3, size: UVec3, lod: u8, class: TileClassId) -> Option<Self> {
-		Some(Self { region: NonZeroChunkRegion::new(min, size)?, lod, class })
+	pub fn new(region: NonZeroChunkRegion, lod: u8, class: TileClassId) -> Self {
+		Self { region, lod, class }
 	}
 
 	pub const fn min(self) -> IVec3 { self.region.min() }

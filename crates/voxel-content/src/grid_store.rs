@@ -24,7 +24,7 @@ impl GridStore {
 			min = min.min(chunk);
 			max = max.max(chunk);
 		}
-		ChunkRegion::from_min_max_inclusive(min, max)
+		ChunkRegion::from_min_max(min, max)
 	}
 
 	pub fn contains_chunk(&self, chunk: IVec3) -> bool {

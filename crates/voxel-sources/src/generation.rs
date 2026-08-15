@@ -1,5 +1,5 @@
 use bevy::math::IVec3;
-use tile_data::ChunkRegion;
+use tile_data::NonZeroChunkRegion;
 use voxel_data::grid_tree::{GridType, NonZeroVoxelRegion};
 use voxel_data::signed_grid_tree::SignedGridTree;
 
@@ -34,28 +34,27 @@ pub struct ChunkGenerationIndex {
 
 impl ChunkGenerationIndex {
 	pub fn chunk_generation(&self, chunk: IVec3) -> u64 {
-		self.tree.get(&chunk).unwrap_or(0)
+		self.tree.get(chunk).unwrap_or(0)
 	}
 
-	pub fn last_changed(&self, region: ChunkRegion) -> u64 {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(region.min(), region.size().as_ivec3()) else { return 0 };
+	pub fn last_changed(&self, region: NonZeroChunkRegion) -> u64 {
 		let mut latest = 0;
-		self.tree.for_each_in_region(region, |_, _, generation| latest = latest.max(generation));
+		self.tree.for_each_in_region(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), |_, _, generation| latest = latest.max(generation));
 		latest
 	}
 
 	/// Record that all chunks in `region` were changed at `generation`. Older
 	/// out-of-order observations never overwrite a newer known generation.
-	pub fn set_region(&mut self, region: ChunkRegion, generation: u64) {
-		if region.is_empty() || self.last_changed(region) > generation { return; }
-		self.tree.add_area(&region.min(), region.size().as_ivec3(), generation);
+	pub fn set_region(&mut self, region: NonZeroChunkRegion, generation: u64) {
+		if self.last_changed(region) > generation { return; }
+		self.tree.add_area(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), generation);
 	}
 
 	pub fn set_chunk(&mut self, chunk: IVec3, generation: u64) {
-		if self.chunk_generation(chunk) <= generation { self.tree.insert(&chunk, generation); }
+		if self.chunk_generation(chunk) <= generation { self.tree.insert(chunk, generation); }
 	}
 
-	pub fn unchanged_since(&self, region: ChunkRegion, generation: u64) -> bool {
+	pub fn unchanged_since(&self, region: NonZeroChunkRegion, generation: u64) -> bool {
 		self.last_changed(region) <= generation
 	}
 }

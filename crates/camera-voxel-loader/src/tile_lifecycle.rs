@@ -119,10 +119,10 @@ impl TileLifecycle {
 	#[cfg(test)]
 	pub(crate) fn desired_set(&self) -> &HashSet<TileKey> { &self.desired }
 
-	pub(crate) fn desired_in_area(&self, grid: GridId, min: IVec3, size: IVec3, out: &mut Vec<TileKey>) {
+	pub(crate) fn desired_in_area(&self, grid: GridId, region: ChunkRegion, out: &mut Vec<TileKey>) {
 		out.clear();
 		if let Some(index) = self.desired_index.get(&grid) {
-			index.for_each_overlapping(min, size, |key| out.push(key));
+			index.for_each_overlapping(region, |key| out.push(key));
 		}
 	}
 

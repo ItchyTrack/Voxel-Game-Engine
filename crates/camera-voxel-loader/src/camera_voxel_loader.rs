@@ -35,8 +35,7 @@ pub enum CoverageDebugState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CoverageDebugTile {
 	pub grid: Entity,
-	pub min: bevy::math::IVec3,
-	pub size: bevy::math::IVec3,
+	pub region: ChunkRegion,
 	pub lod: u8,
 	pub state: CoverageDebugState,
 }
@@ -78,7 +77,7 @@ impl CameraVoxelLoader {
 		}
 		let mut tiles: Vec<_> = states
 			.into_iter()
-			.map(|(key, state)| CoverageDebugTile { grid: key.grid, min: key.min(), size: key.size(), lod: key.lod, state })
+			.map(|(key, state)| CoverageDebugTile { grid: key.grid, region, lod: key.lod, state })
 			.collect();
 		tiles.sort_by_key(|tile| (tile.grid.to_bits(), tile.lod, tile.min.x, tile.min.y, tile.min.z));
 		tiles

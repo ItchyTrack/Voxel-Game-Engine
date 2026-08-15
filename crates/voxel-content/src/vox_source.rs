@@ -10,7 +10,7 @@ use voxel_data::grid::GridId;
 use voxel_data::grid_tree::NonZeroVoxelRegion;
 use voxel_data::voxels::{VoxelType, VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob};
-use tile_data::{ChunkRegion, chunk_of};
+use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of};
 use tile_data::CHUNK_SIZE;
 use voxel_streaming::ForgottenChunks;
 
@@ -182,7 +182,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 			chunk_points.insert(chunk, std::mem::take(&mut current_points));
 		}
 
-		cache.available_area = touched_bounds.and_then(|(min, max)| ChunkRegion::from_min_max_inclusive(min, max));
+		cache.available_area = touched_bounds.and_then(|(min, max)| ChunkRegion::from_min_max(min, max));
 
 		for (chunk, points) in chunk_points {
 			let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
@@ -236,7 +236,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 		let max_voxel_exclusive = area.end() * CHUNK_SIZE + binding.offset;
 		let min_chunk = min_voxel.div_euclid(IVec3::splat(CHUNK_SIZE));
 		let max_chunk = (max_voxel_exclusive - IVec3::ONE).div_euclid(IVec3::splat(CHUNK_SIZE));
-		ChunkRegion::from_min_max_inclusive(min_chunk, max_chunk)
+		ChunkRegion::from_min_max(min_chunk, max_chunk)
 	}
 }
 
@@ -256,8 +256,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 	fn request_voxel_area(
 		&self,
 		grid: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
@@ -302,7 +301,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 			generator.generate(min, size, lod, &|chunk| fetch(&binding, chunk))
 		});
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		if let Some(handle) = self.inner.handle.get() { handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels); }
+		if let Some(handle) = self.inner.handle.get() { handle.voxels_loaded(grid, region, lod, voxel_type, generation, voxels); }
 		coverage
 	}
 
@@ -315,9 +314,9 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		handle.presence_loaded(grid);
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, min: IVec3, size: IVec3, generation: u64) -> Vec<TakeJob> {
+	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
 		let Some(binding) = self.binding(grid) else { return Vec::new() };
-		let chunks = self.inner.forgotten.forget_area_where(grid, min, size, |chunk| self.translated_chunk(&binding, chunk).is_some());
+		let chunks = self.inner.forgotten.forget_area_where(grid, region, |chunk| self.translated_chunk(&binding, chunk).is_some());
 		let handle = self.inner.handle.get().expect("VOX source was not initialized").clone();
 		let source = VoxFileSource { inner: self.inner.clone() };
 		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {

@@ -12,7 +12,7 @@ fn region_rejects_empty_or_negative_sizes() {
 fn region_reports_size_and_inclusive_max() {
 	let region = NonZeroVoxelRegion::from_min_size(IVec3::new(-1, 2, 3), IVec3::new(4, 5, 6)).unwrap();
 	assert_eq!(region.size(), UVec3::new(4, 5, 6));
-	assert_eq!(region.max_inclusive(), IVec3::new(2, 6, 8));
+	assert_eq!(region.max(), IVec3::new(2, 6, 8));
 }
 
 #[test]

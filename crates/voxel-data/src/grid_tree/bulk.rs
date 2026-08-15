@@ -62,10 +62,10 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		if ops.is_empty() {
 			return;
 		}
-		if self.is_empty() && ops.iter().all(|op| op.region.end() - op.region.min() == IVec3::ONE) && self.build_single_voxel_batch(bounds.min(), bounds.max_inclusive(), ops) {
+		if self.is_empty() && ops.iter().all(|op| op.region.end() - op.region.min() == IVec3::ONE) && self.build_single_voxel_batch(bounds.min(), bounds.max(), ops) {
 			return;
 		}
-		if !self.make_sure_root_covers_area(bounds.min(), bounds.max_inclusive()) || !self.has_node_budget() {
+		if !self.make_sure_root_covers_area(bounds.min(), bounds.max()) || !self.has_node_budget() {
 			return;
 		}
 

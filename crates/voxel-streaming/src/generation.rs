@@ -64,7 +64,10 @@ impl GenerationVoxelReader for StreamingVoxelReader {
 		let _cancellation = self.requests.request_voxels(
 			VoxelAreaLoadRequest {
 				grid: self.grid,
-				key: VoxelAreaKey::new(request.area.min(), request.area.size(), request.lod),
+				key: VoxelAreaKey {
+					region: request.area,
+					lod: request.lod,
+				},
 				voxel_type: request.voxel_type,
 				priority: self.priority,
 			},
@@ -92,7 +95,7 @@ impl GenerationVoxelReader for StreamingVoxelReader {
 
 						if let Some(voxels) = result.voxels {
 							return Some(VoxelAreaResult {
-								area: ChunkRegion::new(result.key.min(), result.key.region.size()),
+								area: result.key.region,
 								lod: result.key.lod,
 								voxels,
 							});

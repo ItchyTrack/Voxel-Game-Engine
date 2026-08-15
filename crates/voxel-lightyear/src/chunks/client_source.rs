@@ -2,6 +2,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use bevy::prelude::*;
+use tile_data::{ChunkRegion, NonZeroChunkRegion};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
 use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, TakeJob, VoxelAreaKey, SourceHandle};
@@ -43,7 +44,7 @@ impl ChunkSource for ClientChunkSource {
 		SourceCoverage::All
 	}
 
-	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
+	fn request_voxel_area(&self, grid: GridId, region: NonZeroChunkRegion, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.state.remote_grids.lock().unwrap().contains(&grid) { return SourceCoverage::None; }
 		let mut owned = 0;
 		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
@@ -51,14 +52,17 @@ impl ChunkSource for ClientChunkSource {
 		}}}
 		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
 		if coverage == SourceCoverage::None { return coverage; }
-		let key = VoxelAreaKey::new(min, size.as_uvec3(), lod.max(0.0).floor() as u8);
+		let key = VoxelAreaKey {
+			region,
+			lod: lod.max(0.0).floor() as u8,
+		};
 		self.state.loads.lock().unwrap().request_voxel_area(grid, key, voxel_type, 0.0, generation, cancellation);
 		coverage
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, min: IVec3, size: IVec3, generation: u64) -> Vec<TakeJob> {
+	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
 		if !self.state.remote_grids.lock().unwrap().contains(&grid) { return Vec::new(); }
-		let chunks = self.state.forgotten.forget_area_where(grid, min, size, |_| true);
+		let chunks = self.state.forgotten.forget_area_where(grid, region, |_| true);
 		let source = self.clone();
 		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
 			let source = source.clone();

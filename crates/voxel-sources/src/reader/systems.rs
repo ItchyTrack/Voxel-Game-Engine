@@ -46,19 +46,18 @@ pub(crate) fn publish_source_messages(
 					chunk_writer.write(ChunkLoaded { grid, chunk, generation, voxels });
 				}
 			}
-			Completed::VoxelsLoaded { grid, min, size, lod, voxel_type, generation, voxels } => {
-				let requests = reader.complete_voxels(grid, min, size, lod, voxel_type, generation);
+			Completed::VoxelsLoaded { grid, region, lod, voxel_type, generation, voxels } => {
+				let requests = reader.complete_voxels(grid, region, lod, voxel_type, generation);
 				for request in requests {
 					match request.target {
 						VoxelCompletionTarget::Message { requester, tag } => {
 							voxel_area_writer.write(VoxelAreaLoaded {
 								grid: request.request.grid,
 								requester,
-								key: VoxelAreaKey::new(
-									request.request.key.min(),
-									request.request.key.size(),
-									lod.max(0.0).floor() as u8,
-								),
+								key: VoxelAreaKey {
+									region: request.request.key.region,
+									lod: lod.max(0.0).floor() as u8,
+								},
 								voxel_type: request.request.voxel_type,
 								tag,
 								priority: request.request.priority,

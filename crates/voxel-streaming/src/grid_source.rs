@@ -11,7 +11,7 @@ use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_edit::{GridEdit, apply_grid_edit};
 use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob};
 
-use tile_data::{ChunkRegion, chunk_origin};
+use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_origin};
 use tile_data::CHUNK_SIZE;
 
 struct ChunkRequest {
@@ -37,7 +37,7 @@ struct ReceiveTakenRequest {
 
 struct VoxelRequest {
 	grid: GridId,
-	region: ChunkRegion,
+	region: NonZeroChunkRegion,
 	lod: f32,
 	voxel_type: VoxelTypeId,
 	generation: u64,
@@ -87,17 +87,17 @@ impl StreamingGridSource {
 		self.state.served.read().unwrap().contains(&(grid, chunk))
 	}
 
-	pub(crate) fn presence(&self, grid: GridId, min: IVec3, size: IVec3) {
-		self.state.handle.get().expect("streaming grid source was not initialized").presence(grid, min, size);
+	pub(crate) fn presence(&self, grid: GridId, region: NonZeroChunkRegion) {
+		self.state.handle.get().expect("streaming grid source was not initialized").presence(grid, region);
 	}
 
 	pub(crate) fn queue_edit(&self, grid: GridId, chunk: IVec3, edit: GridEdit) {
 		self.state.pending_edits.lock().unwrap().entry((grid, chunk)).or_default().push(edit);
 	}
 
-	pub(crate) fn edited(&self, grid: GridId, min: IVec3, size: IVec3, edit: GridEdit) {
+	pub(crate) fn edited(&self, grid: GridId, region: NonZeroChunkRegion, edit: GridEdit) {
 		let handle = self.state.handle.get().expect("streaming grid source was not initialized");
-		handle.edited(grid, min, size, edit);
+		handle.edited(grid, region, edit);
 	}
 
 }
@@ -117,8 +117,7 @@ impl ChunkSource for StreamingGridSource {
 	fn request_voxel_area(
 		&self,
 		grid: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
@@ -134,7 +133,7 @@ impl ChunkSource for StreamingGridSource {
 		if coverage == SourceCoverage::None { return coverage; }
 		self.state.voxel_requests.lock().unwrap().push_back(VoxelRequest {
 			grid,
-			region: ChunkRegion::new(min, size.as_uvec3()),
+			region,
 			lod,
 			voxel_type,
 			generation,
@@ -147,7 +146,7 @@ impl ChunkSource for StreamingGridSource {
 		if let Some(handle) = self.state.handle.get() { handle.presence_loaded(grid); }
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, min: IVec3, size: IVec3, generation: u64) -> Vec<TakeJob> {
+	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: NonZeroChunkRegion, generation: u64) -> Vec<TakeJob> {
 		let chunks = {
 			let mut owned = self.state.owned.write().unwrap();
 			let mut served = self.state.served.write().unwrap();
@@ -174,10 +173,12 @@ impl ChunkSource for StreamingGridSource {
 		})).collect()
 	}
 
-	fn begin_take(&self, grid: GridId, min: IVec3, size: IVec3) -> Vec<IVec3> {
+	fn begin_take(&self, grid: GridId, region: NonZeroChunkRegion) -> Vec<IVec3> {
 		let mut owned = self.state.owned.write().unwrap();
 		let mut claimed = Vec::new();
-		for z in min.z..min.z + size.z { for y in min.y..min.y + size.y { for x in min.x..min.x + size.x {
+		for z in min.z..min.z + size.z {
+			for y in min.y..min.y + size.y {
+				for x in min.x..min.x + size.x {
 			let chunk = IVec3::new(x, y, z);
 			if owned.insert((grid, chunk)) { claimed.push(chunk); }
 		}}}
@@ -279,7 +280,7 @@ pub(crate) fn serve_grid_source_requests(
 			continue;
 		}
 		let voxels = grids.get(request.grid).ok().map(|(grid, _)| grid.read_area(chunk_origin(request.chunk), IVec3::splat(CHUNK_SIZE)));
-		let actual = handle.region_generation(request.grid, request.chunk, IVec3::ONE).max(request.generation);
+		let actual = handle.region_generation(request.grid, request.region).max(request.generation);
 		handle.loaded(request.grid, request.chunk, actual, voxels);
 	}
 	drop(chunk_requests);
@@ -318,18 +319,17 @@ pub(crate) fn serve_grid_source_requests(
 				return (!out.is_empty()).then_some(out);
 			}
 			let generator = handle.voxel_lod_generator(grid.voxel_type_info().id, request.voxel_type)?;
-			generator.generate(request.region.min(), request.region.size().as_ivec3(), request.lod, &|chunk| {
+			generator.generate(request.region, request.lod, &|chunk| {
 				served.contains(&(request.grid, chunk)).then(|| grid.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE)))
 			})
 		});
 		drop(served);
 		drop(owned);
 		if !request.cancellation.is_cancelled() {
-			let actual = handle.region_generation(request.grid, request.region.min(), request.region.size().as_ivec3()).max(request.generation);
+			let actual = handle.region_generation(request.grid, request.region).max(request.generation);
 			handle.voxels_loaded(
 				request.grid,
-				request.region.min(),
-				request.region.size().as_ivec3(),
+				request.region,
 				request.lod,
 				request.voxel_type,
 				actual,

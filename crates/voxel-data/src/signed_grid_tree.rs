@@ -25,30 +25,28 @@ impl<G: GridType + Default> SignedGridTree<G> {
 		self.trees.iter().all(GridTree::is_empty)
 	}
 
-	pub fn insert(&mut self, pos: &IVec3, data: G::Data<'_>) -> bool {
-		let (oct, local) = split_pos(*pos);
+	pub fn insert(&mut self, pos: IVec3, data: G::Data<'_>) -> bool {
+		let (oct, local) = split_pos(pos);
 		self.trees[oct].insert(&local, data)
 	}
 
-	pub fn get(&self, pos: &IVec3) -> Option<G::Data<'_>> {
-		let (oct, local) = split_pos(*pos);
+	pub fn get(&self, pos: IVec3) -> Option<G::Data<'_>> {
+		let (oct, local) = split_pos(pos);
 		self.trees[oct].get(&local)
 	}
 
-	pub fn remove(&mut self, pos: &IVec3) -> bool {
-		let (oct, local) = split_pos(*pos);
+	pub fn remove(&mut self, pos: IVec3) -> bool {
+		let (oct, local) = split_pos(pos);
 		self.trees[oct].remove(&local)
 	}
 
-	pub fn add_area(&mut self, pos: &IVec3, size: IVec3, data: G::Data<'_>) {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(*pos, size) else { return };
+	pub fn add_area(&mut self, region: NonZeroVoxelRegion, data: G::Data<'_>) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].fill_region(local, data);
 		}
 	}
 
-	pub fn remove_area(&mut self, pos: &IVec3, size: IVec3) {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(*pos, size) else { return };
+	pub fn remove_area(&mut self, region: NonZeroVoxelRegion) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].clear_region(local);
 		}
@@ -58,8 +56,7 @@ impl<G: GridType + Default> SignedGridTree<G> {
 		split_region(region).into_iter().any(|(oct, local)| self.trees[oct].any_in_region(local))
 	}
 
-	pub fn is_area_filled(&self, pos: &IVec3, size: IVec3) -> bool {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(*pos, size) else { return true };
+	pub fn is_area_filled(&self, region: NonZeroVoxelRegion) -> bool {
 		let parts = split_region(region);
 		!parts.is_empty() && parts.into_iter().all(|(oct, local)| self.trees[oct].is_region_filled(local))
 	}
@@ -203,7 +200,7 @@ mod tests {
 	#[test]
 	fn raycast_hits_negative_space() {
 		let mut t = SignedGridTree::<PackedCell>::new();
-		t.insert(&IVec3::new(-1, 0, 0), 1);
+		t.insert(IVec3::new(-1, 0, 0), 1);
 		let tf = Transform::from_translation(Vec3::new(1.5, 0.5, 0.5)).looking_to(Vec3::NEG_X, Vec3::Y);
 		let hit = t.raycast(&tf, Some(10.0)).map(|(pos, _, _)| pos);
 		assert_eq!(hit, Some(IVec3::new(-1, 0, 0)));
@@ -212,7 +209,7 @@ mod tests {
 	#[test]
 	fn iter_preserves_negative_voxel_coverage() {
 		let mut t = SignedGridTree::<PackedCell>::new();
-		t.add_area(&IVec3::new(-4, -4, -4), IVec3::splat(4), 1);
+		t.add_area(NonZeroVoxelRegion::new(IVec3::new(-4, -4, -4), UVec3::splat(4)).unwrap(), 1);
 		let mut seen = HashMap::new();
 		for (origin, size, value) in t.iter() {
 			for dx in 0..size as i32 {

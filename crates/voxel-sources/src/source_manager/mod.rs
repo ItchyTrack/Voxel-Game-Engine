@@ -6,10 +6,11 @@ mod worker;
 use std::sync::{Arc, RwLock};
 
 use bevy::ecs::resource::Resource;
-use bevy::math::IVec3;
+use bevy::math::{IVec3, UVec3};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use rustc_hash::FxHashMap;
 
+use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_tasks::{AsyncTaskPriorityQueueResource, CancellationToken};
@@ -33,8 +34,7 @@ pub enum Completed {
 	},
 	VoxelsLoaded {
 		grid: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
@@ -138,18 +138,16 @@ impl SourceManager {
 	pub fn request_voxels(
 		&self,
 		grid: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		priority: f32,
 		cancellation: CancellationToken,
 	) -> u64 {
-		let generation = self.region_generation(grid, min, size);
+		let generation = self.region_generation(grid, region);
 		let _ = self.work_tx.send(SourceWork::Voxels {
 			grid,
-			min,
-			size,
+			region,
 			lod,
 			voxel_type,
 			priority,
@@ -212,12 +210,11 @@ impl SourceManager {
 					self.sources[result.destination.0].receive_taken(result.grid, result.chunk, result.voxels);
 				}
 				SourceMessage::Voxels(result) => {
-					let (grid, min, size, voxel_type) = (result.grid, result.region.min(), result.region.size().as_ivec3(), result.voxel_type);
+					let (grid, region, voxel_type) = (result.grid, result.region, result.voxel_type);
 					if let Some((lod, voxels, generation)) = self.request_state.take_voxels_completion(result) {
 						self.completed.push(Completed::VoxelsLoaded {
 							grid,
-							min,
-							size,
+							region,
 							lod,
 							voxel_type,
 							generation,
@@ -235,10 +232,10 @@ impl SourceManager {
 	}
 
 	pub fn chunk_generation(&self, grid: GridId, chunk: IVec3) -> u64 {
-		self.region_generation(grid, chunk, IVec3::ONE)
+		self.region_generation(grid, NonZeroChunkRegion::new(chunk, UVec3::ONE).unwrap())
 	}
 
-	pub fn region_generation(&self, grid: GridId, min: IVec3, size: IVec3) -> u64 {
-		self.edit_events.region_generation(grid, tile_data::ChunkRegion::new(min, size.as_uvec3()))
+	pub fn region_generation(&self, grid: GridId, region: NonZeroChunkRegion) -> u64 {
+		self.edit_events.region_generation(grid, region)
 	}
 }

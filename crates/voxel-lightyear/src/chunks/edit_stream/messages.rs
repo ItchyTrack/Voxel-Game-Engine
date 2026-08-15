@@ -6,7 +6,7 @@ use voxel_data::grid::GridId;
 use voxel_data::region::NonZeroVoxelRegion;
 use voxel_data::voxels::Voxel;
 use voxel_edit::GridEdit;
-use tile_data::ChunkRegion;
+use tile_data::{ChunkRegion, NonZeroChunkRegion};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) enum WireGridEdit {
@@ -62,7 +62,7 @@ impl MapEntities for EditStreamStart {
 #[derive(Event, Clone, Debug, Serialize, Deserialize)]
 pub(super) struct RemoteGridEdit {
 	pub grid: GridId,
-	pub region: ChunkRegion,
+	pub region: NonZeroChunkRegion,
 	pub stream_sequence: u64,
 	pub generation: u64,
 	pub edit: WireGridEdit,

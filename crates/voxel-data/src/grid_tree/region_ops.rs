@@ -41,7 +41,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 
 	fn fill_sdf_region(&mut self, region: NonZeroVoxelRegion, sdf: &(impl Sdf + ?Sized), data: G::Data<'_>) {
 		let Some(region) = NonZeroVoxelRegion::from_min_end(region.min(), region.end()) else { return };
-		if !self.make_sure_root_covers_area(region.min(), region.max_inclusive()) || !self.has_node_budget() {
+		if !self.make_sure_root_covers_area(region.min(), region.max()) || !self.has_node_budget() {
 			return;
 		}
 
@@ -267,7 +267,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		let Some(source_region) = source_region.intersection(other.root_region()) else { return };
 		let Some(source_bounds) = other.occupied_bounds_in_region(source_region) else { return };
 		let dest_bounds = source_bounds.translated(offset);
-		if !self.make_sure_root_covers_area(dest_bounds.min(), dest_bounds.max_inclusive()) { return; }
+		if !self.make_sure_root_covers_area(dest_bounds.min(), dest_bounds.max()) { return; }
 		let leaves: Vec<_> = other.view().leaves().filter_map(|leaf| {
 			let leaf_region = NonZeroVoxelRegion::from_min_end(leaf.origin, leaf.origin + IVec3::splat(leaf.size as i32)).unwrap();
 			leaf_region.intersection(source_region).map(|clipped| (clipped, leaf.data_value()))
@@ -290,7 +290,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 
 	fn merge_region_from_source_walk(&mut self, other: &Self, source_bounds: NonZeroVoxelRegion, full_root_covered: bool, offset: IVec3, overwrite: bool) {
 		let dest_bounds = source_bounds.translated(offset);
-		if !self.make_sure_root_covers_area(dest_bounds.min(), dest_bounds.max_inclusive()) || !self.has_node_budget() {
+		if !self.make_sure_root_covers_area(dest_bounds.min(), dest_bounds.max()) || !self.has_node_budget() {
 			return;
 		}
 

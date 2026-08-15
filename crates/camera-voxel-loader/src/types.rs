@@ -17,14 +17,11 @@ impl TileKey {
 		Self { grid, class, lod, region: NonZeroChunkRegion::new(min, bevy::math::UVec3::splat(size)).unwrap() }
 	}
 
-	pub(crate) fn min(self) -> IVec3 { self.region.min() }
-	pub(crate) fn size(self) -> IVec3 { self.region.size().as_ivec3() }
 	pub(crate) fn streaming_key(self) -> voxel_streaming::TileKey {
 		voxel_streaming::TileKey { region: self.region, lod: self.lod, class: self.class }
 	}
 }
 
 impl TileIndexKey for TileKey {
-	fn min(self) -> IVec3 { self.region.min() }
-	fn size(self) -> IVec3 { self.region.size().as_ivec3() }
+	fn region(self) -> NonZeroChunkRegion { self.region }
 }

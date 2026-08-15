@@ -11,7 +11,7 @@ pub(crate) struct LodBand {
 
 /// Runs `f(lod, tile_min)` for every tile that lies within a band and overlaps the area
 /// `[area_min, area_min + area_size)`.
-pub(crate) fn for_each_tile_in_bands(bands: &[LodBand], area_min: IVec3, area_size: IVec3, mut f: impl FnMut(u8, IVec3)) {
+pub(crate) fn for_each_tile_in_bands(bands: &[LodBand], area_region: ChunkRegion, mut f: impl FnMut(u8, IVec3)) {
 	let area_max = area_min + area_size;
 	for band in bands {
 		let tile_size = 1i32 << band.lod;

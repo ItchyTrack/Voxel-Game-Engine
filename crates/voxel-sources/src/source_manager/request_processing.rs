@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 
 use bevy::math::IVec3;
-use tile_data::ChunkRegion;
+use tile_data::NonZeroChunkRegion;
 use crossbeam_channel::Sender;
 use tracy_client::span;
 use voxel_data::grid::GridId;
@@ -16,13 +16,13 @@ use super::worker::SourceWork;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct VoxelRequestKey {
 	grid: GridId,
-	region: ChunkRegion,
+	region: NonZeroChunkRegion,
 	lod_bits: u32,
 	voxel_type: VoxelTypeId,
 }
 
 impl VoxelRequestKey {
-	fn new(grid: GridId, region: ChunkRegion, lod: f32, voxel_type: VoxelTypeId) -> Self {
+	fn new(grid: GridId, region: NonZeroChunkRegion, lod: f32, voxel_type: VoxelTypeId) -> Self {
 		Self { grid, region, lod_bits: lod.to_bits(), voxel_type }
 	}
 }
@@ -131,11 +131,10 @@ impl RequestProcessor {
 					self.message_tx.clone(),
 				)
 			}
-			SourceWork::Voxels { grid, min, size, lod, voxel_type, priority, generation, cancellation } => {
+			SourceWork::Voxels { grid, region, lod, voxel_type, priority, generation, cancellation } => {
 				request_voxels(
 					grid,
-					min,
-					size,
+					region,
 					lod,
 					voxel_type,
 					priority,
@@ -204,8 +203,7 @@ fn request_chunk(
 pub(super) fn take_area(
 	taker: SourceId,
 	grid: GridId,
-	min: IVec3,
-	size: IVec3,
+	region: NonZeroChunkRegion,
 	generation: u64,
 	sources: &[SharedSource],
 	routing: &Arc<RwLock<()>>,
@@ -215,14 +213,14 @@ pub(super) fn take_area(
 	let jobs = {
 		let _routing = routing.write().unwrap();
 		let target = &sources[taker.0];
-		let claimed: HashSet<_> = target.begin_take(grid, min, size).into_iter().collect();
+		let claimed: HashSet<_> = target.begin_take(grid, region).into_iter().collect();
 		let mut owners = HashMap::new();
 		let mut jobs = Vec::new();
 
 		for (index, source) in sources.iter().enumerate() {
 			let source_id = SourceId(index);
 			if source_id == taker { continue; }
-			for job in source.take(taker, grid, min, size, generation) {
+			for job in source.take(grid, region) {
 				let chunk = job.chunk();
 				assert!(claimed.contains(&chunk), "a voxel source transferred a chunk already owned by the destination");
 				assert!(owners.insert(chunk, source_id).is_none(), "multiple voxel sources own {grid:?} chunk {chunk:?}");
@@ -241,8 +239,7 @@ pub(super) fn take_area(
 
 fn request_voxels(
 	grid: GridId,
-	min: IVec3,
-	size: IVec3,
+	region: NonZeroChunkRegion,
 	lod: f32,
 	voxel_type: VoxelTypeId,
 	priority: f32,
@@ -257,7 +254,7 @@ fn request_voxels(
 	pusher.push(PriorityTask::new(priority, async move {
 		if cancellation.is_cancelled() { return; }
 		let _routing = routing.read().unwrap();
-		let key = VoxelRequestKey::new(grid, ChunkRegion::new(min, size.as_uvec3()), lod, voxel_type);
+		let key = VoxelRequestKey::new(grid, region, lod, voxel_type);
 		{
 			let mut pending = pending_voxels.lock().unwrap();
 			if pending.get(&key).is_some_and(|job| job.required_generation >= generation) { return; }
@@ -274,7 +271,7 @@ fn request_voxels(
 		for (index, source) in sources.iter().enumerate() {
 			if cancellation.is_cancelled() { return; }
 			let _zone = span!("source request_voxel_area");
-			let coverage = source.request_voxel_area(grid, min, size, lod, voxel_type, generation, cancellation.clone());
+			let coverage = source.request_voxel_area(grid, region, lod, voxel_type, generation, cancellation.clone());
 			if coverage.has_any() { expected.insert(SourceId(index)); }
 			if coverage == SourceCoverage::All {
 				assert!(complete_source.replace(SourceId(index)).is_none(), "multiple voxel sources fully own the same area");
@@ -288,7 +285,7 @@ fn request_voxels(
 			*job_expected = Some(expected);
 		}
 		let _ = message_tx.send(SourceMessage::Voxels(SourceVoxelsResult {
-			source: SourceId(usize::MAX), grid, region: ChunkRegion::new(min, size.as_uvec3()), lod, voxel_type, generation, voxels: None,
+			source: SourceId(usize::MAX), grid, region, lod, voxel_type, generation, voxels: None,
 		}));
 	}));
 }
@@ -306,13 +303,15 @@ fn merge_voxels(voxel_type_info: VoxelTypeInfo, parts: Vec<Voxels>) -> Voxels {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+	use bevy::math::UVec3;
+
+use super::*;
 
 	fn voxel_result(source: SourceId, generation: u64) -> SourceVoxelsResult {
 		SourceVoxelsResult {
 			source,
 			grid: GridId::PLACEHOLDER,
-			region: ChunkRegion::new(IVec3::ZERO, UVec3::ONE),
+			region: NonZeroChunkRegion::new(IVec3::ZERO, UVec3::ONE).unwrap(),
 			lod: 0.0,
 			voxel_type: VoxelTypeId(1),
 			generation,
@@ -323,7 +322,7 @@ mod tests {
 	#[test]
 	fn direct_voxel_results_must_meet_the_jobs_generation() {
 		let state = RequestState::default();
-		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, ChunkRegion::new(IVec3::ZERO, UVec3::ONE), 0.0, VoxelTypeId(1));
+		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, NonZeroChunkRegion::new(IVec3::ZERO, UVec3::ONE).unwrap(), 0.0, VoxelTypeId(1));
 		state.pending_voxels.lock().unwrap().insert(key, PendingVoxelJob {
 			required_generation: 5,
 			cancellation: CancellationToken::new(),
@@ -341,7 +340,7 @@ mod tests {
 	#[test]
 	fn composite_voxel_results_reject_old_contributors_and_publish_the_latest_generation() {
 		let state = RequestState::default();
-		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, ChunkRegion::new(IVec3::ZERO, UVec3::ONE), 0.0, VoxelTypeId(1));
+		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, NonZeroChunkRegion::new(IVec3::ZERO, UVec3::ONE).unwrap(), 0.0, VoxelTypeId(1));
 		state.pending_voxels.lock().unwrap().insert(key, PendingVoxelJob {
 			required_generation: 5,
 			cancellation: CancellationToken::new(),

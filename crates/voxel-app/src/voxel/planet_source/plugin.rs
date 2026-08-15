@@ -3,6 +3,7 @@ use std::sync::{Arc, OnceLock};
 
 use bevy::prelude::*;
 use basic_voxel::{BasicVoxel, LodVoxel};
+use tile_data::{ChunkRegion, NonZeroChunkRegion};
 use tracy_client::span;
 use voxel_data::{grid::{Grid, GridId}, voxels::{VoxelType, VoxelTypeId}};
 use voxel_streaming::GridEdits;
@@ -73,8 +74,7 @@ impl ChunkSource for ProceduralPlanetSource {
 	fn request_voxel_area(
 		&self,
 		grid_id: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
@@ -84,10 +84,13 @@ impl ChunkSource for ProceduralPlanetSource {
 		let Some(tile_index) = self.tile_index(grid_id) else { return SourceCoverage::None };
 		let Some(tile) = planet_tiles().get(tile_index) else { return SourceCoverage::None };
 		let mut owned = 0;
-		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-			let chunk = min + IVec3::new(x, y, z);
-			owned += (tile_has_chunk(tile, chunk) && !self.forgotten.contains(grid_id, chunk)) as usize;
-		}}}
+		for z in region.min().x..region.end().z {
+			for y in region.min().y..region.end().y {
+				for x in region.min().x..region.end().x {
+					owned += (tile_has_chunk(tile, IVec3::new(x, y, z)) && !self.forgotten.contains(grid_id, chunk)) as usize;
+				}
+			}
+		}
 		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
 		if coverage == SourceCoverage::None { return coverage; }
 		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "planet source does not support requested voxel type");
@@ -109,15 +112,15 @@ impl ChunkSource for ProceduralPlanetSource {
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
 		if let Some(handle) = self.handle.get() {
 			let _zone = span!("planet source publish lod");
-			handle.voxels_loaded(grid_id, min, size, lod, voxel_type, generation, voxels);
+			handle.voxels_loaded(grid_id, region, lod, voxel_type, generation, voxels);
 		}
 		coverage
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid_id: GridId, min: IVec3, size: IVec3, generation: u64) -> Vec<TakeJob> {
+	fn take(&self, destination: voxel_sources::SourceId, grid_id: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
 		let Some(tile_index) = self.tile_index(grid_id) else { return Vec::new() };
 		let Some(tile) = planet_tiles().get(tile_index) else { return Vec::new() };
-		let chunks = self.forgotten.forget_area_where(grid_id, min, size, |chunk| tile_has_chunk(tile, chunk));
+		let chunks = self.forgotten.forget_area_where(grid_id, region, |chunk| tile_has_chunk(tile, chunk));
 		let handle = self.handle.get().expect("planet source was not initialized").clone();
 		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
 			let handle = handle.clone();

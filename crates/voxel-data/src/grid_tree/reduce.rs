@@ -93,7 +93,7 @@ where
 	}
 
 	let mut out = GridTree::new_with_type(reducer.output_grid_type());
-	if !out.make_sure_root_covers_area(output_region.min(), output_region.max_inclusive()) || !out.has_node_budget() {
+	if !out.make_sure_root_covers_area(output_region.min(), output_region.max()) || !out.has_node_budget() {
 		return None;
 	}
 	let root_depth = out.raw.root_depth();

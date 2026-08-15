@@ -11,6 +11,7 @@ pub trait Region: Clone + Copy + Debug + PartialEq + Eq + Hash {
 
 	fn min(&self) -> IVec3;
 	fn size(&self) -> UVec3;
+	fn area(&self) -> u32;
 	fn contains(&self, position: IVec3) -> bool;
 	fn contains_region<R: Region<Zero = Self::Zero, NonZero = Self::NonZero>>(&self, other: R) -> bool;
 	fn intersects<R: Region<Zero = Self::Zero, NonZero = Self::NonZero>>(&self, other: R) -> bool;
@@ -56,7 +57,7 @@ macro_rules! define_region_types {
 				min.cmple(end).all().then(|| Self { min, size: (end - min).as_uvec3() })
 			}
 
-			pub fn from_min_max_inclusive(min: ::bevy::math::IVec3, max: ::bevy::math::IVec3) -> Option<Self> {
+			pub fn from_min_max(min: ::bevy::math::IVec3, max: ::bevy::math::IVec3) -> Option<Self> {
 				Self::from_min_end(min, max + ::bevy::math::IVec3::ONE)
 			}
 
@@ -66,6 +67,10 @@ macro_rules! define_region_types {
 
 			pub const fn size(self) -> ::bevy::math::UVec3 {
 				self.size
+			}
+
+			pub const fn area(self) -> u32 {
+				self.size.x * self.size.y * self.size.z
 			}
 
 			pub fn end(self) -> ::bevy::math::IVec3 {
@@ -107,6 +112,10 @@ macro_rules! define_region_types {
 
 			fn size(&self) -> ::bevy::math::UVec3 {
 				self.size
+			}
+
+			fn area(&self) -> u32 {
+				self.size.x * self.size.y * self.size.z
 			}
 
 			fn contains(&self, position: ::bevy::math::IVec3) -> bool {
@@ -151,7 +160,7 @@ macro_rules! define_region_types {
 				min.cmplt(end).all().then(|| Self { min, size: (end - min).as_uvec3() })
 			}
 
-			pub fn from_min_max_inclusive(min: ::bevy::math::IVec3, max: ::bevy::math::IVec3) -> Option<Self> {
+			pub fn from_min_max(min: ::bevy::math::IVec3, max: ::bevy::math::IVec3) -> Option<Self> {
 				Self::from_min_end(min, max + ::bevy::math::IVec3::ONE)
 			}
 
@@ -163,11 +172,15 @@ macro_rules! define_region_types {
 				self.size
 			}
 
+			pub const fn area(self) -> u32 {
+				self.size.x * self.size.y * self.size.z
+			}
+
 			pub fn end(self) -> ::bevy::math::IVec3 {
 				self.min + self.size.as_ivec3()
 			}
 
-			pub fn max_inclusive(self) -> ::bevy::math::IVec3 {
+			pub fn max(self) -> ::bevy::math::IVec3 {
 				self.end() - ::bevy::math::IVec3::ONE
 			}
 
@@ -202,6 +215,10 @@ macro_rules! define_region_types {
 
 			fn size(&self) -> ::bevy::math::UVec3 {
 				self.size
+			}
+
+			fn area(&self) -> u32 {
+				self.size.x * self.size.y * self.size.z
 			}
 
 			fn contains(&self, position: ::bevy::math::IVec3) -> bool {

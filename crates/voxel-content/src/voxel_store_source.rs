@@ -3,6 +3,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 use bevy::prelude::*;
 
+use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob, VoxelSourcesAppExt};
@@ -109,20 +110,20 @@ impl ChunkSource for VoxelStoreSource {
 				}}}
 				latest
 			});
-			handle.voxels_loaded(grid, min, size, lod, voxel_type, actual, voxels);
+			handle.voxels_loaded(grid, region, lod, voxel_type, actual, voxels);
 		}
 		coverage
 	}
 
 	fn request_available_area(&self, grid: GridId) {
 		let Some(handle) = self.inner.handle.get() else { return };
-		if let Some(area) = self.grid_available_area(grid) {
-			handle.presence(grid, area.min(), area.size().as_ivec3());
+		if let Some(area) = self.grid_available_area(grid).and_then(|area| area.try_into().ok()) {
+			handle.presence(grid, area);
 		}
 		handle.presence_loaded(grid);
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, min: IVec3, size: IVec3, _generation: u64) -> Vec<TakeJob> {
+	fn take(&self, grid: GridId, min: IVec3, size: IVec3) -> Vec<TakeJob> {
 		let taken = {
 			let mut grids = self.inner.grids.write().unwrap();
 			let Some(store) = grids.get_mut(&grid) else { return Vec::new() };
@@ -147,7 +148,7 @@ impl ChunkSource for VoxelStoreSource {
 		let saved = self.inner.grids.write().unwrap().entry(grid).or_default().save_chunk(chunk, generation, voxels);
 		if saved {
 			if let Some(handle) = self.inner.handle.get() {
-				handle.synchronize_region_generation(grid, tile_data::ChunkRegion::new(chunk, UVec3::ONE), generation);
+				handle.synchronize_region_generation(grid, NonZeroChunkRegion::new(chunk, UVec3::ONE).unwrap(), generation);
 			}
 		}
 		saved

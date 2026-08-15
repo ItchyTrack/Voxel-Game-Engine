@@ -82,7 +82,7 @@ pub(super) fn flush_edits(
 			let Ok(mut sender) = senders.get_mut(entity) else { continue };
 			sender.trigger::<ServerToClientChannel>(RemoteGridEdit {
 				grid: event.grid,
-				region: event.region,
+				region,
 				stream_sequence: subscription.next_stream_sequence,
 				generation: event.generation,
 				edit: edit.clone(),

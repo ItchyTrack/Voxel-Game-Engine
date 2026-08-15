@@ -5,20 +5,20 @@ use voxel_data::{
 	voxels::{VoxelTypeId, Voxels},
 };
 
-use crate::{ChunkRegion, TileData, TileGenerationContext, TileKey};
+use crate::{NonZeroChunkRegion, TileData, TileGenerationContext, TileKey};
 
 pub use async_trait::async_trait;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VoxelAreaRequest {
-	pub area: ChunkRegion,
+	pub area: NonZeroChunkRegion,
 	pub lod: u8,
 	pub voxel_type: VoxelTypeId,
 }
 
 #[derive(Debug)]
 pub struct VoxelAreaResult {
-	pub area: ChunkRegion,
+	pub area: NonZeroChunkRegion,
 	pub lod: u8,
 	pub voxels: Voxels,
 }
@@ -61,7 +61,7 @@ impl TileGenerationSession {
 		self.reader.receive_voxels()
 	}
 
-	pub async fn receive_merged_voxels(&mut self, area: ChunkRegion) -> Option<VoxelAreaResult> {
+	pub async fn receive_merged_voxels(&mut self, area: NonZeroChunkRegion) -> Option<VoxelAreaResult> {
 		let mut merged: Option<Voxels> = None;
 		let mut lod = None;
 		while let Some(result) = self.receive_voxels().await {

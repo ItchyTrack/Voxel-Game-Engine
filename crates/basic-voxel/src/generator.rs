@@ -3,7 +3,7 @@ use voxel_data::grid_tree::{GridCoord, NonZeroVoxelRegion, SourceOverlaps as Gri
 use voxel_data::voxel_grid_tree::VoxelGridType;
 use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, VoxelTypeId, Voxels};
 use voxel_sources::VoxelLodGenerator;
-use tile_data::CHUNK_SIZE;
+use tile_data::{CHUNK_SIZE, ChunkRegion, NonZeroChunkRegion};
 
 use crate::{BasicVoxel, LodVoxel, MarchingVoxel};
 
@@ -25,28 +25,28 @@ impl VoxelLodGenerator for BasicVoxelLodGenerator {
 		LodVoxel::TYPE_INFO.id
 	}
 
-	fn generate(&self, min: IVec3, size: IVec3, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-		downsample_region(min, size, lod, fetch)
+	fn generate(&self, region: NonZeroChunkRegion, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+		downsample_region(region, lod, fetch)
 	}
 }
 
 impl VoxelLodGenerator for LodVoxelLodGenerator {
 	fn input_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_INFO.id }
 	fn output_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_INFO.id }
-	fn generate(&self, min: IVec3, size: IVec3, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-		downsample_region(min, size, lod, fetch)
+	fn generate(&self, region: NonZeroChunkRegion, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+		downsample_region(region, lod, fetch)
 	}
 }
 
 impl VoxelLodGenerator for MarchingVoxelLodGenerator {
 	fn input_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_INFO.id }
 	fn output_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_INFO.id }
-	fn generate(&self, min: IVec3, size: IVec3, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-		downsample_marching_region(min, size, lod, fetch)
+	fn generate(&self, region: NonZeroChunkRegion, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+		downsample_marching_region(region, lod, fetch)
 	}
 }
 
-pub fn downsample_marching_region(min: IVec3, size: IVec3, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+pub fn downsample_marching_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 	let scale_down = lod.max(0.0).floor() as u8;
 	let step = 1i32 << scale_down as u32;
 	let mut loaded = Vec::new();
@@ -124,14 +124,14 @@ impl Accum {
 	}
 }
 
-pub fn downsample_region(min: IVec3, size: IVec3, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 	let scale_down = lod.max(0.0).floor() as u8;
 	let step = 1i32 << scale_down as u32;
 
 	let mut loaded = Vec::new();
-	for chunk_z in 0..size.z {
-		for chunk_y in 0..size.y {
-			for chunk_x in 0..size.x {
+	for chunk_z in 0..region.size().z as i32 {
+		for chunk_y in 0..region.size().y as i32 {
+			for chunk_x in 0..region.size().x as i32 {
 				let local = IVec3::new(chunk_x, chunk_y, chunk_z);
 				if let Some(voxels) = fetch(min + local) {
 					loaded.push((local, voxels));

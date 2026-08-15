@@ -25,15 +25,12 @@ pub fn nonzero_voxel_region_from_chunks(region: NonZeroChunkRegion) -> NonZeroVo
 }
 
 pub fn chunks_covering_voxel_region(region: VoxelRegion) -> ChunkRegion {
-	if region.size().min_element() == 0 {
+	let Ok(non_zero_region) = region.try_into() else {
 		return ChunkRegion::new(chunk_of(region.min()), UVec3::ZERO);
-	}
-	let min = chunk_of(region.min());
-	let voxel_end = region.min() + region.size().as_ivec3();
-	let end = chunk_of(voxel_end - IVec3::ONE) + IVec3::ONE;
-	ChunkRegion::from_min_end(min, end).unwrap()
+	};
+	chunks_covering_nonzero_voxel_region(non_zero_region).into()
 }
 
 pub fn chunks_covering_nonzero_voxel_region(region: NonZeroVoxelRegion) -> NonZeroChunkRegion {
-	NonZeroChunkRegion::try_from(chunks_covering_voxel_region(region.into())).unwrap()
+	NonZeroChunkRegion::from_min_max(chunk_of(region.min()), chunk_of(region.max())).unwrap()
 }

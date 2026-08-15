@@ -161,20 +161,20 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 
 	/// Visit every DATA leaf whose cell box intersects a half-open region.
 	pub fn for_each_in_region(&self, region: NonZeroVoxelRegion, f: impl FnMut(Co::Pos, Co::Size, G::Data<'_>)) {
-		traversal::for_each_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max_inclusive()), f);
+		traversal::for_each_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max()), f);
 	}
 
 	pub fn any_in_region(&self, region: NonZeroVoxelRegion) -> bool {
-		traversal::any_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max_inclusive()))
+		traversal::any_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max()))
 	}
 
 	/// Visit every occupied cell (internal node or data leaf) whose cell box intersects a half-open region.
 	pub fn for_each_node_in_region(&self, region: NonZeroVoxelRegion, f: impl FnMut(Co::Pos, Co::Size, bool)) {
-		traversal::for_each_node_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max_inclusive()), f);
+		traversal::for_each_node_in_region(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max()), f);
 	}
 
 	pub fn for_each_occupied_tile_cover(&self, region: NonZeroVoxelRegion, tile_size: i32, f: impl FnMut(IVec3)) {
-		traversal::for_each_occupied_tile_cover(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max_inclusive()), tile_size, f)
+		traversal::for_each_occupied_tile_cover(self.view(), Co::from_ivec3(region.min()), Co::from_ivec3(region.max()), tile_size, f)
 	}
 
 	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(Co::Pos, I8Vec3, f32)> {

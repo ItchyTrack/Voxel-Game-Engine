@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
-use bevy::math::IVec3;
+use bevy::math::{IVec3, UVec3};
+
+use crate::NonZeroChunkRegion;
 
 pub trait TileIndexKey: Copy + Eq + Hash {
-	fn min(self) -> IVec3;
-	fn size(self) -> IVec3;
+	fn region(self) -> NonZeroChunkRegion;
 }
 
 #[derive(Debug, Clone)]
@@ -22,7 +23,7 @@ impl<K> Default for TileIndex<K> {
 
 impl<K: TileIndexKey> TileIndex<K> {
 	pub fn insert(&mut self, key: K) {
-		let lod = bin_lod(key.size());
+		let lod = bin_lod(key.region().size());
 		self.max_lod = self.max_lod.max(lod);
 		for_each_bin_intersecting_key(key, lod, |bin| {
 			let keys = self.bins.entry((lod, bin)).or_default();
@@ -33,7 +34,7 @@ impl<K: TileIndexKey> TileIndex<K> {
 	}
 
 	pub fn remove(&mut self, key: K) {
-		let lod = bin_lod(key.size());
+		let lod = bin_lod(key.region().size());
 		for_each_bin_intersecting_key(key, lod, |bin| {
 			let Some(keys) = self.bins.get_mut(&(lod, bin)) else { return };
 			keys.retain(|candidate| *candidate != key);
@@ -46,16 +47,13 @@ impl<K: TileIndexKey> TileIndex<K> {
 		}
 	}
 
-	pub fn for_each_overlapping(&self, min: IVec3, size: IVec3, mut f: impl FnMut(K)) {
-		let area_max = min + size;
+	pub fn for_each_overlapping(&self, region: NonZeroChunkRegion, mut f: impl FnMut(K)) {
 		let mut seen = HashSet::new();
 		for lod in 0..=self.max_lod {
-			for_each_bin_intersecting_region(min, size, lod, |bin| {
+			for_each_bin_intersecting_region(region, lod, |bin| {
 				let Some(keys) = self.bins.get(&(lod, bin)) else { return };
 				for &key in keys {
-					let key_min = key.min();
-					let key_max = key_min + key.size();
-					if key_min.cmplt(area_max).all() && min.cmplt(key_max).all() && seen.insert(key) {
+					if region.intersects(key.region()) && seen.insert(key) {
 						f(key);
 					}
 				}
@@ -70,8 +68,7 @@ impl<K: TileIndexKey> TileIndex<K> {
 			let bin = align_to_lod_bin(point, lod);
 			let Some(keys) = self.bins.get(&(lod, bin)) else { continue };
 			for &key in keys {
-				let key_min = key.min();
-				if point.cmpge(key_min).all() && point.cmplt(key_min + key.size()).all() && seen.insert(key) {
+				if key.region().contains(point) && seen.insert(key) {
 					out.push(key);
 				}
 			}
@@ -85,19 +82,18 @@ impl<K: TileIndexKey> TileIndex<K> {
 }
 
 fn for_each_bin_intersecting_key<K: TileIndexKey>(key: K, lod: u8, f: impl FnMut(IVec3)) {
-	for_each_bin_intersecting_region(key.min(), key.size(), lod, f);
+	for_each_bin_intersecting_region(key.region(), lod, f);
 }
 
-fn bin_lod(size: IVec3) -> u8 {
+fn bin_lod(size: UVec3) -> u8 {
 	let max_size = size.max_element().max(1) as u32;
 	(u32::BITS - (max_size - 1).leading_zeros()).min(i32::BITS - 2) as u8
 }
 
-fn for_each_bin_intersecting_region(min: IVec3, size: IVec3, lod: u8, mut f: impl FnMut(IVec3)) {
+fn for_each_bin_intersecting_region(region: NonZeroChunkRegion, lod: u8, mut f: impl FnMut(IVec3)) {
 	let bin_size = lod_bin_size(lod);
-	let max_inclusive = min + size - IVec3::ONE;
-	let start = align_to_lod_bin(min, lod);
-	let end = align_to_lod_bin(max_inclusive, lod);
+	let start = align_to_lod_bin(region.min(), lod);
+	let end = align_to_lod_bin(region.max(), lod);
 	for x in (start.x..=end.x).step_by(bin_size as usize) {
 		for y in (start.y..=end.y).step_by(bin_size as usize) {
 			for z in (start.z..=end.z).step_by(bin_size as usize) {

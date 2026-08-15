@@ -42,8 +42,8 @@ mod tests {
 		positions.fold(None, |bounds, pos| {
 			let pos = pos.as_ivec3();
 			Some(match bounds {
-				Some(existing) => NonZeroVoxelRegion::from_min_max_inclusive(existing.min().min(pos), existing.max_inclusive().max(pos)).unwrap(),
-				None => NonZeroVoxelRegion::from_min_max_inclusive(pos, pos).unwrap(),
+				Some(existing) => NonZeroVoxelRegion::from_min_max(existing.min().min(pos), existing.max().max(pos)).unwrap(),
+				None => NonZeroVoxelRegion::from_min_max(pos, pos).unwrap(),
 			})
 		})
 	}
@@ -103,7 +103,7 @@ mod tests {
 				}
 			}
 		}
-		let region = NonZeroVoxelRegion::from_min_max_inclusive(IVec3::new(4, 4, 4), IVec3::new(10, 10, 10)).unwrap();
+		let region = NonZeroVoxelRegion::from_min_max(IVec3::new(4, 4, 4), IVec3::new(10, 10, 10)).unwrap();
 		let mut actual = HashMap::new();
 		t.for_each_in_region(region, |origin, size, value| {
 			for dx in 0..size {
@@ -131,11 +131,11 @@ mod tests {
 		let voxels = tree_voxels(&t);
 		assert_eq!(t.occupied_bounds(), bounds_from_positions(voxels.keys().copied()));
 
-		let region = NonZeroVoxelRegion::from_min_max_inclusive(IVec3::new(3, 4, 5), IVec3::new(8, 9, 10)).unwrap();
+		let region = NonZeroVoxelRegion::from_min_max(IVec3::new(3, 4, 5), IVec3::new(8, 9, 10)).unwrap();
 		let expected = bounds_from_positions(voxels.keys().copied().filter(|pos| region.contains(pos.as_ivec3())));
 		assert_eq!(t.occupied_bounds_in_region(region), expected);
 
-		let empty_region = NonZeroVoxelRegion::from_min_max_inclusive(IVec3::new(30, 30, 30), IVec3::new(35, 35, 35)).unwrap();
+		let empty_region = NonZeroVoxelRegion::from_min_max(IVec3::new(30, 30, 30), IVec3::new(35, 35, 35)).unwrap();
 		assert_eq!(t.occupied_bounds_in_region(empty_region), None);
 	}
 
@@ -151,7 +151,7 @@ mod tests {
 				}
 			}
 		}
-		let region = NonZeroVoxelRegion::from_min_max_inclusive(IVec3::new(3, 2, 1), IVec3::new(21, 17, 15)).unwrap();
+		let region = NonZeroVoxelRegion::from_min_max(IVec3::new(3, 2, 1), IVec3::new(21, 17, 15)).unwrap();
 		let tile_size = 5;
 
 		let mut actual = HashSet::new();

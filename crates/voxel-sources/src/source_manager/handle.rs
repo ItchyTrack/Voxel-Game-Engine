@@ -6,7 +6,7 @@ use bevy::math::IVec3;
 use crossbeam_channel::Sender;
 use rustc_hash::FxHashMap;
 use voxel_edit::GridEdit;
-use tile_data::ChunkRegion;
+use tile_data::NonZeroChunkRegion;
 use crate::ChunkGenerationIndex;
 
 use voxel_data::grid::GridId;
@@ -24,8 +24,7 @@ pub trait VoxelLodGenerator: Send + Sync {
 
 	fn generate(
 		&self,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		fetch: &dyn Fn(IVec3) -> Option<Voxels>,
 	) -> Option<Voxels>;
@@ -36,7 +35,7 @@ pub(super) type VoxelLodGenerators = Arc<RwLock<FxHashMap<(VoxelTypeId, VoxelTyp
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkPresence {
 	pub grid: GridId,
-	pub region: ChunkRegion,
+	pub region: NonZeroChunkRegion,
 }
 
 /// One authoritative command, published once the owning source has recorded
@@ -46,7 +45,7 @@ pub struct ChunkPresence {
 pub struct ChunksEdited {
 	pub source: SourceId,
 	pub grid: GridId,
-	pub region: ChunkRegion,
+	pub region: NonZeroChunkRegion,
 	pub generation: u64,
 	pub edit: GridEdit,
 }
@@ -70,7 +69,7 @@ pub(super) struct SourceTransferResult {
 pub(super) struct SourceVoxelsResult {
 	pub source: SourceId,
 	pub grid: GridId,
-	pub region: ChunkRegion,
+	pub region: NonZeroChunkRegion,
 	pub lod: f32,
 	pub voxel_type: VoxelTypeId,
 	pub generation: u64,
@@ -112,7 +111,7 @@ impl SourceEditEmitter {
 		self.versions.lock().unwrap().grid_generations.get(&grid).copied().unwrap_or(0)
 	}
 
-	pub(super) fn region_generation(&self, grid: GridId, region: ChunkRegion) -> u64 {
+	pub(super) fn region_generation(&self, grid: GridId, region: NonZeroChunkRegion) -> u64 {
 		self.versions.lock().unwrap().chunk_generations.get(&grid).map_or(0, |generations| generations.last_changed(region))
 	}
 
@@ -123,7 +122,7 @@ impl SourceEditEmitter {
 		*current = (*current).max(generation);
 	}
 
-	pub(super) fn synchronize_region_generation(&self, grid: GridId, region: ChunkRegion, generation: u64) {
+	pub(super) fn synchronize_region_generation(&self, grid: GridId, region: NonZeroChunkRegion, generation: u64) {
 		let _emission = self.emission_lock.lock().unwrap();
 		let mut versions = self.versions.lock().unwrap();
 		let current = versions.grid_generations.entry(grid).or_default();
@@ -131,9 +130,8 @@ impl SourceEditEmitter {
 		versions.chunk_generations.entry(grid).or_default().set_region(region, generation);
 	}
 
-	fn edited(&self, source: SourceId, grid: GridId, min: IVec3, size: IVec3, edit: GridEdit) -> u64 {
+	fn edited(&self, source: SourceId, grid: GridId, region: NonZeroChunkRegion, edit: GridEdit) -> u64 {
 		let _emission = self.emission_lock.lock().unwrap();
-		let region = ChunkRegion::new(min, size.as_uvec3());
 		let generation = {
 			let mut versions = self.versions.lock().unwrap();
 			let generation = versions.grid_generations.entry(grid).or_default();
@@ -175,14 +173,12 @@ impl SourceHandle {
 	/// Ownership moves to this source as soon as the request begins. The
 	/// previous owner materializes each chunk and transfers its data
 	/// asynchronously.
-	pub fn take(&self, grid: GridId, min: IVec3, size: IVec3) {
-		assert!(size.cmpgt(IVec3::ZERO).all(), "taken area size must be positive");
-		let generation = self.region_generation(grid, min, size);
+	pub fn take(&self, grid: GridId, region: NonZeroChunkRegion) {
+		let generation = self.region_generation(grid, region);
 		super::request_processing::take_area(
 			self.id,
 			grid,
-			min,
-			size,
+			region,
 			generation,
 			&self.take.sources,
 			&self.take.routing,
@@ -192,42 +188,30 @@ impl SourceHandle {
 
 	pub fn current_generation(&self, grid: GridId) -> u64 { self.edits.current_generation(grid) }
 
-	pub fn region_generation(&self, grid: GridId, min: IVec3, size: IVec3) -> u64 {
-		self.edits.region_generation(grid, ChunkRegion::new(min, size.as_uvec3()))
+	pub fn region_generation(&self, grid: GridId, region: NonZeroChunkRegion) -> u64 {
+		self.edits.region_generation(grid, region)
 	}
 
 	pub fn synchronize_generation(&self, grid: GridId, generation: u64) {
 		self.edits.synchronize_generation(grid, generation);
 	}
 
-	pub fn synchronize_region_generation(&self, grid: GridId, region: ChunkRegion, generation: u64) {
+	pub fn synchronize_region_generation(&self, grid: GridId, region: NonZeroChunkRegion, generation: u64) {
 		self.edits.synchronize_region_generation(grid, region, generation);
 	}
 
-	pub fn edited(&self, grid: GridId, min: IVec3, size: IVec3, edit: GridEdit) -> u64 {
-		self.edits.edited(self.id, grid, min, size, edit)
+	pub fn edited(&self, grid: GridId, region: NonZeroChunkRegion, edit: GridEdit) -> u64 {
+		self.edits.edited(self.id, grid, region, edit)
 	}
 
 	pub fn loaded(&self, grid: GridId, chunk: IVec3, generation: u64, voxels: Option<Voxels>) {
 		let _ = self.messages.send(SourceMessage::Chunk(SourceChunkResult { grid, chunk, generation, voxels }));
 	}
 
-	pub fn transferred(&self, destination: SourceId, grid: GridId, chunk: IVec3, generation: u64, voxels: Option<Voxels>) {
-		let _ = self.messages.send(SourceMessage::Transferred(SourceTransferResult {
-			source: self.id,
-			destination,
-			grid,
-			chunk,
-			generation,
-			voxels,
-		}));
-	}
-
 	pub fn voxels_loaded(
 		&self,
 		grid: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
@@ -236,7 +220,7 @@ impl SourceHandle {
 		let _ = self.messages.send(SourceMessage::Voxels(SourceVoxelsResult {
 			source: self.id,
 			grid,
-			region: ChunkRegion::new(min, size.as_uvec3()),
+			region,
 			lod,
 			voxel_type,
 			generation,
@@ -244,8 +228,8 @@ impl SourceHandle {
 		}));
 	}
 
-	pub fn presence(&self, grid: GridId, min: IVec3, size: IVec3) {
-		let _ = self.messages.send(SourceMessage::Presence(ChunkPresence { grid, region: ChunkRegion::new(min, size.as_uvec3()) }));
+	pub fn presence(&self, grid: GridId, region: NonZeroChunkRegion) {
+		let _ = self.messages.send(SourceMessage::Presence(ChunkPresence { grid, region }));
 	}
 
 	pub fn presence_loaded(&self, grid: GridId) {

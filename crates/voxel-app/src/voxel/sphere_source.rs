@@ -11,8 +11,7 @@ use voxel_physics::components::VoxelCollider;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_data::grid::GridId;
 use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob, VoxelSourcesAppExt};
-use tile_data::chunk_origin;
-use tile_data::CHUNK_SIZE;
+use tile_data::{CHUNK_SIZE, ChunkRegion, NonZeroChunkRegion, chunk_origin};
 use voxel_streaming::{ForgottenChunks, GridStreaming};
 use basic_voxel::{BasicVoxel, LodVoxel};
 
@@ -194,36 +193,36 @@ impl ChunkSource for SphereSource {
 		SourceCoverage::All
 	}
 
-	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
+	fn request_voxel_area(&self, grid: GridId, region: NonZeroChunkRegion, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.is_mine(grid) { return SourceCoverage::None; }
 		let mut owned = 0;
-		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-			let chunk = min + IVec3::new(x, y, z);
+		for z in 0..region.size().z { for y in 0..region.size().y { for x in 0..region.size().x {
+			let chunk = region.min() + UVec3::new(x, y, z).as_ivec3();
 			let origin = chunk_origin(chunk).as_vec3();
 			owned += (!self.forgotten.contains(grid, chunk)
 				&& region_intersects(origin, origin + Vec3::splat(CHUNK_SIZE as f32))) as usize;
 		}}}
-		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
+		let coverage = SourceCoverage::from_count(owned, region.area() as usize);
 		if coverage == SourceCoverage::None { return coverage; }
 		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "sphere source does not support requested voxel type");
 		let step = 1i32 << lod.max(0.0).floor() as u32;
 		let extent = IVec3::splat(CHUNK_SIZE / step);
 		let mut voxels: Option<Voxels> = None;
-		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-			let offset = IVec3::new(x, y, z);
+		for z in 0..region.size().z { for y in 0..region.size().y { for x in 0..region.size().x {
+			let offset = UVec3::new(x, y, z).as_ivec3();
 			let chunk = min + offset;
 			if self.forgotten.contains(grid, chunk) { continue; }
 			let Some(part) = build_lod_region(chunk, IVec3::ONE, lod, &cancellation) else { continue };
 			voxels.get_or_insert_with(|| Voxels::new_with_type(part.voxel_type_info())).merge_from(&part, offset * extent);
 		}}}
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		if let Some(handle) = self.handle.get() { handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels); }
+		if let Some(handle) = self.handle.get() { handle.voxels_loaded(grid, region, lod, voxel_type, generation, voxels); }
 		coverage
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, min: IVec3, size: IVec3, generation: u64) -> Vec<TakeJob> {
+	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
 		if !self.is_mine(grid) { return Vec::new(); }
-		let chunks = self.forgotten.forget_area_where(grid, min, size, |chunk| {
+		let chunks = self.forgotten.forget_area_where(grid, region, |chunk| {
 			let origin = chunk_origin(chunk).as_vec3();
 			region_intersects(origin, origin + Vec3::splat(CHUNK_SIZE as f32))
 		});

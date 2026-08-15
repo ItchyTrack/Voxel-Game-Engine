@@ -8,7 +8,7 @@ use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob};
-use tile_data::CHUNK_SIZE;
+use tile_data::{CHUNK_SIZE, ChunkRegion, NonZeroChunkRegion};
 use voxel_streaming::ForgottenChunks;
 
 /// Procedural SDF contract used by [`SdfSource`].
@@ -180,8 +180,7 @@ impl ChunkSource for SdfSource {
 	fn request_voxel_area(
 		&self,
 		grid: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
@@ -190,11 +189,15 @@ impl ChunkSource for SdfSource {
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
 		let Some(binding) = self.binding(grid) else { return SourceCoverage::None };
 		let mut owned = 0;
-		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-			let chunk = min + IVec3::new(x, y, z);
-			owned += (!self.inner.forgotten.contains(grid, chunk)
-				&& Self::might_intersect_region(&binding, chunk, IVec3::ONE)) as usize;
-		}}}
+		for z in 0..region.size().z {
+			for y in 0..region.size().y {
+				for x in 0..region.size().x {
+					let chunk = min + UVec3::new(x, y, z).as_IVec3;
+					owned += (!self.inner.forgotten.contains(grid, chunk)
+						&& Self::might_intersect_region(&binding, chunk, IVec3::ONE)) as usize;
+				}
+			}
+		}
 		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
 		if coverage == SourceCoverage::None { return coverage; }
 		assert!(
@@ -215,7 +218,7 @@ impl ChunkSource for SdfSource {
 			out.filter(|voxels| !voxels.is_empty())
 		});
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		if let Some(handle) = self.inner.handle.get() { handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels); }
+		if let Some(handle) = self.inner.handle.get() { handle.voxels_loaded(grid, region, lod, voxel_type, generation, voxels); }
 		coverage
 	}
 
@@ -233,9 +236,9 @@ impl ChunkSource for SdfSource {
 		handle.presence_loaded(grid);
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, min: IVec3, size: IVec3, generation: u64) -> Vec<TakeJob> {
+	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
 		let Some(binding) = self.binding(grid) else { return Vec::new() };
-		let chunks = self.inner.forgotten.forget_area_where(grid, min, size, |chunk| Self::might_intersect_region(&binding, chunk, IVec3::ONE));
+		let chunks = self.inner.forgotten.forget_area_where(grid, region, |chunk| Self::might_intersect_region(&binding, chunk, IVec3::ONE));
 		let handle = self.inner.handle.get().expect("SDF source was not initialized").clone();
 		let source = self.clone();
 		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {

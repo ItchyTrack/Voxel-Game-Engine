@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::ecs::resource::Resource;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
+use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
 use voxel_tasks::CancellationToken;
@@ -118,8 +119,7 @@ impl VoxelReader {
 		let source_cancellation = CancellationToken::new();
 		let generation = sources.request_voxels(
 			request.grid,
-			request.key.min(),
-			request.key.size().as_ivec3(),
+			request.key.region,
 			request.key.lod as f32,
 			request.voxel_type,
 			request.priority,
@@ -208,15 +208,17 @@ impl VoxelReader {
 	pub(crate) fn complete_voxels(
 		&mut self,
 		grid: GridId,
-		min: bevy::math::IVec3,
-		size: bevy::math::IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
 	) -> Vec<PendingVoxelAreaRequest> {
 		let key = VoxelReaderKey {
 			grid,
-			key: VoxelAreaKey::new(min, size.as_uvec3(), lod.max(0.0).floor() as u8),
+			key: VoxelAreaKey {
+				region,
+				lod: lod.max(0.0).floor() as u8
+			},
 			voxel_type,
 		};
 		let Some(load) = self.pending_voxels.get(&key) else { return Vec::new() };

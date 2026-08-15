@@ -212,7 +212,7 @@ impl ClientLoadRegistry {
 		let Some(PendingVoxelLoad::VoxelArea(_pending)) = self.finish(id, VoxelLoadOutcome::Received) else {
 			unreachable!("checked lod voxel load disappeared")
 		};
-		handle.voxels_loaded(grid, key.min(), key.size().as_ivec3(), key.lod as f32, voxel_type, generation, voxels);
+		handle.voxels_loaded(grid, key.region(), key.lod as f32, voxel_type, generation, voxels);
 	}
 
 	fn allocate_id(&mut self) -> VoxelLoadId {
@@ -242,7 +242,7 @@ fn decompress(compressed: &mut Option<CompressedVoxels>) -> Result<Option<voxel_
 
 #[cfg(test)]
 mod tests {
-	use bevy::prelude::Entity;
+	use bevy::{math::UVec3, prelude::Entity};
 
 	use super::*;
 
@@ -265,7 +265,10 @@ mod tests {
 	#[test]
 	fn cancelled_voxel_area_has_one_terminal_outcome() {
 		let cancellation = CancellationToken::new();
-		let key = VoxelAreaKey::new(IVec3::ZERO, UVec3::ONE, 1);
+		let key = VoxelAreaKey {
+			region: NonZeroChunkRegion::new(IVec3::ZERO, UVec3::ONE).unwrap(),
+			lod: 1,
+		};
 		let mut loads = ClientLoadRegistry::default();
 		loads.request_voxel_area(
 			Entity::PLACEHOLDER,

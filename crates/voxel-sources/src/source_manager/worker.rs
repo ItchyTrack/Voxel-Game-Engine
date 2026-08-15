@@ -7,6 +7,7 @@ use std::thread::{self, JoinHandle};
 use bevy::ecs::resource::Resource;
 use bevy::math::IVec3;
 use crossbeam_channel::Receiver;
+use tile_data::NonZeroChunkRegion;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -27,8 +28,7 @@ pub(super) enum SourceWork {
 	},
 	Voxels {
 		grid: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		priority: f32,
