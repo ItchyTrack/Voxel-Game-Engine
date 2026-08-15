@@ -5,19 +5,18 @@ use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
 use voxel_data::voxels::{VoxelType, VoxelTypeId, Voxels};
-use voxel_edit::GridEdits;
+use voxel_streaming::GridEdits;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_data::grid::GridId;
-use voxel_sources::{CancellationToken, ChunkSource, LendResult, LentChunks, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob, VoxelSourcesAppExt};
 use tile_data::chunk_origin;
 use tile_data::CHUNK_SIZE;
 use voxel_streaming::{ForgottenChunks, GridStreaming};
 use basic_voxel::{BasicVoxel, LodVoxel};
 
 const RADIUS: i32 = 2_000;
-const COST: u32 = 5;
 
 /// Grid-local origin sits at the sphere centre, placed a full radius below the
 /// church base (~y = -350) so the church ends up sitting on the sphere's top.
@@ -166,7 +165,6 @@ struct SphereSource {
 	grid: Arc<OnceLock<GridId>>,
 	handle: OnceLock<SourceHandle>,
 	forgotten: ForgottenChunks,
-	lent: LentChunks,
 }
 
 impl SphereSource {
@@ -186,65 +184,61 @@ impl ChunkSource for SphereSource {
 		}
 	}
 
-	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
-		if !self.is_mine(grid) || self.forgotten.contains(grid, chunk) || self.lent.contains(grid, chunk) {
-			return None;
-		}
-		let min = chunk_origin(chunk).as_vec3();
-		region_intersects(min, min + Vec3::splat(CHUNK_SIZE as f32)).then_some(COST)
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
+		let origin = chunk_origin(chunk).as_vec3();
+		if cancellation.is_cancelled() || !self.is_mine(grid) || self.forgotten.contains(grid, chunk)
+			|| !region_intersects(origin, origin + Vec3::splat(CHUNK_SIZE as f32)) { return SourceCoverage::None; }
+		let voxels = build_chunk(chunk, &cancellation);
+		if cancellation.is_cancelled() { return SourceCoverage::None; }
+		if let Some(handle) = self.handle.get() { handle.loaded(grid, chunk, generation, voxels); }
+		SourceCoverage::All
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, edit_index: u64, cancellation: CancellationToken) -> bool {
-		if cancellation.is_cancelled() || !self.is_mine(grid) || self.forgotten.contains(grid, chunk) || self.lent.contains(grid, chunk) { return false; }
-		let voxels = (!self.forgotten.contains(grid, chunk) && !self.lent.contains(grid, chunk)).then(|| build_chunk(chunk, &cancellation)).flatten();
-		if cancellation.is_cancelled() { return false; }
-		if let Some(handle) = self.handle.get() { handle.loaded(grid, chunk, edit_index, voxels); }
-		true
-	}
-
-	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if !self.is_mine(grid) || !self.forgotten.any_remembered_in(grid, min, size) || !self.lent.any_available_in(grid, min, size) { return None; }
+	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
+		if cancellation.is_cancelled() || !self.is_mine(grid) { return SourceCoverage::None; }
+		let mut owned = 0;
+		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
+			let chunk = min + IVec3::new(x, y, z);
+			let origin = chunk_origin(chunk).as_vec3();
+			owned += (!self.forgotten.contains(grid, chunk)
+				&& region_intersects(origin, origin + Vec3::splat(CHUNK_SIZE as f32))) as usize;
+		}}}
+		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
+		if coverage == SourceCoverage::None { return coverage; }
 		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "sphere source does not support requested voxel type");
-		let lo = chunk_origin(min).as_vec3();
-		let hi = chunk_origin(min + size).as_vec3();
-		region_intersects(lo, hi).then_some(COST)
-	}
-
-	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, edit_index: u64, cancellation: CancellationToken) -> bool {
-		if cancellation.is_cancelled() || !self.is_mine(grid) || !self.lent.any_available_in(grid, min, size) { return false; }
 		let step = 1i32 << lod.max(0.0).floor() as u32;
 		let extent = IVec3::splat(CHUNK_SIZE / step);
 		let mut voxels: Option<Voxels> = None;
 		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
 			let offset = IVec3::new(x, y, z);
 			let chunk = min + offset;
-			if self.forgotten.contains(grid, chunk) || self.lent.contains(grid, chunk) { continue; }
+			if self.forgotten.contains(grid, chunk) { continue; }
 			let Some(part) = build_lod_region(chunk, IVec3::ONE, lod, &cancellation) else { continue };
 			voxels.get_or_insert_with(|| Voxels::new_with_type(part.voxel_type_info())).merge_from(&part, offset * extent);
 		}}}
-		if cancellation.is_cancelled() { return false; }
-		if let Some(handle) = self.handle.get() { handle.voxels_loaded(grid, min, size, lod, voxel_type, edit_index, voxels); }
-		true
+		if cancellation.is_cancelled() { return SourceCoverage::None; }
+		if let Some(handle) = self.handle.get() { handle.voxels_loaded(grid, min, size, lod, voxel_type, generation, voxels); }
+		coverage
 	}
 
-	fn lend(&self, grid: GridId, chunk: IVec3, cancellation: CancellationToken) -> LendResult {
-		if !self.is_mine(grid) || self.forgotten.contains(grid, chunk) || !self.lent.begin(grid, chunk) {
-			return LendResult::Unavailable;
-		}
-		let voxels = build_chunk(chunk, &cancellation);
-		if cancellation.is_cancelled() {
-			self.lent.end(grid, chunk);
-			return LendResult::Unavailable;
-		}
-		LendResult::Borrowed(voxels)
+	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, min: IVec3, size: IVec3, generation: u64) -> Vec<TakeJob> {
+		if !self.is_mine(grid) { return Vec::new(); }
+		let chunks = self.forgotten.forget_area_where(grid, min, size, |chunk| {
+			let origin = chunk_origin(chunk).as_vec3();
+			region_intersects(origin, origin + Vec3::splat(CHUNK_SIZE as f32))
+		});
+		let handle = self.handle.get().expect("sphere source was not initialized").clone();
+		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
+			let handle = handle.clone();
+			move || {
+				let voxels = build_chunk(chunk, &CancellationToken::new());
+				handle.transferred(destination, grid, chunk, generation, voxels);
+			}
+		})).collect()
 	}
-
-
-	fn return_area(&self, grid: GridId, min: IVec3, size: IVec3) { self.lent.end_area(grid, min, size); }
 
 	fn forget(&self, grid: GridId, chunk: IVec3) {
 		self.forgotten.forget(grid, chunk);
-		self.lent.end(grid, chunk);
 	}
 }
 
@@ -260,7 +254,6 @@ impl Plugin for SphereSourcePlugin {
 			grid: grid.clone(),
 			handle: OnceLock::new(),
 			forgotten: ForgottenChunks::default(),
-			lent: LentChunks::default(),
 		});
 		app.insert_resource(SphereGrid(grid));
 		app.add_systems(Startup, spawn_sphere_grid);

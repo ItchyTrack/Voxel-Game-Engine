@@ -13,7 +13,6 @@ use wasm_bindgen::prelude::*;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
 
-use super::SourceId;
 use voxel_tasks::CancellationToken;
 
 pub(super) enum SourceWork {
@@ -23,22 +22,8 @@ pub(super) enum SourceWork {
 	Chunk {
 		grid: GridId,
 		chunk: IVec3,
-		edit_index: u64,
+		generation: u64,
 		cancellation: CancellationToken,
-	},
-	Borrow {
-		request: u64,
-		borrower: SourceId,
-		grid: GridId,
-		min: IVec3,
-		size: IVec3,
-		edit_index: u64,
-		cancellation: CancellationToken,
-	},
-	Return {
-		grid: GridId,
-		min: IVec3,
-		size: IVec3,
 	},
 	Voxels {
 		grid: GridId,
@@ -47,7 +32,7 @@ pub(super) enum SourceWork {
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		priority: f32,
-		edit_index: u64,
+		generation: u64,
 		cancellation: CancellationToken,
 	},
 }

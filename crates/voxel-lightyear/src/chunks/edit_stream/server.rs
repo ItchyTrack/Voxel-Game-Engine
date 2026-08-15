@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use bevy::log::warn;
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerId, PeerMetadata, RemoteEvent};
 use voxel_data::grid::GridId;
-use voxel_sources::{ChunksEdited, SourceManager};
+use voxel_sources::ChunksEdited;
 use tile_data::ChunkRegion;
 
 use super::{EditInterest, EditStreamStart, RemoteGridEdit, WireGridEdit};
@@ -15,26 +15,14 @@ type Area = ChunkRegion;
 
 #[derive(Default)]
 struct GridSubscription {
-	areas: HashMap<Area, u32>,
-	next_edit_index: u64,
-	baseline_server_index: u64,
-	baseline_client_index: u64,
-	server_to_client: BTreeMap<u64, u64>,
+	areas: HashMap<Area, ()>,
+	area_versions: HashMap<Area, u64>,
+	next_stream_sequence: u64,
 }
 
 impl GridSubscription {
 	fn overlaps(&self, min: IVec3, size: IVec3) -> bool {
 		self.areas.keys().any(|area| overlaps(area.min(), area.size().as_ivec3(), min, size))
-	}
-
-	fn snapshot_index(&self, server_index: u64) -> u64 {
-		self.server_to_client
-			.range(..=server_index)
-			.next_back()
-			.map(|(_, index)| *index)
-			.unwrap_or_else(|| {
-				if server_index >= self.baseline_server_index { self.baseline_client_index } else { 0 }
-			})
 	}
 }
 
@@ -43,18 +31,9 @@ pub(crate) struct EditSubscriptions {
 	clients: HashMap<PeerId, HashMap<GridId, GridSubscription>>,
 }
 
-impl EditSubscriptions {
-	pub(crate) fn snapshot_index(&self, peer: PeerId, grid: GridId, server_index: u64) -> u64 {
-		self.clients
-			.get(&peer)
-			.and_then(|grids| grids.get(&grid))
-			.map_or(0, |subscription| subscription.snapshot_index(server_index))
-	}
-}
 
 pub(super) fn receive_interest(
 	trigger: On<RemoteEvent<EditInterest>>,
-	sources: Res<SourceManager>,
 	peer_metadata: Option<Res<PeerMetadata>>,
 	mut senders: Query<&mut EventSender<EditStreamStart>>,
 	mut subscriptions: ResMut<EditSubscriptions>,
@@ -65,21 +44,21 @@ pub(super) fn receive_interest(
 	let area = interest.region;
 	let subscription = subscriptions.clients.entry(peer).or_default().entry(interest.grid).or_default();
 	let was_empty = subscription.areas.is_empty();
+	let previous_version = subscription.area_versions.get(&area).copied();
+	if previous_version.is_some_and(|previous| interest.version <= previous) { return; }
+	subscription.area_versions.insert(area, interest.version);
 	if interest.interested {
-		*subscription.areas.entry(area).or_default() += 1;
-	} else if let Some(count) = subscription.areas.get_mut(&area) {
-		*count = count.saturating_sub(1);
-		if *count == 0 { subscription.areas.remove(&area); }
+		subscription.areas.insert(area, ());
+	} else {
+		subscription.areas.remove(&area);
 	}
 	if !was_empty || subscription.areas.is_empty() { return; }
-	subscription.baseline_server_index = sources.current_edit_index(interest.grid);
-	subscription.baseline_client_index = subscription.next_edit_index;
 	let Some(peer_metadata) = peer_metadata else { return };
 	let Some(&entity) = peer_metadata.mapping.get(&peer) else { return };
 	let Ok(mut sender) = senders.get_mut(entity) else { return };
 	sender.trigger::<ServerToClientChannel>(EditStreamStart {
 		grid: interest.grid,
-		first_edit_index: subscription.next_edit_index + 1,
+		first_stream_sequence: subscription.next_stream_sequence + 1,
 	});
 }
 
@@ -92,20 +71,20 @@ pub(super) fn flush_edits(
 	let Some(peer_metadata) = peer_metadata else { return };
 	for event in edits.read() {
 		let Some(edit) = WireGridEdit::from_edit(&event.edit) else {
-			warn!(grid=?event.grid, edit_index=event.edit_index, "cannot replicate non-serializable voxel edit");
+			warn!(grid=?event.grid, generation=event.generation, "cannot replicate non-serializable voxel edit");
 			continue;
 		};
 		for (&peer, grids) in &mut subscriptions.clients {
 			let Some(subscription) = grids.get_mut(&event.grid) else { continue };
 			if !subscription.overlaps(event.region.min(), event.region.size().as_ivec3()) { continue; }
-			subscription.next_edit_index += 1;
-			subscription.server_to_client.insert(event.edit_index, subscription.next_edit_index);
+			subscription.next_stream_sequence += 1;
 			let Some(&entity) = peer_metadata.mapping.get(&peer) else { continue };
 			let Ok(mut sender) = senders.get_mut(entity) else { continue };
 			sender.trigger::<ServerToClientChannel>(RemoteGridEdit {
 				grid: event.grid,
 				region: event.region,
-				edit_index: subscription.next_edit_index,
+				stream_sequence: subscription.next_stream_sequence,
+				generation: event.generation,
 				edit: edit.clone(),
 			});
 		}

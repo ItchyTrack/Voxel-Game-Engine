@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use basic_voxel::BasicVoxel;
 use voxel_content::{StreamingVoxels, VoxelStoreSource};
 use voxel_data::grid::Grid;
-use voxel_edit::GridEdits;
+use voxel_streaming::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_streaming::GridStreaming;
 

@@ -1,7 +1,6 @@
 use bevy::ecs::entity::Entity;
-use bevy::ecs::resource::Resource;
 use bevy::math::{IVec3, UVec3};
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::Sender;
 use futures::channel::mpsc::UnboundedSender;
 use serde::{Deserialize, Serialize};
 
@@ -11,36 +10,6 @@ use voxel_tasks::CancellationToken;
 use tile_data::ChunkRegion;
 
 use super::request_handle::VoxelSourceRequesterId;
-
-pub struct ChunkSaveRequest {
-	pub grid: GridId,
-	pub chunk: IVec3,
-	pub edit_index: u64,
-	pub voxels: Voxels,
-}
-
-#[derive(Resource)]
-pub struct ChunkSaveChannel {
-	sender: Sender<ChunkSaveRequest>,
-	receiver: Receiver<ChunkSaveRequest>,
-}
-
-impl Default for ChunkSaveChannel {
-	fn default() -> Self {
-		let (sender, receiver) = unbounded();
-		Self { sender, receiver }
-	}
-}
-
-impl ChunkSaveChannel {
-	pub fn save(&self, request: ChunkSaveRequest) {
-		let _ = self.sender.send(request);
-	}
-
-	pub fn try_recv(&self) -> Option<ChunkSaveRequest> {
-		self.receiver.try_recv().ok()
-	}
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct PresenceLoadRequest {
@@ -107,7 +76,7 @@ pub struct VoxelAreaLoadResult {
 	pub grid: GridId,
 	pub key: VoxelAreaKey,
 	pub voxel_type: VoxelTypeId,
-	pub edit_index: u64,
+	pub generation: u64,
 	pub voxels: Option<Voxels>,
 }
 

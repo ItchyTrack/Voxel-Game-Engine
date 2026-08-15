@@ -96,7 +96,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 
 	match mode {
 		VoxelEngineMode::Server => {
-			app.add_plugins((VoxelStoreSourcePlugin, ProceduralPlanetPlugin, TreeSourcePlugin::default(), ScenePlugin));
+			app.add_plugins((VoxelStoreSourcePlugin, /*ProceduralPlanetPlugin,*/ TreeSourcePlugin::default(), ScenePlugin));
 			#[cfg(not(target_arch = "wasm32"))]
 			app.add_plugins(NetworkServerPlugin);
 		}
@@ -105,7 +105,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 			app.add_plugins(NetworkClientPlugin);
 		}
 		VoxelEngineMode::Host => {
-			app.add_plugins((VoxelStoreSourcePlugin, ProceduralPlanetPlugin, TreeSourcePlugin::default(), ScenePlugin));
+			app.add_plugins((VoxelStoreSourcePlugin, /*ProceduralPlanetPlugin,*/ TreeSourcePlugin::default(), ScenePlugin));
 			#[cfg(not(target_arch = "wasm32"))]
 			app.add_plugins(NetworkServerPlugin);
 		}

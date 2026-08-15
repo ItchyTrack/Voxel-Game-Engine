@@ -2,7 +2,7 @@ use bevy::math::{IVec3, U16Vec3};
 use bevy::prelude::Entity;
 use voxel_data::voxels::{Voxel, VoxelTypeId, VoxelTypeInfo, Voxels};
 use voxel_data::grid::GridId;
-use voxel_sources::{CancellationToken, ChunkSource, LendResult, SourceHandle, VoxelLodGenerator};
+use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob, VoxelLodGenerator};
 
 #[derive(Default)]
 struct AreaSource {
@@ -12,17 +12,14 @@ struct AreaSource {
 impl ChunkSource for AreaSource {
 	fn init(&self, _handle: SourceHandle) {}
 	fn request_available_area(&self, _grid: GridId) {}
-	fn cost(&self, _grid: GridId, chunk: IVec3) -> Option<u32> { self.chunks.contains(&chunk).then_some(0) }
-	fn request_load(&self, _grid: GridId, _chunk: IVec3, _edit_index: u64, _cancellation: CancellationToken) -> bool { false }
-	fn cost_voxels(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32, _voxel_type: VoxelTypeId) -> Option<u32> {
-		self.chunks
-			.iter()
-			.any(|chunk| chunk.cmpge(min).all() && chunk.cmplt(min + size).all())
-			.then_some(0)
+	fn request_load(&self, _grid: GridId, chunk: IVec3, _generation: u64, _cancellation: CancellationToken) -> SourceCoverage {
+		if self.chunks.contains(&chunk) { SourceCoverage::All } else { SourceCoverage::None }
 	}
-	fn request_voxel_area(&self, _grid: GridId, _min: IVec3, _size: IVec3, _lod: f32, _voxel_type: VoxelTypeId, _edit_index: u64, _cancellation: CancellationToken) -> bool { false }
-	fn lend(&self, _grid: GridId, _chunk: IVec3, _cancellation: CancellationToken) -> LendResult { LendResult::Unavailable }
-	fn return_area(&self, _grid: GridId, _min: IVec3, _size: IVec3) {}
+	fn request_voxel_area(&self, _grid: GridId, min: IVec3, size: IVec3, _lod: f32, _voxel_type: VoxelTypeId, _generation: u64, _cancellation: CancellationToken) -> SourceCoverage {
+		let owned = self.chunks.iter().filter(|chunk| chunk.cmpge(min).all() && chunk.cmplt(min + size).all()).count();
+		SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize)
+	}
+	fn take(&self, _destination: voxel_sources::SourceId, _grid: GridId, _min: IVec3, _size: IVec3, _generation: u64) -> Vec<TakeJob> { Vec::new() }
 	fn forget(&self, _grid: GridId, _chunk: IVec3) {}
 }
 
@@ -55,8 +52,8 @@ fn chunk_source_voxel_area_cost_detects_overlap() {
 	let source = AreaSource { chunks: vec![IVec3::new(4, 0, 0)] };
 	let grid = Entity::PLACEHOLDER;
 
-	assert_eq!(source.cost_voxels(grid, IVec3::ZERO, IVec3::new(8, 1, 1), 1.0, VoxelTypeId(99)), Some(0));
-	assert_eq!(source.cost_voxels(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1), 1.0, VoxelTypeId(99)), None);
+	assert_eq!(source.request_voxel_area(grid, IVec3::ZERO, IVec3::new(8, 1, 1), 1.0, VoxelTypeId(99), 0, CancellationToken::new()), SourceCoverage::Some);
+	assert_eq!(source.request_voxel_area(grid, IVec3::new(8, 0, 0), IVec3::new(4, 1, 1), 1.0, VoxelTypeId(99), 0, CancellationToken::new()), SourceCoverage::None);
 }
 
 #[test]

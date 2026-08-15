@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::math::IVec3;
-use tile_data::{TileIndex, TileIndexKey, ChunkRegion};
+use tile_data::{ChunkRegion, TileIndex, TileIndexKey};
 
 use crate::TileKey;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TileDependency {
 	pub(crate) area: ChunkRegion,
-	pub(crate) edit_index: u64,
+	pub(crate) generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -45,11 +45,11 @@ impl TileDependencyIndex {
 		}
 	}
 
-	pub(crate) fn stale_tiles_for_chunk(&self, chunk: IVec3, edit_index: u64) -> impl Iterator<Item = TileKey> {
-		self.index
-			.keys_covering_point(chunk)
-			.into_iter()
-			.filter(move |dependency| dependency.dependency.edit_index < edit_index)
-			.map(|dependency| dependency.tile)
+	pub(crate) fn stale_tiles(&self, region: ChunkRegion, generation: u64) -> impl Iterator<Item = TileKey> {
+		let mut stale = Vec::new();
+		self.index.for_each_overlapping(region.min(), region.size().as_ivec3(), |dependency| {
+			if dependency.dependency.generation < generation { stale.push(dependency.tile); }
+		});
+		stale.into_iter()
 	}
 }

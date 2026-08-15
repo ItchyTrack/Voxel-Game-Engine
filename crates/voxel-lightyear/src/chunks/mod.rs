@@ -35,9 +35,9 @@ impl Plugin for ChunkSourcePlugin {
 				);
 		}
 
-		app.add_channel::<ClientToServerChannel>(unordered_reliable_channel())
+		app.add_channel::<ClientToServerChannel>(ordered_reliable_channel())
 			.add_direction(NetworkDirection::ClientToServer);
-		app.add_channel::<ServerToClientChannel>(unordered_reliable_channel())
+		app.add_channel::<ServerToClientChannel>(ordered_reliable_channel())
 			.add_direction(NetworkDirection::ServerToClient);
 		app.add_channel::<ServerToClientUnreliableChannel>(unordered_unreliable_channel())
 			.add_direction(NetworkDirection::ServerToClient);
@@ -59,9 +59,9 @@ impl Plugin for ChunkSourcePlugin {
 	}
 }
 
-fn unordered_reliable_channel() -> ChannelSettings {
+fn ordered_reliable_channel() -> ChannelSettings {
 	ChannelSettings {
-		mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+		mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
 		send_frequency: Duration::from_millis(100),
 		priority: 1.0,
 	}

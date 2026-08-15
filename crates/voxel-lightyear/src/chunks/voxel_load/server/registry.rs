@@ -41,12 +41,12 @@ struct VoxelLoadOwner {
 }
 
 struct ChunkPayload {
-	edit_index: u64,
+	generation: u64,
 	voxels: Option<CompressedVoxels>,
 }
 
 struct VoxelAreaPayload {
-	edit_index: u64,
+	generation: u64,
 	voxel_type: VoxelTypeId,
 	voxels: Option<CompressedVoxels>,
 }
@@ -141,7 +141,7 @@ impl PendingVoxelLoads {
 		&mut self,
 		grid: GridId,
 		chunk: IVec3,
-		edit_index: u64,
+		generation: u64,
 		voxels: Option<&Voxels>,
 	) -> Result<(), CompressVoxelsError> {
 		let key = PendingChunkKey { grid, chunk };
@@ -155,7 +155,7 @@ impl PendingVoxelLoads {
 				return Err(err);
 			}
 		};
-		let payload = Arc::new(ChunkPayload { edit_index, voxels });
+		let payload = Arc::new(ChunkPayload { generation, voxels });
 		for owner in load.subscribers {
 			self.set_chunk_ready(owner, key, payload.clone());
 		}
@@ -166,7 +166,7 @@ impl PendingVoxelLoads {
 		&mut self,
 		grid: GridId,
 		key: voxel_sources::VoxelAreaKey,
-		edit_index: u64,
+		generation: u64,
 		voxel_type: VoxelTypeId,
 		voxels: Option<&Voxels>,
 	) -> Result<(), CompressVoxelsError> {
@@ -181,7 +181,7 @@ impl PendingVoxelLoads {
 				return Err(err);
 			}
 		};
-		let payload = Arc::new(VoxelAreaPayload { edit_index, voxel_type, voxels });
+		let payload = Arc::new(VoxelAreaPayload { generation, voxel_type, voxels });
 		for owner in load.subscribers {
 			self.set_voxel_area_ready(owner, pending_key, payload.clone());
 		}
@@ -199,7 +199,7 @@ impl PendingVoxelLoads {
 							kind: VoxelLoadResponseKind::Chunk {
 								grid: key.grid,
 								chunk: key.chunk,
-								edit_index: payload.edit_index,
+								generation: payload.generation,
 								voxels: payload.voxels.clone(),
 							},
 						}
@@ -211,7 +211,7 @@ impl PendingVoxelLoads {
 							kind: VoxelLoadResponseKind::VoxelArea {
 								grid: key.grid,
 								key: key.key,
-								edit_index: payload.edit_index,
+								generation: payload.generation,
 								voxel_type: payload.voxel_type,
 								voxels: payload.voxels.clone(),
 							},

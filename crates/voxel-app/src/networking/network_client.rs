@@ -3,7 +3,7 @@ use basic_voxel::BasicVoxel;
 use lightyear::prelude::*;
 use lightyear::prelude::client::{ClientPlugins, Connect, NetcodeClient};
 use voxel_data::grid::Grid;
-use voxel_edit::GridEdits;
+use voxel_streaming::GridEdits;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 

@@ -4,15 +4,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use bevy::prelude::*;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{CancellationToken, ChunkSource, LendResult, LentChunks, VoxelAreaKey, SourceHandle};
+use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, TakeJob, VoxelAreaKey, SourceHandle};
 
 use voxel_streaming::ForgottenChunks;
 
 use super::presence::PresenceRequest;
 use super::voxel_load::ClientLoadRegistry;
 use crate::ReplicateVoxels;
-
-const REMOTE_COST: u32 = 100;
 
 #[derive(Default)]
 pub(super) struct ClientChunkSourceState {
@@ -21,7 +19,6 @@ pub(super) struct ClientChunkSourceState {
 	pub loads: Mutex<ClientLoadRegistry>,
 	pub remote_grids: Mutex<HashSet<GridId>>,
 	pub forgotten: ForgottenChunks,
-	pub lent: LentChunks,
 }
 
 #[derive(Clone, Default, Resource)]
@@ -38,51 +35,47 @@ impl ChunkSource for ClientChunkSource {
 		self.state.presence_requests.lock().unwrap().push_back(PresenceRequest { grid });
 	}
 
-	fn cost(&self, grid: GridId, chunk: IVec3) -> Option<u32> {
-		if self.state.forgotten.contains(grid, chunk) || self.state.lent.contains(grid, chunk) { return None; }
-		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
+	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
+		if cancellation.is_cancelled()
+			|| self.state.forgotten.contains(grid, chunk)
+			|| !self.state.remote_grids.lock().unwrap().contains(&grid) { return SourceCoverage::None; }
+		self.state.loads.lock().unwrap().request_chunk(grid, chunk, generation, None, cancellation);
+		SourceCoverage::All
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, edit_index: u64, cancellation: CancellationToken) -> bool {
-		if cancellation.is_cancelled() || self.state.forgotten.contains(grid, chunk) || self.state.lent.contains(grid, chunk) { return false; }
-		self.state.loads.lock().unwrap().request_chunk(grid, chunk, edit_index, cancellation);
-		true
-	}
-
-	fn cost_voxels(&self, grid: GridId, min: IVec3, size: IVec3, _lod: f32, _voxel_type: VoxelTypeId) -> Option<u32> {
-		if !self.state.forgotten.any_remembered_in(grid, min, size) || !self.state.lent.any_available_in(grid, min, size) { return None; }
-		self.state.remote_grids.lock().unwrap().contains(&grid).then_some(REMOTE_COST)
-	}
-
-	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, edit_index: u64, cancellation: CancellationToken) -> bool {
-		if cancellation.is_cancelled() || !self.state.lent.any_available_in(grid, min, size) { return false; }
+	fn request_voxel_area(&self, grid: GridId, min: IVec3, size: IVec3, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
+		if cancellation.is_cancelled() || !self.state.remote_grids.lock().unwrap().contains(&grid) { return SourceCoverage::None; }
+		let mut owned = 0;
+		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
+			owned += (!self.state.forgotten.contains(grid, min + IVec3::new(x, y, z))) as usize;
+		}}}
+		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
+		if coverage == SourceCoverage::None { return coverage; }
 		let key = VoxelAreaKey::new(min, size.as_uvec3(), lod.max(0.0).floor() as u8);
-		self.state.loads.lock().unwrap().request_voxel_area(grid, key, voxel_type, 0.0, edit_index, cancellation);
-		true
+		self.state.loads.lock().unwrap().request_voxel_area(grid, key, voxel_type, 0.0, generation, cancellation);
+		coverage
 	}
 
-	fn lend(&self, grid: GridId, chunk: IVec3, cancellation: CancellationToken) -> LendResult {
-		if self.state.forgotten.contains(grid, chunk) || !self.state.lent.begin(grid, chunk) { return LendResult::Unavailable; }
-		let Some(handle) = self.state.handle.get() else {
-			self.state.lent.end(grid, chunk);
-			return LendResult::Unavailable;
-		};
-		let received = self.state.loads.lock().unwrap().request_lend(grid, chunk, handle.current_edit_index(grid), cancellation);
-		match received.recv() {
-			Ok(result) => result,
-			Err(_) => {
-				self.state.lent.end(grid, chunk);
-				LendResult::Unavailable
+	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, min: IVec3, size: IVec3, generation: u64) -> Vec<TakeJob> {
+		if !self.state.remote_grids.lock().unwrap().contains(&grid) { return Vec::new(); }
+		let chunks = self.state.forgotten.forget_area_where(grid, min, size, |_| true);
+		let source = self.clone();
+		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
+			let source = source.clone();
+			move || {
+				source.state.loads.lock().unwrap().request_chunk(
+					grid,
+					chunk,
+					generation,
+					Some(destination),
+					CancellationToken::new(),
+				);
 			}
-		}
+		})).collect()
 	}
-
-
-	fn return_area(&self, grid: GridId, min: IVec3, size: IVec3) { self.state.lent.end_area(grid, min, size); }
 
 	fn forget(&self, grid: GridId, chunk: IVec3) {
 		self.state.forgotten.forget(grid, chunk);
-		self.state.lent.end(grid, chunk);
 	}
 }
 

@@ -16,6 +16,26 @@ impl ForgottenChunks {
 		self.grids.write().unwrap().entry(grid).or_default().insert(chunk);
 	}
 
+	pub fn forget_area_where(
+		&self,
+		grid: GridId,
+		min: IVec3,
+		size: IVec3,
+		mut owns: impl FnMut(IVec3) -> bool,
+	) -> Vec<IVec3> {
+		let mut grids = self.grids.write().unwrap();
+		let forgotten = grids.entry(grid).or_default();
+		let mut taken = Vec::new();
+		for z in min.z..min.z + size.z { for y in min.y..min.y + size.y { for x in min.x..min.x + size.x {
+			let chunk = IVec3::new(x, y, z);
+			if !forgotten.contains(&chunk) && owns(chunk) {
+				forgotten.insert(chunk);
+				taken.push(chunk);
+			}
+		}}}
+		taken
+	}
+
 	pub fn contains(&self, grid: GridId, chunk: IVec3) -> bool {
 		self.grids.read().unwrap().get(&grid).is_some_and(|chunks| chunks.contains(&chunk))
 	}

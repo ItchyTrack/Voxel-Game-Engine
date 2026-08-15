@@ -1,18 +1,20 @@
 mod reader;
+mod generation;
 mod source_manager;
 
 use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
 pub use reader::{
-	ChunkLoadRequest, ChunkSaveChannel, ChunkSaveRequest, PresenceLoadRequest,
+	ChunkLoadRequest, PresenceLoadRequest,
 	VoxelAreaCancellation, VoxelAreaKey, VoxelAreaMessageRequest, VoxelAreaLoadEvent,
 	VoxelAreaLoadRequest, VoxelAreaLoadResult,
 	VoxelSourcesRequestHandle, VoxelSourcesRequestHandleGetter,
 };
+pub use generation::ChunkGenerationIndex;
 pub use source_manager::{
-	ChunkPresence, ChunksBorrowed, ChunksEdited, ChunkSource, Completed, LendResult, LentChunks,
-	SourceHandle, SourceId, SourceManager, VoxelLodGenerator,
+	ChunkPresence, ChunksEdited, ChunkSource, Completed, SourceCoverage, SourceHandle, SourceId,
+	SourceManager, TakeJob, VoxelLodGenerator,
 };
 pub use voxel_tasks::CancellationToken;
 
@@ -25,7 +27,7 @@ pub struct ChunkPresenceLoaded {
 pub struct ChunkLoaded {
 	pub grid: voxel_data::grid::GridId,
 	pub chunk: bevy::math::IVec3,
-	pub edit_index: u64,
+	pub generation: u64,
 	pub voxels: Option<voxel_data::voxels::Voxels>,
 }
 
@@ -37,7 +39,7 @@ pub struct VoxelAreaLoaded {
 	pub voxel_type: voxel_data::voxels::VoxelTypeId,
 	pub tag: u64,
 	pub priority: f32,
-	pub edit_index: u64,
+	pub generation: u64,
 	pub voxels: Option<voxel_data::voxels::Voxels>,
 }
 
@@ -66,10 +68,8 @@ impl Plugin for VoxelSourcesPlugin {
 		app.init_resource::<SourceManager>()
 			.init_resource::<reader::VoxelReader>()
 			.init_resource::<VoxelSourcesRequestHandleGetter>()
-			.init_resource::<ChunkSaveChannel>()
 			.add_message::<ChunkPresence>()
 			.add_message::<ChunksEdited>()
-			.add_message::<ChunksBorrowed>()
 			.add_message::<ChunkPresenceLoaded>()
 			.add_message::<ChunkLoaded>()
 			.add_message::<VoxelAreaLoaded>()

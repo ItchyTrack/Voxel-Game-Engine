@@ -1,12 +1,69 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+
 use bevy::prelude::*;
 use tracy_client::span;
-
-use voxel_edit::{EditGate, GridEdit, GridEdits};
-
-use tile_data::chunks_covering_voxel_region;
-use crate::presence::ChunkState;
+use voxel_data::grid::{Grid, GridId, reconcile_subgrids};
+use voxel_data::region::NonZeroVoxelRegion;
+use voxel_data::sdf::Sdf;
+use voxel_data::subgrid::SubGrid;
+use voxel_data::voxels::Voxel;
+use voxel_edit::{GridEdit, apply_grid_edit};
 
 use crate::GridStreaming;
+
+struct PendingGridEdit {
+	edit: GridEdit,
+	publish: bool,
+}
+
+#[derive(Component, Default)]
+pub struct GridEdits {
+	pending: Vec<PendingGridEdit>,
+}
+
+impl GridEdits {
+	fn push_pending(&mut self, edit: GridEdit, publish: bool) {
+		self.pending.push(PendingGridEdit { edit, publish });
+	}
+
+	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: Voxel) {
+		self.push_pending(GridEdit::Add { voxel_pos: *voxel_pos, voxel }, true);
+	}
+
+	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) {
+		self.push_pending(GridEdit::Remove { voxel_pos: *voxel_pos }, true);
+	}
+
+	pub fn add_area(&mut self, region: NonZeroVoxelRegion, voxel: Voxel) {
+		self.push_pending(GridEdit::AddArea { region, voxel }, true);
+	}
+
+	pub fn remove_area(&mut self, region: NonZeroVoxelRegion) {
+		self.push_pending(GridEdit::RemoveArea { region }, true);
+	}
+
+	pub fn apply_sdf(&mut self, bounds_min: Vec3, bounds_max: Vec3, voxel: Voxel, sdf: Arc<dyn Sdf>) {
+		self.push_pending(GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution: IVec2::splat(9), iterations: 6, voxel, sdf }, true);
+	}
+
+	pub fn clear_sdf(&mut self, bounds_min: Vec3, bounds_max: Vec3, sdf: Arc<dyn Sdf>) {
+		self.push_pending(GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution: IVec2::splat(9), iterations: 6, sdf }, true);
+	}
+
+	/// Enqueue a local edit for streaming ownership and authoritative publication.
+	pub fn push_edit(&mut self, edit: GridEdit) {
+		self.push_pending(edit, true);
+	}
+
+	/// Materialize an already-authoritative command without publishing it again.
+	pub fn push_authoritative_edit(&mut self, edit: GridEdit) {
+		self.push_pending(edit, false);
+	}
+}
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ApplyGridEdits;
 
 impl GridStreaming {
 	pub(crate) fn replay_stalled(&mut self, chunk: IVec3, edits: &mut Option<Mut<GridEdits>>) {
@@ -21,38 +78,28 @@ impl GridStreaming {
 			self.release_completed(chunk);
 		}
 	}
-}
 
-impl EditGate for GridStreaming {
-	fn admit(&mut self, edit: &GridEdit) -> bool {
-		let region = chunks_covering_voxel_region(edit.voxel_bounds());
-		let all_borrowed = (region.min().z..region.end().z).all(|z| {
-			(region.min().y..region.end().y).all(|y| {
-				(region.min().x..region.end().x).all(|x| self.borrowed_chunks.contains(&IVec3::new(x, y, z)))
-			})
-		});
-		if all_borrowed { return true; }
-		self.pending_borrow_edits.push(edit.clone());
+	fn admit_edit(&mut self, edit: &GridEdit) -> bool {
+		self.pending_take_edits.extend(edit.resolved_commands());
 		false
 	}
+}
 
-	fn touched(&mut self, edit: &GridEdit) {
-		let region = chunks_covering_voxel_region(edit.voxel_bounds());
-		self.completed_edits.push(edit.clone());
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					let chunk = IVec3::new(x, y, z);
-					let was_absent = self.presence.state(chunk).is_none();
-					if let None | Some(ChunkState::Available) | Some(ChunkState::Loaded) | Some(ChunkState::InternalDirty) = self.presence.state(chunk) {
-						self.presence.set_state(chunk, ChunkState::InternalDirty);
-						self.newly_dirty.push(chunk);
-						if was_absent {
-							self.newly_present_dirty.push(chunk);
-						}
-					}
-				}
-			}
+pub fn apply_grid_edits(
+	mut commands: Commands,
+	mut grids: Query<(GridId, &mut Grid, &mut GridEdits, &mut GridStreaming)>,
+	mut sub_grids: Query<&mut SubGrid>,
+) {
+	for (grid_entity, mut grid, mut edits, mut streaming) in grids.iter_mut() {
+		if edits.pending.is_empty() { continue; }
+
+		let mut touched: HashSet<IVec3> = HashSet::new();
+		for pending in std::mem::take(&mut edits.pending) {
+			let PendingGridEdit { edit, publish } = pending;
+			if publish && !streaming.admit_edit(&edit) { continue; }
+			touched.extend(apply_grid_edit(grid.as_mut(), &edit));
 		}
+
+		reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
 	}
 }

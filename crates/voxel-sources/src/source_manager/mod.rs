@@ -1,12 +1,9 @@
 mod handle;
-mod ownership;
 mod request_processing;
 mod source;
 mod worker;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 use bevy::ecs::resource::Resource;
 use bevy::math::IVec3;
@@ -16,11 +13,10 @@ use rustc_hash::FxHashMap;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_tasks::{AsyncTaskPriorityQueueResource, CancellationToken};
-use handle::{SourceEditEmitter, SourceMessage, VoxelLodGenerators};
-pub use handle::{ChunkPresence, ChunksBorrowed, ChunksEdited, SourceHandle, SourceId, VoxelLodGenerator};
-pub use ownership::LentChunks;
+use handle::{SourceEditEmitter, SourceMessage, TakeContext, VoxelLodGenerators};
+pub use handle::{ChunkPresence, ChunksEdited, SourceHandle, SourceId, VoxelLodGenerator};
 use request_processing::{RequestProcessor, RequestState};
-pub use source::{ChunkSource, LendResult};
+pub use source::{ChunkSource, SourceCoverage, TakeJob};
 use source::SharedSource;
 use worker::SourceWork;
 
@@ -32,7 +28,7 @@ pub enum Completed {
 	ChunkLoaded {
 		grid: GridId,
 		chunk: IVec3,
-		edit_index: u64,
+		generation: u64,
 		voxels: Option<Voxels>,
 	},
 	VoxelsLoaded {
@@ -41,7 +37,7 @@ pub enum Completed {
 		size: IVec3,
 		lod: f32,
 		voxel_type: VoxelTypeId,
-		edit_index: u64,
+		generation: u64,
 		voxels: Option<Voxels>,
 	},
 }
@@ -53,22 +49,19 @@ pub struct SourceManager {
 	message_tx: Sender<SourceMessage>,
 	message_rx: Receiver<SourceMessage>,
 	request_state: RequestState,
-	edit_indices: Arc<Mutex<HashMap<GridId, u64>>>,
 	edit_events: SourceEditEmitter,
-	next_borrow_request: AtomicU64,
+	routing: Arc<RwLock<()>>,
 	work_tx: Sender<SourceWork>,
 	work_rx: Receiver<SourceWork>,
 	completed: Vec<Completed>,
 	source_presence: Vec<ChunkPresence>,
 	edited: Vec<ChunksEdited>,
-	borrowed: Vec<ChunksBorrowed>,
 }
 
 impl Default for SourceManager {
 	fn default() -> Self {
 		let (message_tx, message_rx) = unbounded();
-		let edit_indices = Arc::new(Mutex::new(HashMap::new()));
-		let edit_events = SourceEditEmitter::new(edit_indices.clone(), message_tx.clone());
+		let edit_events = SourceEditEmitter::new(message_tx.clone());
 		let (work_tx, work_rx) = unbounded();
 		Self {
 			sources: Vec::new(),
@@ -76,15 +69,13 @@ impl Default for SourceManager {
 			message_tx,
 			message_rx,
 			request_state: RequestState::default(),
-			edit_indices,
 			edit_events,
-			next_borrow_request: AtomicU64::new(1),
+			routing: Arc::new(RwLock::new(())),
 			work_tx,
 			work_rx,
 			completed: Vec::new(),
 			source_presence: Vec::new(),
 			edited: Vec::new(),
-			borrowed: Vec::new(),
 		}
 	}
 }
@@ -97,6 +88,7 @@ pub(crate) fn spawn_workers(
 	let processor = RequestProcessor::new(
 		manager.sources.clone().into(),
 		manager.request_state.clone(),
+		manager.routing.clone(),
 		async_queue.pusher(),
 		manager.message_tx.clone(),
 	);
@@ -113,13 +105,19 @@ impl SourceManager {
 		self.generators.write().unwrap().insert((generator.input_type_id(), generator.output_type_id()), generator);
 	}
 
-	pub(crate) fn init_sources(&self) {
+	pub(crate) fn init_sources(&self, pusher: voxel_tasks::AsyncTaskPusher) {
+		let take = TakeContext {
+			sources: self.sources.clone().into(),
+			routing: self.routing.clone(),
+			pusher,
+		};
 		for (i, source) in self.sources.iter().enumerate() {
 			source.init(SourceHandle {
 				id: SourceId(i),
 				messages: self.message_tx.clone(),
 				lod_generators: self.generators.clone(),
 				edits: self.edit_events.clone(),
+				take: take.clone(),
 			});
 		}
 	}
@@ -129,11 +127,11 @@ impl SourceManager {
 		let _ = self.work_tx.send(SourceWork::Presence { grid });
 	}
 
-	/// Start loading one chunk and return the source edit_index captured by the request.
+	/// Start loading one chunk and return the spatial generation captured by the request.
 	pub fn request_chunk(&self, grid: GridId, chunk: IVec3, cancellation: CancellationToken) -> u64 {
-		let edit_index = self.current_edit_index(grid);
-		let _ = self.work_tx.send(SourceWork::Chunk { grid, chunk, edit_index, cancellation });
-		edit_index
+		let generation = self.chunk_generation(grid, chunk);
+		let _ = self.work_tx.send(SourceWork::Chunk { grid, chunk, generation, cancellation });
+		generation
 	}
 
 	/// Start loading voxel data for a chunk-space region.
@@ -147,7 +145,7 @@ impl SourceManager {
 		priority: f32,
 		cancellation: CancellationToken,
 	) -> u64 {
-		let edit_index = self.current_edit_index(grid);
+		let generation = self.region_generation(grid, min, size);
 		let _ = self.work_tx.send(SourceWork::Voxels {
 			grid,
 			min,
@@ -155,39 +153,17 @@ impl SourceManager {
 			lod,
 			voxel_type,
 			priority,
-			edit_index,
+			generation,
 			cancellation,
 		});
-		edit_index
-	}
-
-	/// Borrow a chunk-space area into `borrower`. The returned request ID is
-	/// published in [`ChunksBorrowed`] when the complete area is ready.
-	pub fn borrow_area(
-		&self,
-		borrower: SourceId,
-		grid: GridId,
-		min: IVec3,
-		size: IVec3,
-		cancellation: CancellationToken,
-	) -> u64 {
-		assert!(borrower.0 < self.sources.len(), "invalid borrower source ID");
-		let request = self.next_borrow_request.fetch_add(1, Ordering::Relaxed);
-		let edit_index = self.current_edit_index(grid);
-		let _ = self.work_tx.send(SourceWork::Borrow { request, borrower, grid, min, size, edit_index, cancellation });
-		request
-	}
-
-	/// Return a borrowed area without changing the retained owner data.
-	pub fn return_area(&self, grid: GridId, min: IVec3, size: IVec3) {
-		let _ = self.work_tx.send(SourceWork::Return { grid, min, size });
+		generation
 	}
 
 	/// Persist an already-edited chunk. This transfers ownership but does not
-	/// advance the edit index or emit an edit event.
-	pub fn save_chunk(&self, grid: GridId, chunk: IVec3, edit_index: u64, voxels: &Voxels) {
+	/// advance its generation or emit a command event.
+	pub fn save_chunk(&self, grid: GridId, chunk: IVec3, generation: u64, voxels: &Voxels) {
 		for (i, source) in self.sources.iter().enumerate() {
-			if source.save(grid, chunk, edit_index, voxels) {
+			if source.save(grid, chunk, generation, voxels) {
 				for (j, other) in self.sources.iter().enumerate() {
 					if j != i { other.forget(grid, chunk); }
 				}
@@ -213,10 +189,6 @@ impl SourceManager {
 		std::mem::take(&mut self.edited)
 	}
 
-	pub fn get_borrowed(&mut self) -> Vec<ChunksBorrowed> {
-		self.collect_messages();
-		std::mem::take(&mut self.borrowed)
-	}
 
 	fn collect_messages(&mut self) {
 		self.request_state.retain_active();
@@ -224,7 +196,6 @@ impl SourceManager {
 			match message {
 				SourceMessage::Presence(presence) => self.source_presence.push(presence),
 				SourceMessage::Edited(edited) => self.edited.push(edited),
-				SourceMessage::Borrowed(borrowed) => self.borrowed.push(borrowed),
 				SourceMessage::PresenceLoaded(grid) => {
 					if self.request_state.finish_presence_load(grid) {
 						self.completed.push(Completed::PresenceLoaded { grid });
@@ -233,19 +204,23 @@ impl SourceManager {
 				SourceMessage::Chunk(result) => self.completed.push(Completed::ChunkLoaded {
 					grid: result.grid,
 					chunk: result.chunk,
-					edit_index: result.edit_index,
+					generation: result.generation,
 					voxels: result.voxels,
 				}),
+				SourceMessage::Transferred(result) => {
+					let _ = (result.source, result.generation);
+					self.sources[result.destination.0].receive_taken(result.grid, result.chunk, result.voxels);
+				}
 				SourceMessage::Voxels(result) => {
 					let (grid, min, size, voxel_type) = (result.grid, result.region.min(), result.region.size().as_ivec3(), result.voxel_type);
-					if let Some((lod, voxels, edit_index)) = self.request_state.take_voxels_completion(result) {
+					if let Some((lod, voxels, generation)) = self.request_state.take_voxels_completion(result) {
 						self.completed.push(Completed::VoxelsLoaded {
 							grid,
 							min,
 							size,
 							lod,
 							voxel_type,
-							edit_index,
+							generation,
 							voxels,
 						});
 					}
@@ -254,7 +229,16 @@ impl SourceManager {
 		}
 	}
 
-	pub fn current_edit_index(&self, grid: GridId) -> u64 {
-		self.edit_indices.lock().unwrap().get(&grid).copied().unwrap_or(0)
+
+	pub fn current_generation(&self, grid: GridId) -> u64 {
+		self.edit_events.current_generation(grid)
+	}
+
+	pub fn chunk_generation(&self, grid: GridId, chunk: IVec3) -> u64 {
+		self.region_generation(grid, chunk, IVec3::ONE)
+	}
+
+	pub fn region_generation(&self, grid: GridId, min: IVec3, size: IVec3) -> u64 {
+		self.edit_events.region_generation(grid, tile_data::ChunkRegion::new(min, size.as_uvec3()))
 	}
 }

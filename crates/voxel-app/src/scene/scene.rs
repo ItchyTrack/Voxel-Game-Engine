@@ -8,7 +8,7 @@ use basic_voxel::{BasicVoxel, MarchingVoxel};
 use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_data::voxels::VoxelType;
-use voxel_edit::GridEdits;
+use voxel_streaming::GridEdits;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_gpu::{RenderingContext, RenderingType};
 use voxel_lightyear::ReplicateVoxels;

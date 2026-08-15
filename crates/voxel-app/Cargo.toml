@@ -46,7 +46,6 @@ voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
 voxel-lightyear = { version = "0.1.0", path = "../voxel-lightyear" }
-voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 voxel-engine = { version = "0.1.0", path = "../voxel-engine" }
 voxel-content = { version = "0.1.0", path = "../voxel-content" }
 lightyear = { version = "0.28.0", features = ["udp", "netcode"] }

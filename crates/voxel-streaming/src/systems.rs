@@ -4,8 +4,8 @@ use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
-use voxel_edit::GridEdits;
-use voxel_sources::{ChunkLoaded, ChunkPresence, ChunksBorrowed, ChunksEdited, SourceManager, VoxelSourcesRequestHandleGetter};
+use voxel_edit::apply_grid_edit;
+use voxel_sources::{ChunkLoaded, ChunkPresence, ChunksEdited, SourceManager, VoxelSourcesRequestHandleGetter};
 use voxel_tasks::CancellationToken;
 
 use tracy_client::span;
@@ -27,7 +27,7 @@ use crate::{
 	DynamicTileData, LoadedTile, ChunkRegion, StreamingSourceRequestHandle, TileGenerationContext,
 	TileGeneratorRegistry, TileLoadStatus, TileLoadUpdate,
 };
-use crate::{ChunkSaveChannel, ChunkSaveRequest, GridStreaming, InflightChunkPresence, PresenceLoadRequest, RequestChunkPresence};
+use crate::{GridEdits, GridStreaming, InflightChunkPresence, PresenceLoadRequest, RequestChunkPresence};
 use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkEditInterestChanged, ChunkLoadResolved};
 use crate::presence::ChunkState;
 use crate::grid_source::StreamingGridSource;
@@ -64,72 +64,110 @@ pub fn apply_source_presence(
 	}
 }
 
+pub fn materialize_authoritative_commands(
+	mut ecs_commands: Commands,
+	mut commands: MessageReader<crate::AuthoritativeGridCommand>,
+	mut grids: Query<(&mut GridStreaming, &mut Grid)>,
+	mut sub_grids: Query<&mut SubGrid>,
+) {
+	for command in commands.read() {
+		let Ok((mut streaming, mut grid_data)) = grids.get_mut(command.grid) else { continue };
+		if !streaming.command_follows(command.region, command.generation) { continue; }
+		let mut touched = HashSet::new();
+		for z in command.region.min().z..command.region.end().z {
+			for y in command.region.min().y..command.region.end().y {
+				for x in command.region.min().x..command.region.end().x {
+					let chunk = IVec3::new(x, y, z);
+					let limit = NonZeroVoxelRegion::from_min_size(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE)).unwrap();
+					let Some(edit) = command.edit.clipped_to(limit) else { continue };
+					if streaming.is_chunk_data_resident(chunk) {
+						touched.extend(apply_grid_edit(grid_data.as_mut(), &edit));
+					} else {
+						streaming.pending_authoritative_edits.entry(chunk).or_default().push((command.generation, edit));
+					}
+				}
+			}
+		}
+		if !touched.is_empty() {
+			reconcile_subgrids(command.grid, grid_data.as_mut(), touched, &mut ecs_commands, &mut sub_grids);
+		}
+		streaming.note_source_generation(command.region, command.generation);
+		streaming.dirty_stale_tiles(command.region, command.generation);
+	}
+}
+
 pub fn apply_edit_events(
 	mut edit_events: MessageReader<ChunksEdited>,
 	mut grids: Query<&mut GridStreaming>,
 ) {
 	for event in edit_events.read() {
 		let Ok(mut streaming) = grids.get_mut(event.grid) else { continue };
-		streaming.note_source_edit_index(event.edit_index);
-		for z in event.region.min().z..event.region.min().z + event.region.size().as_ivec3().z {
-			for y in event.region.min().y..event.region.min().y + event.region.size().as_ivec3().y {
-				for x in event.region.min().x..event.region.min().x + event.region.size().as_ivec3().x {
-					streaming.dirty_stale_tiles_covering(IVec3::new(x, y, z), event.edit_index);
-				}
-			}
-		}
+		streaming.note_source_generation(event.region, event.generation);
+		streaming.dirty_stale_tiles(event.region, event.generation);
 	}
 }
 
-pub(crate) fn receive_borrowed_areas(
-	mut borrowed: MessageReader<ChunksBorrowed>,
+pub(crate) fn request_edit_takes(
+	mut commands: Commands,
 	source: Res<StreamingGridSource>,
-	mut grids: Query<(&mut GridStreaming, Option<&mut GridEdits>)>,
+	mut grids: Query<(GridId, &mut GridStreaming, &mut Grid)>,
+	mut sub_grids: Query<&mut SubGrid>,
+	mut consumers: Query<&mut dyn ChunkConsumer>,
+	mut chunk_resolved: MessageWriter<ChunkLoadResolved>,
 ) {
-	for event in borrowed.read().copied() {
-		if source.id() != Some(event.borrower) { continue; }
-		let Ok((mut streaming, mut edits)) = grids.get_mut(event.grid) else { continue };
-		let Some(edit) = streaming.inflight_borrow_edits.remove(&event.request) else { continue };
-		if !event.success {
-			streaming.pending_borrow_edits.push(edit);
-			continue;
+	let Some(handle) = source.handle() else { return };
+	for (grid, mut streaming, mut grid_data) in &mut grids {
+		let mut touched = HashSet::new();
+		let mut resolved_chunks = Vec::new();
+		let mut completed = Vec::new();
+		for edit in std::mem::take(&mut streaming.pending_take_edits) {
+			let region = chunks_covering_voxel_region(edit.voxel_bounds());
+			handle.take(grid, region.min(), region.size().as_ivec3());
+			for z in region.min().z..region.end().z { for y in region.min().y..region.end().y { for x in region.min().x..region.end().x {
+				let chunk = IVec3::new(x, y, z);
+				let source_ready = source.is_ready(grid, chunk);
+				let resident = streaming.is_chunk_data_resident(chunk);
+				streaming.owned_chunks.insert(chunk);
+				if !streaming.presence().is_present(chunk) {
+					streaming.mark_present(chunk);
+					streaming.pending_newly_present_edits.insert(chunk);
+					source.presence(grid, chunk, IVec3::ONE);
+				}
+				if (source_ready || resident)
+					&& let Some(chunk_edit) = edit.clipped_to(NonZeroVoxelRegion::from_min_size(
+						chunk_origin(chunk),
+						IVec3::splat(CHUNK_SIZE),
+					).unwrap()) {
+					touched.extend(apply_grid_edit(grid_data.as_mut(), &chunk_edit));
+					let was_inflight = matches!(streaming.state(chunk), Some(ChunkState::InFlight));
+					if was_inflight { streaming.finish_chunk_request(chunk); }
+					streaming.presence.set_state(chunk, ChunkState::InternalDirty);
+					streaming.newly_dirty.push(chunk);
+					if streaming.pending_newly_present_edits.remove(&chunk) {
+						streaming.newly_present_dirty.push(chunk);
+					}
+					if was_inflight { resolved_chunks.push(chunk); }
+				}
+				if !source_ready { source.queue_edit(grid, chunk, edit.clone()); }
+			}}}
+			completed.push((region, edit));
 		}
-		for z in event.region.min().z..event.region.min().z + event.region.size().as_ivec3().z {
-			for y in event.region.min().y..event.region.min().y + event.region.size().as_ivec3().y {
-				for x in event.region.min().x..event.region.min().x + event.region.size().as_ivec3().x {
-					let chunk = IVec3::new(x, y, z);
-					streaming.borrowed_chunks.insert(chunk);
-					if !streaming.presence().is_present(chunk) {
-						streaming.mark_present(chunk);
-						source.presence(event.grid, chunk, IVec3::ONE);
+		if !touched.is_empty() {
+			reconcile_subgrids(grid, grid_data.as_mut(), touched, &mut commands, &mut sub_grids);
+		}
+		for chunk in resolved_chunks {
+			for mut entity_consumers in consumers.iter_mut() {
+				for mut consumer in &mut entity_consumers {
+					if consumer.needed().get(&grid).is_some_and(|set| set.contains(&chunk)) {
+						*consumer.outstanding_mut() = consumer.outstanding().saturating_sub(1);
 					}
 				}
 			}
+			let visible = !grid_data.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE)).is_empty();
+			chunk_resolved.write(ChunkLoadResolved { grid, chunk, visible });
 		}
-		if let Some(edits) = edits.as_mut() { edits.push_edit(edit); }
-	}
-}
-
-pub(crate) fn request_edit_borrows(
-	sources: Res<SourceManager>,
-	source: Res<StreamingGridSource>,
-	mut grids: Query<(GridId, &mut GridStreaming, Has<RequestChunkPresence>, Has<InflightChunkPresence>)>,
-) {
-	let Some(borrower) = source.id() else { return };
-	for (grid, mut streaming, presence_requested, presence_inflight) in &mut grids {
-		if presence_requested || presence_inflight { continue; }
-		let pending = std::mem::take(&mut streaming.pending_borrow_edits);
-		for edit in pending {
-			let region = chunks_covering_voxel_region(edit.voxel_bounds());
-			let has_inflight = (region.min().z..region.end().z).any(|z| (region.min().y..region.end().y).any(|y| {
-				(region.min().x..region.end().x).any(|x| matches!(streaming.state(IVec3::new(x, y, z)), Some(ChunkState::InFlight)))
-			}));
-			if has_inflight {
-				streaming.pending_borrow_edits.push(edit);
-				continue;
-			}
-			let request = sources.borrow_area(borrower, grid, region.min(), region.size().as_ivec3(), CancellationToken::new());
-			streaming.inflight_borrow_edits.insert(request, edit);
+		for (region, edit) in completed {
+			source.edited(grid, region.min(), region.size().as_ivec3(), edit);
 		}
 	}
 }
@@ -139,20 +177,8 @@ pub(crate) fn publish_edit_interest_changes(
 	mut grids: Query<(GridId, &mut GridStreaming)>,
 ) {
 	for (grid, mut streaming) in &mut grids {
-		for (region, interested) in std::mem::take(&mut streaming.queued_edit_interest) {
-			events.write(ChunkEditInterestChanged { grid, region, interested });
-		}
-	}
-}
-
-pub(crate) fn publish_completed_edits(
-	source: Res<StreamingGridSource>,
-	mut grids: Query<(GridId, &mut GridStreaming)>,
-) {
-	for (grid, mut streaming) in &mut grids {
-		for edit in std::mem::take(&mut streaming.completed_edits) {
-			let region = chunks_covering_voxel_region(edit.voxel_bounds());
-			source.edited(grid, region.min(), region.size().as_ivec3(), edit);
+		for (chunk, (version, interested)) in std::mem::take(&mut streaming.queued_edit_interest) {
+			events.write(ChunkEditInterestChanged { grid, region: ChunkRegion::new(chunk, UVec3::ONE), version, interested });
 		}
 	}
 }
@@ -179,15 +205,6 @@ pub fn receive_chunk_presence_loaded(
 	}
 }
 
-pub fn serve_saves(
-	saves: Res<ChunkSaveChannel>,
-	sources: Res<SourceManager>,
-) {
-	while let Some(save) = saves.try_recv() {
-		sources.save_chunk(save.grid, save.chunk, save.edit_index, &save.voxels);
-	}
-}
-
 pub fn receive_results(
 	mut commands: Commands,
 	mut channel: MessageReader<ChunkLoaded>,
@@ -198,13 +215,14 @@ pub fn receive_results(
 	mut chunk_resolved: MessageWriter<ChunkLoadResolved>,
 ) {
 	let pending: Vec<_> = channel.read().cloned().collect();
-	let mut loaded_by_grid: HashMap<GridId, Vec<(IVec3, voxel_data::voxels::Voxels)>> = HashMap::new();
+	let mut loaded_by_grid: HashMap<GridId, Vec<(IVec3, u64, voxel_data::voxels::Voxels)>> = HashMap::new();
 
 	for result in pending {
 		let _zone = span!("receive result");
 		let result_grid = result.grid;
 		let result_chunk = result.chunk;
 		let was_empty = result.voxels.is_none();
+		let mut materialized_pending_command = false;
 		let mut became_empty = false;
 		let mut accepted = false;
 		if let Ok((mut streaming, _grid, mut edits)) = grids.get_mut(result.grid) {
@@ -212,6 +230,7 @@ pub fn receive_results(
 			match state {
 				Some(ChunkState::InFlight) => {
 					streaming.finish_chunk_request(result.chunk);
+					streaming.note_source_generation(ChunkRegion::new(result.chunk, UVec3::ONE), result.generation);
 					accepted = true;
 					match result.voxels {
 						Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
@@ -219,9 +238,17 @@ pub fn receive_results(
 						}
 						Some(voxels) => {
 							streaming.mark_loaded(result.chunk);
-							loaded_by_grid.entry(result.grid).or_default().push((result.chunk, voxels));
+							loaded_by_grid.entry(result.grid).or_default().push((result.chunk, result.generation, voxels));
+						}
+						None if streaming.pending_authoritative_edits.get(&result.chunk)
+							.is_some_and(|edits| edits.iter().any(|(generation, _)| *generation > result.generation)) => {
+							streaming.mark_loaded(result.chunk);
+							let voxels = voxel_data::voxels::Voxels::new_with_type(_grid.voxel_type_info());
+							loaded_by_grid.entry(result.grid).or_default().push((result.chunk, result.generation, voxels));
+							materialized_pending_command = true;
 						}
 						None => {
+							streaming.pending_authoritative_edits.remove(&result.chunk);
 							streaming.mark_empty(result.chunk, IVec3::ONE);
 							streaming.replay_stalled(result.chunk, &mut edits);
 							became_empty = true;
@@ -238,7 +265,7 @@ pub fn receive_results(
 				kind: ChunkAvailabilityChangeKind::BecameEmpty,
 			});
 		}
-		if accepted && was_empty {
+		if accepted && was_empty && !materialized_pending_command {
 			chunk_resolved.write(ChunkLoadResolved { grid: result_grid, chunk: result_chunk, visible: false });
 		}
 
@@ -251,7 +278,7 @@ pub fn receive_results(
 					continue;
 				}
 				*consumer.outstanding_mut() = consumer.outstanding().saturating_sub(1);
-				if was_empty {
+				if was_empty && !materialized_pending_command {
 					if let Some(set) = consumer.needed_mut().get_mut(&result.grid) {
 						set.remove(&result.chunk);
 						if set.is_empty() { consumer.needed_mut().remove(&result.grid); }
@@ -267,12 +294,19 @@ pub fn receive_results(
 		let chunk_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::splat(CHUNK_SIZE)).unwrap();
 		let splats: Vec<_> = loaded
 			.iter()
-			.map(|(chunk, voxels)| GridSplat { grid: 0, base: chunk_origin(*chunk), voxels, replace: Some(chunk_region) })
+			.map(|(chunk, _, voxels)| GridSplat { grid: 0, base: chunk_origin(*chunk), voxels, replace: Some(chunk_region) })
 			.collect();
 		let mut touched_by_grid = splat_voxels_blocking(std::slice::from_mut(grid.as_mut()), &splats);
-		let touched = touched_by_grid.remove(&0).unwrap_or_default();
+		let mut touched = touched_by_grid.remove(&0).unwrap_or_default();
+		for (chunk, generation, _) in &loaded {
+			if let Some(commands) = streaming.pending_authoritative_edits.remove(chunk) {
+				for (command_generation, edit) in commands {
+					if *generation < command_generation { touched.extend(apply_grid_edit(grid.as_mut(), &edit)); }
+				}
+			}
+		}
 		reconcile_subgrids(grid_entity, grid.as_mut(), touched.iter().copied(), &mut commands, &mut sub_grids);
-		for (chunk, _) in loaded {
+		for (chunk, _, _) in loaded {
 			streaming.replay_stalled(chunk, &mut edits);
 			let min = chunk_origin(chunk);
 			let visible = touched
@@ -297,7 +331,9 @@ pub fn receive_tile_results(world: &mut World) {
 		let context_matches = world.get::<TileGenerationContext>(result.grid).is_some_and(|context| context.version() == result.context_version);
 		let accepted = {
 			let Some(mut streaming) = world.get_mut::<GridStreaming>(result.grid) else { continue };
-			let stale_source = result.source_edit_index.is_some_and(|edit_index| edit_index < streaming.latest_source_edit_index);
+			let stale_source = result.dependencies.iter().any(|dependency| {
+				streaming.chunk_generations.last_changed(dependency.area) > dependency.generation
+			});
 			let Some(state) = streaming.tiles.get_mut(&key) else { continue };
 			let status = std::mem::replace(&mut state.status, TileStatus::Requested);
 			let matching_task = matches!(&status, TileStatus::InFlight { tag, .. } if *tag == result.tag);
@@ -427,13 +463,11 @@ pub(crate) fn request_tiles(
 				if task_cancellation.is_cancelled() { return; }
 				let mut metadata = metadata.lock().unwrap();
 				let dependencies = std::mem::take(&mut metadata.dependencies);
-				let source_edit_index = metadata.source_edit_index;
 				drop(metadata);
 				let _ = result_tx.send(TileGenerationResult {
 					grid,
 					tag,
 					context_version,
-					source_edit_index,
 					dependencies,
 					data,
 				});
@@ -447,9 +481,9 @@ pub(crate) fn request_tiles(
 	}
 }
 
-pub fn handle_dirty_chunks(
+pub(crate) fn handle_dirty_chunks(
 	sources: Res<SourceManager>,
-	save_channel: Res<ChunkSaveChannel>,
+	source: Res<StreamingGridSource>,
 	mut grids: Query<(GridId, &mut GridStreaming, &Grid)>,
 	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
 ) {
@@ -466,18 +500,23 @@ pub fn handle_dirty_chunks(
 		let dirty: HashSet<_> = std::mem::take(&mut streaming.newly_dirty).into_iter().collect();
 		for chunk in dirty {
 			if !matches!(streaming.presence.state(chunk), Some(ChunkState::InternalDirty)) { continue; }
+			if !source.is_ready(grid, chunk) {
+				streaming.newly_dirty.push(chunk);
+				continue;
+			}
 			let voxels = grid_data.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE));
-			save_channel.save(ChunkSaveRequest { grid, chunk, edit_index: sources.current_edit_index(grid), voxels });
-			streaming.borrowed_chunks.remove(&chunk);
+			let generation = sources.chunk_generation(grid, chunk);
+			sources.save_chunk(grid, chunk, generation, &voxels);
+			streaming.owned_chunks.remove(&chunk);
 			streaming.presence.set_state(chunk, ChunkState::Loaded);
 		}
 	}
 }
 
-pub fn apply_chunk_clears(
+pub(crate) fn apply_chunk_clears(
 	mut commands: Commands,
 	sources: Res<SourceManager>,
-	save_channel: Res<ChunkSaveChannel>,
+	source: Res<StreamingGridSource>,
 	mut grids: Query<(Entity, &mut GridStreaming, &mut Grid)>,
 	mut sub_grids: Query<&mut SubGrid>,
 ) {
@@ -501,14 +540,18 @@ pub fn apply_chunk_clears(
 						still_pending.push((chunk, frames - 1));
 						continue;
 					}
+					if !source.is_ready(grid_entity, chunk) {
+						still_pending.push((chunk, 0));
+						continue;
+					}
 					let (touched, voxels) = grid.read_set_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE), None);
-					save_channel.save(ChunkSaveRequest {
-						grid: grid_entity,
+					sources.save_chunk(
+						grid_entity,
 						chunk,
-						edit_index: sources.current_edit_index(grid_entity),
-						voxels,
-					});
-					streaming.borrowed_chunks.remove(&chunk);
+						sources.chunk_generation(grid_entity, chunk),
+						&voxels,
+					);
+					streaming.owned_chunks.remove(&chunk);
 					reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
 					streaming.presence.set_state(chunk, ChunkState::Available);
 				}

@@ -2,7 +2,6 @@ mod client_rendering;
 
 use bevy::app::{PluginGroup, PluginGroupBuilder};
 use voxel_data::VoxelDataPlugin;
-use voxel_edit::VoxelEditPlugin;
 use voxel_gpu::GpuVoxelDataPlugin;
 use voxel_lightyear::VoxelLightyearPlugins;
 use voxel_physics::VoxelPhysicsPlugin;
@@ -27,7 +26,6 @@ impl PluginGroup for VoxelEnginePlugins {
 		let group = PluginGroupBuilder::start::<Self>()
 			.add(GpuVoxelDataPlugin)
 			.add(VoxelDataPlugin)
-			.add(VoxelEditPlugin)
 			.add(VoxelStreamingPlugin)
 			.add(VoxelPhysicsPlugin);
 

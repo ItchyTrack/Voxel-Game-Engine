@@ -1,13 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 
-use crossbeam_channel::{Receiver, Sender, bounded};
-
 use bevy::log::warn;
 use bevy::math::IVec3;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{CancellationToken, LendResult, VoxelAreaKey, SourceHandle};
+use voxel_sources::{CancellationToken, VoxelAreaKey, SourceHandle};
 
 use super::super::{
 	VoxelLoadFinished,
@@ -28,9 +26,9 @@ struct PendingChunkKey {
 #[derive(Clone, Debug)]
 struct PendingChunk {
 	key: PendingChunkKey,
-	request_edit_index: u64,
+	request_generation: u64,
+	destination: Option<voxel_sources::SourceId>,
 	cancellation: CancellationToken,
-	lend_response: Option<Sender<LendResult>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -43,7 +41,7 @@ struct PendingVoxelAreaKey {
 #[derive(Clone, Debug)]
 struct PendingVoxelArea {
 	key: PendingVoxelAreaKey,
-	request_edit_index: u64,
+	required_generation: u64,
 	cancellation: CancellationToken,
 }
 
@@ -72,7 +70,7 @@ pub(crate) struct ClientLoadRegistry {
 }
 
 impl ClientLoadRegistry {
-	pub fn request_chunk(&mut self, grid: GridId, chunk: IVec3, request_edit_index: u64, cancellation: CancellationToken) {
+	pub fn request_chunk(&mut self, grid: GridId, chunk: IVec3, request_generation: u64, destination: Option<voxel_sources::SourceId>, cancellation: CancellationToken) {
 		let key = PendingChunkKey { grid, chunk };
 		if let Some(previous) = self.chunk_ids.get(&key).copied() {
 			self.finish(previous, VoxelLoadOutcome::Cancelled);
@@ -81,28 +79,12 @@ impl ClientLoadRegistry {
 		let id = self.allocate_id();
 		self.pending.insert(id, PendingVoxelLoad::Chunk(PendingChunk {
 			key,
-			request_edit_index,
+			request_generation,
+			destination,
 			cancellation,
-			lend_response: None,
 		}));
 		self.chunk_ids.insert(key, id);
 		self.requests.push_back(VoxelLoadRequest { id, kind: VoxelLoadRequestKind::Chunk { grid, chunk } });
-	}
-
-	pub fn request_lend(&mut self, grid: GridId, chunk: IVec3, request_edit_index: u64, cancellation: CancellationToken) -> Receiver<LendResult> {
-		let key = PendingChunkKey { grid, chunk };
-		if let Some(previous) = self.chunk_ids.get(&key).copied() { self.finish(previous, VoxelLoadOutcome::Cancelled); }
-		let id = self.allocate_id();
-		let (response, received) = bounded(1);
-		self.pending.insert(id, PendingVoxelLoad::Chunk(PendingChunk {
-			key,
-			request_edit_index,
-			cancellation,
-			lend_response: Some(response),
-		}));
-		self.chunk_ids.insert(key, id);
-		self.requests.push_back(VoxelLoadRequest { id, kind: VoxelLoadRequestKind::Chunk { grid, chunk } });
-		received
 	}
 
 	pub fn request_voxel_area(
@@ -111,7 +93,7 @@ impl ClientLoadRegistry {
 		key: VoxelAreaKey,
 		voxel_type: VoxelTypeId,
 		priority: f32,
-		request_edit_index: u64,
+		required_generation: u64,
 		cancellation: CancellationToken,
 	) {
 		let pending_key = PendingVoxelAreaKey { grid, key, voxel_type };
@@ -122,7 +104,7 @@ impl ClientLoadRegistry {
 		let id = self.allocate_id();
 		self.pending.insert(id, PendingVoxelLoad::VoxelArea(PendingVoxelArea {
 			key: pending_key,
-			request_edit_index,
+			required_generation,
 			cancellation,
 		}));
 		self.voxel_area_ids.insert(pending_key, id);
@@ -139,11 +121,11 @@ impl ClientLoadRegistry {
 
 	pub fn receive_response(&mut self, handle: &SourceHandle, from: impl std::fmt::Debug, response: &mut VoxelLoadResponse) {
 		match &mut response.kind {
-			VoxelLoadResponseKind::Chunk { grid, chunk, edit_index, voxels } => {
-				self.receive_chunk_response(handle, from, response.id, *grid, *chunk, *edit_index, voxels);
+			VoxelLoadResponseKind::Chunk { grid, chunk, generation, voxels } => {
+				self.receive_chunk_response(handle, from, response.id, *grid, *chunk, *generation, voxels);
 			}
-			VoxelLoadResponseKind::VoxelArea { grid, key, edit_index, voxel_type, voxels } => {
-				self.receive_voxel_area_response(handle, from, response.id, *grid, *key, *edit_index, *voxel_type, voxels);
+			VoxelLoadResponseKind::VoxelArea { grid, key, generation, voxel_type, voxels } => {
+				self.receive_voxel_area_response(handle, from, response.id, *grid, *key, *generation, *voxel_type, voxels);
 			}
 		}
 	}
@@ -158,7 +140,7 @@ impl ClientLoadRegistry {
 		id: VoxelLoadId,
 		grid: GridId,
 		chunk: IVec3,
-		edit_index: u64,
+		generation: u64,
 		compressed: &mut Option<CompressedVoxels>,
 	) {
 		let Some(pending) = self.pending.get(&id) else { return };
@@ -174,7 +156,8 @@ impl ClientLoadRegistry {
 			warn!(?id, ?grid, ?chunk, ?from, "ignoring mismatched remote chunk response");
 			return;
 		}
-		if edit_index < pending.request_edit_index { return; }
+		if generation < pending.request_generation { return; }
+		let destination = pending.destination;
 
 		let voxels = match decompress(compressed) {
 			Ok(voxels) => voxels,
@@ -183,13 +166,13 @@ impl ClientLoadRegistry {
 				return;
 			}
 		};
-		let Some(PendingVoxelLoad::Chunk(pending)) = self.finish(id, VoxelLoadOutcome::Received) else {
+		let Some(PendingVoxelLoad::Chunk(_)) = self.finish(id, VoxelLoadOutcome::Received) else {
 			unreachable!("checked chunk voxel load disappeared")
 		};
-		if let Some(response) = pending.lend_response {
-			let _ = response.send(LendResult::Borrowed(voxels));
+		if let Some(destination) = destination {
+			handle.transferred(destination, grid, chunk, generation, voxels);
 		} else {
-			handle.loaded(grid, chunk, edit_index, voxels);
+			handle.loaded(grid, chunk, generation, voxels);
 		}
 	}
 
@@ -200,7 +183,7 @@ impl ClientLoadRegistry {
 		id: VoxelLoadId,
 		grid: GridId,
 		key: VoxelAreaKey,
-		edit_index: u64,
+		generation: u64,
 		voxel_type: VoxelTypeId,
 		compressed: &mut Option<CompressedVoxels>,
 	) {
@@ -217,7 +200,7 @@ impl ClientLoadRegistry {
 			warn!(?id, ?grid, min=?key.min(), size=?key.size(), lod=key.lod, ?voxel_type, ?from, "ignoring mismatched remote lod response");
 			return;
 		}
-		if edit_index < pending.request_edit_index { return; }
+		if generation < pending.required_generation { return; }
 
 		let voxels = match decompress(compressed) {
 			Ok(voxels) => voxels,
@@ -229,7 +212,7 @@ impl ClientLoadRegistry {
 		let Some(PendingVoxelLoad::VoxelArea(_pending)) = self.finish(id, VoxelLoadOutcome::Received) else {
 			unreachable!("checked lod voxel load disappeared")
 		};
-		handle.voxels_loaded(grid, key.min(), key.size().as_ivec3(), key.lod as f32, voxel_type, edit_index, voxels);
+		handle.voxels_loaded(grid, key.min(), key.size().as_ivec3(), key.lod as f32, voxel_type, generation, voxels);
 	}
 
 	fn allocate_id(&mut self) -> VoxelLoadId {
@@ -268,7 +251,7 @@ mod tests {
 	fn cancelled_chunk_has_one_terminal_outcome() {
 		let cancellation = CancellationToken::new();
 		let mut loads = ClientLoadRegistry::default();
-		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 7, cancellation.clone());
+		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 7, None, cancellation.clone());
 		let request = loads.pop_request().unwrap();
 
 		cancellation.cancel();
@@ -284,7 +267,14 @@ mod tests {
 		let cancellation = CancellationToken::new();
 		let key = VoxelAreaKey::new(IVec3::ZERO, UVec3::ONE, 1);
 		let mut loads = ClientLoadRegistry::default();
-		loads.request_voxel_area(Entity::PLACEHOLDER, key, VoxelTypeId(1), 0.0, 7, cancellation.clone());
+		loads.request_voxel_area(
+			Entity::PLACEHOLDER,
+			key,
+			VoxelTypeId(1),
+			0.0,
+			7,
+			cancellation.clone(),
+		);
 		let request = loads.pop_request().unwrap();
 
 		cancellation.cancel();
@@ -298,7 +288,7 @@ mod tests {
 	#[test]
 	fn received_voxel_load_cannot_be_cancelled_afterward() {
 		let mut loads = ClientLoadRegistry::default();
-		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 1, CancellationToken::new());
+		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 1, None, CancellationToken::new());
 		let request = loads.pop_request().unwrap();
 
 		assert!(loads.finish(request.id, VoxelLoadOutcome::Received).is_some());
@@ -310,9 +300,9 @@ mod tests {
 	#[test]
 	fn replacement_cancels_previous_chunk_voxel_load() {
 		let mut loads = ClientLoadRegistry::default();
-		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 1, CancellationToken::new());
+		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 1, None, CancellationToken::new());
 		let first = loads.pop_request().unwrap();
-		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 2, CancellationToken::new());
+		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 2, None, CancellationToken::new());
 		let second = loads.pop_request().unwrap();
 
 		assert_ne!(first.id, second.id);

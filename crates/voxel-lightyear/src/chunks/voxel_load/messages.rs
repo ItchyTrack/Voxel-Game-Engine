@@ -42,13 +42,13 @@ pub(crate) enum VoxelLoadResponseKind {
 	Chunk {
 		grid: GridId,
 		chunk: IVec3,
-		edit_index: u64,
+		generation: u64,
 		voxels: Option<CompressedVoxels>,
 	},
 	VoxelArea {
 		grid: GridId,
 		key: VoxelAreaKey,
-		edit_index: u64,
+		generation: u64,
 		voxel_type: VoxelTypeId,
 		voxels: Option<CompressedVoxels>,
 	},

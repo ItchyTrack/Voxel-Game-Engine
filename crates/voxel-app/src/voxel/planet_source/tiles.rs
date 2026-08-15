@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 
 use bevy::{math::DVec2, prelude::*};
 use tracy_client::span;
-use tile_data::{ChunkRegion, chunk_of, chunk_origin};
+use tile_data::{chunk_of, chunk_origin};
 use tile_data::CHUNK_SIZE;
 
 use super::config::{
@@ -27,7 +27,6 @@ pub(super) struct PlanetTile {
 	pub(super) axis_y: Vec3,
 	pub(super) halfspaces: Vec<Halfspace>,
 	pub(super) present_chunks: Vec<IVec3>,
-	pub(super) present_region: ChunkRegion,
 }
 
 pub(super) fn planet_tiles() -> &'static [PlanetTile] {
@@ -66,8 +65,7 @@ fn build_planet_tiles() -> Vec<PlanetTile> {
 		// A spherical Voronoi edge between tile A and tile B is the plane where
 		// dot(A, point_dir) == dot(B, point_dir). In a tile's local tangent
 		// coordinates this is just a linear halfspace, so we can cache the real
-		// convex cell once and use it for spawn presence, source costs and voxel
-		// ownership. The first ~32 neighbors are plenty for a Fibonacci sphere;
+		// convex cell once and use it for spawn presence and voxel ownership. The first ~32 neighbors are plenty for a Fibonacci sphere;
 		// farther sites cannot cut this local cell.
 		let halfspaces: Vec<_> = neighbor_dots
 			.iter()
@@ -75,7 +73,6 @@ fn build_planet_tiles() -> Vec<PlanetTile> {
 			.map(|&(other, _)| voronoi_halfspace(normal, normals[other], axis_x, axis_y))
 			.collect();
 		let present_chunks = build_present_chunks(&halfspaces);
-		let present_region = chunk_bounds(&present_chunks);
 		let active_halfspaces = remove_redundant_halfspaces(&halfspaces);
 
 		tiles.push(PlanetTile {
@@ -86,7 +83,6 @@ fn build_planet_tiles() -> Vec<PlanetTile> {
 			axis_y,
 			halfspaces: active_halfspaces,
 			present_chunks,
-			present_region,
 		});
 	}
 
@@ -244,16 +240,6 @@ fn build_present_chunks(halfspaces: &[Halfspace]) -> Vec<IVec3> {
 	chunks
 }
 
-fn chunk_bounds(chunks: &[IVec3]) -> ChunkRegion {
-	let Some((&first, rest)) = chunks.split_first() else {
-		return ChunkRegion::new(IVec3::ZERO, UVec3::ZERO);
-	};
-	let (min, max) = rest.iter().fold((first, first), |(min, max), &chunk| {
-		(min.min(chunk), max.max(chunk))
-	});
-	ChunkRegion::from_min_max_inclusive(min, max).unwrap()
-}
-
 fn voronoi_xy_bounds(halfspaces: &[Halfspace]) -> (Vec2, Vec2) {
 	let mut min = Vec2::splat(f32::INFINITY);
 	let mut max = Vec2::splat(f32::NEG_INFINITY);
@@ -316,33 +302,6 @@ pub(super) fn tile_has_chunk(tile: &PlanetTile, chunk: IVec3) -> bool {
 	tile.present_chunks
 		.binary_search_by_key(&(chunk.x, chunk.y, chunk.z), |c| (c.x, c.y, c.z))
 		.is_ok()
-}
-
-pub(super) fn tile_has_any_chunk_in_region(tile: &PlanetTile, min: IVec3, size: IVec3) -> bool {
-	let max = min + size;
-	if !aabb_intersects(min, max, tile.present_region.min(), tile.present_region.end()) {
-		return false;
-	}
-	if min.cmple(tile.present_region.min()).all() && max.cmpge(tile.present_region.end()).all() {
-		return !tile.present_chunks.is_empty();
-	}
-	tile.present_chunks.iter().any(|&chunk| {
-		chunk.x >= min.x
-			&& chunk.x < max.x
-			&& chunk.y >= min.y
-			&& chunk.y < max.y
-			&& chunk.z >= min.z
-			&& chunk.z < max.z
-	})
-}
-
-fn aabb_intersects(a_min: IVec3, a_max: IVec3, b_min: IVec3, b_max: IVec3) -> bool {
-	a_min.x < b_max.x
-		&& a_max.x > b_min.x
-		&& a_min.y < b_max.y
-		&& a_max.y > b_min.y
-		&& a_min.z < b_max.z
-		&& a_max.z > b_min.z
 }
 
 fn chunk_intersects_tile_shape(halfspaces: &[Halfspace], chunk: IVec3) -> bool {

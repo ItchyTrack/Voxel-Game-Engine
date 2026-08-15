@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use voxel_data::grid::Grid;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelType};
-use voxel_edit::GridEdits;
+use voxel_streaming::GridEdits;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 

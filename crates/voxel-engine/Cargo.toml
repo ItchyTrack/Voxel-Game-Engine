@@ -14,7 +14,6 @@ voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 voxel-lightyear = { version = "0.1.0", path = "../voxel-lightyear" }
-voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 
 [lints]
 workspace = true

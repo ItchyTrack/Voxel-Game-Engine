@@ -18,7 +18,6 @@ use crate::tile_dependency_index::TileDependency;
 #[derive(Default)]
 pub(crate) struct TileGenerationMetadata {
 	pub(crate) dependencies: HashSet<TileDependency>,
-	pub(crate) source_edit_index: Option<u64>,
 }
 
 pub(crate) struct StreamingVoxelReader {
@@ -86,10 +85,9 @@ impl GenerationVoxelReader for StreamingVoxelReader {
 						self.outstanding -= 1;
 						let mut metadata = self.metadata.lock().unwrap();
 						metadata.dependencies.insert(TileDependency {
-							area: ChunkRegion::new(result.key.min(), result.key.region.size()),
-							edit_index: result.edit_index,
+							area: result.key.region,
+							generation: result.generation,
 						});
-						metadata.source_edit_index = Some(metadata.source_edit_index.map_or(result.edit_index, |current| current.min(result.edit_index)));
 						drop(metadata);
 
 						if let Some(voxels) = result.voxels {
@@ -128,7 +126,6 @@ pub(crate) struct TileGenerationResult {
 	pub(crate) grid: GridId,
 	pub(crate) tag: u64,
 	pub(crate) context_version: u64,
-	pub(crate) source_edit_index: Option<u64>,
 	pub(crate) dependencies: HashSet<TileDependency>,
 	pub(crate) data: Option<Box<dyn TileData>>,
 }

@@ -3,15 +3,8 @@ name = "voxel-edit"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-default = []
-tracy = ["tracy-client/enable"]
-
 [dependencies]
 bevy = { workspace = true }
-bevy_ecs = "0.19.0"
-bevy-trait-query = "0.19.0"
-tracy-client = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

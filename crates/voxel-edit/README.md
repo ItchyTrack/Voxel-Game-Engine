@@ -1,6 +1,6 @@
 # Voxel Edit
 
-This crate is an API for making edits to the grid so that other systems can intersept the edits.
+This crate defines voxel-grid edit commands and the operations that apply them directly to grid data.
 
 Deps:
 - voxel-data

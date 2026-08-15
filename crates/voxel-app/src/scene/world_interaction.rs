@@ -10,7 +10,7 @@ use std::sync::Arc;
 use voxel_data::grid::Grid;
 use voxel_data::voxels::{Voxel, VoxelType};
 use voxel_data::world_query::VoxelWorldQueryParam;
-use voxel_edit::GridEdits;
+use voxel_streaming::GridEdits;
 use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, Velocity, VoxelPhysicsAppExt};
 
 use crate::audio::plugin::PlaySfx;

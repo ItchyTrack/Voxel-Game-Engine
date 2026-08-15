@@ -41,6 +41,7 @@ impl WireGridEdit {
 pub(super) struct EditInterest {
 	pub grid: GridId,
 	pub region: ChunkRegion,
+	pub version: u64,
 	pub interested: bool,
 }
 
@@ -51,7 +52,7 @@ impl MapEntities for EditInterest {
 #[derive(Event, Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) struct EditStreamStart {
 	pub grid: GridId,
-	pub first_edit_index: u64,
+	pub first_stream_sequence: u64,
 }
 
 impl MapEntities for EditStreamStart {
@@ -62,7 +63,8 @@ impl MapEntities for EditStreamStart {
 pub(super) struct RemoteGridEdit {
 	pub grid: GridId,
 	pub region: ChunkRegion,
-	pub edit_index: u64,
+	pub stream_sequence: u64,
+	pub generation: u64,
 	pub edit: WireGridEdit,
 }
 

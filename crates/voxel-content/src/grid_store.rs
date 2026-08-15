@@ -5,14 +5,19 @@ use tile_data::ChunkRegion;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 
+struct StoredChunk {
+	voxels: CompressedVoxels,
+}
+
 #[derive(Default)]
 pub struct GridStore {
-	chunks: HashMap<IVec3, CompressedVoxels>,
+	chunks: HashMap<IVec3, StoredChunk>,
+	generations: HashMap<IVec3, u64>,
 }
 
 impl GridStore {
 	pub fn available_area(&self) -> Option<ChunkRegion> {
-		let mut iter = self.chunks.keys().copied();
+		let mut iter = self.generations.keys().copied();
 		let first = iter.next()?;
 		let (mut min, mut max) = (first, first);
 		for chunk in iter {
@@ -23,21 +28,25 @@ impl GridStore {
 	}
 
 	pub fn contains_chunk(&self, chunk: IVec3) -> bool {
-		self.chunks.contains_key(&chunk)
+		self.chunks.contains_key(&chunk) || self.generations.contains_key(&chunk)
 	}
 
 	pub fn load_chunk(&self, chunk: IVec3) -> Option<Voxels> {
-		self.chunks.get(&chunk)?.decompress().ok()
+		self.chunks.get(&chunk)?.voxels.decompress().ok()
+	}
+
+	pub fn chunk_generation(&self, chunk: IVec3) -> u64 {
+		self.generations.get(&chunk).copied().unwrap_or(0)
 	}
 
 	pub fn has_any_in_region(&self, min: IVec3, size: IVec3) -> bool {
 		(0..size.z).any(|z| (0..size.y).any(|y| (0..size.x).any(|x| {
-			self.chunks.contains_key(&(min + IVec3::new(x, y, z)))
+			self.generations.contains_key(&(min + IVec3::new(x, y, z)))
 		})))
 	}
 
 	pub fn voxel_type_id(&self) -> Option<VoxelTypeId> {
-		self.chunks.values().find_map(|chunk| chunk.decompress().ok().map(|voxels| voxels.voxel_type_id()))
+		self.chunks.values().find_map(|chunk| chunk.voxels.decompress().ok().map(|voxels| voxels.voxel_type_id()))
 	}
 
 	pub fn voxel_type_id_in_region(&self, min: IVec3, size: IVec3) -> Option<VoxelTypeId> {
@@ -73,16 +82,26 @@ impl GridStore {
 		None
 	}
 
-	pub fn save_chunk(&mut self, chunk: IVec3, voxels: &Voxels) {
+	pub fn save_chunk(&mut self, chunk: IVec3, generation: u64, voxels: &Voxels) -> bool {
+		if generation < self.chunk_generation(chunk) { return false; }
+		self.generations.insert(chunk, generation);
 		if voxels.is_empty() {
 			self.chunks.remove(&chunk);
 		} else if let Ok(compressed) = CompressedVoxels::new(voxels, 0) {
-			self.chunks.insert(chunk, compressed);
+			self.chunks.insert(chunk, StoredChunk { voxels: compressed });
 		}
+		true
+	}
+
+	pub(crate) fn take_chunk(&mut self, chunk: IVec3) -> Option<(u64, Option<CompressedVoxels>)> {
+		let generation = self.generations.remove(&chunk)?;
+		let voxels = self.chunks.remove(&chunk).map(|chunk| chunk.voxels);
+		Some((generation, voxels))
 	}
 
 	pub fn forget_chunk(&mut self, chunk: IVec3) {
 		self.chunks.remove(&chunk);
+		self.generations.remove(&chunk);
 	}
 }
 
@@ -106,7 +125,7 @@ mod tests {
 		let mut store = GridStore::default();
 		let mut voxels = Voxels::new_with_type(test_type_info());
 		voxels.add_voxel(U16Vec3::new(0, 0, 0), voxel(7).get_ref());
-		store.save_chunk(IVec3::new(5, 0, 0), &voxels);
+		store.save_chunk(IVec3::new(5, 0, 0), 0, &voxels);
 
 		let loaded = store.load_chunk(IVec3::new(5, 0, 0)).expect("chunk should load");
 		assert_eq!(loaded.voxel(&U16Vec3::new(0, 0, 0)), Some(voxel(7).get_ref()));
@@ -117,7 +136,7 @@ mod tests {
 		let mut store = GridStore::default();
 		let mut voxels = Voxels::new_with_type(test_type_info());
 		voxels.add_voxel(U16Vec3::new(0, 0, 0), voxel(9).get_ref());
-		store.save_chunk(IVec3::new(5, 0, 0), &voxels);
+		store.save_chunk(IVec3::new(5, 0, 0), 0, &voxels);
 
 		let loaded = store.load_lod_region(IVec3::new(4, 0, 0), IVec3::new(2, 1, 1), 0.0).expect("lod region should load");
 		assert_eq!(loaded.voxel(&U16Vec3::new(CHUNK_SIZE as u16, 0, 0)), Some(voxel(9).get_ref()));
@@ -128,7 +147,7 @@ mod tests {
 		let mut store = GridStore::default();
 		let mut voxels = Voxels::new_with_type(test_type_info());
 		voxels.add_voxel(U16Vec3::new(0, 0, 0), voxel(12).get_ref());
-		store.save_chunk(IVec3::new(5, 0, 0), &voxels);
+		store.save_chunk(IVec3::new(5, 0, 0), 0, &voxels);
 
 		assert!(store.load_lod_region(IVec3::new(4, 0, 0), IVec3::new(2, 1, 1), 1.0).is_none());
 	}
@@ -138,7 +157,7 @@ mod tests {
 		let mut store = GridStore::default();
 		let mut voxels = Voxels::new_with_type(test_type_info());
 		voxels.add_voxel(U16Vec3::new(0, 0, 0), voxel(3).get_ref());
-		store.save_chunk(IVec3::new(-2, 1, 0), &voxels);
+		store.save_chunk(IVec3::new(-2, 1, 0), 0, &voxels);
 
 		let loaded = store.load_lod_region(IVec3::new(-3, 1, 0), IVec3::new(2, 1, 1), 0.0).expect("lod region should load");
 		let positions: Vec<_> = loaded.grid_tree().iter().map(|(pos, _, _)| pos).collect();
