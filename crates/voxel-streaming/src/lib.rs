@@ -1,7 +1,7 @@
 use bevy::ecs::message::Message;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
-use tile_data::ChunkRegion;
+use tile_data::{ChunkRegion, NonZeroChunkRegion};
 
 mod consumer;
 mod forgotten_chunks;
@@ -54,14 +54,14 @@ pub enum ChunkAvailabilityChangeKind {
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChunkAvailabilityChanged {
 	pub grid: voxel_data::grid::GridId,
-	pub region: ChunkRegion,
+	pub region: NonZeroChunkRegion,
 	pub kind: ChunkAvailabilityChangeKind,
 }
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChunkEditInterestChanged {
 	pub grid: voxel_data::grid::GridId,
-	pub region: ChunkRegion,
+	pub region: NonZeroChunkRegion,
 	pub version: u64,
 	pub interested: bool,
 }
@@ -69,7 +69,7 @@ pub struct ChunkEditInterestChanged {
 #[derive(Message, Clone)]
 pub struct AuthoritativeGridCommand {
 	pub grid: voxel_data::grid::GridId,
-	pub region: ChunkRegion,
+	pub region: NonZeroChunkRegion,
 	pub stream_sequence: u64,
 	pub generation: u64,
 	pub edit: voxel_edit::GridEdit,

@@ -6,7 +6,7 @@ mod worker;
 use std::sync::{Arc, RwLock};
 
 use bevy::ecs::resource::Resource;
-use bevy::math::{IVec3, UVec3};
+use bevy::math::IVec3;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use rustc_hash::FxHashMap;
 
@@ -232,7 +232,7 @@ impl SourceManager {
 	}
 
 	pub fn chunk_generation(&self, grid: GridId, chunk: IVec3) -> u64 {
-		self.region_generation(grid, NonZeroChunkRegion::new(chunk, UVec3::ONE).unwrap())
+		self.region_generation(grid, NonZeroChunkRegion::from_single(chunk))
 	}
 
 	pub fn region_generation(&self, grid: GridId, region: NonZeroChunkRegion) -> u64 {

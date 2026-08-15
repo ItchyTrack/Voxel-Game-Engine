@@ -61,6 +61,10 @@ macro_rules! define_region_types {
 				Self::from_min_end(min, max + ::bevy::math::IVec3::ONE)
 			}
 
+			pub fn from_single(pos: ::bevy::math::IVec3) -> Self {
+				Self { min: pos, size: ::bevy::math::UVec3::ONE }
+			}
+
 			pub const fn min(self) -> ::bevy::math::IVec3 {
 				self.min
 			}
@@ -162,6 +166,10 @@ macro_rules! define_region_types {
 
 			pub fn from_min_max(min: ::bevy::math::IVec3, max: ::bevy::math::IVec3) -> Option<Self> {
 				Self::from_min_end(min, max + ::bevy::math::IVec3::ONE)
+			}
+
+			pub fn from_single(pos: ::bevy::math::IVec3) -> Self {
+				Self { min: pos, size: ::bevy::math::UVec3::ONE }
 			}
 
 			pub const fn min(self) -> ::bevy::math::IVec3 {

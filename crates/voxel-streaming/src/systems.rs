@@ -15,7 +15,7 @@ use voxel_data::grid_tree::NonZeroVoxelRegion;
 use voxel_data::splat::{splat_voxels_blocking, GridSplat};
 use voxel_data::subgrid::SubGrid;
 
-use tile_data::{chunk_origin, chunks_covering_voxel_region};
+use tile_data::{NonZeroChunkRegion, chunk_origin, chunks_covering_voxel_region};
 use tile_data::CHUNK_SIZE;
 use crate::consumer::ChunkConsumer;
 use crate::generation::{
@@ -121,8 +121,10 @@ pub(crate) fn request_edit_takes(
 		let mut resolved_chunks = Vec::new();
 		let mut completed = Vec::new();
 		for edit in std::mem::take(&mut streaming.pending_take_edits) {
-			let region = chunks_covering_voxel_region(edit.voxel_bounds());
-			handle.take(grid, region.min(), region.size().as_ivec3());
+			let Ok(region) = chunks_covering_voxel_region(edit.voxel_bounds()).try_into() else {
+				continue;
+			};
+			handle.take(grid, region);
 			for z in region.min().z..region.end().z { for y in region.min().y..region.end().y { for x in region.min().x..region.end().x {
 				let chunk = IVec3::new(x, y, z);
 				let source_ready = source.is_ready(grid, chunk);
@@ -131,7 +133,7 @@ pub(crate) fn request_edit_takes(
 				if !streaming.presence().is_present(chunk) {
 					streaming.mark_present(chunk);
 					streaming.pending_newly_present_edits.insert(chunk);
-					source.presence(grid, chunk, IVec3::ONE);
+					source.presence(grid, NonZeroChunkRegion::from_single(chunk));
 				}
 				if (source_ready || resident)
 					&& let Some(chunk_edit) = edit.clipped_to(NonZeroVoxelRegion::from_min_size(
@@ -167,7 +169,7 @@ pub(crate) fn request_edit_takes(
 			chunk_resolved.write(ChunkLoadResolved { grid, chunk, visible });
 		}
 		for (region, edit) in completed {
-			source.edited(grid, region.min(), region.size().as_ivec3(), edit);
+			source.edited(grid, region, edit);
 		}
 	}
 }
@@ -178,7 +180,7 @@ pub(crate) fn publish_edit_interest_changes(
 ) {
 	for (grid, mut streaming) in &mut grids {
 		for (chunk, (version, interested)) in std::mem::take(&mut streaming.queued_edit_interest) {
-			events.write(ChunkEditInterestChanged { grid, region: ChunkRegion::new(chunk, UVec3::ONE), version, interested });
+			events.write(ChunkEditInterestChanged { grid, region: NonZeroChunkRegion::from_single(chunk), version, interested });
 		}
 	}
 }
@@ -230,7 +232,7 @@ pub fn receive_results(
 			match state {
 				Some(ChunkState::InFlight) => {
 					streaming.finish_chunk_request(result.chunk);
-					streaming.note_source_generation(ChunkRegion::new(result.chunk, UVec3::ONE), result.generation);
+					streaming.note_source_generation(NonZeroChunkRegion::from_single(result.chunk), result.generation);
 					accepted = true;
 					match result.voxels {
 						Some(_) if streaming.presence.request_count(result.chunk) == 0 => {
@@ -249,7 +251,7 @@ pub fn receive_results(
 						}
 						None => {
 							streaming.pending_authoritative_edits.remove(&result.chunk);
-							streaming.mark_empty(result.chunk, IVec3::ONE);
+							streaming.mark_empty(NonZeroChunkRegion::from_single(result.chunk));
 							streaming.replay_stalled(result.chunk, &mut edits);
 							became_empty = true;
 						}
@@ -261,7 +263,7 @@ pub fn receive_results(
 		if became_empty {
 			availability_events.write(ChunkAvailabilityChanged {
 				grid: result_grid,
-				region: ChunkRegion::new(result_chunk, UVec3::ONE),
+				region: NonZeroChunkRegion::from_single(result_chunk),
 				kind: ChunkAvailabilityChangeKind::BecameEmpty,
 			});
 		}
@@ -492,7 +494,7 @@ pub(crate) fn handle_dirty_chunks(
 		for chunk in newly_present_dirty {
 			availability_events.write(ChunkAvailabilityChanged {
 				grid,
-				region: ChunkRegion::new(chunk, UVec3::ONE),
+				region: NonZeroChunkRegion::from_single(chunk),
 				kind: ChunkAvailabilityChangeKind::BecamePresent,
 			});
 		}

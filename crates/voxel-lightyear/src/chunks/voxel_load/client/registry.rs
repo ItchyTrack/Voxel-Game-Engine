@@ -243,6 +243,7 @@ fn decompress(compressed: &mut Option<CompressedVoxels>) -> Result<Option<voxel_
 #[cfg(test)]
 mod tests {
 	use bevy::{math::UVec3, prelude::Entity};
+use tile_data::NonZeroChunkRegion;
 
 	use super::*;
 
@@ -266,7 +267,7 @@ mod tests {
 	fn cancelled_voxel_area_has_one_terminal_outcome() {
 		let cancellation = CancellationToken::new();
 		let key = VoxelAreaKey {
-			region: NonZeroChunkRegion::new(IVec3::ZERO, UVec3::ONE).unwrap(),
+			region: NonZeroChunkRegion::from_single(IVec3::ZERO),
 			lod: 1,
 		};
 		let mut loads = ClientLoadRegistry::default();

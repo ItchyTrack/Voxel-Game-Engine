@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use tile_data::TileIndexKey;
 use voxel_streaming::TileClassId;
 use voxel_data::{
 	grid::GridId,
@@ -34,7 +35,7 @@ impl Default for PerGridIndex {
 impl UnresolvedTileIndex {
 	pub(crate) fn contains(&self, key: TileKey) -> bool {
 		key.lod <= MAX_SAFE_TILE_LOD
-			&& self.by_grid.get(&(key.grid, key.class)).is_some_and(|grid| grid.trees[key.lod as usize].get(&key.min()).is_some())
+			&& self.by_grid.get(&(key.grid, key.class)).is_some_and(|grid| grid.trees[key.lod as usize].get(key.region.min()).is_some())
 	}
 
 	pub(crate) fn insert(&mut self, key: TileKey) {
@@ -42,7 +43,7 @@ impl UnresolvedTileIndex {
 			return;
 		}
 		let grid = self.by_grid.entry((key.grid, key.class)).or_default();
-		grid.trees[key.lod as usize].add_area(&key.min(), key.size(), PRESENT);
+		grid.trees[key.lod as usize].add_area(NonZeroVoxelRegion::new(key.min(), key.size()).unwrap(), PRESENT);
 		grid.lod_mask |= lod_bit(key.lod);
 	}
 
@@ -51,7 +52,7 @@ impl UnresolvedTileIndex {
 			return false;
 		}
 		let Some(grid) = self.by_grid.get_mut(&(key.grid, key.class)) else { return false };
-		grid.trees[key.lod as usize].remove_area(&key.min(), key.size());
+		grid.trees[key.lod as usize].remove_area(NonZeroVoxelRegion::new(key.min(), key.size()).unwrap());
 		if grid.trees[key.lod as usize].is_empty() {
 			grid.lod_mask &= !lod_bit(key.lod);
 		}
@@ -160,7 +161,7 @@ mod tests {
 		index.for_each_in_region(
 			grid,
 			voxel_streaming::TileClassId(0),
-			NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::ONE).unwrap(),
+			NonZeroVoxelRegion::from_single(IVec3::ZERO),
 			1,
 			Some(0),
 			|key| actual.push(key),

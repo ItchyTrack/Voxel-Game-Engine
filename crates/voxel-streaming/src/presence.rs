@@ -72,7 +72,7 @@ impl ChunkPresence {
 	}
 
 	pub fn mark_present(&mut self, chunk: IVec3) {
-		self.mark_present_area(NonZeroChunkRegion::new(chunk, UVec3::ONE).unwrap());
+		self.mark_present_area(NonZeroChunkRegion::from_single(chunk));
 	}
 
 	pub fn mark_present_area(&mut self, region: NonZeroChunkRegion) {
@@ -113,7 +113,7 @@ impl ChunkPresence {
 	}
 
 	pub fn clear_present(&mut self, chunk: IVec3) {
-		self.clear_present_area(NonZeroChunkRegion::new(chunk, UVec3::ONE).unwrap());
+		self.clear_present_area(NonZeroChunkRegion::from_single(chunk));
 	}
 
 	pub fn is_present(&self, chunk: IVec3) -> bool {

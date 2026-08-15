@@ -303,7 +303,6 @@ fn merge_voxels(voxel_type_info: VoxelTypeInfo, parts: Vec<Voxels>) -> Voxels {
 
 #[cfg(test)]
 mod tests {
-	use bevy::math::UVec3;
 
 use super::*;
 
@@ -311,7 +310,7 @@ use super::*;
 		SourceVoxelsResult {
 			source,
 			grid: GridId::PLACEHOLDER,
-			region: NonZeroChunkRegion::new(IVec3::ZERO, UVec3::ONE).unwrap(),
+			region: NonZeroChunkRegion::from_single(IVec3::ZERO),
 			lod: 0.0,
 			voxel_type: VoxelTypeId(1),
 			generation,
@@ -322,7 +321,7 @@ use super::*;
 	#[test]
 	fn direct_voxel_results_must_meet_the_jobs_generation() {
 		let state = RequestState::default();
-		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, NonZeroChunkRegion::new(IVec3::ZERO, UVec3::ONE).unwrap(), 0.0, VoxelTypeId(1));
+		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, NonZeroChunkRegion::from_single(IVec3::ZERO), 0.0, VoxelTypeId(1));
 		state.pending_voxels.lock().unwrap().insert(key, PendingVoxelJob {
 			required_generation: 5,
 			cancellation: CancellationToken::new(),
@@ -340,7 +339,7 @@ use super::*;
 	#[test]
 	fn composite_voxel_results_reject_old_contributors_and_publish_the_latest_generation() {
 		let state = RequestState::default();
-		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, NonZeroChunkRegion::new(IVec3::ZERO, UVec3::ONE).unwrap(), 0.0, VoxelTypeId(1));
+		let key = VoxelRequestKey::new(GridId::PLACEHOLDER, NonZeroChunkRegion::from_single(IVec3::ZERO), 0.0, VoxelTypeId(1));
 		state.pending_voxels.lock().unwrap().insert(key, PendingVoxelJob {
 			required_generation: 5,
 			cancellation: CancellationToken::new(),

@@ -55,8 +55,7 @@ impl ChunkSource for VoxelStoreSource {
 	fn request_voxel_area(
 		&self,
 		grid: GridId,
-		min: IVec3,
-		size: IVec3,
+		region: NonZeroChunkRegion,
 		lod: f32,
 		voxel_type: VoxelTypeId,
 		generation: u64,
@@ -67,9 +66,13 @@ impl ChunkSource for VoxelStoreSource {
 			let grids = self.inner.grids.read().unwrap();
 			let Some(store) = grids.get(&grid) else { return SourceCoverage::None };
 			let mut owned = 0;
-			for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-				owned += store.contains_chunk(min + IVec3::new(x, y, z)) as usize;
-			}}}
+			for z in region.min().z..region.end().z {
+				for y in region.min().y..region.end().y {
+					for x in region.min().x..region.end().x {
+						owned += store.contains_chunk(IVec3::new(x, y, z)) as usize;
+					}
+				}
+			}
 			(SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize), store.voxel_type_id())
 		};
 		if coverage == SourceCoverage::None { return coverage; }
@@ -88,7 +91,9 @@ impl ChunkSource for VoxelStoreSource {
 			})))?;
 			if lod <= 0.0 && input == voxel_type {
 				let mut out: Option<Voxels> = None;
-				for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
+				for z in 0..region.size().z as i32 {
+					for y in 0..region.size().y as i32 {
+						for x in 0..region.size().x as i32 {
 					let chunk = min + IVec3::new(x, y, z);
 					let Some(voxels) = store.load_chunk(chunk) else { continue };
 					out.get_or_insert_with(|| Voxels::new_with_type(voxels.voxel_type_info()))
@@ -97,7 +102,7 @@ impl ChunkSource for VoxelStoreSource {
 				return out.filter(|voxels| !voxels.is_empty());
 			}
 			let generator = handle.voxel_lod_generator(input, voxel_type)?;
-			generator.generate(min, size, lod, &|chunk| {
+			generator.generate(region, lod, &|chunk| {
 				store.load_chunk(chunk)
 			})
 		});
@@ -148,7 +153,7 @@ impl ChunkSource for VoxelStoreSource {
 		let saved = self.inner.grids.write().unwrap().entry(grid).or_default().save_chunk(chunk, generation, voxels);
 		if saved {
 			if let Some(handle) = self.inner.handle.get() {
-				handle.synchronize_region_generation(grid, NonZeroChunkRegion::new(chunk, UVec3::ONE).unwrap(), generation);
+				handle.synchronize_region_generation(grid, NonZeroChunkRegion::from_single(chunk), generation);
 			}
 		}
 		saved

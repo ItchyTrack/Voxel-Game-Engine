@@ -178,7 +178,7 @@ fn spawn_tree(mut commands: Commands, tree: Res<TreeGrid>) {
 	let body = commands.spawn((RigidBody, IsStatic, Transform::from_translation(tree.position))).id();
 
 	let mut streaming = GridStreaming::default();
-	streaming.mark_present_area(tree.bounds.min(), tree.bounds.size().as_ivec3());
+	streaming.mark_present_area(tree.bounds);
 
 	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEdits::default(), ReplicateVoxels, VoxelCollider, streaming)).id();
 	let _ = tree.grid.set(grid);

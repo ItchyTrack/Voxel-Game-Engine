@@ -7,7 +7,7 @@ use voxel_sources::{CancellationToken, ChunkGenerationIndex, VoxelSourcesRequest
 use voxel_data::grid::GridId;
 use voxel_edit::GridEdit;
 
-use tile_data::CHUNK_SIZE;
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use crate::consumer::ChunkConsumer;
 use crate::generation::TileGenerationCancellation;
 use crate::tile_dependency_index::TileDependencyIndex;
@@ -69,7 +69,7 @@ impl GridStreaming {
 	pub fn presence_mut(&mut self) -> &mut ChunkPresence { &mut self.presence }
 
 	pub fn mark_present(&mut self, chunk: IVec3) { self.presence.mark_present(chunk); }
-	pub fn mark_present_area(&mut self, min: IVec3, size: IVec3) { self.presence.mark_present_area(min, size); }
+	pub fn mark_present_area(&mut self, region: NonZeroChunkRegion) { self.presence.mark_present_area(region); }
 	pub fn state(&self, chunk: IVec3) -> Option<ChunkState> { self.presence.state(chunk) }
 	pub fn is_loaded(&self, chunk: IVec3) -> bool { matches!(self.presence.state(chunk), Some(ChunkState::Loaded)) }
 
@@ -177,8 +177,8 @@ impl GridStreaming {
 		matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty))
 	}
 
-	pub(crate) fn mark_empty(&mut self, min: IVec3, size: IVec3) {
-		self.presence.clear_present_area(min, size);
+	pub(crate) fn mark_empty(&mut self, region: NonZeroChunkRegion) {
+		self.presence.clear_present_area(region);
 	}
 
 	pub fn retain_edit_interest(&mut self, chunk: IVec3) {
@@ -216,15 +216,15 @@ impl GridStreaming {
 		}
 	}
 
-	pub(crate) fn note_source_generation(&mut self, region: ChunkRegion, generation: u64) {
+	pub(crate) fn note_source_generation(&mut self, region: NonZeroChunkRegion, generation: u64) {
 		self.chunk_generations.set_region(region, generation);
 	}
 
-	pub(crate) fn command_follows(&self, region: ChunkRegion, generation: u64) -> bool {
+	pub(crate) fn command_follows(&self, region: NonZeroChunkRegion, generation: u64) -> bool {
 		self.chunk_generations.last_changed(region) < generation
 	}
 
-	pub(crate) fn dirty_stale_tiles(&mut self, region: ChunkRegion, generation: u64) {
+	pub(crate) fn dirty_stale_tiles(&mut self, region: NonZeroChunkRegion, generation: u64) {
 		let keys: HashSet<_> = self.tile_dependencies.stale_tiles(region, generation).collect();
 		for key in keys { self.dirty_tile(key); }
 	}
@@ -255,25 +255,27 @@ fn valid_tile_key(key: TileKey) -> bool {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+	use tile_data::NonZeroChunkRegion;
+
+use super::*;
 	use crate::TileClassId;
 
-	fn tile(size: IVec3, lod: u8) -> TileKey {
-		TileKey::new(IVec3::ZERO, size.as_uvec3(), lod, TileClassId(0)).unwrap()
+	fn tile(size: IVec3, lod: u8) -> Option<TileKey> {
+		Some(TileKey::new(NonZeroChunkRegion::new(IVec3::ZERO, size.as_uvec3())?, lod, TileClassId(0)))
 	}
 
 	#[test]
 	fn tile_validity_keeps_size_and_lod_independent_with_one_chunk_output_limit() {
-		assert!(valid_tile_key(tile(IVec3::ONE, 0)));
-		assert!(!valid_tile_key(tile(IVec3::splat(2), 0)));
-		assert!(valid_tile_key(tile(IVec3::splat(2), 1)));
+		assert!(valid_tile_key(tile(IVec3::ONE, 0).unwrap()));
+		assert!(!valid_tile_key(tile(IVec3::splat(2), 0).unwrap()));
+		assert!(valid_tile_key(tile(IVec3::splat(2), 1).unwrap()));
 	}
 
 	#[test]
 	fn tile_class_is_part_of_shared_store_identity() {
 		let requester = Entity::from_bits(1);
 		let mut streaming = GridStreaming::default();
-		let first = tile(IVec3::ONE, 0);
+		let first = tile(IVec3::ONE, 0).unwrap();
 		let second = TileKey { class: TileClassId(1), ..first };
 		assert!(streaming.fetch_tile(requester, first, 0.0));
 		assert!(streaming.fetch_tile(requester, second, 0.0));
