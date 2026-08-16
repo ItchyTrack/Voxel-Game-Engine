@@ -78,7 +78,7 @@ bool dda_is_occupied<T : IDDADataSource>(uint tree_base, int3 query_pos) {
 	uint3 root_relative_pos = uint3(query_pos);
 	uint node_size = root_size;
 	uint node_byte_off = dda_nodes_base(tree_base);
-	for (;;) {
+	while (node_size >= DDA_SIZE) {
 		uint bitmap_status = dda_parent_offset<T>(node_byte_off) >> 14u;
 		uint bitmap_low = (bitmap_status & 1u) != 0u ? dda_u32<T>(node_byte_off + 4u) : 0u;
 		uint bitmap_high = (bitmap_status & 2u) != 0u ? dda_u32<T>(node_byte_off + 4u + (bitmap_status & 1u) * 4u) : 0u;
@@ -94,6 +94,7 @@ bool dda_is_occupied<T : IDDADataSource>(uint tree_base, int3 query_pos) {
 		node_byte_off += entry * DDA_SLOT_BYTES;
 		node_size = child_size;
 	}
+	return false;
 }
 
 StructuredBuffer<uint> residency_grid_tree_buf : register(t0, space2);
