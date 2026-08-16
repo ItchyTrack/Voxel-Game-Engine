@@ -141,27 +141,52 @@ float4 fs_main(VertexOutput input) : SV_Target {
 	uint2 texture_size = uint2(texture_width, texture_height);
 	uint2 texture_pos = uint2(input.clip_position.xy);
 	let kernel = load_raycast_kernel(texture_pos);
-	let top_left = calculate_voxel_contribution(kernel.top_left, texture_pos, texture_size);
-	let top_right = calculate_voxel_contribution(kernel.top_right, texture_pos + uint2(1, 0), texture_size);
-	let bottom_left = calculate_voxel_contribution(kernel.bottom_left, texture_pos + uint2(0, 1), texture_size);
-	let bottom_right = calculate_voxel_contribution(kernel.bottom_right, texture_pos + uint2(1, 1), texture_size);
+	var top_left = calculate_voxel_contribution(kernel.top_left, texture_pos, texture_size);
+	var top_right = calculate_voxel_contribution(kernel.top_right, texture_pos + uint2(1, 0), texture_size);
+	var bottom_left = calculate_voxel_contribution(kernel.bottom_left, texture_pos + uint2(0, 1), texture_size);
+	var bottom_right = calculate_voxel_contribution(kernel.bottom_right, texture_pos + uint2(1, 1), texture_size);
 
-	if (!top_left.hit) {
+	if (same_voxel(top_right, top_left)) {
+		top_right.hit = false;
+	}
+	if (same_voxel(bottom_left, top_left) || same_voxel(bottom_left, top_right)) {
+		bottom_left.hit = false;
+	}
+	if (same_voxel(bottom_right, top_left) || same_voxel(bottom_right, top_right) || same_voxel(bottom_right, bottom_left)) {
+		bottom_right.hit = false;
+	}
+
+	let num_hit = top_left.hit + top_right.hit + bottom_left.hit + bottom_right.hit;
+
+	if (num_hit == 0) {
 		discard;
 		return float4(0.0);
 	}
 
-	let item = bvh_items[top_left.bvh_item_idx];
-	let item_index_2 = item.item_index_2;
-	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
-	float3 base_color;
-	if ((item.aabb_size >> 24u) == 2u) {
-		base_color = main_voxel_sampler_color(item.voxel_type_id, item_index_2, top_left.voxel_data_index, top_left.voxel_index, top_left.surface_pos).xyz;
+	if (num_hit < 3) {
+		return float4(num_hit / 4.0, num_hit / 4.0, num_hit / 4.0, 1.0);
+	} else if (num_hit == 3) {
+		return float4(0.0, 1.0, 0.0, 1.0);
 	} else {
-		base_color = residency_voxel_sampler_color(item.voxel_type_id, item_index_2, top_left.voxel_data_index, top_left.voxel_index, top_left.surface_pos).xyz;
+		return float4(1.0, 0.0, 0.0, 1.0);
 	}
-	float3 normal_vec = float3(0.0);
-	normal_vec[(top_left.normal >> 3u) & 0xFu] = ((top_left.normal & (1u << ((top_left.normal >> 3u) & 0xFu))) != 0u) ? -1.0 : 1.0;
-	let color = shade(base_color, Quat::rotate(transform_quat, normal_vec), top_left.light_visible);
-	return float4(color, 1.0);
+
+	// if (!top_left.hit) {
+	// 	discard;
+	// 	return float4(0.0);
+	// }
+
+	// let item = bvh_items[top_left.bvh_item_idx];
+	// let item_index_2 = item.item_index_2;
+	// let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
+	// float3 base_color;
+	// if ((item.aabb_size >> 24u) == 2u) {
+	// 	base_color = main_voxel_sampler_color(item.voxel_type_id, item_index_2, top_left.voxel_data_index, top_left.voxel_index, top_left.surface_pos).xyz;
+	// } else {
+	// 	base_color = residency_voxel_sampler_color(item.voxel_type_id, item_index_2, top_left.voxel_data_index, top_left.voxel_index, top_left.surface_pos).xyz;
+	// }
+	// float3 normal_vec = float3(0.0);
+	// normal_vec[(top_left.normal >> 3u) & 0xFu] = ((top_left.normal & (1u << ((top_left.normal >> 3u) & 0xFu))) != 0u) ? -1.0 : 1.0;
+	// let color = shade(base_color, Quat::rotate(transform_quat, normal_vec), top_left.light_visible);
+	// return float4(color, 1.0);
 }
