@@ -256,13 +256,6 @@ float3 voxel_contribution_world_normal(VoxelContribution contribution) {
 	return Quat::rotate(transform_quat, local_normal);
 }
 
-float3 voxel_contribution_world_surface_position(VoxelContribution contribution) {
-	let item = bvh_items[contribution.bvh_item_idx];
-	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
-	let local_surface_position = (contribution.local_voxel_min + contribution.surface_pos) * item.scale;
-	return float3(item.pos_x, item.pos_y, item.pos_z) + Quat::rotate(transform_quat, local_surface_position);
-}
-
 float3 world_ray_vector(float2 texture_position, float2 texture_denominator) {
 	let screen_pos = texture_position / texture_denominator;
 	let ray_clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, 1.0, 1.0);
@@ -271,96 +264,45 @@ float3 world_ray_vector(float2 texture_position, float2 texture_denominator) {
 	return mul(view.world_from_view, float4(ray_view, 0.0)).xyz;
 }
 
-struct AnisotropicSamplingCandidate {
-	bool valid;
-	bool supports_anisotropy;
-	float2 direction;
-	float weight;
-};
-
-AnisotropicSamplingCandidate calculate_anisotropic_sampling_candidate(
-	VoxelContribution contribution,
-	float3 camera_position,
-	float3 center_ray_vector,
-	float3 ray_vector_dx,
-	float3 ray_vector_dy
-) {
-	AnisotropicSamplingCandidate candidate = {};
-	if (!contribution.hit) { return candidate; }
-
-	candidate.valid = true;
-	let item = bvh_items[contribution.bvh_item_idx];
-	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
-	let world_normal = voxel_contribution_world_normal(contribution);
-	let world_surface_position = voxel_contribution_world_surface_position(contribution);
-	let plane_offset = dot(world_surface_position - camera_position, world_normal);
-	let ray_plane_dot = dot(center_ray_vector, world_normal);
-	if (abs(ray_plane_dot) <= length(center_ray_vector) * 1e-5) { return candidate; }
-
-	// Differentiate the camera ray's intersection with the candidate face plane.
-	let derivative_scale = plane_offset / (ray_plane_dot * ray_plane_dot);
-	let world_surface_dx = derivative_scale * (
-		ray_vector_dx * ray_plane_dot - center_ray_vector * dot(ray_vector_dx, world_normal)
-	);
-	let world_surface_dy = derivative_scale * (
-		ray_vector_dy * ray_plane_dot - center_ray_vector * dot(ray_vector_dy, world_normal)
-	);
-	let local_surface_dx = Quat::inv_rotate(transform_quat, world_surface_dx) / item.scale;
-	let local_surface_dy = Quat::inv_rotate(transform_quat, world_surface_dy) / item.scale;
-
-	let xx = dot(local_surface_dx, local_surface_dx);
-	let xy = dot(local_surface_dx, local_surface_dy);
-	let yy = dot(local_surface_dy, local_surface_dy);
-	let trace = xx + yy;
-	if (trace <= 1e-12) { return candidate; }
-
-	let eigenvalue_delta = sqrt(max((xx - yy) * (xx - yy) + 4.0 * xy * xy, 0.0));
-	let major_eigenvalue = 0.5 * (trace + eigenvalue_delta);
-	let minor_eigenvalue = 0.5 * (trace - eigenvalue_delta);
-	let anisotropy_squared = major_eigenvalue / max(minor_eigenvalue, major_eigenvalue * 1e-6);
-	let minimum_anisotropy_squared = 4.0;
-	if (anisotropy_squared < minimum_anisotropy_squared) { return candidate; }
-
-	let major_angle = 0.5 * atan2(2.0 * xy, xx - yy);
-	candidate.supports_anisotropy = true;
-	candidate.direction = float2(cos(major_angle), sin(major_angle));
-	candidate.weight = sqrt(major_eigenvalue);
-	return candidate;
-}
+static const float ANISOTROPIC_FACE_DOT_CUTOFF = 0.383;
 
 struct AnisotropicSamplingState {
-	bool coherent;
-	uint candidate_count;
-	float2 reference_direction;
-	float2 direction_sum;
+	bool anisotropic;
+	float face_dot;
+	float2 direction;
 };
 
-AnisotropicSamplingState add_anisotropic_sampling_candidate(
+AnisotropicSamplingState add_anisotropic_sampling_faces(
 	AnisotropicSamplingState state,
-	AnisotropicSamplingCandidate candidate
+	VoxelContribution contribution,
+	float3 view_direction
 ) {
-	if (!candidate.valid || !state.coherent) { return state; }
-	if (!candidate.supports_anisotropy) {
-		state.coherent = false;
-		return state;
-	}
+	if (!contribution.hit) { return state; }
 
-	if (state.candidate_count == 0u) {
-		state.reference_direction = candidate.direction;
-		state.direction_sum = candidate.direction * candidate.weight;
-		state.candidate_count = 1u;
-		return state;
-	}
+	let item = bvh_items[contribution.bvh_item_idx];
+	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
+	for (uint axis = 0u; axis < 3u; axis++) {
+		if ((contribution.camera_face_occlusion_mask & (1u << axis)) != 0u) { continue; }
 
-	let alignment = dot(state.reference_direction, candidate.direction);
-	let minimum_direction_alignment = 0.9238795;
-	if (abs(alignment) < minimum_direction_alignment) {
-		state.coherent = false;
-		return state;
+		float3 local_normal = float3(0.0);
+		local_normal[axis] = (contribution.normal & (1u << axis)) != 0u ? -1.0 : 1.0;
+		let world_normal = Quat::rotate(transform_quat, local_normal);
+		let face_dot = abs(dot(world_normal, view_direction));
+		if (
+			face_dot >= ANISOTROPIC_FACE_DOT_CUTOFF ||
+			(state.anisotropic && face_dot >= state.face_dot)
+		) {
+			continue;
+		}
+
+		let view_normal = mul(view.view_from_world, float4(world_normal, 0.0)).xyz;
+		let projected_normal = float2(view_normal.x, -view_normal.y);
+		if (dot(projected_normal, projected_normal) <= 1e-12) { continue; }
+
+		state.anisotropic = true;
+		state.face_dot = face_dot;
+		state.direction = normalize(projected_normal);
 	}
-	let aligned_direction = alignment < 0.0 ? -candidate.direction : candidate.direction;
-	state.direction_sum += aligned_direction * candidate.weight;
-	state.candidate_count++;
 	return state;
 }
 
@@ -380,6 +322,21 @@ float4 fs_main(VertexOutput input) : SV_Target {
 	let top_right_corner_valid = top_right.hit;
 	let bottom_left_corner_valid = bottom_left.hit;
 	let bottom_right_corner_valid = bottom_right.hit;
+	if (!(top_left_corner_valid || top_right_corner_valid || bottom_left_corner_valid || bottom_right_corner_valid)) {
+		discard;
+		return float4(0.0);
+	}
+
+	let camera_position = view.world_position;
+	let texture_denominator = float2(texture_size - uint2(1));
+	let pixel_min = float2(texture_pos);
+	let pixel_center = pixel_min + float2(0.5);
+	let view_direction = normalize(world_ray_vector(pixel_center, texture_denominator));
+	AnisotropicSamplingState sampling_state = {};
+	sampling_state = add_anisotropic_sampling_faces(sampling_state, top_left, view_direction);
+	sampling_state = add_anisotropic_sampling_faces(sampling_state, top_right, view_direction);
+	sampling_state = add_anisotropic_sampling_faces(sampling_state, bottom_left, view_direction);
+	sampling_state = add_anisotropic_sampling_faces(sampling_state, bottom_right, view_direction);
 
 	if (same_voxel(top_right, top_left)) {
 		top_right.hit = false;
@@ -391,45 +348,13 @@ float4 fs_main(VertexOutput input) : SV_Target {
 		bottom_right.hit = false;
 	}
 
-	if (!(top_left.hit || top_right.hit || bottom_left.hit || bottom_right.hit)) {
-		discard;
-		return float4(0.0);
-	}
-
-	let camera_position = view.world_position;
 	let top_left_raycast_data = prepare_voxel_contribution_raycast(top_left, camera_position);
 	let top_right_raycast_data = prepare_voxel_contribution_raycast(top_right, camera_position);
 	let bottom_left_raycast_data = prepare_voxel_contribution_raycast(bottom_left, camera_position);
 	let bottom_right_raycast_data = prepare_voxel_contribution_raycast(bottom_right, camera_position);
-
-	let texture_denominator = float2(texture_size - uint2(1));
-	let pixel_center = float2(texture_pos) + float2(0.5);
-	let center_ray_vector = world_ray_vector(pixel_center, texture_denominator);
-	let ray_vector_dx = world_ray_vector(pixel_center + float2(1.0, 0.0), texture_denominator) - center_ray_vector;
-	let ray_vector_dy = world_ray_vector(pixel_center + float2(0.0, 1.0), texture_denominator) - center_ray_vector;
-	let top_left_sampling_candidate = calculate_anisotropic_sampling_candidate(
-		top_left, camera_position, center_ray_vector, ray_vector_dx, ray_vector_dy
-	);
-	let top_right_sampling_candidate = calculate_anisotropic_sampling_candidate(
-		top_right, camera_position, center_ray_vector, ray_vector_dx, ray_vector_dy
-	);
-	let bottom_left_sampling_candidate = calculate_anisotropic_sampling_candidate(
-		bottom_left, camera_position, center_ray_vector, ray_vector_dx, ray_vector_dy
-	);
-	let bottom_right_sampling_candidate = calculate_anisotropic_sampling_candidate(
-		bottom_right, camera_position, center_ray_vector, ray_vector_dx, ray_vector_dy
-	);
-	AnisotropicSamplingState sampling_state = {};
-	sampling_state.coherent = true;
-	sampling_state = add_anisotropic_sampling_candidate(sampling_state, top_left_sampling_candidate);
-	sampling_state = add_anisotropic_sampling_candidate(sampling_state, top_right_sampling_candidate);
-	sampling_state = add_anisotropic_sampling_candidate(sampling_state, bottom_left_sampling_candidate);
-	sampling_state = add_anisotropic_sampling_candidate(sampling_state, bottom_right_sampling_candidate);
-
-	let use_anisotropic_sampling = sampling_state.coherent && sampling_state.candidate_count != 0u;
-	let major_direction = use_anisotropic_sampling ? normalize(sampling_state.direction_sum) : float2(1.0, 0.0);
+	let major_direction = sampling_state.anisotropic ? sampling_state.direction : float2(1.0, 0.0);
 	let minor_direction = float2(-major_direction.y, major_direction.x);
-	let sample_grid_size = use_anisotropic_sampling ? uint2(8u, 2u) : uint2(4u, 4u);
+	let sample_grid_size = sampling_state.anisotropic ? uint2(8u, 2u) : uint2(4u, 4u);
 
 	float3 accumulated_color = float3(0.0);
 	uint ray_hit_count = 0u;
@@ -439,7 +364,7 @@ float4 fs_main(VertexOutput input) : SV_Target {
 		let stratified_position = (float2(sample_cell) + jitter) / float2(sample_grid_size) - float2(0.5);
 		let rotated_sample_offset = float2(0.5) + major_direction * stratified_position.x + minor_direction * stratified_position.y;
 		let sample_offset = frac(rotated_sample_offset);
-		let ray_direction = normalize(world_ray_vector(float2(texture_pos) + sample_offset, texture_denominator));
+		let ray_direction = normalize(world_ray_vector(pixel_min + sample_offset, texture_denominator));
 
 		var closest_contribution = top_left;
 		var closest_hit = raycast_voxel_contribution(top_left_raycast_data, ray_direction);
@@ -470,7 +395,6 @@ float4 fs_main(VertexOutput input) : SV_Target {
 			ray_hit_count++;
 		}
 	}
-
 	if (ray_hit_count != 0u) {
 		return float4(accumulated_color / float(ray_hit_count), 1.0);
 	}
