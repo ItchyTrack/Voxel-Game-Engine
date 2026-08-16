@@ -29,7 +29,23 @@ struct DDAHit {
 	float dist;
 };
 
-DDAHit dda_make_hit(float3 start_pos, float3 dir, uint step, uint last_step_axis, float3 axis_distances, float3 delta, uint3 root_relative_grid_pos, uint node_size, uint voxel_data_index, uint voxel_index) {
+static const uint DDA_FACE_OCCLUSION_SHIFT = 11u;
+
+uint dda_camera_face_occlusion_bits<T : IDDADataSource>(uint tree_base, uint3 cell_pos, uint normal) {
+	uint bits = 0u;
+	uint normal_axis = (normal >> 3u) & 0x3u;
+	for (uint axis = 0u; axis < 3u; axis++) {
+		if (axis == normal_axis) { continue; }
+		int3 neighbor = int3(cell_pos);
+		neighbor[axis] += (normal & (1u << axis)) != 0u ? -1 : 1;
+		if (dda_is_occupied<T>(tree_base, neighbor)) {
+			bits |= 1u << (DDA_FACE_OCCLUSION_SHIFT + axis);
+		}
+	}
+	return bits;
+}
+
+DDAHit dda_make_hit<T : IDDADataSource>(uint tree_base, float3 start_pos, float3 dir, uint step, uint last_step_axis, float3 axis_distances, float3 delta, uint3 root_relative_grid_pos, uint node_size, uint voxel_data_index, uint voxel_index) {
 	DDAHit hit_result;
 	float hit_dist = axis_distances[last_step_axis] - delta[last_step_axis];
 	if (hit_dist < 0.0) {
@@ -41,6 +57,7 @@ DDAHit dda_make_hit(float3 start_pos, float3 dir, uint step, uint last_step_axis
 		hit_result.normal = step + (last_step_axis << 3u) + (1u << 10u);
 		hit_result.dist = hit_dist;
 	}
+	hit_result.normal |= dda_camera_face_occlusion_bits<T>(tree_base, root_relative_grid_pos, hit_result.normal);
 	hit_result.voxel_data_index = voxel_data_index;
 	hit_result.voxel_index = voxel_index;
 	return hit_result;
@@ -172,12 +189,12 @@ DDAHit dda_raycast<T : IDDADataSource>(float3 origin, float3 dir, float max_leng
 		} else {
 			uint data_idx = dda_data_index(bitmap_low, bitmap_high, bitmap_status, cell_index);
 			if (node_size == 4u) {
-				return dda_make_hit(post_aabb_origin_clamped, dir, step, last_step_axis, axis_distances, delta, root_relative_grid_pos, node_size, dda_voxel_data_offset<T>(node_byte_off), data_idx);
+				return dda_make_hit<T>(tree_base, post_aabb_origin_clamped, dir, step, last_step_axis, axis_distances, delta, root_relative_grid_pos, node_size, dda_voxel_data_offset<T>(node_byte_off), data_idx);
 			}
 
 			uint entry_val = dda_node_entry<T>(node_byte_off, bitmap_status, data_idx, node_size);
 			if (entry_val == 0u) {
-				return dda_make_hit(post_aabb_origin_clamped, dir, step, last_step_axis, axis_distances, delta, root_relative_grid_pos, node_size, dda_voxel_data_offset<T>(node_byte_off), data_idx);
+				return dda_make_hit<T>(tree_base, post_aabb_origin_clamped, dir, step, last_step_axis, axis_distances, delta, root_relative_grid_pos, node_size, dda_voxel_data_offset<T>(node_byte_off), data_idx);
 			} else {
 				node_byte_off += entry_val * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;
