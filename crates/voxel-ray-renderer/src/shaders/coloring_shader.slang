@@ -98,6 +98,7 @@ struct VoxelContribution {
 	bool hit;
 	bool light_visible;
 	uint normal;
+	uint camera_face_occlusion_mask;
 	uint bvh_item_idx;
 	uint voxel_data_index;
 	uint voxel_index;
@@ -108,6 +109,7 @@ struct VoxelContribution {
 
 struct VoxelContributionRaycastData {
 	bool valid;
+	uint camera_face_occlusion_mask;
 	float3 ray_origin_relative_min;
 	float3 ray_origin_relative_max;
 	float4 transform_quat;
@@ -116,6 +118,7 @@ struct VoxelContributionRaycastData {
 
 struct VoxelContributionRaycastHit {
 	bool hit;
+	bool face_occluded;
 	float distance;
 	float3 normal;
 	float3 surface_pos;
@@ -137,6 +140,7 @@ VoxelContribution calculate_voxel_contribution(uint4 data, uint2 texture_pos, ui
 	contribution.hit = true;
 	contribution.normal = data.x & 0xFFu;
 	contribution.light_visible = (data.x & 256u) != 0u;
+	contribution.camera_face_occlusion_mask = (data.x >> 11u) & 7u;
 	contribution.bvh_item_idx = data.y;
 	contribution.voxel_data_index = data.z & 0xFFFFu;
 	contribution.voxel_index = data.z >> 16u;
@@ -169,6 +173,7 @@ VoxelContributionRaycastData prepare_voxel_contribution_raycast(VoxelContributio
 
 	let item = bvh_items[contribution.bvh_item_idx];
 	data.valid = true;
+	data.camera_face_occlusion_mask = contribution.camera_face_occlusion_mask;
 	data.transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
 	data.inverse_scale = 1.0 / item.scale;
 	let item_pos = float3(item.pos_x, item.pos_y, item.pos_z);
@@ -211,6 +216,7 @@ VoxelContributionRaycastHit raycast_voxel_contribution(VoxelContributionRaycastD
 	local_normal[normal_axis] = local_ray_dir[normal_axis] >= 0.0 ? -1.0 : 1.0;
 
 	result.hit = true;
+	result.face_occluded = (data.camera_face_occlusion_mask & (1u << normal_axis)) != 0u;
 	result.distance = max(entry_distance, 0.0);
 	result.normal = Quat::rotate(data.transform_quat, local_normal);
 	let local_hit = local_ray_dir * result.distance;
@@ -459,7 +465,7 @@ float4 fs_main(VertexOutput input) : SV_Target {
 			}
 		}
 
-		if (closest_hit.hit) {
+		if (closest_hit.hit && !closest_hit.face_occluded) {
 			accumulated_color += color_voxel_surface(closest_contribution, closest_hit.surface_pos, closest_hit.normal);
 			ray_hit_count++;
 		}
