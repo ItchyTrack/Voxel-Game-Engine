@@ -272,36 +272,52 @@ struct AnisotropicSamplingState {
 	float2 direction;
 };
 
+uint anisotropic_sampling_face_mask(VoxelContribution contribution) {
+	if (!contribution.hit) { return 0u; }
+
+	uint face_mask = 0u;
+	for (uint axis = 0u; axis < 3u; axis++) {
+		if ((contribution.camera_face_occlusion_mask & (1u << axis)) != 0u) { continue; }
+
+		let face_sign = (contribution.normal >> axis) & 1u;
+		face_mask |= 1u << (axis * 2u + face_sign);
+	}
+	return face_mask;
+}
+
 AnisotropicSamplingState add_anisotropic_sampling_faces(
 	AnisotropicSamplingState state,
 	VoxelContribution contribution,
+	uint face_mask,
 	float3 view_direction
 ) {
-	if (!contribution.hit) { return state; }
+	if (!contribution.hit || face_mask == 0u) { return state; }
 
 	let item = bvh_items[contribution.bvh_item_idx];
 	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
 	for (uint axis = 0u; axis < 3u; axis++) {
-		if ((contribution.camera_face_occlusion_mask & (1u << axis)) != 0u) { continue; }
+		for (uint face_sign = 0u; face_sign < 2u; face_sign++) {
+			if ((face_mask & (1u << (axis * 2u + face_sign))) == 0u) { continue; }
 
-		float3 local_normal = float3(0.0);
-		local_normal[axis] = (contribution.normal & (1u << axis)) != 0u ? -1.0 : 1.0;
-		let world_normal = Quat::rotate(transform_quat, local_normal);
-		let face_dot = abs(dot(world_normal, view_direction));
-		if (
-			face_dot >= ANISOTROPIC_FACE_DOT_CUTOFF ||
-			(state.anisotropic && face_dot >= state.face_dot)
-		) {
-			continue;
+			float3 local_normal = float3(0.0);
+			local_normal[axis] = face_sign != 0u ? -1.0 : 1.0;
+			let world_normal = Quat::rotate(transform_quat, local_normal);
+			let face_dot = abs(dot(world_normal, view_direction));
+			if (
+				face_dot >= ANISOTROPIC_FACE_DOT_CUTOFF ||
+				(state.anisotropic && face_dot >= state.face_dot)
+			) {
+				continue;
+			}
+
+			let view_normal = mul(view.view_from_world, float4(world_normal, 0.0)).xyz;
+			let projected_normal = float2(view_normal.x, -view_normal.y);
+			if (dot(projected_normal, projected_normal) <= 1e-12) { continue; }
+
+			state.anisotropic = true;
+			state.face_dot = face_dot;
+			state.direction = normalize(projected_normal);
 		}
-
-		let view_normal = mul(view.view_from_world, float4(world_normal, 0.0)).xyz;
-		let projected_normal = float2(view_normal.x, -view_normal.y);
-		if (dot(projected_normal, projected_normal) <= 1e-12) { continue; }
-
-		state.anisotropic = true;
-		state.face_dot = face_dot;
-		state.direction = normalize(projected_normal);
 	}
 	return state;
 }
@@ -332,21 +348,40 @@ float4 fs_main(VertexOutput input) : SV_Target {
 	let pixel_min = float2(texture_pos);
 	let pixel_center = pixel_min + float2(0.5);
 	let view_direction = normalize(world_ray_vector(pixel_center, texture_denominator));
-	AnisotropicSamplingState sampling_state = {};
-	sampling_state = add_anisotropic_sampling_faces(sampling_state, top_left, view_direction);
-	sampling_state = add_anisotropic_sampling_faces(sampling_state, top_right, view_direction);
-	sampling_state = add_anisotropic_sampling_faces(sampling_state, bottom_left, view_direction);
-	sampling_state = add_anisotropic_sampling_faces(sampling_state, bottom_right, view_direction);
+	uint top_left_face_mask = anisotropic_sampling_face_mask(top_left);
+	uint top_right_face_mask = anisotropic_sampling_face_mask(top_right);
+	uint bottom_left_face_mask = anisotropic_sampling_face_mask(bottom_left);
+	uint bottom_right_face_mask = anisotropic_sampling_face_mask(bottom_right);
 
 	if (same_voxel(top_right, top_left)) {
+		top_left_face_mask |= top_right_face_mask;
 		top_right.hit = false;
 	}
-	if (same_voxel(bottom_left, top_left) || same_voxel(bottom_left, top_right)) {
+
+	if (same_voxel(bottom_left, top_left)) {
+		top_left_face_mask |= bottom_left_face_mask;
+		bottom_left.hit = false;
+	} else if (same_voxel(bottom_left, top_right)) {
+		top_right_face_mask |= bottom_left_face_mask;
 		bottom_left.hit = false;
 	}
-	if (same_voxel(bottom_right, top_left) || same_voxel(bottom_right, top_right) || same_voxel(bottom_right, bottom_left)) {
+
+	if (same_voxel(bottom_right, top_left)) {
+		top_left_face_mask |= bottom_right_face_mask;
+		bottom_right.hit = false;
+	} else if (same_voxel(bottom_right, top_right)) {
+		top_right_face_mask |= bottom_right_face_mask;
+		bottom_right.hit = false;
+	} else if (same_voxel(bottom_right, bottom_left)) {
+		bottom_left_face_mask |= bottom_right_face_mask;
 		bottom_right.hit = false;
 	}
+
+	AnisotropicSamplingState sampling_state = {};
+	sampling_state = add_anisotropic_sampling_faces(sampling_state, top_left, top_left_face_mask, view_direction);
+	sampling_state = add_anisotropic_sampling_faces(sampling_state, top_right, top_right_face_mask, view_direction);
+	sampling_state = add_anisotropic_sampling_faces(sampling_state, bottom_left, bottom_left_face_mask, view_direction);
+	sampling_state = add_anisotropic_sampling_faces(sampling_state, bottom_right, bottom_right_face_mask, view_direction);
 
 	let top_left_raycast_data = prepare_voxel_contribution_raycast(top_left, camera_position);
 	let top_right_raycast_data = prepare_voxel_contribution_raycast(top_right, camera_position);
