@@ -140,7 +140,7 @@ impl VoxelRenderer {
 		}));
 		let bvh_beam_textured = WgpuWrapper::new(device.create_texture(&wgpu::TextureDescriptor {
 			label: Some("bvh_beam_texture"),
-			size: wgpu::Extent3d { width: config.width / BVH_BEAM_TEXTURE_FACTOR, height: config.height / BVH_BEAM_TEXTURE_FACTOR, depth_or_array_layers: 1 },
+			size: wgpu::Extent3d { width: (config.width + 1) / BVH_BEAM_TEXTURE_FACTOR, height: (config.height + 1) / BVH_BEAM_TEXTURE_FACTOR, depth_or_array_layers: 1 },
 			mip_level_count: 1,
 			sample_count: 1,
 			dimension: wgpu::TextureDimension::D2,
@@ -198,7 +198,7 @@ impl VoxelRenderer {
 		}));
 		let intermediate_textured = WgpuWrapper::new(device.create_texture(&wgpu::TextureDescriptor {
 			label: Some("intermediate_texture"),
-			size: wgpu::Extent3d { width: config.width, height: config.height, depth_or_array_layers: 1 },
+			size: wgpu::Extent3d { width: config.width + 1, height: config.height + 1, depth_or_array_layers: 1 },
 			mip_level_count: 1,
 			sample_count: 1,
 			dimension: wgpu::TextureDimension::D2,
@@ -328,8 +328,6 @@ impl VoxelRenderer {
 		&self,
 		device: &wgpu::Device,
 		encoder: &mut wgpu::CommandEncoder,
-		view_width: u32,
-		view_height: u32,
 		view_bind_group: &GpuBindGroup,
 		view_uniform_offset: u32,
 		bvh: &bvh::BVH<Entity>,
@@ -378,7 +376,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &*beam_bind_group, &[]);
 			compute_pass.set_pipeline(&self.bvh_beam_pipeline);
-			compute_pass.dispatch_workgroups((view_width / BVH_BEAM_TEXTURE_FACTOR).div_ceil(4), (view_height / BVH_BEAM_TEXTURE_FACTOR).div_ceil(4), 1);
+			compute_pass.dispatch_workgroups(self.bvh_beam_textured.width().div_ceil(4), self.bvh_beam_textured.height().div_ceil(4), 1);
 		}
 		{
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Ray Pass"), timestamp_writes: None });
@@ -387,7 +385,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &*ray_bind_group, &[]);
 			compute_pass.set_pipeline(&self.ray_marching_pipeline);
-			compute_pass.dispatch_workgroups(view_width.div_ceil(8), view_height.div_ceil(4), 1);
+			compute_pass.dispatch_workgroups(self.intermediate_textured.width().div_ceil(8), self.intermediate_textured.height().div_ceil(4), 1);
 		}
 		let voxels_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &self.voxel_bind_group_layout,

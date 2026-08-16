@@ -39,7 +39,7 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 	let pixel = global_invocation_id.xy;
 	if (pixel.x >= texture_size.x || pixel.y >= texture_size.y) { return; }
 
-	let screen_pos = (float2(pixel) + float2(0.5)) / float2(texture_size);
+	let screen_pos = float2(pixel) / float2(texture_size - uint2(1));
 
 	let ray_start = view.world_position;
 	let ray_clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, 1.0, 1.0);
@@ -47,13 +47,25 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 	let ray_view = ray_view_h.xyz / ray_view_h.w;
 	let ray_dir = normalize(mul(view.world_from_view, float4(ray_view, 0.0)).xyz);
 
-	let depth = scene_depth.Load(int3(int2(pixel), 0)).r;
-	var max_dist = 1e38;
-	if (depth > 0.0) {
-		let clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, depth, 1.0);
-		let world_h = mul(view.world_from_clip, clip);
-		let depth_world = world_h.xyz / world_h.w;
-		max_dist = max(0.0, dot(depth_world - ray_start, ray_dir));
+	uint depth_width;
+	uint depth_height;
+	scene_depth.GetDimensions(depth_width, depth_height);
+	let depth_size = uint2(depth_width, depth_height);
+	let depth_min = max(int2(pixel) - int2(1), int2(0));
+	let depth_max = min(int2(pixel), int2(depth_size) - int2(1));
+	var max_dist = 0.0;
+	for (int y = depth_min.y; y <= depth_max.y; y++) {
+		for (int x = depth_min.x; x <= depth_max.x; x++) {
+			let depth = scene_depth.Load(int3(int2(x, y), 0)).r;
+			if (depth <= 0.0) {
+				max_dist = 1e38;
+			} else {
+				let clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, depth, 1.0);
+				let world_h = mul(view.world_from_clip, clip);
+				let depth_world = world_h.xyz / world_h.w;
+				max_dist = max(max_dist, max(0.0, dot(depth_world - ray_start, ray_dir)));
+			}
+		}
 	}
 
 	uint beam_width;

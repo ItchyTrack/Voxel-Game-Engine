@@ -71,17 +71,31 @@ float3 id_to_color(uint id) {
 	return float3(r, g, b);
 }
 
+struct RaycastKernel {
+	uint4 top_left;
+	uint4 top_right;
+	uint4 bottom_left;
+	uint4 bottom_right;
+};
+
+RaycastKernel load_raycast_kernel(uint2 texture_pos) {
+	RaycastKernel kernel;
+	kernel.top_left = intermediate_textured_read.Load(int3(int2(texture_pos), 0));
+	kernel.top_right = intermediate_textured_read.Load(int3(int2(texture_pos + uint2(1, 0)), 0));
+	kernel.bottom_left = intermediate_textured_read.Load(int3(int2(texture_pos + uint2(0, 1)), 0));
+	kernel.bottom_right = intermediate_textured_read.Load(int3(int2(texture_pos + uint2(1, 1)), 0));
+	return kernel;
+}
+
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target {
 	uint texture_width;
 	uint texture_height;
 	intermediate_textured_read.GetDimensions(texture_width, texture_height);
 	uint2 texture_size = uint2(texture_width, texture_height);
-	let texture_pos = uint2(
-		uint(input.screen_pos.x * float(texture_size.x)),
-		uint((1.0 - input.screen_pos.y) * float(texture_size.y))
-	);
-	let data = intermediate_textured_read.Load(int3(int2(texture_pos), 0));
+	uint2 texture_pos = uint2(input.clip_position.xy);
+	let kernel = load_raycast_kernel(texture_pos);
+	let data = kernel.top_left;
 
 	if (data.x == 0u) {
 		discard;
@@ -98,7 +112,8 @@ float4 fs_main(VertexOutput input) : SV_Target {
 	let item = bvh_items[bvh_item_idx];
 	let item_index_2 = item.item_index_2;
 	let distance = asfloat(data.w);
-	let ray_clip = float4(input.screen_pos.x * 2.0 - 1.0, input.screen_pos.y * 2.0 - 1.0, 1.0, 1.0);
+	let screen_pos = float2(texture_pos) / float2(texture_size - uint2(1));
+	let ray_clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, 1.0, 1.0);
 	let ray_view_h = mul(view.view_from_clip, ray_clip);
 	let ray_view = ray_view_h.xyz / ray_view_h.w;
 	let ray_dir = normalize(mul(view.world_from_view, float4(ray_view, 0.0)).xyz);
