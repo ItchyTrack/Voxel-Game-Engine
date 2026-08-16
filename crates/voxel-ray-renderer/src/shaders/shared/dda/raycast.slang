@@ -26,27 +26,10 @@ struct DDAHit {
 	uint normal;
 	uint voxel_data_index;
 	uint voxel_index;
-	uint sample_octant;
 	float dist;
 };
 
-uint dda_sample_octant(float3 ray_origin, float3 dir, float hit_dist, uint normal, uint3 root_relative_grid_pos, uint node_size) {
-	uint cell_size = node_size >> DDA_LOG_SIZE;
-	uint3 cell_min = root_relative_grid_pos - (root_relative_grid_pos & uint3(cell_size - 1u));
-	float3 cell_pos = (ray_origin + dir * max(hit_dist, 0.0) - float3(cell_min)) / float(cell_size);
-	cell_pos = clamp(cell_pos, float3(0.0), float3(1.0));
-
-	uint axis = (normal >> 3u) & 0xFu;
-	if (axis < 3u) {
-		cell_pos[axis] = (normal & (1u << axis)) != 0u ? 0.0 : 1.0;
-	}
-
-	return (cell_pos.x >= 0.5 ? 1u : 0u)
-		+ (cell_pos.y >= 0.5 ? 2u : 0u)
-		+ (cell_pos.z >= 0.5 ? 4u : 0u);
-}
-
-DDAHit dda_make_hit(float3 ray_origin, float3 start_pos, float3 dir, uint step, uint last_step_axis, float3 axis_distances, float3 delta, uint3 root_relative_grid_pos, uint node_size, uint voxel_data_index, uint voxel_index) {
+DDAHit dda_make_hit(float3 start_pos, float3 dir, uint step, uint last_step_axis, float3 axis_distances, float3 delta, uint3 root_relative_grid_pos, uint node_size, uint voxel_data_index, uint voxel_index) {
 	DDAHit hit_result;
 	float hit_dist = axis_distances[last_step_axis] - delta[last_step_axis];
 	if (hit_dist < 0.0) {
@@ -60,7 +43,6 @@ DDAHit dda_make_hit(float3 ray_origin, float3 start_pos, float3 dir, uint step, 
 	}
 	hit_result.voxel_data_index = voxel_data_index;
 	hit_result.voxel_index = voxel_index;
-	hit_result.sample_octant = dda_sample_octant(ray_origin, dir, hit_dist, hit_result.normal, root_relative_grid_pos, node_size);
 	return hit_result;
 }
 
@@ -69,7 +51,6 @@ DDAHit dda_no_hit() {
 	no_hit.normal = 0u;
 	no_hit.voxel_data_index = 0u;
 	no_hit.voxel_index = 0u;
-	no_hit.sample_octant = 0u;
 	no_hit.dist = 0.0;
 	return no_hit;
 }
@@ -191,12 +172,12 @@ DDAHit dda_raycast<T : IDDADataSource>(float3 origin, float3 dir, float max_leng
 		} else {
 			uint data_idx = dda_data_index(bitmap_low, bitmap_high, bitmap_status, cell_index);
 			if (node_size == 4u) {
-				return dda_make_hit(origin, post_aabb_origin_clamped, dir, step, last_step_axis, axis_distances, delta, root_relative_grid_pos, node_size, dda_voxel_data_offset<T>(node_byte_off), data_idx);
+				return dda_make_hit(post_aabb_origin_clamped, dir, step, last_step_axis, axis_distances, delta, root_relative_grid_pos, node_size, dda_voxel_data_offset<T>(node_byte_off), data_idx);
 			}
 
 			uint entry_val = dda_node_entry<T>(node_byte_off, bitmap_status, data_idx, node_size);
 			if (entry_val == 0u) {
-				return dda_make_hit(origin, post_aabb_origin_clamped, dir, step, last_step_axis, axis_distances, delta, root_relative_grid_pos, node_size, dda_voxel_data_offset<T>(node_byte_off), data_idx);
+				return dda_make_hit(post_aabb_origin_clamped, dir, step, last_step_axis, axis_distances, delta, root_relative_grid_pos, node_size, dda_voxel_data_offset<T>(node_byte_off), data_idx);
 			} else {
 				node_byte_off += entry_val * DDA_SLOT_BYTES;
 				node_size = node_size >> DDA_LOG_SIZE;
