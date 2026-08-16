@@ -117,8 +117,11 @@ impl SourceManager {
 }
 
 pub(crate) fn publish_source_results_messages(
-	source_manager: Res<SourceManager>,
+	mut source_manager: ResMut<SourceManager>,
 	mut result_writter: MessageWriter<SourceResult>,
 ) {
-	result_writter.write_batch(source_manager.source_result_receiver.iter());
+	result_writter.write_batch(source_manager.source_result_receiver.clone().iter().map(|result| {
+		source_manager.pending_requests.remove(&result.request_id);
+		result
+	}));
 }
