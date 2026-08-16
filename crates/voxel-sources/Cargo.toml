@@ -10,6 +10,7 @@ tracy = ["tracy-client/enable"]
 [dependencies]
 crossbeam-channel = "0.5.15"
 bevy = { workspace = true }
+bevy-trait-query = "0.19.0"
 rustc-hash = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 futures = "0.3.32"

@@ -24,7 +24,8 @@ pub struct FreezeCameraVoxelLoader(pub bool);
 pub struct CameraVoxelLoaderDefaultSettings(pub CameraVoxelLoaderSettings);
 
 fn ensure_camera_voxel_loader_components(
-	mut commands: Commands, default_settings: Res<CameraVoxelLoaderDefaultSettings>,
+	mut commands: Commands,
+	default_settings: Res<CameraVoxelLoaderDefaultSettings>,
 	cameras: Query<(Entity, Option<&CameraVoxelLoader>, Option<&CameraVoxelLoaderConsumer>), With<Camera3d>>,
 ) {
 	for (entity, loader, consumer) in &cameras {

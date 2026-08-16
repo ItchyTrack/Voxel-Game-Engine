@@ -55,6 +55,7 @@ pub struct GridStreaming {
 	pub(crate) edit_interest_counts: HashMap<IVec3, u32>,
 	pub(crate) edit_interest_version: u64,
 	pub(crate) queued_edit_interest: HashMap<IVec3, (u64, bool)>,
+	pub(crate) voxel_source_requester_id: VoxelSourceRequesterId,
 }
 
 #[derive(Component, Debug, Default)]
