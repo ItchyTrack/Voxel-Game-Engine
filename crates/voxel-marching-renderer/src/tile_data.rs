@@ -2,7 +2,7 @@ use std::any::Any;
 
 use basic_voxel::MarchingVoxel;
 use bevy::math::{IVec3, UVec3, Vec3};
-use tile_data::{TileData, TileGenerationSession, TileGenerator, ChunkRegion, VoxelAreaRequest};
+use tile_data::{ChunkRegion, NonZeroChunkRegion, TileData, TileGenerationSession, TileGenerator, VoxelAreaRequest};
 use voxel_data::voxels::VoxelType;
 use tile_data::CHUNK_SIZE;
 
@@ -56,7 +56,7 @@ pub struct MarchingTileGenerator {
 impl TileGenerator for MarchingTileGenerator {
 	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
 		let area = ChunkRegion::new(session.key.min(), session.key.size());
-		let padded_area = ChunkRegion::new(area.min() - IVec3::ONE, area.size() + UVec3::splat(2));
+		let padded_area = NonZeroChunkRegion::new(area.min() - IVec3::ONE, area.size() + UVec3::splat(2)).unwrap();
 		session.request_voxels(VoxelAreaRequest {
 			area: padded_area,
 			lod: session.key.lod,

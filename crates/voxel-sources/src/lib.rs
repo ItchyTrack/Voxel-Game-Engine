@@ -1,7 +1,6 @@
 mod request;
 mod source_manager;
 mod source;
-mod handle;
 
 use bevy::prelude::*;
 

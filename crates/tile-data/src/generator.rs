@@ -10,30 +10,30 @@ use crate::{NonZeroChunkRegion, TileData, TileGenerationContext, TileKey};
 pub use async_trait::async_trait;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct VoxelAreaRequest {
+pub struct VoxelRegionRequest {
 	pub area: NonZeroChunkRegion,
 	pub lod: u8,
 	pub voxel_type: VoxelTypeId,
 }
 
 #[derive(Debug)]
-pub struct VoxelAreaResult {
+pub struct VoxelRegionResult {
 	pub area: NonZeroChunkRegion,
 	pub lod: u8,
 	pub voxels: Voxels,
 }
 
-pub type ReceiveVoxelsFuture<'a> = std::pin::Pin<Box<dyn Future<Output = Option<VoxelAreaResult>> + Send + 'a>>;
+pub type ReceiveVoxelsFuture<'a> = std::pin::Pin<Box<dyn Future<Output = Option<VoxelRegionResult>> + Send + 'a>>;
 
 pub trait GenerationVoxelReader: Send + 'static {
-	fn request_voxels(&mut self, request: VoxelAreaRequest);
+	fn request_voxels(&mut self, request: VoxelRegionRequest);
 	fn receive_voxels(&mut self) -> ReceiveVoxelsFuture<'_>;
 }
 
 pub struct TileGenerationSession {
 	pub grid: GridId,
 	pub key: TileKey,
-	chunk_size: i32,
+	chunk_size: u32,
 	context: TileGenerationContext,
 	reader: Box<dyn GenerationVoxelReader>,
 }
@@ -42,7 +42,7 @@ impl TileGenerationSession {
 	pub fn new(
 		grid: GridId,
 		key: TileKey,
-		chunk_size: i32,
+		chunk_size: u32,
 		context: TileGenerationContext,
 		reader: Box<dyn GenerationVoxelReader>,
 	) -> Self {
@@ -53,7 +53,7 @@ impl TileGenerationSession {
 		self.context.downcast_ref().unwrap_or_else(|| panic!("tile generator received generation context of the wrong type"))
 	}
 
-	pub fn request_voxels(&mut self, request: VoxelAreaRequest) {
+	pub fn request_voxels(&mut self, request: VoxelRegionRequest) {
 		self.reader.request_voxels(request);
 	}
 
@@ -61,19 +61,19 @@ impl TileGenerationSession {
 		self.reader.receive_voxels()
 	}
 
-	pub async fn receive_merged_voxels(&mut self, area: NonZeroChunkRegion) -> Option<VoxelAreaResult> {
+	pub async fn receive_merged_voxels(&mut self, area: NonZeroChunkRegion) -> Option<VoxelRegionResult> {
 		let mut merged: Option<Voxels> = None;
 		let mut lod = None;
 		while let Some(result) = self.receive_voxels().await {
 			let result_lod = *lod.get_or_insert(result.lod);
 			assert_eq!(result.lod, result_lod, "cannot merge voxel-area results with different LODs");
 			let step = 1i32.checked_shl(result.lod as u32).expect("voxel-area result LOD is too large");
-			let offset = ((result.area.min() - area.min()) * self.chunk_size).div_euclid(bevy::math::IVec3::splat(step));
+			let offset = ((result.area.min() - area.min()) * self.chunk_size as i32).div_euclid(bevy::math::IVec3::splat(step));
 			let target = merged.get_or_insert_with(|| Voxels::new_with_type(result.voxels.voxel_type_info()));
 			assert_eq!(target.voxel_type_id(), result.voxels.voxel_type_id(), "cannot merge voxel-area results with different voxel types");
 			target.merge_from(&result.voxels, offset);
 		}
-		merged.filter(|voxels| !voxels.is_empty()).map(|voxels| VoxelAreaResult {
+		merged.filter(|voxels| !voxels.is_empty()).map(|voxels| VoxelRegionResult {
 			area,
 			lod: lod.unwrap(),
 			voxels,

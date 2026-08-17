@@ -5,12 +5,9 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use futures::{StreamExt, channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded as async_unbounded}};
 use tile_data::{
 	GenerationVoxelReader, TileData, TileGenerationContext, TileGenerationSession, TileKey,
-	ChunkRegion, VoxelAreaRequest, VoxelAreaResult,
+	VoxelAreaRequest, VoxelAreaResult,
 };
 use voxel_data::grid::GridId;
-use voxel_sources::{
-	VoxelAreaKey, VoxelAreaLoadEvent, VoxelAreaLoadRequest, VoxelSourcesRequestHandle,
-};
 use voxel_tasks::CancellationToken;
 
 use crate::tile_dependency_index::TileDependency;

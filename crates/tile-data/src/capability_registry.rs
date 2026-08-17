@@ -4,11 +4,7 @@ use crate::data::TileData;
 
 type Reader<Capability> = Box<dyn Fn(&dyn TileData) -> Capability + Send + Sync>;
 
-/// Type-erased readers for one consumer-defined tile capability.
-///
-/// Each subsystem owns a registry for the capability it consumes. Concrete tile-data types may be
-/// registered with any number of such registries; `tile-data` itself does not know ray, raster,
-/// physics, or bounds semantics.
+// A Capability is a function that can be called with a tile to do something with it.
 pub struct TileCapabilityRegistry<Capability> {
 	readers: HashMap<TypeId, Reader<Capability>>,
 }
