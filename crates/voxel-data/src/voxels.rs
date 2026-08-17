@@ -26,22 +26,22 @@ pub trait VoxelType: bytemuck::Pod + bytemuck::Zeroable + Sized + Send + Sync + 
 			id: Self::TYPE_ID,
 			size_bytes: std::mem::size_of::<Self>() as u16,
 	};
-																		
+
 	fn get_ref(&self) -> VoxelRef<'_> {
 		VoxelRef::new(Self::TYPE_ID, bytemuck::bytes_of(self))
 	}
-																				
+
 	fn into_voxel(self) -> Voxel {
 		Voxel::new(Self::TYPE_ID, bytemuck::bytes_of(&self))
 	}
-																				
+
 	fn from_voxel_ref(voxel: &VoxelRef) -> Self {
 		Self::TYPE_ID.assert_type(voxel.type_id());
 		bytemuck::pod_read_unaligned(voxel.bytes())
 	}
-																				
+
 	fn from_voxel(voxel: &Voxel) -> Self {
-		Self::TYPE_ID.assert_type(voxel.type_id());															
+		Self::TYPE_ID.assert_type(voxel.type_id());
 		bytemuck::pod_read_unaligned(voxel.bytes())
 	}
 }
@@ -247,7 +247,7 @@ impl Voxels {
 		});
 		self.voxels.insert(&pos, voxel)
 	}
-	
+
 	pub fn add_voxe_get_replaced(&mut self, pos: U16Vec3, voxel: VoxelRef, out_voxel_bytes: &mut [u8]) -> bool {
 		self.assert_type(voxel.type_id());
 		let bb = *self.bounding_box.lock().unwrap();

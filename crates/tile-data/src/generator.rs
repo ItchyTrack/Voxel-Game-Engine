@@ -67,7 +67,6 @@ pub trait GenerationVoxelReader: Send + 'static {
 pub struct TileGenerationSession {
 	pub grid: GridId,
 	pub key: TileKey,
-	chunk_size: u32,
 	context: TileGenerationParameters,
 	reader: Box<dyn GenerationVoxelReader>,
 }
@@ -76,11 +75,10 @@ impl TileGenerationSession {
 	pub fn new(
 		grid: GridId,
 		key: TileKey,
-		chunk_size: u32,
 		context: TileGenerationParameters,
 		reader: Box<dyn GenerationVoxelReader>,
 	) -> Self {
-		Self { grid, key, chunk_size, context, reader }
+		Self { grid, key, context, reader }
 	}
 
 	pub fn context<T: TileGenerationData + 'static>(&self) -> &T {

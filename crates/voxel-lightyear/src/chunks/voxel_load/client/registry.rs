@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use bevy::log::warn;
 use bevy::math::IVec3;
-use voxel_data::compressed_voxels::CompressedVoxels;
+use voxel_data::{compressed_voxels::CompressedVoxels, voxels_location::VoxelsLocation};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
 use voxel_sources::{CancellationToken, VoxelAreaKey, SourceHandle};
@@ -84,7 +84,7 @@ impl ClientLoadRegistry {
 			cancellation,
 		}));
 		self.chunk_ids.insert(key, id);
-		self.requests.push_back(VoxelLoadRequest { id, kind: VoxelLoadRequestKind::Chunk { grid, chunk } });
+		self.requests.push_back(VoxelLoadRequest { id, location: VoxelsLocation { grid: grid, chunk,  } });
 	}
 
 	pub fn request_voxel_area(
@@ -118,10 +118,9 @@ impl ClientLoadRegistry {
 		}
 	}
 
-
 	pub fn receive_response(&mut self, handle: &SourceHandle, from: impl std::fmt::Debug, response: &mut VoxelLoadResponse) {
 		match &mut response.kind {
-			VoxelLoadResponseKind::Chunk { grid, chunk, generation, voxels } => {
+			VoxelLoadResponseKind::Voxel { grid, chunk, generation, voxels } => {
 				self.receive_chunk_response(handle, from, response.id, *grid, *chunk, *generation, voxels);
 			}
 			VoxelLoadResponseKind::VoxelArea { grid, key, generation, voxel_type, voxels } => {
@@ -212,7 +211,7 @@ impl ClientLoadRegistry {
 		let Some(PendingVoxelLoad::VoxelArea(_pending)) = self.finish(id, VoxelLoadOutcome::Received) else {
 			unreachable!("checked lod voxel load disappeared")
 		};
-		handle.voxels_loaded(grid, key.region(), key.lod as f32, voxel_type, generation, voxels);
+		handle.voxels(request_id, grid, key.region(), key.lod, generation, voxels);
 	}
 
 	fn allocate_id(&mut self) -> VoxelLoadId {

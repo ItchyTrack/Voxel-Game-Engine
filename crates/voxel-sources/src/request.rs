@@ -18,7 +18,7 @@ pub enum SourceResultData {
 		lod: u8,
 		voxel_type: VoxelTypeId,
 		generation: u64,
-		voxels: Option<Voxels>,
+		voxels: Voxels,
 	},
 	VoxelsLoaded,
 }

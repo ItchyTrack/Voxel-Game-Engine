@@ -11,6 +11,7 @@ pub mod subgrid;
 pub mod transform_ext;
 pub mod voxel_grid_tree;
 pub mod voxels;
+pub mod voxels_location;
 pub mod world_query;
 
 use bevy::prelude::*;

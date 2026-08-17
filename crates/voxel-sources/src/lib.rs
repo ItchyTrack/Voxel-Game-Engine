@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 pub use voxel_tasks::CancellationToken;
 
-pub use crate::source::ChunkSource;
+pub use crate::source::{ChunkSource, SourceHandle};
 pub use crate::request::SourceResult;
 pub use crate::source_manager::SourceManager;
 use crate::source_manager::publish_source_results_messages;

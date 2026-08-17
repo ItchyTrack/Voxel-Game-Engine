@@ -21,13 +21,10 @@ impl SourceHandle {
 
 	pub fn voxels(
 		&self,
-		grid: GridId,
-		region: NonZeroChunkRegion,
-		lod: u8,
-		voxel_type: VoxelTypeId,
-		generation: u64,
-		voxels: Option<Voxels>,
 		request_id: RequestId,
+		location: voxels_location,
+		generation: u64,
+		voxels: Voxels,
 	) {
 		let _ = self.messages.send(SourceResult {
 			request_id,
@@ -49,7 +46,7 @@ impl SourceHandle {
 		});
 	}
 
-	pub fn presence(&self, grid: GridId, region: NonZeroChunkRegion, request_id: RequestId) {
+	pub fn presence(&self, request_id: RequestId, grid: GridId, region: NonZeroChunkRegion) {
 		let _ = self.messages.send(SourceResult {
 			request_id,
 			data: SourceResultData::Presence{ grid, region },
@@ -83,7 +80,7 @@ pub trait ChunkSource: Send + Sync {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-	) -> Option<(AsyncFnOnce(), SourceCoverage)>;
+	) -> Option<(SourceCoverage, Option<impl AsyncFnOnce() + Send + 'static>)>;
 
 	fn request_presence(
 		&self,

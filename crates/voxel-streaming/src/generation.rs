@@ -158,5 +158,5 @@ pub(crate) fn session(
 	metadata: Arc<Mutex<TileGenerationMetadata>>,
 ) -> (TileGenerationSession, UnboundedSender<VoxelAreaLoadEvent>) {
 	let (reader, wake) = StreamingVoxelReader::new(grid, priority, requests, cancellation, metadata);
-	(TileGenerationSession::new(grid, key, tile_data::CHUNK_SIZE, context, Box::new(reader)), wake)
+	(TileGenerationSession::new(grid, key, context, Box::new(reader)), wake)
 }

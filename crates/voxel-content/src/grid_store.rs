@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bevy::math::IVec3;
-use tile_data::ChunkRegion;
+use tile_data::{ChunkRegion, NonZeroChunkRegion};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 
@@ -16,7 +16,7 @@ pub struct GridStore {
 }
 
 impl GridStore {
-	pub fn available_area(&self) -> Option<ChunkRegion> {
+	pub fn available_area(&self) -> Option<NonZeroChunkRegion> {
 		let mut iter = self.generations.keys().copied();
 		let first = iter.next()?;
 		let (mut min, mut max) = (first, first);
@@ -24,7 +24,7 @@ impl GridStore {
 			min = min.min(chunk);
 			max = max.max(chunk);
 		}
-		ChunkRegion::from_min_max(min, max)
+		NonZeroChunkRegion::from_min_max(min, max)
 	}
 
 	pub fn contains_chunk(&self, chunk: IVec3) -> bool {

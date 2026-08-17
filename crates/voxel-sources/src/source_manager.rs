@@ -51,7 +51,7 @@ impl SourceManager {
 		let mut source_request_count = 0;
 		for source in &self.sources {
 			source_request_count += 1;
-			if let Some((async_fn, source_coverage)) = source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type) {
+			if let Some((source_coverage, async_fn)) = source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type) {
 				async_task_priority_queue.push(PriorityTask::new(1.0, async_fn));
 				if matches!(source_coverage, SourceCoverage::All) { break; }
 			}

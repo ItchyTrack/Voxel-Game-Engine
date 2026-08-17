@@ -32,53 +32,69 @@ impl ChunkSource for ClientChunkSource {
 		let _ = self.state.handle.set(handle);
 	}
 
-	fn request_available_area(&self, grid: GridId) {
-		self.state.presence_requests.lock().unwrap().push_back(PresenceRequest { grid });
-	}
-
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
-		if cancellation.is_cancelled()
-			|| self.state.forgotten.contains(grid, chunk)
-			|| !self.state.remote_grids.lock().unwrap().contains(&grid) { return SourceCoverage::None; }
-		self.state.loads.lock().unwrap().request_chunk(grid, chunk, generation, None, cancellation);
-		SourceCoverage::All
-	}
-
-	fn request_voxel_area(&self, grid: GridId, region: NonZeroChunkRegion, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
-		if cancellation.is_cancelled() || !self.state.remote_grids.lock().unwrap().contains(&grid) { return SourceCoverage::None; }
-		let mut owned = 0;
-		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-			owned += (!self.state.forgotten.contains(grid, min + IVec3::new(x, y, z))) as usize;
-		}}}
-		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
-		if coverage == SourceCoverage::None { return coverage; }
+	fn request_voxels(
+		&self,
+		request_id: RequestId,
+		cancellation: &CancellationToken,
+		grid: GridId,
+		region: NonZeroChunkRegion,
+		lod: u8,
+		voxel_type: Option<VoxelTypeId>,
+	) -> Option<(SourceCoverage, Option<AsyncFnOnce()>)> {
+		if !self.state.remote_grids.lock().unwrap().contains(&grid) { return None; }
+		let mut has_one = None;
+		let mut source_coverage = SourceCoverage::All;
+		'outer:for x in region.min().x..region.end().x {
+			for y in region.min().y..region.end().y {
+				for z in region.min().z..region.end().z {
+					if store.contains_chunk(IVec3::new(x, y, z)) {
+						if let Some(has_one_val) = has_one {
+							if has_one_val {
+								source_coverage = SourceCoverage::Some;
+								break 'outer;
+							}
+						} else {
+							has_one = Some(true)
+						}
+					} else {
+						if let Some(has_one_val) = has_one {
+							if has_one_val {
+								source_coverage = SourceCoverage::Some;
+								break 'outer;
+							}
+						} else {
+							has_one = Some(false)
+						}
+					}
+				}
+			}
+		}
+		assert!(has_one.is_some()); // has to happen as region is non zero
+		if !has_one.unwrap() {
+			return None;
+		}
 		let key = VoxelAreaKey {
 			region,
 			lod: lod.max(0.0).floor() as u8,
 		};
 		self.state.loads.lock().unwrap().request_voxel_area(grid, key, voxel_type, 0.0, generation, cancellation);
-		coverage
+		(source_coverage)
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
-		if !self.state.remote_grids.lock().unwrap().contains(&grid) { return Vec::new(); }
-		let chunks = self.state.forgotten.forget_area_where(grid, region, |_| true);
-		let source = self.clone();
-		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
-			let source = source.clone();
-			move || {
-				source.state.loads.lock().unwrap().request_chunk(
-					grid,
-					chunk,
-					generation,
-					Some(destination),
-					CancellationToken::new(),
-				);
-			}
-		})).collect()
+	fn request_presence(
+			&self,
+			request_id: RequestId,
+			cancellation: CancellationToken,
+			grid: GridId,
+		) {
+		todo!()
 	}
 
-	fn forget(&self, grid: GridId, chunk: IVec3) {
+	fn take_ownership(
+		&self,
+		grid: GridId,
+		region: NonZeroChunkRegion
+	) {
 		self.state.forgotten.forget(grid, chunk);
 	}
 }
