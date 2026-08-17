@@ -1,6 +1,6 @@
 use basic_voxel::MarchingVoxel;
 use bevy::prelude::*;
-use tile_data::TileGenerationContext;
+use tile_data::TileGenerationParameters;
 use voxel_data::{grid::Grid, voxels::VoxelType};
 use voxel_gpu::{RenderingContext, RenderingType};
 
@@ -24,7 +24,7 @@ impl Plugin for VoxelAppRenderingPlugin {
 fn apply_grid_rendering_contexts(
 	mut commands: Commands,
 	mode: Res<VoxelRenderMode>,
-	grids: Query<(Entity, &Grid, Option<&TileGenerationContext>)>,
+	grids: Query<(Entity, &Grid, Option<&TileGenerationParameters>)>,
 ) {
 	let rendering_type = match *mode {
 		VoxelRenderMode::Ray => RenderingType::Ray,
@@ -34,7 +34,7 @@ fn apply_grid_rendering_contexts(
 	for (entity, grid, current) in &grids {
 		if grid.voxel_type_info().id == MarchingVoxel::TYPE_INFO.id { continue; }
 		if current.is_none() || mode.is_changed() {
-			let context = context.get_or_insert_with(|| TileGenerationContext::new(RenderingContext { rendering_type }));
+			let context = context.get_or_insert_with(|| TileGenerationParameters::new(RenderingContext { rendering_type }));
 			commands.entity(entity).insert(context.clone());
 		}
 	}

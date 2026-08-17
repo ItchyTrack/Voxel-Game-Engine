@@ -88,12 +88,8 @@ pub trait VoxelGpuAppExt {
 
 impl VoxelGpuAppExt for App {
 	fn register_voxel_gpu_data<T: VoxelGpuData>(&mut self) -> &mut Self {
-		if !self.world().contains_resource::<VoxelGpuDataReaders>() {
-			self.init_resource::<VoxelGpuDataReaders>();
-		}
-		if !self.world().contains_resource::<VoxelGpuShaderTypes>() {
-			self.init_resource::<VoxelGpuShaderTypes>();
-		}
+		self.init_resource::<VoxelGpuDataReaders>();
+		self.init_resource::<VoxelGpuShaderTypes>();
 		self.world_mut().resource_mut::<VoxelGpuDataReaders>().register::<T>();
 		self.world_mut().resource_mut::<VoxelGpuShaderTypes>().register::<T>();
 		self

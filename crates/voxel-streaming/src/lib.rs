@@ -21,7 +21,7 @@ pub use forgotten_chunks::ForgottenChunks;
 pub use presence::{ChunkPresence, ChunkState};
 pub use tile_data::{
 	DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData,
-	TileGenerationContext, TileGenerationSession, TileGenerator, TileGeneratorRegistry, TileKey,
+	TileGenerationParameters, TileGenerationSession, TileGenerator, TileGeneratorRegistry, TileKey,
 	VoxelAreaRequest, VoxelAreaResult,
 };
 pub use tile_updates::{TileLoadStatus, TileLoadUpdate};

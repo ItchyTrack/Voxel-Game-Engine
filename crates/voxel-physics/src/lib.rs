@@ -100,9 +100,7 @@ pub fn physics_not_frozen(freeze: Res<FreezePhysics>) -> bool {
 
 impl VoxelPhysicsAppExt for App {
 	fn register_voxel_mass<T: VoxelMassValue>(&mut self) -> &mut Self {
-		if !self.world().contains_resource::<VoxelMassReaders>() {
-			self.init_resource::<VoxelMassReaders>();
-		}
+		self.init_resource::<VoxelMassReaders>();
 		self.world_mut().resource_mut::<VoxelMassReaders>().register::<T>();
 		self
 	}

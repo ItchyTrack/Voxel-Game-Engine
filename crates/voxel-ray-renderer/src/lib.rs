@@ -60,9 +60,7 @@ pub trait VoxelRayTileAppExt {
 
 impl VoxelRayTileAppExt for App {
 	fn register_ray_tile_data<T: tile_data::RayTileCapability>(&mut self) -> &mut Self {
-		if !self.world().contains_resource::<RayTileCapabilityRegistry>() {
-			self.init_resource::<RayTileCapabilityRegistry>();
-		}
+		self.init_resource::<RayTileCapabilityRegistry>();
 		self.world_mut().resource_mut::<RayTileCapabilityRegistry>().register::<T>();
 		self
 	}

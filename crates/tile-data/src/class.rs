@@ -1,18 +1,10 @@
-use std::{
-	any::Any,
-	sync::{
-		Arc,
-		atomic::{AtomicU64, Ordering},
-	},
-};
+use std::{any::Any, sync::Arc};
 
 use bevy::prelude::*;
 use rustc_hash::FxHashMap;
 use voxel_data::voxels::VoxelTypeId;
 
 use crate::{SharedTileGenerator, TileGenerator};
-
-static NEXT_CONTEXT_VERSION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TileClassId(pub usize);
@@ -54,33 +46,49 @@ impl TileGeneratorRegistry {
 	}
 }
 
+pub trait TileGenerationData: Any + Send + Sync {
+	fn as_any(&self) -> &dyn Any;
+    fn eq(&self, other: &dyn TileGenerationData) -> bool;
+}
+
+impl<T> TileGenerationData for T
+where
+    T: Any + Send + Sync + PartialEq,
+{
+	fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn eq(&self, other: &dyn TileGenerationData) -> bool {
+        other
+			.as_any()
+            .downcast_ref::<T>()
+            .is_some_and(|other| self == other)
+    }
+}
+
 #[derive(Component, Clone)]
-pub struct TileGenerationContext {
-	version: u64,
-	data: Arc<dyn Any + Send + Sync>,
+pub struct TileGenerationParameters {
+    data: Arc<dyn TileGenerationData>,
 }
 
-impl std::fmt::Debug for TileGenerationContext {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("TileGenerationContext")
-			.field("version", &self.version)
-			.field("type_id", &self.data.type_id())
-			.finish()
-	}
+impl PartialEq for TileGenerationParameters {
+    fn eq(&self, other: &Self) -> bool {
+        self.data.eq(&*other.data)
+    }
 }
 
-impl TileGenerationContext {
-	pub fn new<T: Any + Send + Sync>(data: T) -> Self {
+impl Eq for TileGenerationParameters {}
+
+impl TileGenerationParameters {
+	pub fn new<T: TileGenerationData>(data: T) -> Self {
 		Self {
-			version: NEXT_CONTEXT_VERSION.fetch_add(1, Ordering::Relaxed),
 			data: Arc::new(data),
 		}
 	}
 
-	pub fn version(&self) -> u64 { self.version }
-
-	pub fn downcast_ref<T: Any + Send + Sync>(&self) -> Option<&T> {
-		self.data.downcast_ref()
+	pub fn downcast_ref<T: TileGenerationData>(&self) -> Option<&T> {
+		self.data.as_any().downcast_ref()
 	}
 }
 
@@ -91,16 +99,12 @@ pub trait TileAppExt {
 
 impl TileAppExt for App {
 	fn register_tile_class(&mut self) -> TileClassId {
-		if !self.world().contains_resource::<TileClassRegistry>() {
-			self.init_resource::<TileClassRegistry>();
-		}
+		self.init_resource::<TileClassRegistry>();
 		self.world_mut().resource_mut::<TileClassRegistry>().register()
 	}
 
 	fn register_tile_generator<G: TileGenerator>(&mut self, class: TileClassId, source_voxel_type: VoxelTypeId, generator: G) -> &mut Self {
-		if !self.world().contains_resource::<TileGeneratorRegistry>() {
-			self.init_resource::<TileGeneratorRegistry>();
-		}
+		self.init_resource::<TileGeneratorRegistry>();
 		self.world_mut().resource_mut::<TileGeneratorRegistry>().insert(class, source_voxel_type, generator);
 		self
 	}

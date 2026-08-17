@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use futures::{StreamExt, channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded as async_unbounded}};
 use tile_data::{
-	GenerationVoxelReader, TileData, TileGenerationContext, TileGenerationSession, TileKey,
+	GenerationVoxelReader, TileData, TileGenerationParameters, TileGenerationSession, TileKey,
 	VoxelAreaRequest, VoxelAreaResult,
 };
 use voxel_data::grid::GridId;
@@ -151,7 +151,7 @@ impl TileGenerationChannel {
 pub(crate) fn session(
 	grid: GridId,
 	key: TileKey,
-	context: TileGenerationContext,
+	context: TileGenerationParameters,
 	priority: f32,
 	requests: VoxelSourcesRequestHandle,
 	cancellation: CancellationToken,

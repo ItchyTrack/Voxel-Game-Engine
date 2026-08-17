@@ -12,7 +12,7 @@ use voxel_streaming::GridEdits;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_gpu::{RenderingContext, RenderingType};
 use voxel_lightyear::ReplicateVoxels;
-use tile_data::TileGenerationContext;
+use tile_data::TileGenerationParameters;
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, RotationalInertia, VoxelPhysicsAppExt
 };
@@ -113,7 +113,7 @@ fn spawn_sponza(commands: &mut Commands, vox_source: &MarchingVoxFileSource) {
 		RequestChunkPresence,
 		ReplicateVoxels,
 		VoxelCollider,
-		TileGenerationContext::new(RenderingContext { rendering_type: RenderingType::Raster }),
+		TileGenerationParameters::new(RenderingContext { rendering_type: RenderingType::Raster }),
 	)).id();
 	commands.entity(parent).add_child(grid);
 	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);

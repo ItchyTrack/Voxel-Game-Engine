@@ -13,13 +13,13 @@ pub use chunk::{
 	nonzero_voxel_region_from_chunks, voxel_region_from_chunks,
 };
 pub use class::{
-	TileAppExt, TileClassId, TileClassRegistry, TileGenerationContext, TileGeneratorKey,
-	TileGeneratorRegistry,
+	TileAppExt, TileClassId, TileClassRegistry, TileGenerationParameters, TileGeneratorKey,
+	TileGeneratorRegistry
 };
 pub use data::{DynamicTileData, LoadedTile, TileData};
 pub use generator::{
 	async_trait, GenerationVoxelReader, ReceiveVoxelsFuture, SharedTileGenerator,
-	TileGenerationSession, TileGenerator, VoxelAreaRequest, VoxelAreaResult,
+	TileGenerationSession, TileGenerator
 };
 pub use index::{TileIndex, TileIndexKey};
 pub use key::TileKey;

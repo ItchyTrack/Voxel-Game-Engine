@@ -5,7 +5,7 @@ use voxel_data::{
 	voxels::{VoxelTypeId, Voxels},
 };
 
-use crate::{NonZeroChunkRegion, TileData, TileGenerationContext, TileKey};
+use crate::{NonZeroChunkRegion, TileData, TileGenerationParameters, TileKey, class::TileGenerationData};
 
 pub use async_trait::async_trait;
 
@@ -34,7 +34,7 @@ pub struct TileGenerationSession {
 	pub grid: GridId,
 	pub key: TileKey,
 	chunk_size: u32,
-	context: TileGenerationContext,
+	context: TileGenerationParameters,
 	reader: Box<dyn GenerationVoxelReader>,
 }
 
@@ -43,13 +43,13 @@ impl TileGenerationSession {
 		grid: GridId,
 		key: TileKey,
 		chunk_size: u32,
-		context: TileGenerationContext,
+		context: TileGenerationParameters,
 		reader: Box<dyn GenerationVoxelReader>,
 	) -> Self {
 		Self { grid, key, chunk_size, context, reader }
 	}
 
-	pub fn context<T: Send + Sync + 'static>(&self) -> &T {
+	pub fn context<T: TileGenerationData + 'static>(&self) -> &T {
 		self.context.downcast_ref().unwrap_or_else(|| panic!("tile generator received generation context of the wrong type"))
 	}
 

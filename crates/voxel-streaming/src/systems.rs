@@ -24,7 +24,7 @@ use crate::generation::{
 };
 use crate::streaming::TileStatus;
 use crate::{
-	DynamicTileData, LoadedTile, ChunkRegion, StreamingSourceRequestHandle, TileGenerationContext,
+	DynamicTileData, LoadedTile, ChunkRegion, StreamingSourceRequestHandle, TileGenerationParameters,
 	TileGeneratorRegistry, TileLoadStatus, TileLoadUpdate,
 };
 use crate::{GridEdits, GridStreaming, InflightChunkPresence, PresenceLoadRequest, RequestChunkPresence};
@@ -330,7 +330,7 @@ pub fn receive_tile_results(world: &mut World) {
 	let results: Vec<_> = world.resource::<TileGenerationChannel>().drain().collect();
 	for result in results {
 		let Some(key) = world.get_mut::<GridStreaming>(result.grid).and_then(|mut streaming| streaming.inflight_tiles_by_tag.remove(&result.tag)) else { continue };
-		let context_matches = world.get::<TileGenerationContext>(result.grid).is_some_and(|context| context.version() == result.context_version);
+		let context_matches = world.get::<TileGenerationParameters>(result.grid).is_some_and(|context| context.version() == result.context_version);
 		let accepted = {
 			let Some(mut streaming) = world.get_mut::<GridStreaming>(result.grid) else { continue };
 			let stale_source = result.dependencies.iter().any(|dependency| {
@@ -421,7 +421,7 @@ pub fn cleanup_released_tiles(world: &mut World) {
 }
 
 pub fn invalidate_changed_generation_contexts(
-	mut grids: Query<&mut GridStreaming, Changed<TileGenerationContext>>,
+	mut grids: Query<&mut GridStreaming, Changed<TileGenerationParameters>>,
 ) {
 	for mut streaming in &mut grids { streaming.invalidate_generation_context(); }
 }
@@ -430,7 +430,7 @@ pub(crate) fn request_tiles(
 	request_handles: Res<VoxelSourcesRequestHandleGetter>,
 	generators: Res<TileGeneratorRegistry>,
 	results: Res<TileGenerationChannel>,
-	mut grids: Query<(GridId, &Grid, Option<&TileGenerationContext>, &mut GridStreaming)>,
+	mut grids: Query<(GridId, &Grid, Option<&TileGenerationParameters>, &mut GridStreaming)>,
 ) {
 	for (grid, grid_data, context, mut streaming) in grids.iter_mut() {
 		let pending: Vec<_> = std::mem::take(&mut streaming.pending_tile_requests).into_iter().collect();

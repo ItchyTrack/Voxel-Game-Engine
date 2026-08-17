@@ -52,9 +52,7 @@ pub trait VoxelRasterTileAppExt {
 
 impl VoxelRasterTileAppExt for App {
 	fn register_raster_tile_data<T: tile_data::RasterTileCapability>(&mut self) -> &mut Self {
-		if !self.world().contains_resource::<RasterTileCapabilityRegistry>() {
-			self.init_resource::<RasterTileCapabilityRegistry>();
-		}
+		self.init_resource::<RasterTileCapabilityRegistry>();
 		self.world_mut().resource_mut::<RasterTileCapabilityRegistry>().register::<T>();
 		self
 	}

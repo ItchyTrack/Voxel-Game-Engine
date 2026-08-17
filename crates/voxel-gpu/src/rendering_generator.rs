@@ -16,7 +16,7 @@ pub enum RenderingType {
 	Raster,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderingContext {
 	pub rendering_type: RenderingType,
 }
@@ -77,9 +77,7 @@ impl RenderingGeneratorAppExt for App {
 		source_voxel_type: VoxelTypeId,
 		generator: G,
 	) -> &mut Self {
-		if !self.world().contains_resource::<RenderingGeneratorRegistry>() {
-			self.init_resource::<RenderingGeneratorRegistry>();
-		}
+		self.init_resource::<RenderingGeneratorRegistry>();
 		self.world().resource::<RenderingGeneratorRegistry>().insert(rendering_type, source_voxel_type, generator);
 		self
 	}
