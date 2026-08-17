@@ -66,8 +66,6 @@ impl SourceHandle {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceCoverage {
-	/// The source owns none of the requested region and started no request.
-	None,
 	/// The source owns part of the region and started an asynchronous request.
 	Some,
 	/// The source owns the entire region and started an asynchronous request.
@@ -77,30 +75,15 @@ pub enum SourceCoverage {
 pub trait ChunkSource: Send + Sync {
 	fn init(&self, handle: SourceHandle);
 
-	fn source_coverage(
-		&self,
-		grid: GridId,
-		region: NonZeroChunkRegion,
-	) -> SourceCoverage;
-
-	fn notify_request_voxels(
-		&self,
-		request_id: RequestId,
-		grid: GridId,
-		region: NonZeroChunkRegion,
-		lod: u8,
-		voxel_type: Option<VoxelTypeId>,
-	);
-
 	fn request_voxels(
 		&self,
 		request_id: RequestId,
-		cancellation: CancellationToken,
+		cancellation: &CancellationToken,
 		grid: GridId,
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-	);
+	) -> Option<(AsyncFnOnce(), SourceCoverage)>;
 
 	fn request_presence(
 		&self,

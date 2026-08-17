@@ -1,13 +1,47 @@
 use std::{future::Future, sync::Arc};
 
+use bevy::prelude::*;
+use rustc_hash::FxHashMap;
 use voxel_data::{
 	grid::GridId,
 	voxels::{VoxelTypeId, Voxels},
 };
 
-use crate::{NonZeroChunkRegion, TileData, TileGenerationParameters, TileKey, class::TileGenerationData};
+use crate::{NonZeroChunkRegion, TileClassId, TileData, TileGenerationParameters, TileKey, class::TileGenerationData};
 
 pub use async_trait::async_trait;
+
+#[async_trait]
+pub trait TileGenerator: Send + Sync + 'static {
+	async fn generate(&self, session: TileGenerationSession) -> Option<Box<dyn TileData>>;
+}
+
+#[derive(Resource, Default)]
+pub struct TileGeneratorRegistry {
+	generators: FxHashMap<TileClassId, Arc<dyn TileGenerator>>,
+}
+
+impl TileGeneratorRegistry {
+	pub fn insert<G: TileGenerator>(&mut self, tile_class_id: TileClassId, generator: G) {
+		self.generators.insert(tile_class_id, Arc::new(generator));
+	}
+
+	pub fn generator(&self, class: TileClassId) -> Arc<dyn TileGenerator> {
+		self.generators.get(&key).cloned().unwrap_or_else(|| panic!("no tile generator registered for {key:?}"))
+	}
+}
+
+pub trait TileAppExt {
+	fn register_tile_generator<G: TileGenerator>(&mut self, tile_class_id: TileClassId, generator: G) -> &mut Self;
+}
+
+impl TileAppExt for App {
+	fn register_tile_generator<G: TileGenerator>(&mut self, tile_class_id: TileClassId, generator: G) -> &mut Self {
+		self.init_resource::<TileGeneratorRegistry>();
+		self.world_mut().resource_mut::<TileGeneratorRegistry>().insert(tile_class_id, generator);
+		self
+	}
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VoxelRegionRequest {
@@ -80,10 +114,3 @@ impl TileGenerationSession {
 		})
 	}
 }
-
-#[async_trait]
-pub trait TileGenerator: Send + Sync + 'static {
-	async fn generate(&self, session: TileGenerationSession) -> Option<Box<dyn TileData>>;
-}
-
-pub type SharedTileGenerator = Arc<dyn TileGenerator>;

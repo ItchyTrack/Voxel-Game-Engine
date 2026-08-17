@@ -50,26 +50,11 @@ impl SourceManager {
 		let cancellation_token = CancellationToken::new();
 		let mut source_request_count = 0;
 		for source in &self.sources {
-			let final_request = match source.source_coverage(grid, region) {
-				crate::source::SourceCoverage::None => continue,
-				crate::source::SourceCoverage::Some => false,
-				crate::source::SourceCoverage::All => true,
-			};
 			source_request_count += 1;
-			let source = source.clone();
-			let cancellation_token = cancellation_token.clone();
-			source.notify_request_voxels(request_id, grid, region, lod, voxel_type);
-			async_task_priority_queue.push(PriorityTask::new(1.0, async move {
-				source.request_voxels(
-					request_id,
-					cancellation_token,
-					grid,
-					region,
-					lod,
-					voxel_type,
-				);
-			}));
-			if final_request { break; }
+			if let Some((async_fn, source_coverage)) = source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type) {
+				async_task_priority_queue.push(PriorityTask::new(1.0, async_fn));
+				if matches!(source_coverage, SourceCoverage::All) { break; }
+			}
 		}
 		self.pending_requests.insert(request_id, (cancellation_token, source_request_count));
 		request_id
