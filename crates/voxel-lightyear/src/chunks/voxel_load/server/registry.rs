@@ -16,7 +16,6 @@ use super::super::{
 	VoxelLoadRequest,
 	VoxelLoadRequestKind,
 	VoxelLoadResponse,
-	VoxelLoadResponseKind,
 };
 
 const RESPONSE_RETRY_INTERVAL: Duration = Duration::from_millis(500);
@@ -28,9 +27,10 @@ struct PendingChunkKey {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct PendingVoxelAreaKey {
+struct PendingVoxelRegionKey {
 	grid: GridId,
-	key: voxel_sources::VoxelAreaKey,
+	region: NonZeroVoxelRegion,
+	scale: u8, // voxel_size = 2^scale
 	voxel_type: VoxelTypeId,
 }
 
@@ -190,19 +190,16 @@ impl PendingVoxelLoads {
 
 	pub(super) fn send_due(&mut self, now: f64, mut send: impl FnMut(PeerId, VoxelLoadResponse)) {
 		for (&peer, voxel_loads) in &mut self.clients {
-			for (&id, voxel_load) in voxel_loads {
+			for (&request_id, voxel_load) in voxel_loads {
 				let response = match voxel_load {
 					ServerVoxelLoad::Chunk(ChunkVoxelLoad { key, status: VoxelLoadStatus::Ready { payload, next_send_at } }) if now >= *next_send_at => {
 						*next_send_at = now + RESPONSE_RETRY_INTERVAL.as_secs_f64();
-						VoxelLoadResponse {
-							id,
-							kind: VoxelLoadResponseKind::Chunk {
-								grid: key.grid,
-								chunk: key.chunk,
-								generation: payload.generation,
-								voxels: payload.voxels.clone(),
-							},
-						}
+						VoxelLoadResponse{
+							request_id,
+							location: todo!(),
+							generation: todo!(),
+							voxels: todo!(),
+    }
 					}
 					ServerVoxelLoad::VoxelArea(VoxelAreaLoad { key, status: VoxelLoadStatus::Ready { payload, next_send_at } }) if now >= *next_send_at => {
 						*next_send_at = now + RESPONSE_RETRY_INTERVAL.as_secs_f64();

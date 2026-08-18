@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use tile_data::{ChunkRegion, NonZeroChunkRegion};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, TakeJob, VoxelAreaKey, SourceHandle};
+use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, TakeJob, SourceHandle};
 
 use voxel_streaming::ForgottenChunks;
 
@@ -38,7 +38,7 @@ impl ChunkSource for ClientChunkSource {
 		cancellation: &CancellationToken,
 		grid: GridId,
 		region: NonZeroChunkRegion,
-		lod: u8,
+		required_lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 	) -> Option<(SourceCoverage, Option<AsyncFnOnce()>)> {
 		if !self.state.remote_grids.lock().unwrap().contains(&grid) { return None; }
@@ -73,11 +73,7 @@ impl ChunkSource for ClientChunkSource {
 		if !has_one.unwrap() {
 			return None;
 		}
-		let key = VoxelAreaKey {
-			region,
-			lod: lod.max(0.0).floor() as u8,
-		};
-		self.state.loads.lock().unwrap().request_voxel_area(grid, key, voxel_type, 0.0, generation, cancellation);
+		self.state.loads.lock().unwrap().request_voxel_area(grid, regionkey, voxel_type, 0.0, generation, cancellation);
 		(source_coverage)
 	}
 

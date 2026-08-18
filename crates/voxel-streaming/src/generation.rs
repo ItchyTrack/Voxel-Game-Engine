@@ -4,10 +4,9 @@ use bevy::prelude::*;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use futures::{StreamExt, channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded as async_unbounded}};
 use tile_data::{
-	GenerationVoxelReader, TileData, TileGenerationParameters, TileGenerationSession, TileKey,
-	VoxelAreaRequest, VoxelAreaResult,
+	GenerationVoxelReader, NonZeroChunkRegion, TileData, TileGenerationParameters, TileGenerationSession, TileKey, VoxelAreaRequest, VoxelAreaResult,
 };
-use voxel_data::grid::GridId;
+use voxel_data::{grid::GridId, voxels::VoxelType};
 use voxel_tasks::CancellationToken;
 
 use crate::tile_dependency_index::TileDependency;
@@ -54,20 +53,16 @@ impl StreamingVoxelReader {
 }
 
 impl GenerationVoxelReader for StreamingVoxelReader {
-	fn request_voxels(&mut self, request: VoxelAreaRequest) {
-		assert!(request.area.size().cmpgt(UVec3::ZERO).all(), "voxel area request must have positive size");
+	fn request_voxels(&mut self, region: NonZeroChunkRegion, required_lod: u8, voxel_type: Option<VoxelType>) {
+		assert!(region.size().cmpgt(UVec3::ZERO).all(), "voxel area request must have positive size");
 		if self.cancellation.is_cancelled() { return; }
 		self.outstanding += 1;
 		let _cancellation = self.requests.request_voxels(
-			VoxelAreaLoadRequest {
-				grid: self.grid,
-				key: VoxelAreaKey {
-					region: request.area,
-					lod: request.lod,
-				},
-				voxel_type: request.voxel_type,
-				priority: self.priority,
-			},
+			self.grid,
+			region,
+			required_lod,
+			voxel_type,
+			self.priority,
 			self.events_tx.clone(),
 		);
 	}

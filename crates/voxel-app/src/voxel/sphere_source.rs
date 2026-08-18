@@ -218,9 +218,9 @@ impl ChunkSource for SphereSource {
 		let _ = self.handle.set(handle);
 	}
 
-	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, _grid: GridId) {
 		if let Some(handle) = self.handle.get() {
-			handle.presence_loaded(request_id, grid);
+			handle.presence_loaded(request_id);
 		}
 	}
 

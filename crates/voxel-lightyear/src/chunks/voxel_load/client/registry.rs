@@ -2,10 +2,11 @@ use std::collections::{HashMap, VecDeque};
 
 use bevy::log::warn;
 use bevy::math::IVec3;
-use voxel_data::{compressed_voxels::CompressedVoxels, voxels_location::VoxelsLocation};
+use tile_data::NonZeroChunkRegion;
+use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{CancellationToken, VoxelAreaKey, SourceHandle};
+use voxel_sources::{CancellationToken, SourceHandle, RequestId};
 
 use super::super::{
 	VoxelLoadFinished,
@@ -14,101 +15,41 @@ use super::super::{
 	VoxelLoadRequest,
 	VoxelLoadRequestKind,
 	VoxelLoadResponse,
-	VoxelLoadResponseKind,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct PendingChunkKey {
-	grid: GridId,
-	chunk: IVec3,
-}
-
 #[derive(Clone, Debug)]
-struct PendingChunk {
-	key: PendingChunkKey,
-	request_generation: u64,
-	destination: Option<voxel_sources::SourceId>,
-	cancellation: CancellationToken,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct PendingVoxelAreaKey {
+struct PendingVoxels {
 	grid: GridId,
-	key: VoxelAreaKey,
-	voxel_type: VoxelTypeId,
-}
-
-#[derive(Clone, Debug)]
-struct PendingVoxelArea {
-	key: PendingVoxelAreaKey,
-	required_generation: u64,
+	region: NonZeroChunkRegion,
+	required_lod: u8,
 	cancellation: CancellationToken,
-}
-
-enum PendingVoxelLoad {
-	Chunk(PendingChunk),
-	VoxelArea(PendingVoxelArea),
-}
-
-impl PendingVoxelLoad {
-	fn is_cancelled(&self) -> bool {
-		match self {
-			Self::Chunk(pending) => pending.cancellation.is_cancelled(),
-			Self::VoxelArea(pending) => pending.cancellation.is_cancelled(),
-		}
-	}
 }
 
 #[derive(Default)]
 pub(crate) struct ClientLoadRegistry {
-	next_id: u64,
-	pending: HashMap<VoxelLoadId, PendingVoxelLoad>,
-	chunk_ids: HashMap<PendingChunkKey, VoxelLoadId>,
-	voxel_area_ids: HashMap<PendingVoxelAreaKey, VoxelLoadId>,
+	pending: HashMap<RequestId, PendingVoxels>,
 	requests: VecDeque<VoxelLoadRequest>,
 	finished: VecDeque<VoxelLoadFinished>,
 }
 
 impl ClientLoadRegistry {
-	pub fn request_chunk(&mut self, grid: GridId, chunk: IVec3, request_generation: u64, destination: Option<voxel_sources::SourceId>, cancellation: CancellationToken) {
-		let key = PendingChunkKey { grid, chunk };
-		if let Some(previous) = self.chunk_ids.get(&key).copied() {
-			self.finish(previous, VoxelLoadOutcome::Cancelled);
-		}
-
-		let id = self.allocate_id();
-		self.pending.insert(id, PendingVoxelLoad::Chunk(PendingChunk {
-			key,
-			request_generation,
-			destination,
-			cancellation,
-		}));
-		self.chunk_ids.insert(key, id);
-		self.requests.push_back(VoxelLoadRequest { id, location: VoxelsLocation { grid: grid, chunk,  } });
-	}
-
-	pub fn request_voxel_area(
+	pub fn request_voxels(
 		&mut self,
+		request_id: RequestId,
+		cancellation: &CancellationToken,
 		grid: GridId,
-		key: VoxelAreaKey,
-		voxel_type: VoxelTypeId,
+		region: NonZeroChunkRegion,
+		lod: u8,
+		voxel_type: Option<VoxelTypeId>,
 		priority: f32,
-		required_generation: u64,
-		cancellation: CancellationToken,
 	) {
-		let pending_key = PendingVoxelAreaKey { grid, key, voxel_type };
-		if let Some(previous) = self.voxel_area_ids.get(&pending_key).copied() {
-			self.finish(previous, VoxelLoadOutcome::Cancelled);
-		}
-
-		let id = self.allocate_id();
-		self.pending.insert(id, PendingVoxelLoad::VoxelArea(PendingVoxelArea {
-			key: pending_key,
-			required_generation,
+		self.pending.insert(request_id, PendingVoxelLoad::VoxelArea(PendingVoxelArea {
+			grid,
+			region,
+			required_lod,
 			cancellation,
 		}));
-		self.voxel_area_ids.insert(pending_key, id);
-		self.requests.push_back(VoxelLoadRequest { id, kind: VoxelLoadRequestKind::VoxelArea { grid, key, voxel_type, priority } });
+		self.requests.push_back(VoxelLoadRequest { request_id, grid, region, required_lod, voxel_type, priority });
 	}
 
 	pub fn drain_cancelled(&mut self) {
@@ -118,85 +59,10 @@ impl ClientLoadRegistry {
 		}
 	}
 
-	pub fn receive_response(&mut self, handle: &SourceHandle, from: impl std::fmt::Debug, response: &mut VoxelLoadResponse) {
-		match &mut response.kind {
-			VoxelLoadResponseKind::Voxel { grid, chunk, generation, voxels } => {
-				self.receive_chunk_response(handle, from, response.id, *grid, *chunk, *generation, voxels);
-			}
-			VoxelLoadResponseKind::VoxelArea { grid, key, generation, voxel_type, voxels } => {
-				self.receive_voxel_area_response(handle, from, response.id, *grid, *key, *generation, *voxel_type, voxels);
-			}
-		}
-	}
-
-	pub(crate) fn pop_request(&mut self) -> Option<VoxelLoadRequest> { self.requests.pop_front() }
-	pub(crate) fn pop_finished(&mut self) -> Option<VoxelLoadFinished> { self.finished.pop_front() }
-
-	fn receive_chunk_response(
-		&mut self,
-		handle: &SourceHandle,
-		from: impl std::fmt::Debug,
-		id: VoxelLoadId,
-		grid: GridId,
-		chunk: IVec3,
-		generation: u64,
-		compressed: &mut Option<CompressedVoxels>,
-	) {
-		let Some(pending) = self.pending.get(&id) else { return };
-		let PendingVoxelLoad::Chunk(pending) = pending else {
-			warn!(?id, ?from, "ignoring chunk response for a non-chunk voxel load");
-			return;
-		};
+	pub fn receive_voxels(&mut self, handle: &SourceHandle, from: impl std::fmt::Debug, response: &mut VoxelLoadResponse) {
+		let Some(pending) = self.pending.get(&response.request_id) else { return };
 		if pending.cancellation.is_cancelled() {
 			self.finish(id, VoxelLoadOutcome::Cancelled);
-			return;
-		}
-		if pending.key.grid != grid || pending.key.chunk != chunk {
-			warn!(?id, ?grid, ?chunk, ?from, "ignoring mismatched remote chunk response");
-			return;
-		}
-		if generation < pending.request_generation { return; }
-		let destination = pending.destination;
-
-		let voxels = match decompress(compressed) {
-			Ok(voxels) => voxels,
-			Err(err) => {
-				warn!(?id, ?grid, ?chunk, ?from, error=%err, "failed to decompress remote chunk response");
-				return;
-			}
-		};
-		let Some(PendingVoxelLoad::Chunk(_)) = self.finish(id, VoxelLoadOutcome::Received) else {
-			unreachable!("checked chunk voxel load disappeared")
-		};
-		if let Some(destination) = destination {
-			handle.transferred(destination, grid, chunk, generation, voxels);
-		} else {
-			handle.loaded(grid, chunk, generation, voxels);
-		}
-	}
-
-	fn receive_voxel_area_response(
-		&mut self,
-		handle: &SourceHandle,
-		from: impl std::fmt::Debug,
-		id: VoxelLoadId,
-		grid: GridId,
-		key: VoxelAreaKey,
-		generation: u64,
-		voxel_type: VoxelTypeId,
-		compressed: &mut Option<CompressedVoxels>,
-	) {
-		let Some(pending) = self.pending.get(&id) else { return };
-		let PendingVoxelLoad::VoxelArea(pending) = pending else {
-			warn!(?id, ?from, "ignoring lod response for a non-lod voxel load");
-			return;
-		};
-		if pending.cancellation.is_cancelled() {
-			self.finish(id, VoxelLoadOutcome::Cancelled);
-			return;
-		}
-		if pending.key.grid != grid || pending.key.key != key || pending.key.voxel_type != voxel_type {
-			warn!(?id, ?grid, min=?key.min(), size=?key.size(), lod=key.lod, ?voxel_type, ?from, "ignoring mismatched remote lod response");
 			return;
 		}
 		if generation < pending.required_generation { return; }
@@ -208,10 +74,62 @@ impl ClientLoadRegistry {
 				return;
 			}
 		};
-		let Some(PendingVoxelLoad::VoxelArea(_pending)) = self.finish(id, VoxelLoadOutcome::Received) else {
-			unreachable!("checked lod voxel load disappeared")
-		};
+		self.finish(id, VoxelLoadOutcome::Received);
 		handle.voxels(request_id, grid, key.region(), key.lod, generation, voxels);
+	}
+
+	pub(crate) fn pop_request(&mut self) -> Option<VoxelLoadRequest> { self.requests.pop_front() }
+	pub(crate) fn pop_finished(&mut self) -> Option<VoxelLoadFinished> { self.finished.pop_front() }
+
+	// fn receive_chunk_response(
+	// 	&mut self,
+	// 	handle: &SourceHandle,
+	// 	from: impl std::fmt::Debug,
+	// 	id: VoxelLoadId,
+	// 	grid: GridId,
+	// 	chunk: IVec3,
+	// 	generation: u64,
+	// 	compressed: &mut Option<CompressedVoxels>,
+	// ) {
+	// 	let Some(pending) = self.pending.get(&id) else { return };
+	// 	let PendingVoxelLoad::Chunk(pending) = pending else {
+	// 		warn!(?id, ?from, "ignoring chunk response for a non-chunk voxel load");
+	// 		return;
+	// 	};
+	// 	if pending.cancellation.is_cancelled() {
+	// 		self.finish(id, VoxelLoadOutcome::Cancelled);
+	// 		return;
+	// 	}
+	// 	if pending.key.grid != grid || pending.key.chunk != chunk {
+	// 		warn!(?id, ?grid, ?chunk, ?from, "ignoring mismatched remote chunk response");
+	// 		return;
+	// 	}
+	// 	if generation < pending.request_generation { return; }
+
+	// 	let voxels = match decompress(compressed) {
+	// 		Ok(voxels) => voxels,
+	// 		Err(err) => {
+	// 			warn!(?id, ?grid, ?chunk, ?from, error=%err, "failed to decompress remote chunk response");
+	// 			return;
+	// 		}
+	// 	};
+	// 	let Some(PendingVoxelLoad::Chunk(_)) = self.finish(id, VoxelLoadOutcome::Received) else {
+	// 		unreachable!("checked chunk voxel load disappeared")
+	// 	};
+	// 	handle.loaded(grid, chunk, generation, voxels);
+	// }
+
+	fn receive_voxels_area_response(
+		&mut self,
+		handle: &SourceHandle,
+		request_id: RequestId,
+		grid: GridId,
+		region: NonZeroChunkRegion,
+		generation: u64,
+		voxel_type: VoxelTypeId,
+		compressed: &mut Option<CompressedVoxels>,
+	) {
+
 	}
 
 	fn allocate_id(&mut self) -> VoxelLoadId {
@@ -219,19 +137,9 @@ impl ClientLoadRegistry {
 		VoxelLoadId(self.next_id)
 	}
 
-	fn finish(&mut self, id: VoxelLoadId, outcome: VoxelLoadOutcome) -> Option<PendingVoxelLoad> {
-		let pending = self.pending.remove(&id)?;
-		match &pending {
-			PendingVoxelLoad::Chunk(pending) if self.chunk_ids.get(&pending.key) == Some(&id) => {
-				self.chunk_ids.remove(&pending.key);
-			}
-			PendingVoxelLoad::VoxelArea(pending) if self.voxel_area_ids.get(&pending.key) == Some(&id) => {
-				self.voxel_area_ids.remove(&pending.key);
-			}
-			_ => {}
-		}
+	fn finish(&mut self, id: VoxelLoadId, outcome: VoxelLoadOutcome) {
+		assert!(self.pending.remove(&id).is_some());
 		self.finished.push_back(VoxelLoadFinished { id, outcome });
-		Some(pending)
 	}
 }
 
@@ -294,8 +202,7 @@ use tile_data::NonZeroChunkRegion;
 		loads.request_chunk(Entity::PLACEHOLDER, IVec3::ZERO, 1, None, CancellationToken::new());
 		let request = loads.pop_request().unwrap();
 
-		assert!(loads.finish(request.id, VoxelLoadOutcome::Received).is_some());
-		assert!(loads.finish(request.id, VoxelLoadOutcome::Cancelled).is_none());
+		loads.finish(request.id, VoxelLoadOutcome::Received).is_some();
 		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { id: request.id, outcome: VoxelLoadOutcome::Received }));
 		assert_eq!(loads.pop_finished(), None);
 	}

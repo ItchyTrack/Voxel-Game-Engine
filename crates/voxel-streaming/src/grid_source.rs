@@ -21,14 +21,6 @@ struct ChunkRequest {
 	cancellation: CancellationToken,
 }
 
-struct TransferRequest {
-	destination: voxel_sources::SourceId,
-	grid: GridId,
-	chunk: IVec3,
-	generation: u64,
-	response: Sender<()>,
-}
-
 struct ReceiveTakenRequest {
 	grid: GridId,
 	chunk: IVec3,
@@ -107,22 +99,22 @@ impl ChunkSource for StreamingGridSource {
 		let _ = self.state.handle.set(handle);
 	}
 
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
-		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		if !self.state.owned.read().unwrap().contains(&(grid, chunk)) { return SourceCoverage::None; }
-		self.state.chunk_requests.lock().unwrap().push_back(ChunkRequest { grid, chunk, generation, cancellation });
-		SourceCoverage::All
-	}
+	// fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
+	// 	if cancellation.is_cancelled() { return SourceCoverage::None; }
+	// 	if !self.state.owned.read().unwrap().contains(&(grid, chunk)) { return SourceCoverage::None; }
+	// 	self.state.chunk_requests.lock().unwrap().push_back(ChunkRequest { grid, chunk, generation, cancellation });
+	// 	SourceCoverage::All
+	// }
 
-	fn request_voxel_area(
+	fn request_voxels(
 		&self,
+		request_id: RequestId,
+		cancellation: &CancellationToken,
 		grid: GridId,
 		region: NonZeroChunkRegion,
-		lod: f32,
-		voxel_type: VoxelTypeId,
-		generation: u64,
-		cancellation: CancellationToken,
-	) -> SourceCoverage {
+		lod: u8,
+		voxel_type: Option<VoxelTypeId>,
+	) -> Option<(SourceCoverage, Option<impl AsyncFnOnce() + Send + 'static>)> {
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
 		let owned = self.state.owned.read().unwrap();
 		let mut owned_count = 0;
@@ -142,47 +134,14 @@ impl ChunkSource for StreamingGridSource {
 		coverage
 	}
 
-	fn request_available_area(&self, grid: GridId) {
-		if let Some(handle) = self.state.handle.get() { handle.presence_loaded(grid); }
-	}
-
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: NonZeroChunkRegion, generation: u64) -> Vec<TakeJob> {
-		let chunks = {
-			let mut owned = self.state.owned.write().unwrap();
-			let mut served = self.state.served.write().unwrap();
-			let mut chunks = Vec::new();
-			for z in min.z..min.z + size.z { for y in min.y..min.y + size.y { for x in min.x..min.x + size.x {
-				let chunk = IVec3::new(x, y, z);
-				if owned.remove(&(grid, chunk)) {
-					served.remove(&(grid, chunk));
-					chunks.push(chunk);
-				}
-			}}}
-			chunks
-		};
-		let source = self.clone();
-		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
-			let source = source.clone();
-			move || {
-				let (response, received) = bounded(1);
-				source.state.transfer_requests.lock().unwrap().push_back(TransferRequest {
-					destination, grid, chunk, generation, response,
-				});
-				let _ = received.recv();
-			}
-		})).collect()
-	}
-
-	fn begin_take(&self, grid: GridId, region: NonZeroChunkRegion) -> Vec<IVec3> {
-		let mut owned = self.state.owned.write().unwrap();
-		let mut claimed = Vec::new();
-		for z in min.z..min.z + size.z {
-			for y in min.y..min.y + size.y {
-				for x in min.x..min.x + size.x {
-			let chunk = IVec3::new(x, y, z);
-			if owned.insert((grid, chunk)) { claimed.push(chunk); }
-		}}}
-		claimed
+	fn request_presence(
+		&self,
+		request_id: RequestId,
+		cancellation: CancellationToken,
+		grid: GridId,
+	) -> Option<impl AsyncFnOnce() + Send + 'static> {
+		if let Some(handle) = self.state.handle.get() { handle.presence_loaded(request_id); }
+		None
 	}
 
 	fn receive_taken(&self, grid: GridId, chunk: IVec3, voxels: Option<Voxels>) {
@@ -190,7 +149,11 @@ impl ChunkSource for StreamingGridSource {
 		self.state.receive_taken_requests.lock().unwrap().push_back(ReceiveTakenRequest { grid, chunk, voxels });
 	}
 
-	fn forget(&self, grid: GridId, chunk: IVec3) {
+	fn take_ownership(
+		&self,
+		grid: GridId,
+		region: NonZeroChunkRegion
+	) {
 		let key = (grid, chunk);
 		self.state.owned.write().unwrap().remove(&key);
 		self.state.served.write().unwrap().remove(&key);
@@ -263,12 +226,6 @@ pub(crate) fn serve_grid_source_requests(
 			!grid.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE)).is_empty()
 		});
 		chunk_resolved.write(crate::ChunkLoadResolved { grid: grid_id, chunk, visible });
-	}
-
-	for request in source.state.transfer_requests.lock().unwrap().drain(..) {
-		let voxels = grids.get(request.grid).ok().map(|(grid, _)| grid.read_area(chunk_origin(request.chunk), IVec3::splat(CHUNK_SIZE)));
-		handle.transferred(request.destination, request.grid, request.chunk, request.generation, voxels);
-		let _ = request.response.send(());
 	}
 
 	let mut chunk_requests = source.state.chunk_requests.lock().unwrap();

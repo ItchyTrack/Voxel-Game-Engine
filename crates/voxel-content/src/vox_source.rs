@@ -314,22 +314,6 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		handle.presence_loaded(grid);
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
-		let Some(binding) = self.binding(grid) else { return Vec::new() };
-		let chunks = self.inner.forgotten.forget_area_where(grid, region, |chunk| self.translated_chunk(&binding, chunk).is_some());
-		let handle = self.inner.handle.get().expect("VOX source was not initialized").clone();
-		let source = VoxFileSource { inner: self.inner.clone() };
-		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
-			let handle = handle.clone();
-			let source = VoxFileSource { inner: source.inner.clone() };
-			let binding = binding.clone();
-			move || {
-				let voxels = source.translated_chunk(&binding, chunk);
-				handle.transferred(destination, grid, chunk, generation, voxels);
-			}
-		})).collect()
-	}
-
 	fn forget(&self, grid: GridId, chunk: IVec3) {
 		self.inner.forgotten.forget(grid, chunk);
 	}

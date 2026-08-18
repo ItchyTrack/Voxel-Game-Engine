@@ -13,7 +13,6 @@ use messages::{
 	VoxelLoadRequest,
 	VoxelLoadRequestKind,
 	VoxelLoadResponse,
-	VoxelLoadResponseKind,
 };
 use server::PendingVoxelLoads;
 

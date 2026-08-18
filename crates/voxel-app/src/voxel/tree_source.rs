@@ -154,21 +154,6 @@ impl ChunkSource for TreeSource {
 		coverage
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
-		if !self.is_mine(grid) { return Vec::new(); }
-		let chunks = self.forgotten.forget_area_where(grid, region, |chunk| self.bounds.contains(chunk));
-		let handle = self.handle.get().expect("tree source was not initialized").clone();
-		let model = self.model_shared();
-		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
-			let handle = handle.clone();
-			let model = model.clone();
-			move || {
-				let voxels = rasterize_tree_chunk(&model, chunk, &CancellationToken::new());
-				handle.transferred(destination, grid, chunk, generation, voxels);
-			}
-		})).collect()
-	}
-
 	fn forget(&self, grid: GridId, chunk: IVec3) {
 		self.forgotten.forget(grid, chunk);
 	}

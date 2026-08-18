@@ -117,20 +117,6 @@ impl ChunkSource for ProceduralPlanetSource {
 		coverage
 	}
 
-	fn take(&self, destination: voxel_sources::SourceId, grid_id: GridId, region: ChunkRegion, generation: u64) -> Vec<TakeJob> {
-		let Some(tile_index) = self.tile_index(grid_id) else { return Vec::new() };
-		let Some(tile) = planet_tiles().get(tile_index) else { return Vec::new() };
-		let chunks = self.forgotten.forget_area_where(grid_id, region, |chunk| tile_has_chunk(tile, chunk));
-		let handle = self.handle.get().expect("planet source was not initialized").clone();
-		chunks.into_iter().map(|chunk| TakeJob::new(chunk, {
-			let handle = handle.clone();
-			move || {
-				let voxels = build_planet_chunk(tile_index, chunk, &CancellationToken::new());
-				handle.transferred(destination, grid_id, chunk, generation, voxels);
-			}
-		})).collect()
-	}
-
 	fn forget(&self, grid_id: GridId, chunk: IVec3) {
 		self.forgotten.forget(grid_id, chunk);
 	}

@@ -87,7 +87,7 @@ pub trait ChunkSource: Send + Sync {
 		request_id: RequestId,
 		cancellation: CancellationToken,
 		grid: GridId,
-	);
+	) -> Option<impl AsyncFnOnce() + Send + 'static>;
 
 	fn take_ownership(
 		&self,
