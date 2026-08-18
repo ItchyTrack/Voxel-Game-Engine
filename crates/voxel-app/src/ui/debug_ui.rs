@@ -112,6 +112,7 @@ fn debug_window(
 			ui.separator();
 			ui.label("Graphics");
 			ui.checkbox(&mut graphics_settings.shadows, "shadows");
+			ui.checkbox(&mut graphics_settings.anti_aliasing, "ray anti-aliasing");
 			ui.horizontal(|ui| {
 				ui.label("grid renderer");
 				ui.selectable_value(&mut render_mode, VoxelRenderMode::Ray, "ray");

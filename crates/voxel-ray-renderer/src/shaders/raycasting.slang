@@ -36,10 +36,13 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 	uint texture_height;
 	intermediate_textured.GetDimensions(texture_width, texture_height);
 	uint2 texture_size = uint2(texture_width, texture_height);
+	let anti_aliasing = render_settings.values.y != 0u;
+	let raycast_size = anti_aliasing ? texture_size : texture_size - uint2(1);
 	let pixel = global_invocation_id.xy;
-	if (pixel.x >= texture_size.x || pixel.y >= texture_size.y) { return; }
+	if (pixel.x >= raycast_size.x || pixel.y >= raycast_size.y) { return; }
 
-	let screen_pos = float2(pixel) / float2(texture_size - uint2(1));
+	let sample_position = float2(pixel) + (anti_aliasing ? float2(0.0) : float2(0.5));
+	let screen_pos = sample_position / float2(texture_size - uint2(1));
 
 	let ray_start = view.world_position;
 	let ray_clip = float4(screen_pos.x * 2.0 - 1.0, 1.0 - screen_pos.y * 2.0, 1.0, 1.0);
@@ -51,7 +54,9 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 	uint depth_height;
 	scene_depth.GetDimensions(depth_width, depth_height);
 	let depth_size = uint2(depth_width, depth_height);
-	let depth_min = max(int2(pixel) - int2(1), int2(0));
+	let depth_min = anti_aliasing
+		? max(int2(pixel) - int2(1), int2(0))
+		: min(int2(pixel), int2(depth_size) - int2(1));
 	let depth_max = min(int2(pixel), int2(depth_size) - int2(1));
 	var max_dist = 0.0;
 	for (int y = depth_min.y; y <= depth_max.y; y++) {
