@@ -2,9 +2,11 @@ mod generator;
 mod voxel;
 
 pub use generator::downsample_region;
+use generator::{BasicToLodVoxelReducer, BasicToMarchingVoxelReducer, LodToLodVoxelReducer, MarchingToMarchingVoxelReducer};
 pub use voxel::{BasicVoxel, LodVoxel, MarchingVoxel};
 
 use bevy::prelude::*;
+use tile_data::TileAppExt;
 use voxel_data::voxels::VoxelType;
 use voxel_gpu::VoxelGpuAppExt;
 use voxel_physics::VoxelPhysicsAppExt;
@@ -18,6 +20,10 @@ impl Plugin for BasicVoxelPlugin {
 		bevy::asset::embedded_asset!(app, "shaders/basic_voxel.slang");
 		bevy::asset::embedded_asset!(app, "shaders/lod_voxel.slang");
 		app
+			.register_tile_voxel_reducer(BasicToLodVoxelReducer)
+			.register_tile_voxel_reducer(LodToLodVoxelReducer)
+			.register_tile_voxel_reducer(BasicToMarchingVoxelReducer)
+			.register_tile_voxel_reducer(MarchingToMarchingVoxelReducer)
 			.register_voxel_mass::<BasicVoxel>()
 			.register_voxel_mass::<MarchingVoxel>()
 			.register_voxel_gpu_data::<BasicVoxel>()

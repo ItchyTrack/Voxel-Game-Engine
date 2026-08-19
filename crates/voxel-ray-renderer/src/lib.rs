@@ -24,7 +24,7 @@ use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::render::render_resource::TextureUsages;
 
-use ::tile_data::{TileCapabilityRegistry, TileData};
+use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
 use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
 use voxel_gpu::{
 	GpuVoxelDataPlugin, RenderingGeneratorAppExt, RenderingType, SlangShader,
@@ -72,11 +72,13 @@ impl VoxelRayTileAppExt for App {
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
 	) -> RenderingType {
+		self.init_resource::<TileVoxelReducerRegistry>();
 		let generator = tile_data::VoxelRayTileGenerator {
 			voxel_type,
 			lod_levels,
 			gpu: self.world().resource::<gpu_data::RayWorldGpuData>().clone(),
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
+			reducers: self.world().resource::<TileVoxelReducerRegistry>().clone(),
 		};
 		let rendering_type = self.register_rendering_generator(generator);
 		self.insert_resource(RayRenderingType(rendering_type));

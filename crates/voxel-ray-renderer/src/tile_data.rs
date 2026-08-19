@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use bevy::math::U16Vec3;
-use tile_data::{TileData, TileGenerationSession, TileGenerator};
+use tile_data::{TileData, TileGenerationSession, TileGenerator, TileVoxelReducerRegistry};
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo};
 use voxel_gpu::{AllocationId, PackedBufferAllocation, VoxelGpuDataReaders};
 
@@ -61,31 +61,33 @@ pub struct VoxelRayTileGenerator {
 	pub lod_levels: u8,
 	pub gpu: RayWorldGpuData,
 	pub readers: VoxelGpuDataReaders,
+	pub reducers: TileVoxelReducerRegistry,
 }
 
 #[tile_data::async_trait]
 impl TileGenerator for VoxelRayTileGenerator {
 	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
 		let region = session.key.region;
-		session.request_voxels(
-			region,
-			session.key.lod.saturating_sub(self.lod_levels),
-			self.voxel_type,
-		);
-		let input = session.receive_merged_voxels(region).await?;
-		let source_voxel_type = input.voxels.voxel_type_id();
+		let voxel_lod = session.key.lod.saturating_sub(self.lod_levels);
+		session.request_voxels(region, voxel_lod, self.voxel_type);
+		let mut inputs = Vec::new();
+		while let Some(input) = session.receive_voxels().await {
+			inputs.push(input);
+		}
+		let voxels = self.reducers.reduce(region, voxel_lod, self.voxel_type, &inputs)?;
+		let source_voxel_type = voxels.voxel_type_id();
 		assert!(
 			self.readers.contains(source_voxel_type),
 			"ray tile generator cannot generate voxel type {source_voxel_type:?}",
 		);
-		let (bounds_min, bounds_max) = input.voxels.bounding_box()?;
+		let (bounds_min, bounds_max) = voxels.bounding_box()?;
 		let placement = RayTilePlacement {
-			tree_root_pos: input.voxels.grid_tree().view().root_pos(),
+			tree_root_pos: voxels.grid_tree().view().root_pos(),
 			bounds_min,
 			bounds_max,
 		};
-		let voxel_type = input.voxels.voxel_type_info();
-		let (tree, voxels) = make_gpu_grid_tree(input.voxels.grid_tree(), voxel_type, &self.readers);
+		let voxel_type = voxels.voxel_type_info();
+		let (tree, voxels) = make_gpu_grid_tree(voxels.grid_tree(), voxel_type, &self.readers);
 		let mut gpu = self.gpu.lock();
 		Some(Box::new(RayTileData {
 			tree: gpu.trees.add_buffer(tree).expect("failed to allocate ray tile tree data"),
@@ -93,7 +95,7 @@ impl TileGenerator for VoxelRayTileGenerator {
 			generation: gpu.next_generation(),
 			placement,
 			voxel_type,
-			voxel_lod: input.lod,
+			voxel_lod,
 		}))
 	}
 }

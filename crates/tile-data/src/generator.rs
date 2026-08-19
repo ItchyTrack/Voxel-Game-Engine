@@ -7,7 +7,7 @@ use voxel_data::{
 	voxels::{VoxelTypeId, Voxels},
 };
 
-use crate::{CHUNK_SIZE, NonZeroChunkRegion, TileClassId, TileData, TileGenerationParameters, TileKey, class::TileGenerationData};
+use crate::{NonZeroChunkRegion, TileClassId, TileData, TileGenerationParameters, TileKey, class::TileGenerationData};
 
 pub use async_trait::async_trait;
 
@@ -88,33 +88,5 @@ impl TileGenerationSession {
 
 	pub fn receive_voxels(&mut self) -> ReceiveVoxelsFuture<'_> {
 		self.reader.receive_voxels()
-	}
-
-	pub async fn receive_merged_voxels(&mut self, area: NonZeroChunkRegion) -> Option<VoxelRegionResult> {
-		self.receive_merged_voxels_with(area, |voxels| voxels).await
-	}
-
-	pub async fn receive_merged_voxels_with(
-		&mut self,
-		area: NonZeroChunkRegion,
-		mut normalize: impl FnMut(Voxels) -> Voxels,
-	) -> Option<VoxelRegionResult> {
-		let mut merged: Option<Voxels> = None;
-		let mut lod = None;
-		while let Some(result) = self.receive_voxels().await {
-			let result_lod = *lod.get_or_insert(result.lod);
-			assert_eq!(result.lod, result_lod, "cannot merge voxel-area results with different LODs");
-			let step = 1i32.checked_shl(result.lod as u32).expect("voxel-area result LOD is too large");
-			let offset = ((result.area.min() - area.min()) * CHUNK_SIZE as i32).div_euclid(bevy::math::IVec3::splat(step));
-			let voxels = normalize(result.voxels);
-			let target = merged.get_or_insert_with(|| Voxels::new_with_type(voxels.voxel_type_info()));
-			assert_eq!(target.voxel_type_id(), voxels.voxel_type_id(), "cannot merge normalized voxel-area results with different voxel types");
-			target.merge_from(&voxels, offset);
-		}
-		merged.filter(|voxels| !voxels.is_empty()).map(|voxels| VoxelRegionResult {
-			area,
-			lod: lod.unwrap(),
-			voxels,
-		})
 	}
 }

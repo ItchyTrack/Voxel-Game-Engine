@@ -5,6 +5,7 @@ mod data;
 mod generator;
 mod index;
 mod key;
+mod voxel_reducer;
 
 pub use capability_registry::TileCapabilityRegistry;
 pub use chunk::{
@@ -20,12 +21,14 @@ pub use generator::{
 };
 pub use index::{TileIndex, TileIndexKey};
 pub use key::TileKey;
+pub use voxel_reducer::{TileVoxelReducer, TileVoxelReducerRegistry};
 
 use bevy::prelude::*;
 
 pub trait TileAppExt {
 	fn register_tile_class(&mut self) -> TileClassId;
 	fn register_tile_generator<G: TileGenerator>(&mut self, tile_class_id: TileClassId, generator: G) -> &mut Self;
+	fn register_tile_voxel_reducer<R: TileVoxelReducer>(&mut self, reducer: R) -> &mut Self;
 }
 
 impl TileAppExt for App {
@@ -37,6 +40,12 @@ impl TileAppExt for App {
 	fn register_tile_generator<G: TileGenerator>(&mut self, tile_class_id: TileClassId, generator: G) -> &mut Self {
 		self.init_resource::<TileGeneratorRegistry>();
 		self.world_mut().resource_mut::<TileGeneratorRegistry>().insert(tile_class_id, generator);
+		self
+	}
+
+	fn register_tile_voxel_reducer<R: TileVoxelReducer>(&mut self, reducer: R) -> &mut Self {
+		self.init_resource::<TileVoxelReducerRegistry>();
+		self.world().resource::<TileVoxelReducerRegistry>().insert(reducer);
 		self
 	}
 }

@@ -17,7 +17,7 @@ use bevy::render::{
 	ExtractSchedule, Render, RenderApp, RenderSystems,
 	render_phase::AddRenderCommand,
 };
-use ::tile_data::{TileCapabilityRegistry, TileData};
+use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
 use voxel_gpu::{
 	RenderingGeneratorAppExt, RenderingType, SlangShader, SlangShaderSettings,
 };
@@ -51,11 +51,13 @@ impl Plugin for VoxelMarchingRendererPlugin {
 			.load(shader_sources::ROOT_SHADER_ASSET);
 		app.init_resource::<gpu_data::MarchingWorldGpuData>()
 			.init_resource::<MarchingTileCapabilityRegistry>()
+			.init_resource::<TileVoxelReducerRegistry>()
 			.add_systems(Update, gpu_data::collect_marching_gpu_garbage);
 		app.world_mut().resource_mut::<MarchingTileCapabilityRegistry>().register::<tile_data::MarchingTileData>();
 
 		let gpu = app.world().resource::<gpu_data::MarchingWorldGpuData>().clone();
-		let rendering_type = app.register_rendering_generator(tile_data::MarchingTileGenerator { gpu });
+		let reducers = app.world().resource::<TileVoxelReducerRegistry>().clone();
+		let rendering_type = app.register_rendering_generator(tile_data::MarchingTileGenerator { gpu, reducers });
 		app.insert_resource(MarchingRenderingType(rendering_type));
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };

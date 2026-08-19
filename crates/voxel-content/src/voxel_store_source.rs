@@ -47,7 +47,7 @@ impl ChunkSource for VoxelStoreSource {
 		cancellation: &CancellationToken,
 		grid: GridId,
 		region: NonZeroChunkRegion,
-		lod: u8,
+		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() {
@@ -93,7 +93,7 @@ impl ChunkSource for VoxelStoreSource {
 									request_id,
 									grid,
 									NonZeroChunkRegion::from_single(chunk),
-									lod,
+									0,
 									store.chunk_generation(chunk),
 									voxels,
 								);

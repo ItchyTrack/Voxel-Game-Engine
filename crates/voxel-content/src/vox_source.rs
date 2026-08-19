@@ -252,7 +252,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		cancellation: &CancellationToken,
 		grid: GridId,
 		region: NonZeroChunkRegion,
-		lod: u8,
+		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() {
@@ -293,7 +293,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 				}
 			}
 			if !cancellation.is_cancelled() && !merged.is_empty() {
-				handle.voxels(request_id, grid, region, lod, 0, merged);
+				handle.voxels(request_id, grid, region, 0, 0, merged);
 			}
 			handle.voxels_loaded(request_id);
 		});
@@ -397,6 +397,6 @@ mod tests {
 		let files = source.inner.files.read().unwrap();
 		let area = files.get(&path).and_then(|cache| cache.available_area).expect("church area");
 		drop(files);
-		assert_eq!(source.translated_available_area(&binding).into(), Some(area));
+		assert_eq!(source.translated_available_area(&binding).map(Into::into), Some(area));
 	}
 }

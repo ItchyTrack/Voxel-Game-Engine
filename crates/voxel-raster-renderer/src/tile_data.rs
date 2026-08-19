@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use bevy::math::U16Vec3;
-use tile_data::{TileData, TileGenerationSession, TileGenerator};
+use tile_data::{TileData, TileGenerationSession, TileGenerator, TileVoxelReducerRegistry};
 use voxel_data::voxels::VoxelTypeId;
 use voxel_gpu::{VoxelGpuDataReaders, packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupId}};
 
@@ -54,26 +54,28 @@ pub struct VoxelRasterTileGenerator {
 	pub lod_levels: u8,
 	pub gpu: RasterWorldGpuData,
 	pub readers: VoxelGpuDataReaders,
+	pub reducers: TileVoxelReducerRegistry,
 }
 
 #[tile_data::async_trait]
 impl TileGenerator for VoxelRasterTileGenerator {
 	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
 		let area = session.key.region;
-		session.request_voxels(
-			area,
-			session.key.lod.saturating_sub(self.lod_levels),
-			self.voxel_type,
-		);
-		let input = session.receive_merged_voxels(area).await?;
-		let source_voxel_type = input.voxels.voxel_type_id();
+		let voxel_lod = session.key.lod.saturating_sub(self.lod_levels);
+		session.request_voxels(area, voxel_lod, self.voxel_type);
+		let mut inputs = Vec::new();
+		while let Some(input) = session.receive_voxels().await {
+			inputs.push(input);
+		}
+		let voxels = self.reducers.reduce(area, voxel_lod, self.voxel_type, &inputs)?;
+		let source_voxel_type = voxels.voxel_type_id();
 		assert!(
 			self.readers.contains(source_voxel_type),
 			"raster tile generator cannot generate voxel type {source_voxel_type:?}",
 		);
-		let (bounds_min, bounds_max) = input.voxels.bounding_box()?;
-		let voxel_type = input.voxels.voxel_type_info();
-		let (faces, palette, face_count) = make_gpu_raster_mesh(input.voxels.grid_tree(), voxel_type, &self.readers);
+		let (bounds_min, bounds_max) = voxels.bounding_box()?;
+		let voxel_type = voxels.voxel_type_info();
+		let (faces, palette, face_count) = make_gpu_raster_mesh(voxels.grid_tree(), voxel_type, &self.readers);
 		if face_count == 0 { return None; }
 		let mut gpu = self.gpu.lock();
 		let faces = gpu.faces.add_buffer(faces).expect("failed to allocate raster tile face data");
@@ -84,7 +86,7 @@ impl TileGenerator for VoxelRasterTileGenerator {
 			face_count,
 			bounds_min,
 			bounds_max,
-			voxel_lod: input.lod,
+			voxel_lod,
 		}))
 	}
 }

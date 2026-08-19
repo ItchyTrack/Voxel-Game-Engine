@@ -14,7 +14,6 @@ struct VoxelRequest {
 	request_id: RequestId,
 	grid: GridId,
 	region: NonZeroChunkRegion,
-	lod: u8,
 	cancellation: CancellationToken,
 }
 
@@ -67,10 +66,10 @@ impl ChunkSource for StreamingGridSource {
 		cancellation: &CancellationToken,
 		grid: GridId,
 		region: NonZeroChunkRegion,
-		lod: u8,
+		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
-		if cancellation.is_cancelled() || lod != 0 { return SourceCoverage::None; }
+		if cancellation.is_cancelled() { return SourceCoverage::None; }
 
 		let owned = self.state.owned.read().unwrap();
 		let owned_count = chunks(region).filter(|chunk| owned.contains(&(grid, *chunk))).count();
@@ -85,7 +84,6 @@ impl ChunkSource for StreamingGridSource {
 				request_id,
 				grid,
 				region,
-				lod,
 				cancellation: cancellation.clone(),
 			});
 		}
@@ -148,16 +146,14 @@ pub(crate) fn serve_grid_source_requests(
 			continue;
 		}
 
-		if let Ok((grid, streaming)) = grids.get(request.grid)
-			&& request.lod == 0
-		{
+		if let Ok((grid, streaming)) = grids.get(request.grid) {
 			for chunk in chunks(request.region) {
 				if !served.contains(&(request.grid, chunk)) { continue; }
 				handle.voxels(
 					request.request_id,
 					request.grid,
 					NonZeroChunkRegion::from_single(chunk),
-					request.lod,
+					0,
 					streaming.chunk_generation(chunk),
 					grid.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE)),
 				);

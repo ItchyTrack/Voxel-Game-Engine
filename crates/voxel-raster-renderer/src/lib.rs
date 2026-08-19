@@ -19,7 +19,7 @@ use bevy::render::{
 	render_phase::AddRenderCommand,
 };
 
-use ::tile_data::{TileCapabilityRegistry, TileData};
+use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
 use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
 use voxel_gpu::{
 	GpuVoxelDataPlugin, RenderingGeneratorAppExt, RenderingType, SlangShader,
@@ -64,11 +64,13 @@ impl VoxelRasterTileAppExt for App {
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
 	) -> RenderingType {
+		self.init_resource::<TileVoxelReducerRegistry>();
 		let generator = tile_data::VoxelRasterTileGenerator {
 			voxel_type,
 			lod_levels,
 			gpu: self.world().resource::<gpu_data::RasterWorldGpuData>().clone(),
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
+			reducers: self.world().resource::<TileVoxelReducerRegistry>().clone(),
 		};
 		let rendering_type = self.register_rendering_generator(generator);
 		self.insert_resource(RasterRenderingType(rendering_type));
