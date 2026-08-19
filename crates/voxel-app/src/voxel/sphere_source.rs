@@ -249,16 +249,11 @@ impl ChunkSource for SphereSource {
 			SourceCoverage::Some
 		};
 
-		// `None` means "whichever representation is native to the requested lod":
-		// raw per-voxel data at lod 0, the solid-run LOD representation otherwise.
+		// The voxel type is a hint. Fall back to the representation native to the requested LOD.
 		let use_raw = match voxel_type {
-			None => lod == 0,
-			Some(id) if id == BasicVoxel::TYPE_INFO.id => {
-				assert_eq!(lod, 0, "sphere source only has raw voxels at lod 0");
-				true
-			}
+			Some(id) if id == BasicVoxel::TYPE_INFO.id && lod == 0 => true,
 			Some(id) if id == LodVoxel::TYPE_INFO.id => false,
-			Some(_) => panic!("sphere source does not support requested voxel type"),
+			_ => lod == 0,
 		};
 
 		let handle = self.handle.get().expect("sphere source was not initialized").clone();

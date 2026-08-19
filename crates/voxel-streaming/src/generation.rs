@@ -249,7 +249,6 @@ pub(crate) fn route_tile_source_results(
 			SourceResultData::Voxels { grid, region, lod, generation, voxels } => {
 				if let Ok(mut streaming) = grids.get_mut(*grid) {
 					streaming.note_source_generation(*region, *generation);
-					streaming.dirty_stale_tiles(*region, *generation);
 				}
 				let _ = route.events.unbounded_send(VoxelLoadEvent::Result {
 					result: VoxelRegionResult { area: *region, lod: *lod, voxels: voxels.clone() },

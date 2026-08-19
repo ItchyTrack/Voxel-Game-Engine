@@ -81,10 +81,6 @@ impl ClientLoadRegistry {
 				return;
 			}
 		};
-		if pending.key.voxel_type.is_some_and(|voxel_type| voxel_type != voxels.voxel_type_id()) {
-			warn!(id=?payload.id, expected=?pending.key.voxel_type, actual=?voxels.voxel_type_id(), ?from, "ignoring remote voxel payload with the wrong voxel type");
-			return;
-		}
 		let Some(received_payload_count) = pending.received_payload_count.checked_add(1) else {
 			warn!(id=?payload.id, ?from, "remote voxel payload count overflowed");
 			return;

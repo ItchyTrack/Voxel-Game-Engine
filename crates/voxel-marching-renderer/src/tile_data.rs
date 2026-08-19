@@ -63,6 +63,7 @@ impl TileGenerator for MarchingTileGenerator {
 			MarchingVoxel::TYPE_INFO.id,
 		);
 		let input = session.receive_merged_voxels(padded_area).await?;
+		if input.voxels.voxel_type_id() != MarchingVoxel::TYPE_INFO.id { return None; }
 		let step = 1i32.checked_shl(input.lod as u32)?;
 		let cell_min = IVec3::splat(CHUNK_SIZE.div_euclid(step));
 		let unscaled_size = (area.size() * CHUNK_SIZE as u32).as_ivec3();

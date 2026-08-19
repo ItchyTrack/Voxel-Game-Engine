@@ -83,6 +83,12 @@ impl SourceManager {
 			source.request_presence(request_id, cancellation_token.clone(), grid);
 		}
 		self.pending_requests.insert(request_id, (cancellation_token, source_request_count));
+		if source_request_count == 0 {
+			let _ = self.source_result_sender.send(SourceResult {
+				request_id,
+				data: crate::request::SourceResultData::PresenceLoaded,
+			});
+		}
 		request_id
 	}
 

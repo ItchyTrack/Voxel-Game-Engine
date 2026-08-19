@@ -140,14 +140,11 @@ impl ChunkSource for TreeSource {
 			SourceCoverage::Some
 		};
 
+		// The voxel type is a hint. Fall back to the representation native to the requested LOD.
 		let use_raw = match voxel_type {
-			None => lod == 0,
-			Some(id) if id == BasicVoxel::TYPE_INFO.id => {
-				assert_eq!(lod, 0, "tree source only has raw voxels at lod 0");
-				true
-			}
+			Some(id) if id == BasicVoxel::TYPE_INFO.id && lod == 0 => true,
 			Some(id) if id == LodVoxel::TYPE_INFO.id => false,
-			Some(_) => panic!("tree source does not support requested voxel type"),
+			_ => lod == 0,
 		};
 
 		let model = self.model_shared();

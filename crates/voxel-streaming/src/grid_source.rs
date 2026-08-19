@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bevy::prelude::*;
@@ -15,7 +15,6 @@ struct VoxelRequest {
 	grid: GridId,
 	region: NonZeroChunkRegion,
 	lod: u8,
-	voxel_type: Option<VoxelTypeId>,
 	cancellation: CancellationToken,
 }
 
@@ -23,7 +22,6 @@ struct GridSourceState {
 	handle: OnceLock<SourceHandle>,
 	owned: RwLock<HashSet<(GridId, IVec3)>>,
 	served: RwLock<HashSet<(GridId, IVec3)>>,
-	voxel_types: RwLock<HashMap<GridId, VoxelTypeId>>,
 	voxel_requests: Mutex<VecDeque<VoxelRequest>>,
 }
 
@@ -33,7 +31,6 @@ impl Default for GridSourceState {
 			handle: OnceLock::new(),
 			owned: RwLock::new(HashSet::new()),
 			served: RwLock::new(HashSet::new()),
-			voxel_types: RwLock::new(HashMap::new()),
 			voxel_requests: Mutex::new(VecDeque::new()),
 		}
 	}
@@ -49,8 +46,7 @@ impl StreamingGridSource {
 		self.state.handle.get()
 	}
 
-	pub(crate) fn claim(&self, grid: GridId, region: NonZeroChunkRegion, voxel_type: VoxelTypeId) {
-		self.state.voxel_types.write().unwrap().insert(grid, voxel_type);
+	pub(crate) fn claim(&self, grid: GridId, region: NonZeroChunkRegion) {
 		let mut owned = self.state.owned.write().unwrap();
 		let mut served = self.state.served.write().unwrap();
 		for chunk in chunks(region) {
@@ -72,15 +68,9 @@ impl ChunkSource for StreamingGridSource {
 		grid: GridId,
 		region: NonZeroChunkRegion,
 		lod: u8,
-		voxel_type: Option<VoxelTypeId>,
+		_voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() || lod != 0 { return SourceCoverage::None; }
-		let Some(native_type) = self.state.voxel_types.read().unwrap().get(&grid).copied() else {
-			return SourceCoverage::None;
-		};
-		if voxel_type.is_some_and(|voxel_type| voxel_type != native_type) {
-			return SourceCoverage::None;
-		}
 
 		let owned = self.state.owned.read().unwrap();
 		let owned_count = chunks(region).filter(|chunk| owned.contains(&(grid, *chunk))).count();
@@ -96,7 +86,6 @@ impl ChunkSource for StreamingGridSource {
 				grid,
 				region,
 				lod,
-				voxel_type,
 				cancellation: cancellation.clone(),
 			});
 		}
@@ -161,7 +150,6 @@ pub(crate) fn serve_grid_source_requests(
 
 		if let Ok((grid, streaming)) = grids.get(request.grid)
 			&& request.lod == 0
-			&& request.voxel_type.is_none_or(|voxel_type| voxel_type == grid.voxel_type_info().id)
 		{
 			for chunk in chunks(request.region) {
 				if !served.contains(&(request.grid, chunk)) { continue; }

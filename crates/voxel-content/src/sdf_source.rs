@@ -136,12 +136,6 @@ impl ChunkSource for SdfSource {
 			return SourceCoverage::None;
 		}
 		let Some(binding) = self.binding(grid) else { return SourceCoverage::None };
-		if let Some(voxel_type) = voxel_type {
-			assert!(
-				binding.sdf.voxel().type_id() == voxel_type || binding.sdf.lod_voxel().type_id() == voxel_type,
-				"SDF source does not support requested voxel type",
-			);
-		}
 		let mut owned_chunks = Vec::new();
 		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {
@@ -168,10 +162,10 @@ impl ChunkSource for SdfSource {
 			let sample_radius = sample_radius(binding.options, step);
 			let step_f32 = step as f32;
 			let voxel = match voxel_type {
-				None if lod == 0 => binding.sdf.voxel(),
-				None => binding.sdf.lod_voxel(),
 				Some(id) if binding.sdf.voxel().type_id() == id => binding.sdf.voxel(),
-				Some(_) => binding.sdf.lod_voxel(),
+				Some(id) if binding.sdf.lod_voxel().type_id() == id => binding.sdf.lod_voxel(),
+				_ if lod == 0 => binding.sdf.voxel(),
+				_ => binding.sdf.lod_voxel(),
 			};
 			let chunk_extent = IVec3::splat(CHUNK_SIZE / step as i32);
 			let mut merged: Option<Voxels> = None;

@@ -48,7 +48,7 @@ impl ChunkSource for VoxelStoreSource {
 		grid: GridId,
 		region: NonZeroChunkRegion,
 		lod: u8,
-		voxel_type: Option<VoxelTypeId>,
+		_voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() {
 			return SourceCoverage::None;
@@ -56,10 +56,6 @@ impl ChunkSource for VoxelStoreSource {
 		let owned = {
 			let grids = self.inner.grids.read().unwrap();
 			let Some(store) = grids.get(&grid) else { return SourceCoverage::None };
-			if let Some(voxel_type) = voxel_type
-				&& let Some(stored_type) = store.voxel_type_id() {
-				assert_eq!(voxel_type, stored_type, "voxel store source does not support requested voxel type");
-			}
 			let mut owned = 0;
 			for z in region.min().z..region.end().z {
 				for y in region.min().y..region.end().y {

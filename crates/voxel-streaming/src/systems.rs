@@ -101,21 +101,33 @@ pub(crate) fn request_edit_takes(
 	mut commands: Commands,
 	mut sources: ResMut<SourceManager>,
 	source: Res<StreamingGridSource>,
-	mut grids: Query<(GridId, &mut GridStreaming, &mut Grid)>,
+	mut grids: Query<(
+		GridId,
+		Has<RequestChunkPresence>,
+		Has<InflightChunkPresence>,
+		&mut GridStreaming,
+		&mut Grid,
+	)>,
 	mut sub_grids: Query<&mut SubGrid>,
 	mut edited: MessageWriter<GridAreaEdited>,
 ) {
 	let Some(source_id) = source.handle().map(|handle| handle.id()) else { return };
-	for (grid, mut streaming, mut grid_data) in &mut grids {
+	for (grid, presence_requested, presence_inflight, mut streaming, mut grid_data) in &mut grids {
+		let presence_pending = presence_requested || presence_inflight;
 		let mut touched = HashSet::new();
 		let mut deferred = Vec::new();
-		for edit in std::mem::take(&mut streaming.pending_take_edits) {
+		let mut pending = std::mem::take(&mut streaming.pending_take_edits).into_iter();
+		while let Some(edit) = pending.next() {
 			let Ok(region) = NonZeroChunkRegion::try_from(chunks_covering_voxel_region(edit.voxel_bounds())) else { continue };
 			let mut waiting = false;
 			for z in region.min().z..region.end().z { for y in region.min().y..region.end().y { for x in region.min().x..region.end().x {
 				let chunk = IVec3::new(x, y, z);
 				if streaming.is_chunk_data_resident(chunk) { continue; }
 				if streaming.state(chunk).is_none() {
+					if presence_pending {
+						waiting = true;
+						continue;
+					}
 					streaming.mark_present(chunk);
 					streaming.mark_loaded(chunk);
 					streaming.pending_newly_present_edits.insert(chunk);
@@ -128,10 +140,11 @@ pub(crate) fn request_edit_takes(
 			}}}
 			if waiting {
 				deferred.push(edit);
-				continue;
+				deferred.extend(pending);
+				break;
 			}
 
-			source.claim(grid, region, grid_data.voxel_type_info().id);
+			source.claim(grid, region);
 			sources.transfer_onwership(source_id, grid, region);
 			touched.extend(apply_grid_edit(grid_data.as_mut(), &edit));
 			for z in region.min().z..region.end().z { for y in region.min().y..region.end().y { for x in region.min().x..region.end().x {

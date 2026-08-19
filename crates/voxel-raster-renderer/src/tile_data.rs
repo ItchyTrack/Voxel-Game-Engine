@@ -67,7 +67,6 @@ impl TileGenerator for VoxelRasterTileGenerator {
 		);
 		let input = session.receive_merged_voxels(area).await?;
 		let (bounds_min, bounds_max) = input.voxels.bounding_box()?;
-		assert_eq!(input.voxels.voxel_type_id(), self.voxel_type);
 		let voxel_type = input.voxels.voxel_type_info();
 		let (faces, palette, face_count) = make_gpu_raster_mesh(input.voxels.grid_tree(), voxel_type, &self.readers);
 		if face_count == 0 { return None; }

@@ -253,15 +253,12 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		grid: GridId,
 		region: NonZeroChunkRegion,
 		lod: u8,
-		voxel_type: Option<VoxelTypeId>,
+		_voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() {
 			return SourceCoverage::None;
 		}
 		let Some(binding) = self.binding(grid) else { return SourceCoverage::None };
-		if let Some(voxel_type) = voxel_type {
-			assert_eq!(voxel_type, T::TYPE_ID, "VOX source does not support requested voxel type");
-		}
 		let mut owned_chunks = Vec::new();
 		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {

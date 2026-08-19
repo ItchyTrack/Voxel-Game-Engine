@@ -84,14 +84,11 @@ impl ChunkSource for ProceduralPlanetSource {
 			SourceCoverage::Some
 		};
 
+		// The voxel type is a hint. Fall back to the representation native to the requested LOD.
 		let use_raw = match voxel_type {
-			None => lod == 0,
-			Some(id) if id == BasicVoxel::TYPE_INFO.id => {
-				assert_eq!(lod, 0, "planet source only has raw voxels at lod 0");
-				true
-			}
+			Some(id) if id == BasicVoxel::TYPE_INFO.id && lod == 0 => true,
 			Some(id) if id == LodVoxel::TYPE_INFO.id => false,
-			Some(_) => panic!("planet source does not support requested voxel type"),
+			_ => lod == 0,
 		};
 
 		let handle = self.handle.get().expect("planet source was not initialized").clone();
