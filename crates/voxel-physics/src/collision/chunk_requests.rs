@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 
+use rustc_hash::FxHashMap;
 use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
 use voxel_data::bvh::BVH;
 use tile_data::CHUNK_SIZE;
@@ -90,7 +91,7 @@ pub fn request_collision_chunks(
 
 	// Pass 1: accumulate each body's world AABB from its grids' cached extents.
 	let mut reqs: Vec<GridReq> = Vec::new();
-	let mut body_aabb: HashMap<Entity, (Vec3, Vec3)> = HashMap::new();
+	let mut body_aabb: FxHashMap<Entity, (Vec3, Vec3)> = FxHashMap::default();
 	for (entity, child_of, local_tf, _, aabb, _) in grids.iter() {
 		let body = child_of.parent();
 		let Ok((body_tf, is_static)) = bodies.get(body) else { continue };
@@ -121,7 +122,7 @@ pub fn request_collision_chunks(
 	let body_bvh = BVH::new(body_aabb.iter().map(|(&body, &aabb)| (body, aabb)).collect());
 
 	// Pass 2: compute the wanted chunk set per grid under the policy above.
-	let mut desired: HashMap<Entity, HashSet<IVec3>> = HashMap::new();
+	let mut desired: FxHashMap<Entity, HashSet<IVec3>> = FxHashMap::default();
 	for req in &reqs {
 		let Ok((_, _, _, streaming, _, _)) = grids.get(req.entity) else { continue };
 		let want = desired.entry(req.entity).or_default();

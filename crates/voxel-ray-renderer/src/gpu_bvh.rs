@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use bevy::ecs::entity::Entity;
 use bevy::math::Vec3;
 use bevy::transform::components::Transform;
 use bevy::render::renderer::WgpuWrapper;
+use rustc_hash::FxHashMap;
 use voxel_data::bvh;
 use voxel_data::voxels::VoxelTypeInfo;
 use wgpu::{util::DeviceExt, Device};
@@ -100,7 +99,7 @@ impl GpuBvh {
 	pub fn from_bvh(
 		device: &Device,
 		bvh: &bvh::BVH<Entity>,
-		item_data_by_id: &HashMap<Entity, BvhItemData>,
+		item_data_by_id: &FxHashMap<Entity, BvhItemData>,
 	) -> Self {
 		let (nodes, items) = bvh.internals();
 

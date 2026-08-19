@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet};
-
 use bevy::math::IVec3;
 use bevy::prelude::*;
+use rustc_hash::{FxHashMap, FxHashSet};
 use voxel_sources::{RequestId, SourceManager};
 
 use voxel_data::{
@@ -23,7 +22,7 @@ const CLEAR_DELAY_FRAMES: u8 = 20;
 
 #[derive(Debug)]
 pub(crate) struct TileState {
-	pub(crate) requesters: HashMap<Entity, f32>,
+	pub(crate) requesters: FxHashMap<Entity, f32>,
 	pub(crate) status: TileStatus,
 	pub(crate) active: Option<Entity>,
 }
@@ -40,26 +39,26 @@ pub(crate) enum TileStatus {
 #[derive(Component, Default)]
 pub struct GridStreaming {
 	pub(crate) presence: ChunkPresence,
-	pub(crate) inflight_chunk_cancellations: HashMap<IVec3, RequestId>,
-	pub(crate) pending_chunk_results: HashMap<RequestId, (u64, Voxels)>,
+	pub(crate) inflight_chunk_cancellations: FxHashMap<IVec3, RequestId>,
+	pub(crate) pending_chunk_results: FxHashMap<RequestId, (u64, Voxels)>,
 	pub(crate) pending_clears: Vec<(IVec3, u8)>,
-	pub(crate) stalled_pinned: HashSet<IVec3>,
+	pub(crate) stalled_pinned: FxHashSet<IVec3>,
 	pub(crate) pending_take_edits: Vec<GridEdit>,
-	pub(crate) pending_newly_present_edits: HashSet<IVec3>,
-	pub(crate) pending_authoritative_edits: HashMap<IVec3, Vec<(u64, GridEdit)>>,
+	pub(crate) pending_newly_present_edits: FxHashSet<IVec3>,
+	pub(crate) pending_authoritative_edits: FxHashMap<IVec3, Vec<(u64, GridEdit)>>,
 	pub(crate) newly_dirty: Vec<IVec3>,
 	pub(crate) newly_present_dirty: Vec<IVec3>,
-	pub(crate) tiles: HashMap<TileKey, TileState>,
-	pub(crate) pending_tile_requests: HashSet<TileKey>,
+	pub(crate) tiles: FxHashMap<TileKey, TileState>,
+	pub(crate) pending_tile_requests: FxHashSet<TileKey>,
 	pub(crate) tile_dependencies: TileDependencyIndex,
-	pub(crate) inflight_tiles_by_tag: HashMap<u64, TileKey>,
+	pub(crate) inflight_tiles_by_tag: FxHashMap<u64, TileKey>,
 	pub(crate) generation: u64,
 	pub(crate) chunk_generations: SignedGridTree<GenerationCell>,
 	pub(crate) next_tile_tag: u64,
 	pub(crate) queued_tile_updates: Vec<TileLoadUpdate>,
-	pub(crate) edit_interest_counts: HashMap<IVec3, u32>,
+	pub(crate) edit_interest_counts: FxHashMap<IVec3, u32>,
 	pub(crate) edit_interest_version: u64,
-	pub(crate) queued_edit_interest: HashMap<IVec3, (u64, bool)>,
+	pub(crate) queued_edit_interest: FxHashMap<IVec3, (u64, bool)>,
 }
 
 #[derive(Component, Debug, Default)]
@@ -138,7 +137,7 @@ impl GridStreaming {
 		if !valid_tile_key(key) { return false; }
 		let (new_requester, first_requester, status, should_request) = {
 			let state = self.tiles.entry(key).or_insert_with(|| TileState {
-				requesters: HashMap::new(),
+				requesters: FxHashMap::default(),
 				status: TileStatus::Requested,
 				active: None,
 			});
@@ -253,7 +252,7 @@ impl GridStreaming {
 	}
 
 	pub(crate) fn dirty_stale_tiles(&mut self, region: NonZeroChunkRegion, generation: u64) {
-		let keys: HashSet<_> = self.tile_dependencies.stale_tiles(region, generation).collect();
+		let keys: FxHashSet<_> = self.tile_dependencies.stale_tiles(region, generation).collect();
 		for key in keys { self.dirty_tile(key); }
 	}
 

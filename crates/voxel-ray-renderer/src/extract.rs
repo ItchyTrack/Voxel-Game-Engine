@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use bevy::camera::Camera;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::entity::Entity;
@@ -8,6 +6,7 @@ use bevy::math::Vec3;
 use bevy::render::sync_world::RenderEntity;
 use bevy::render::Extract;
 use bevy::transform::components::{GlobalTransform, Transform};
+use rustc_hash::FxHashMap;
 
 use crate::residency::{ResidentVoxels, ResidencyBuffers, ResidencyDirections};
 use crate::gpu_data::RayWorldGpuData;
@@ -27,7 +26,7 @@ type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
 
 pub struct ExtractedVoxelScene {
 	pub bvh: Option<BVH<Entity>>,
-	pub bvh_item_data: HashMap<Entity, BvhItemData>,
+	pub bvh_item_data: FxHashMap<Entity, BvhItemData>,
 	pub tree_buffer: GpuBuffer,
 	pub voxel_buffer: GpuBuffer,
 	pub main_tree_buffer: GpuBuffer,
@@ -35,7 +34,7 @@ pub struct ExtractedVoxelScene {
 }
 
 #[derive(Resource, Default)]
-pub struct ExtractedVoxelScenes(pub HashMap<Entity, ExtractedVoxelScene>);
+pub struct ExtractedVoxelScenes(pub FxHashMap<Entity, ExtractedVoxelScene>);
 
 struct RenderItem {
 	entity: Entity,
@@ -95,7 +94,7 @@ pub fn extract_voxel_scene(
 	let voxel_alignment = residency.voxel_alignment();
 	let limit = residency.binding_limit();
 
-	let mut candidates = HashMap::<Entity, ResidencyCandidate<'_>>::new();
+	let mut candidates = FxHashMap::<Entity, ResidencyCandidate<'_>>::default();
 	for (view_entity, items) in &views {
 		let feedback = direction_feedback.get(*view_entity).ok();
 		for item in items {
@@ -159,7 +158,8 @@ pub fn extract_voxel_scene(
 
 	for (render_entity, items) in views {
 		let mut bvh_items: Vec<(Entity, (Vec3, Vec3))> = Vec::with_capacity(items.len());
-		let mut bvh_item_data = HashMap::with_capacity(items.len());
+		let mut bvh_item_data = FxHashMap::default();
+		bvh_item_data.reserve(items.len());
 		for item in items {
 			bvh_items.push((item.entity, item.aabb));
 			let data_source = if let Some(&(tree_offset, voxel_offset)) = offsets.get(&item.entity) {

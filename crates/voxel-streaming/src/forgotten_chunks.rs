@@ -1,15 +1,14 @@
-use std::collections::HashMap;
 use std::sync::RwLock;
 
 use bevy::math::IVec3;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use voxel_data::grid::GridId;
 use tile_data::ChunkRegion;
 
 
 #[derive(Default)]
 pub struct ForgottenChunks {
-	grids: RwLock<HashMap<GridId, FxHashSet<IVec3>>>,
+	grids: RwLock<FxHashMap<GridId, FxHashSet<IVec3>>>,
 }
 
 impl ForgottenChunks {

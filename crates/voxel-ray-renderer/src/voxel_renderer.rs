@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
 use bevy::ecs::entity::Entity;
 use bevy::render::renderer::WgpuWrapper;
+use rustc_hash::FxHashMap;
 use voxel_data::bvh;
 
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
@@ -333,7 +332,7 @@ impl VoxelRenderer {
 		view_bind_group: &GpuBindGroup,
 		view_uniform_offset: u32,
 		bvh: &bvh::BVH<Entity>,
-		bvh_item_data: &HashMap<Entity, crate::gpu_bvh::BvhItemData>,
+		bvh_item_data: &FxHashMap<Entity, crate::gpu_bvh::BvhItemData>,
 		tree_buffer: &GpuBuffer,
 		voxel_buffer: &GpuBuffer,
 		main_tree_buffer: &GpuBuffer,

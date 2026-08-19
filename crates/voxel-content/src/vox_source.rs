@@ -255,25 +255,22 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
-		if cancellation.is_cancelled() {
-			return SourceCoverage::None;
-		}
-		let Some(binding) = self.binding(grid) else { return SourceCoverage::None };
-		let mut owned_chunks = Vec::new();
+		let Some(binding) = self.binding(grid) else { return SourceCoverage::None; };
+
+		let mut owned_chunk_count: u32 = 0;
 		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {
 				for x in region.min().x..region.end().x {
 					let chunk = IVec3::new(x, y, z);
-					if !self.inner.forgotten.contains(grid, chunk)
-						&& self.translated_chunk(&binding, chunk).is_some() {
-						owned_chunks.push(chunk);
+					if !self.inner.forgotten.contains(grid, chunk) {
+						owned_chunk_count += 1;
 					}
 				}
 			}
 		}
-		let coverage = if owned_chunks.is_empty() {
+		let coverage = if owned_chunk_count == 0 {
 			return SourceCoverage::None;
-		} else if owned_chunks.len() == region.area() as usize {
+		} else if owned_chunk_count == region.area() {
 			SourceCoverage::All
 		} else {
 			SourceCoverage::Some
@@ -284,12 +281,17 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let mut merged = Voxels::new::<T>();
-			for chunk in owned_chunks {
-				if cancellation.is_cancelled() {
-					break;
-				}
-				if let Some(voxels) = source.translated_chunk(&binding, chunk) {
-					merged.merge_from(&voxels, (chunk - region.min()) * CHUNK_SIZE);
+			for z in region.min().z..region.end().z {
+				for y in region.min().y..region.end().y {
+					for x in region.min().x..region.end().x {
+						let chunk = IVec3::new(x, y, z);
+						if !source.inner.forgotten.contains(grid, chunk) {
+							if cancellation.is_cancelled() { return; }
+							if let Some(voxels) = source.translated_chunk(&binding, chunk) {
+								merged.merge_from(&voxels, (chunk - region.min()) * CHUNK_SIZE);
+							}
+						}
+					}
 				}
 			}
 			if !cancellation.is_cancelled() && !merged.is_empty() {
