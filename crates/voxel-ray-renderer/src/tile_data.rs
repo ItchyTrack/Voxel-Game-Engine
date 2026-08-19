@@ -73,6 +73,11 @@ impl TileGenerator for VoxelRayTileGenerator {
 			self.voxel_type,
 		);
 		let input = session.receive_merged_voxels(region).await?;
+		let source_voxel_type = input.voxels.voxel_type_id();
+		assert!(
+			self.readers.contains(source_voxel_type),
+			"ray tile generator cannot generate voxel type {source_voxel_type:?}",
+		);
 		let (bounds_min, bounds_max) = input.voxels.bounding_box()?;
 		let placement = RayTilePlacement {
 			tree_root_pos: input.voxels.grid_tree().view().root_pos(),

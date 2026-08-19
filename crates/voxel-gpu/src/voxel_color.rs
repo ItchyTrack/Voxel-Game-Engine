@@ -26,6 +26,10 @@ impl VoxelGpuDataReaders {
 		});
 	}
 
+	pub fn contains(&self, type_id: VoxelTypeId) -> bool {
+		self.readers.contains_key(&type_id)
+	}
+
 	pub fn create_encoder(&self, type_id: VoxelTypeId, voxels: &[VoxelRef<'_>], header: &mut Vec<u8>) -> Option<Box<dyn VoxelGpuBlockEncoder>> {
 		let reader = self.readers.get(&type_id)?;
 		Some((reader.create_encoder)(voxels, header))

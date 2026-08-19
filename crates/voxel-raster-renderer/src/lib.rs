@@ -29,6 +29,9 @@ use voxel_gpu::{
 #[derive(Component)]
 pub struct VoxelRasterShader;
 
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RasterRenderingType(pub RenderingType);
+
 #[derive(Resource, Default)]
 pub struct RasterTileCapabilityRegistry(TileCapabilityRegistry<tile_data::RasterTileCapabilityData>);
 
@@ -44,10 +47,9 @@ pub trait VoxelRasterTileAppExt {
 	fn register_raster_tile_data<T: tile_data::RasterTileCapability>(&mut self) -> &mut Self;
 	fn register_voxel_raster_generator(
 		&mut self,
-		source_voxel_type: VoxelTypeId,
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
-	) -> &mut Self;
+	) -> RenderingType;
 }
 
 impl VoxelRasterTileAppExt for App {
@@ -59,17 +61,18 @@ impl VoxelRasterTileAppExt for App {
 
 	fn register_voxel_raster_generator(
 		&mut self,
-		source_voxel_type: VoxelTypeId,
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
-	) -> &mut Self {
+	) -> RenderingType {
 		let generator = tile_data::VoxelRasterTileGenerator {
 			voxel_type,
 			lod_levels,
 			gpu: self.world().resource::<gpu_data::RasterWorldGpuData>().clone(),
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
 		};
-		self.register_rendering_generator(RenderingType::Raster, source_voxel_type, generator)
+		let rendering_type = self.register_rendering_generator(generator);
+		self.insert_resource(RasterRenderingType(rendering_type));
+		rendering_type
 	}
 }
 

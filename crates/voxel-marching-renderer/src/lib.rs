@@ -10,7 +10,6 @@ mod render_node;
 mod renderer_resource;
 mod shader_sources;
 
-use basic_voxel::MarchingVoxel;
 use bevy::app::{App, Plugin};
 use bevy::core_pipeline::core_3d::Opaque3d;
 use bevy::prelude::*;
@@ -18,15 +17,16 @@ use bevy::render::{
 	ExtractSchedule, Render, RenderApp, RenderSystems,
 	render_phase::AddRenderCommand,
 };
-use ::tile_data::{TileAppExt, TileCapabilityRegistry, TileData};
-use voxel_data::voxels::VoxelType;
+use ::tile_data::{TileCapabilityRegistry, TileData};
 use voxel_gpu::{
-	RenderingGeneratorAppExt, RenderingGeneratorRegistry, RenderingTileClass,
-	RenderingTileGenerator, RenderingType, SlangShader, SlangShaderSettings,
+	RenderingGeneratorAppExt, RenderingType, SlangShader, SlangShaderSettings,
 };
 
 #[derive(Component)]
 pub struct MarchingShader;
+
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarchingRenderingType(pub RenderingType);
 
 #[derive(Resource, Default)]
 pub struct MarchingTileCapabilityRegistry(TileCapabilityRegistry<tile_data::MarchingTileCapabilityData>);
@@ -55,19 +55,8 @@ impl Plugin for VoxelMarchingRendererPlugin {
 		app.world_mut().resource_mut::<MarchingTileCapabilityRegistry>().register::<tile_data::MarchingTileData>();
 
 		let gpu = app.world().resource::<gpu_data::MarchingWorldGpuData>().clone();
-		app.register_rendering_generator(
-			RenderingType::Raster,
-			MarchingVoxel::TYPE_INFO.id,
-			tile_data::MarchingTileGenerator { gpu },
-		);
-		let Some(rendering_class) = app.world().get_resource::<RenderingTileClass>().copied() else {
-			panic!("VoxelMarchingRendererPlugin requires RenderingGenerationPlugin");
-		};
-		let generators = app.world().resource::<RenderingGeneratorRegistry>().clone();
-		app.register_tile_generator(
-			rendering_class.0,
-			RenderingTileGenerator::new(MarchingVoxel::TYPE_INFO.id, generators),
-		);
+		let rendering_type = app.register_rendering_generator(tile_data::MarchingTileGenerator { gpu });
+		app.insert_resource(MarchingRenderingType(rendering_type));
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app.world_mut().spawn((MarchingShader, SlangShader::new(shader)));

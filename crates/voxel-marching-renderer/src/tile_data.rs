@@ -1,9 +1,9 @@
 use std::any::Any;
 
-use basic_voxel::MarchingVoxel;
-use bevy::math::{IVec3, UVec3, Vec3};
+use basic_voxel::{BasicVoxel, MarchingVoxel};
+use bevy::math::{IVec3, U16Vec3, UVec3, Vec3};
 use tile_data::{NonZeroChunkRegion, TileData, TileGenerationSession, TileGenerator};
-use voxel_data::voxels::VoxelType;
+use voxel_data::voxels::{VoxelType, Voxels};
 use tile_data::CHUNK_SIZE;
 
 use voxel_gpu::packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupId};
@@ -62,8 +62,7 @@ impl TileGenerator for MarchingTileGenerator {
 			session.key.lod,
 			MarchingVoxel::TYPE_INFO.id,
 		);
-		let input = session.receive_merged_voxels(padded_area).await?;
-		if input.voxels.voxel_type_id() != MarchingVoxel::TYPE_INFO.id { return None; }
+		let input = session.receive_merged_voxels_with(padded_area, into_marching_voxels).await?;
 		let step = 1i32.checked_shl(input.lod as u32)?;
 		let cell_min = IVec3::splat(CHUNK_SIZE.div_euclid(step));
 		let unscaled_size = (area.size() * CHUNK_SIZE as u32).as_ivec3();
@@ -79,5 +78,20 @@ impl TileGenerator for MarchingTileGenerator {
 			bounds_max,
 			voxel_lod: input.lod,
 		}))
+	}
+}
+
+fn into_marching_voxels(voxels: Voxels) -> Voxels {
+	match voxels.voxel_type_id() {
+		MarchingVoxel::TYPE_ID => voxels,
+		BasicVoxel::TYPE_ID => {
+			let mut converted = Voxels::new::<MarchingVoxel>();
+			for (position, size, voxel) in voxels.grid_tree().iter() {
+				let voxel = MarchingVoxel(BasicVoxel::from_voxel_ref(&voxel));
+				converted.add_area(position, U16Vec3::splat(size), voxel.get_ref());
+			}
+			converted
+		}
+		type_id => panic!("marching tile generator cannot convert voxel type {type_id:?} to MarchingVoxel"),
 	}
 }

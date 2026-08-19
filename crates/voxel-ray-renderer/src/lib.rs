@@ -37,6 +37,9 @@ use direction_feedback::RenderStats;
 #[derive(Component)]
 pub struct VoxelRayShader;
 
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RayRenderingType(pub RenderingType);
+
 #[derive(Resource, Default)]
 pub struct RayTileCapabilityRegistry(TileCapabilityRegistry<tile_data::RayTileCapabilityData>);
 
@@ -52,10 +55,9 @@ pub trait VoxelRayTileAppExt {
 	fn register_ray_tile_data<T: tile_data::RayTileCapability>(&mut self) -> &mut Self;
 	fn register_voxel_ray_generator(
 		&mut self,
-		source_voxel_type: VoxelTypeId,
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
-	) -> &mut Self;
+	) -> RenderingType;
 }
 
 impl VoxelRayTileAppExt for App {
@@ -67,17 +69,18 @@ impl VoxelRayTileAppExt for App {
 
 	fn register_voxel_ray_generator(
 		&mut self,
-		source_voxel_type: VoxelTypeId,
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
-	) -> &mut Self {
+	) -> RenderingType {
 		let generator = tile_data::VoxelRayTileGenerator {
 			voxel_type,
 			lod_levels,
 			gpu: self.world().resource::<gpu_data::RayWorldGpuData>().clone(),
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
 		};
-		self.register_rendering_generator(RenderingType::Ray, source_voxel_type, generator)
+		let rendering_type = self.register_rendering_generator(generator);
+		self.insert_resource(RayRenderingType(rendering_type));
+		rendering_type
 	}
 }
 
