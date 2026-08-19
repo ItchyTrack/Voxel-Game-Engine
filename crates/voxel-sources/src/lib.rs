@@ -4,8 +4,8 @@ mod source;
 
 use bevy::prelude::*;
 
-pub use crate::source::{ChunkSource, SourceHandle, SourceCoverage};
-pub use crate::request::{SourceResult, RequestId};
+pub use crate::source::{ChunkSource, SourceHandle, SourceCoverage, SourceId};
+pub use crate::request::{SourceResult, SourceResultData, RequestId};
 pub use crate::source_manager::SourceManager;
 use crate::source_manager::publish_source_results_messages;
 

@@ -60,7 +60,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			release_tiles(streaming, camera_entity, release.drain(..));
 
 			for &key in &acquire {
-				let center_local = ((key.min() + key.size() / 2) * CHUNK_SIZE).as_vec3();
+				let center_local = ((key.region.min() + key.region.size().as_ivec3() / 2) * CHUNK_SIZE).as_vec3();
 				let priority = -camera_world.distance(grid_global.transform_point(center_local));
 				acquire_tile(&mut loader.tiles, camera_entity, key, priority, streaming);
 			}

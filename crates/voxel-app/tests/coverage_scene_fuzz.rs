@@ -151,7 +151,7 @@ fn update_waiting_ages(
 	let waiting: HashSet<_> = debug_tiles
 		.iter()
 		.filter(|tile| tile.state == CoverageDebugState::Waiting)
-		.map(|tile| (tile.grid, tile.lod, tile.min))
+		.map(|tile| (tile.grid, tile.lod, tile.region.min()))
 		.collect();
 	waiting_age.retain(|key, _| waiting.contains(key));
 	for key in waiting {
@@ -187,7 +187,7 @@ fn insert_chunk_box(out: &mut HashSet<(Entity, IVec3)>, grid: Entity, min: IVec3
 }
 
 fn tile_contains_chunk(tile: &CoverageDebugTile, chunk: IVec3) -> bool {
-	chunk.cmpge(tile.min).all() && chunk.cmplt(tile.min + tile.size).all()
+	chunk.cmpge(tile.region.min()).all() && chunk.cmplt(tile.region.end()).all()
 }
 
 struct FuzzRng(u64);

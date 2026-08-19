@@ -1,64 +1,70 @@
 use bevy::ecs::message::MessageReader;
-use bevy::log::warn;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerMetadata, RemoteEvent};
-use voxel_sources::{ChunkLoaded, VoxelAreaLoaded};
+use voxel_sources::{SourceManager, SourceResult};
 
-use super::{LightyearSourceRequestHandle, registry::PendingVoxelLoads};
-use super::super::{VoxelLoadFinished, VoxelLoadRequest, VoxelLoadResponse};
+use super::registry::{OutgoingVoxelMessage, PendingVoxelLoads};
+use super::super::{VoxelLoadCancel, VoxelLoadComplete, VoxelLoadPayload, VoxelLoadRequest};
 
 pub(crate) fn receive_voxel_load_request(
 	trigger: On<RemoteEvent<VoxelLoadRequest>>,
-	sources: Res<LightyearSourceRequestHandle>,
+	mut sources: ResMut<SourceManager>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
-	pending.request(trigger.event().from, trigger.event().trigger, sources.requests());
+	let event = trigger.event();
+	pending.request(event.from, event.trigger, &mut sources);
 }
 
-pub(crate) fn receive_voxel_load_finished(trigger: On<RemoteEvent<VoxelLoadFinished>>, mut pending: ResMut<PendingVoxelLoads>) {
-	pending.finish(trigger.event().from, trigger.event().trigger);
-}
-
-pub(crate) fn flush_chunk_results(
-	mut loader: MessageReader<ChunkLoaded>,
+pub(crate) fn receive_voxel_load_cancel(
+	trigger: On<RemoteEvent<VoxelLoadCancel>>,
+	mut sources: ResMut<SourceManager>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
-	for ChunkLoaded { grid, chunk, generation, voxels } in loader.read() {
-		if let Err(err) = pending.complete_chunk(*grid, *chunk, *generation, voxels.as_ref()) {
-			warn!(grid=?grid, chunk=?chunk, error=%err, "failed to compress chunk response voxels");
-		}
-	}
+	let event = trigger.event();
+	pending.cancel(event.from, event.trigger.id, &mut sources);
 }
 
-pub(crate) fn flush_voxel_area_results(
-	mut loader: MessageReader<VoxelAreaLoaded>,
+pub(crate) fn flush_source_results(
+	mut results: MessageReader<SourceResult>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
-	for VoxelAreaLoaded { grid, key, generation, voxel_type, voxels, .. } in loader.read() {
-		if let Err(err) = pending.complete_voxel_area(*grid, *key, *generation, *voxel_type, voxels.as_ref()) {
-			warn!(grid=?grid, min=?key.min(), size=?key.size(), lod=key.lod, error=%err, "failed to compress lod response voxels");
-		}
+	for result in results.read() {
+		pending.receive_source_result(result);
 	}
 }
 
 pub(crate) fn send_pending_voxel_load_responses(
-	time: Res<Time>,
 	peer_metadata: Option<Res<PeerMetadata>>,
-	mut senders: Query<&mut EventSender<VoxelLoadResponse>>,
+	mut senders: Query<(&mut EventSender<VoxelLoadPayload>, &mut EventSender<VoxelLoadComplete>)>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
-	pending.send_due(time.elapsed_secs_f64(), |peer, response| {
-		let Some(&entity) = peer_metadata.mapping.get(&peer) else { return };
-		let Ok(mut sender) = senders.get_mut(entity) else { return };
-		sender.trigger::<crate::chunks::ServerToClientUnreliableChannel>(response);
-	});
+	for _ in 0..pending.outgoing_len() {
+		let Some(message) = pending.pop_outgoing() else { break };
+		let Some(&entity) = peer_metadata.mapping.get(&message.peer()) else {
+			pending.push_outgoing(message);
+			continue;
+		};
+		let Ok((mut payload_sender, mut complete_sender)) = senders.get_mut(entity) else {
+			pending.push_outgoing(message);
+			continue;
+		};
+		match message {
+			OutgoingVoxelMessage::Payload { payload, .. } => {
+				payload_sender.trigger::<crate::chunks::ServerToClientChannel>(payload);
+			}
+			OutgoingVoxelMessage::Complete { complete, .. } => {
+				complete_sender.trigger::<crate::chunks::ServerToClientChannel>(complete);
+			}
+		}
+	}
 }
 
 pub(crate) fn cleanup_disconnected_requests(
 	peer_metadata: Option<Res<PeerMetadata>>,
+	mut sources: ResMut<SourceManager>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
-	pending.remove_disconnected(|peer| peer_metadata.mapping.contains_key(&peer));
+	pending.remove_disconnected(|peer| peer_metadata.mapping.contains_key(&peer), &mut sources);
 }

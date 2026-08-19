@@ -7,7 +7,7 @@ use voxel_data::grid::GridId;
 use voxel_streaming::{AuthoritativeGridCommand, ChunkEditInterestChanged};
 
 use super::{EditInterest, EditStreamStart, RemoteGridEdit};
-use crate::chunks::{ClientToServerChannel, client_source::ClientChunkSource};
+use crate::chunks::ClientToServerChannel;
 
 #[derive(Default)]
 struct ClientGridStream {
@@ -28,7 +28,7 @@ pub(super) fn flush_interest(
 	for interest in interests.read().copied() {
 		sender.trigger::<ClientToServerChannel>(EditInterest {
 			grid: interest.grid,
-			region: interest.region,
+			region: interest.region.into(),
 			version: interest.version,
 			interested: interest.interested,
 		});
@@ -50,7 +50,6 @@ pub(super) fn receive_start(
 
 pub(super) fn receive_edit(
 	trigger: On<RemoteEvent<RemoteGridEdit>>,
-	source: Res<ClientChunkSource>,
 	mut streams: ResMut<ClientEditStreams>,
 	mut commands: MessageWriter<AuthoritativeGridCommand>,
 ) {
@@ -67,8 +66,5 @@ pub(super) fn receive_edit(
 			generation: event.generation,
 			edit: event.edit.into_edit(),
 		});
-		if let Some(handle) = source.state.handle.get() {
-			handle.synchronize_region_generation(event.grid, event.region, event.generation);
-		}
 	}
 }

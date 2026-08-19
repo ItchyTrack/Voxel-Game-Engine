@@ -4,6 +4,7 @@ use bevy::math::IVec3;
 use bevy::prelude::Component;
 use lightyear::prelude::PeerId;
 use serde::{Deserialize, Serialize};
+use tile_data::NonZeroChunkRegion;
 use voxel_streaming::ChunkPresence;
 
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,8 +20,8 @@ impl ReplicateVoxelsRestriction {
 		self.readable_by_client.entry(peer).or_default().mark_present(chunk);
 	}
 
-	pub fn set_readable_area(&mut self, peer: PeerId, min: IVec3, size: IVec3) {
-		self.readable_by_client.entry(peer).or_default().mark_present_area(min, size);
+	pub fn set_readable_area(&mut self, peer: PeerId, region: NonZeroChunkRegion) {
+		self.readable_by_client.entry(peer).or_default().mark_present_area(region);
 	}
 
 	pub fn clear_readable_chunk(&mut self, peer: PeerId, chunk: IVec3) {
@@ -29,9 +30,9 @@ impl ReplicateVoxelsRestriction {
 		}
 	}
 
-	pub fn clear_readable_area(&mut self, peer: PeerId, min: IVec3, size: IVec3) {
+	pub fn clear_readable_area(&mut self, peer: PeerId, region: NonZeroChunkRegion) {
 		if let Some(presence) = self.readable_by_client.get_mut(&peer) {
-			presence.clear_present_area(min, size);
+			presence.clear_present_area(region);
 		}
 	}
 

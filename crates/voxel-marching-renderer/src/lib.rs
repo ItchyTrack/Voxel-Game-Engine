@@ -66,7 +66,6 @@ impl Plugin for VoxelMarchingRendererPlugin {
 		let generators = app.world().resource::<RenderingGeneratorRegistry>().clone();
 		app.register_tile_generator(
 			rendering_class.0,
-			MarchingVoxel::TYPE_INFO.id,
 			RenderingTileGenerator::new(MarchingVoxel::TYPE_INFO.id, generators),
 		);
 

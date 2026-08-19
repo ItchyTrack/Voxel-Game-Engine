@@ -62,6 +62,14 @@ pub struct ChunkEditInterestChanged {
 }
 
 #[derive(Message, Clone)]
+pub struct GridAreaEdited {
+	pub grid: voxel_data::grid::GridId,
+	pub region: NonZeroChunkRegion,
+	pub generation: u64,
+	pub edit: voxel_edit::GridEdit,
+}
+
+#[derive(Message, Clone)]
 pub struct AuthoritativeGridCommand {
 	pub grid: voxel_data::grid::GridId,
 	pub region: NonZeroChunkRegion,
@@ -106,19 +114,20 @@ impl Plugin for VoxelStreamingPlugin {
 		app.insert_resource(grid_source.clone()).register_voxel_source(grid_source);
 		app.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkEditInterestChanged>()
+			.add_message::<GridAreaEdited>()
 			.add_message::<AuthoritativeGridCommand>()
 			.add_message::<ChunkLoadResolved>()
 			.init_resource::<TileClassRegistry>()
 			.init_resource::<TileGeneratorRegistry>()
 			.init_resource::<systems::PendingTileUpdates>()
 			.init_resource::<generation::TileGenerationChannel>()
+			.init_resource::<generation::TileVoxelSourceBridge>()
 			.add_systems(
 				StreamingSchedule,
 				(
 					(
 						systems::receive_chunk_presence_loaded,
 						systems::apply_source_presence,
-						systems::apply_edit_events,
 					)
 						.in_set(StreamingPhase::Ingest),
 					grid_source::serve_grid_source_requests
@@ -145,14 +154,15 @@ impl Plugin for VoxelStreamingPlugin {
 						systems::request_presence_for_new_grids,
 						systems::handle_dirty_chunks,
 						systems::request_edit_takes,
-						systems::request_stalled_chunks,
 						systems::request_tiles,
 						systems::publish_edit_interest_changes,
+						generation::submit_tile_voxel_requests,
 					)
 						.chain()
 						.in_set(StreamingPhase::Request),
 					(
 						systems::receive_results,
+						generation::route_tile_source_results,
 						(
 							systems::receive_tile_results,
 							systems::publish_tile_updates,

@@ -2,16 +2,21 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::math::IVec3;
 use bevy::prelude::*;
-use voxel_sources::{SourceManager, RequestId};
+use voxel_sources::{RequestId, SourceManager};
 
-use voxel_data::grid::GridId;
+use voxel_data::{
+	grid::GridId,
+	grid_tree::NonZeroVoxelRegion,
+	signed_grid_tree::SignedGridTree,
+	voxels::Voxels,
+};
 use voxel_edit::GridEdit;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use crate::consumer::ChunkConsumer;
-use crate::generation::TileGenerationCancellation;
+use crate::generation::{GenerationCell, TileGenerationCancellation};
 use crate::tile_dependency_index::TileDependencyIndex;
-use crate::{ChunkLoadRequest, ChunkRegion, TileKey, TileLoadStatus, TileLoadUpdate};
+use crate::{ChunkRegion, TileKey, TileLoadStatus, TileLoadUpdate};
 use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
@@ -36,10 +41,9 @@ pub(crate) enum TileStatus {
 pub struct GridStreaming {
 	pub(crate) presence: ChunkPresence,
 	pub(crate) inflight_chunk_cancellations: HashMap<IVec3, RequestId>,
+	pub(crate) pending_chunk_results: HashMap<RequestId, (u64, Voxels)>,
 	pub(crate) pending_clears: Vec<(IVec3, u8)>,
-	pub(crate) stalled_edits: HashMap<IVec3, Vec<GridEdit>>,
 	pub(crate) stalled_pinned: HashSet<IVec3>,
-	pub(crate) owned_chunks: HashSet<IVec3>,
 	pub(crate) pending_take_edits: Vec<GridEdit>,
 	pub(crate) pending_newly_present_edits: HashSet<IVec3>,
 	pub(crate) pending_authoritative_edits: HashMap<IVec3, Vec<(u64, GridEdit)>>,
@@ -49,6 +53,8 @@ pub struct GridStreaming {
 	pub(crate) pending_tile_requests: HashSet<TileKey>,
 	pub(crate) tile_dependencies: TileDependencyIndex,
 	pub(crate) inflight_tiles_by_tag: HashMap<u64, TileKey>,
+	pub(crate) generation: u64,
+	pub(crate) chunk_generations: SignedGridTree<GenerationCell>,
 	pub(crate) next_tile_tag: u64,
 	pub(crate) queued_tile_updates: Vec<TileLoadUpdate>,
 	pub(crate) edit_interest_counts: HashMap<IVec3, u32>,
@@ -59,8 +65,8 @@ pub struct GridStreaming {
 #[derive(Component, Debug, Default)]
 pub struct RequestChunkPresence;
 
-#[derive(Component, Debug, Default)]
-pub struct InflightChunkPresence;
+#[derive(Component, Debug)]
+pub struct InflightChunkPresence(pub(crate) RequestId);
 
 impl GridStreaming {
 	pub fn presence(&self) -> &ChunkPresence { &self.presence }
@@ -102,9 +108,12 @@ impl GridStreaming {
 		match self.presence.state(chunk) {
 			Some(ChunkState::InFlight) => {
 				self.presence.set_state(chunk, ChunkState::Available);
-				if let Some(request_id) = self.inflight_chunk_cancellations.remove(&chunk) { source_manager.cancel_voxels(request_id); }
+				if let Some(request_id) = self.inflight_chunk_cancellations.remove(&chunk) {
+					self.pending_chunk_results.remove(&request_id);
+					source_manager.cancel_voxels(request_id);
+				}
 			}
-			Some(ChunkState::Loaded | ChunkState::InternalDirty) => self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES)),
+			Some(ChunkState::Loaded) => self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES)),
 			_ => {}
 		}
 	}
@@ -112,7 +121,7 @@ impl GridStreaming {
 	pub(crate) fn release_completed(&mut self, chunk: IVec3) {
 		if self.presence.remove_request(chunk) > 0 { return; }
 		self.release_edit_interest(chunk);
-		if matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty)) {
+		if matches!(self.presence.state(chunk), Some(ChunkState::Loaded)) {
 			self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES));
 		}
 	}
@@ -167,7 +176,6 @@ impl GridStreaming {
 		}
 	}
 
-	pub(crate) fn finish_chunk_request(&mut self, chunk: IVec3) { self.inflight_chunk_cancellations.remove(&chunk); }
 	pub(crate) fn mark_loaded(&mut self, chunk: IVec3) {
 		self.presence.set_state(chunk, ChunkState::Loaded);
 	}
@@ -215,12 +223,33 @@ impl GridStreaming {
 		}
 	}
 
+	pub(crate) fn chunk_generation(&self, chunk: IVec3) -> u64 {
+		self.chunk_generations.get(chunk).unwrap_or(0)
+	}
+
+	pub(crate) fn region_generation(&self, region: NonZeroChunkRegion) -> u64 {
+		let mut latest = 0;
+		self.chunk_generations.for_each_in_region(chunk_tree_region(region), |_, _, generation| {
+			latest = latest.max(generation);
+		});
+		latest
+	}
+
 	pub(crate) fn note_source_generation(&mut self, region: NonZeroChunkRegion, generation: u64) {
-		self.chunk_generations.set_region(region, generation);
+		self.generation = self.generation.max(generation);
+		if self.region_generation(region) <= generation {
+			self.chunk_generations.add_area(chunk_tree_region(region), generation);
+		}
+	}
+
+	pub(crate) fn next_local_generation(&mut self, region: NonZeroChunkRegion) -> u64 {
+		self.generation = self.generation.checked_add(1).expect("grid generation space exhausted");
+		self.chunk_generations.add_area(chunk_tree_region(region), self.generation);
+		self.generation
 	}
 
 	pub(crate) fn command_follows(&self, region: NonZeroChunkRegion, generation: u64) -> bool {
-		self.chunk_generations.last_changed(region) < generation
+		self.region_generation(region) < generation
 	}
 
 	pub(crate) fn dirty_stale_tiles(&mut self, region: NonZeroChunkRegion, generation: u64) {
@@ -244,6 +273,10 @@ impl GridStreaming {
 		state.status = TileStatus::Dirty;
 		self.pending_tile_requests.insert(key);
 	}
+}
+
+fn chunk_tree_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
+	NonZeroVoxelRegion::new(region.min(), region.size()).unwrap()
 }
 
 fn valid_tile_key(key: TileKey) -> bool {

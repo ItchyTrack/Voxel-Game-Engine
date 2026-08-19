@@ -52,10 +52,16 @@ impl SourceManager {
 			match source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type) {
 				SourceCoverage::None => {},
 				SourceCoverage::Some => { source_request_count += 1; },
-				SourceCoverage::All => { break; },
+				SourceCoverage::All => { source_request_count += 1; break; },
 			};
 		}
 		self.pending_requests.insert(request_id, (cancellation_token, source_request_count));
+		if source_request_count == 0 {
+			let _ = self.source_result_sender.send(SourceResult {
+				request_id,
+				data: crate::request::SourceResultData::VoxelsLoaded,
+			});
+		}
 		request_id
 	}
 
@@ -106,7 +112,7 @@ pub(crate) fn publish_source_results_messages(
 	mut source_manager: ResMut<SourceManager>,
 	mut result_writter: MessageWriter<SourceResult>,
 ) {
-	result_writter.write_batch(source_manager.source_result_receiver.clone().iter().filter_map(|result| {
+	result_writter.write_batch(source_manager.source_result_receiver.clone().try_iter().filter_map(|result| {
 		let (_, source_request_count) = source_manager.pending_requests.get_mut(&result.request_id)?;
 		match result.data {
 			crate::request::SourceResultData::PresenceLoaded | crate::request::SourceResultData::VoxelsLoaded => {
@@ -114,6 +120,7 @@ pub(crate) fn publish_source_results_messages(
 					*source_request_count -= 1;
 					return None;
 				}
+				source_manager.pending_requests.remove(&result.request_id);
 			},
 			_ => {}
 		}

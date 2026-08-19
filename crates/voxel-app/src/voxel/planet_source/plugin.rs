@@ -3,14 +3,15 @@ use std::sync::{Arc, OnceLock};
 
 use bevy::prelude::*;
 use basic_voxel::{BasicVoxel, LodVoxel};
-use tile_data::{ChunkRegion, NonZeroChunkRegion};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use tracy_client::span;
-use voxel_data::{grid::{Grid, GridId}, voxels::{VoxelType, VoxelTypeId}};
+use voxel_data::{grid::{Grid, GridId}, voxels::{VoxelType, VoxelTypeId, Voxels}};
 use voxel_streaming::GridEdits;
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{ForgottenChunks, GridStreaming};
+use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
 use super::generation::{build_planet_chunk, build_planet_lod_region};
 use super::tiles::{planet_tiles, tile_has_chunk};
@@ -51,74 +52,91 @@ impl ChunkSource for ProceduralPlanetSource {
 		let _ = self.handle.set(handle);
 	}
 
-	fn request_available_area(&self, grid: GridId) {
-		if let Some(handle) = self.handle.get() {
-			handle.presence_loaded(grid);
-		}
-	}
-
-	fn request_load(&self, grid_id: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
-		let Some(tile_index) = self.tile_index(grid_id) else { return SourceCoverage::None };
-		let Some(tile) = planet_tiles().get(tile_index) else { return SourceCoverage::None };
-		if cancellation.is_cancelled() || self.forgotten.contains(grid_id, chunk) || !tile_has_chunk(tile, chunk) { return SourceCoverage::None; }
-		let _zone = span!("planet source request_load chunk");
-		let voxels = build_planet_chunk(tile_index, chunk, &cancellation);
-		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		if let Some(handle) = self.handle.get() {
-			let _zone = span!("planet source publish chunk");
-			handle.loaded(grid_id, chunk, generation, voxels);
-		}
-		SourceCoverage::All
-	}
-
-	fn request_voxel_area(
+	fn request_voxels(
 		&self,
-		grid_id: GridId,
+		request_id: RequestId,
+		cancellation: &CancellationToken,
+		grid: GridId,
 		region: NonZeroChunkRegion,
-		lod: f32,
-		voxel_type: VoxelTypeId,
-		generation: u64,
-		cancellation: CancellationToken,
+		lod: u8,
+		voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		let Some(tile_index) = self.tile_index(grid_id) else { return SourceCoverage::None };
+		let Some(tile_index) = self.tile_index(grid) else { return SourceCoverage::None };
 		let Some(tile) = planet_tiles().get(tile_index) else { return SourceCoverage::None };
-		let mut owned = 0;
-		for z in region.min().x..region.end().z {
+
+		let mut owned_chunks = Vec::new();
+		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {
 				for x in region.min().x..region.end().x {
-					owned += (tile_has_chunk(tile, IVec3::new(x, y, z)) && !self.forgotten.contains(grid_id, chunk)) as usize;
+					let chunk = IVec3::new(x, y, z);
+					if tile_has_chunk(tile, chunk) && !self.forgotten.contains(grid, chunk) {
+						owned_chunks.push(chunk);
+					}
 				}
 			}
 		}
-		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
-		if coverage == SourceCoverage::None { return coverage; }
-		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "planet source does not support requested voxel type");
-		let _zone = span!("planet source request_voxel_area");
-		tracy_client::plot!("planet lod level", lod as f64);
-		let voxels = Some(tile_index).and_then(|tile_index| {
-			let step = 1i32 << lod.max(0.0).floor() as u32;
-			let extent = IVec3::splat(tile_data::CHUNK_SIZE / step);
-			let mut out: Option<voxel_data::voxels::Voxels> = None;
-			for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-				let offset = IVec3::new(x, y, z);
-				let chunk = min + offset;
-				if self.forgotten.contains(grid_id, chunk) { continue; }
-				let Some(voxels) = build_planet_lod_region(tile_index, chunk, IVec3::ONE, lod, &cancellation) else { continue };
-				out.get_or_insert_with(|| voxel_data::voxels::Voxels::new_with_type(voxels.voxel_type_info())).merge_from(&voxels, offset * extent);
-			}}}
-			out
+		let coverage = if owned_chunks.is_empty() {
+			return SourceCoverage::None;
+		} else if owned_chunks.len() == region.area() as usize {
+			SourceCoverage::All
+		} else {
+			SourceCoverage::Some
+		};
+
+		let use_raw = match voxel_type {
+			None => lod == 0,
+			Some(id) if id == BasicVoxel::TYPE_INFO.id => {
+				assert_eq!(lod, 0, "planet source only has raw voxels at lod 0");
+				true
+			}
+			Some(id) if id == LodVoxel::TYPE_INFO.id => false,
+			Some(_) => panic!("planet source does not support requested voxel type"),
+		};
+
+		let handle = self.handle.get().expect("planet source was not initialized").clone();
+		let cancellation = cancellation.clone();
+		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let _zone = span!("planet source request voxels");
+			tracy_client::plot!("planet lod level", lod as f64);
+			let mut voxels: Option<Voxels> = None;
+			let step = 1i32 << lod as u32;
+			let extent = if use_raw { IVec3::splat(CHUNK_SIZE) } else { IVec3::splat(CHUNK_SIZE / step) };
+			for chunk in owned_chunks {
+				if cancellation.is_cancelled() { break; }
+				let part = if use_raw {
+					build_planet_chunk(tile_index, chunk, &cancellation)
+				} else {
+					build_planet_lod_region(tile_index, chunk, IVec3::ONE, lod as f32, &cancellation)
+				};
+				let Some(part) = part else { continue };
+				let offset = (chunk - region.min()) * extent;
+				voxels.get_or_insert_with(|| Voxels::new_with_type(part.voxel_type_info())).merge_from(&part, offset);
+			}
+			if !cancellation.is_cancelled()
+				&& let Some(voxels) = voxels.filter(|voxels| !voxels.is_empty()) {
+				handle.voxels(request_id, grid, region, lod, 0, voxels);
+			}
+			handle.voxels_loaded(request_id);
 		});
-		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		if let Some(handle) = self.handle.get() {
-			let _zone = span!("planet source publish lod");
-			handle.voxels_loaded(grid_id, region, lod, voxel_type, generation, voxels);
-		}
 		coverage
 	}
 
-	fn forget(&self, grid_id: GridId, chunk: IVec3) {
-		self.forgotten.forget(grid_id, chunk);
+	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+		let handle = self.handle.get().expect("planet source was not initialized");
+		if let Some(tile_index) = self.tile_index(grid)
+			&& let Some(tile) = planet_tiles().get(tile_index) {
+			for &chunk in &tile.present_chunks {
+				handle.presence(request_id, grid, NonZeroChunkRegion::from_single(chunk));
+			}
+		}
+		handle.presence_loaded(request_id);
+	}
+
+	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		let Some(tile_index) = self.tile_index(grid) else { return };
+		let Some(tile) = planet_tiles().get(tile_index) else { return };
+		self.forgotten.forget_area_where(grid, region.into(), |chunk| tile_has_chunk(tile, chunk));
 	}
 }
 

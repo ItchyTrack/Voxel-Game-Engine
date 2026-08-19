@@ -10,7 +10,8 @@ use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_data::grid::GridId;
-use voxel_sources::{CancellationToken, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
 use voxel_streaming::{ForgottenChunks, GridStreaming};
 use basic_voxel::{BasicVoxel, LodVoxel};
@@ -74,6 +75,14 @@ fn region_chunks(region: NonZeroChunkRegion) -> impl Iterator<Item = IVec3> {
 	})
 }
 
+fn sphere_chunk_region() -> NonZeroChunkRegion {
+	let radius_chunks = RADIUS.div_euclid(CHUNK_SIZE) + 1;
+	NonZeroChunkRegion::from_min_size(
+		IVec3::splat(-radius_chunks),
+		IVec3::splat(radius_chunks * 2 + 1),
+	).unwrap()
+}
+
 fn sphere_color(world: IVec3) -> [u8; 4] {
 	let normal = world.as_vec3().normalize_or_zero();
 	[
@@ -126,11 +135,10 @@ fn build_chunk(chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels>
 	}
 }
 
-fn build_raw_region(grid: GridId, region: NonZeroChunkRegion, forgotten: &ForgottenChunks, cancellation: &CancellationToken) -> Option<Voxels> {
+fn build_raw_region(region: NonZeroChunkRegion, chunks: &[IVec3], cancellation: &CancellationToken) -> Option<Voxels> {
 	let mut voxels: Option<Voxels> = None;
-	for chunk in region_chunks(region) {
+	for &chunk in chunks {
 		if cancellation.is_cancelled() { return None; }
-		if !chunk_owned(grid, chunk, forgotten) { continue; }
 		let Some(part) = build_chunk(chunk, cancellation) else { continue };
 		let offset = (chunk - region.min()) * CHUNK_SIZE;
 		voxels.get_or_insert_with(|| Voxels::new::<BasicVoxel>()).merge_from(&part, offset);
@@ -187,13 +195,12 @@ fn build_lod_region(min: IVec3, size: IVec3, lod: u8, cancellation: &Cancellatio
 
 /// Builds the LOD representation across a possibly multi-chunk region, skipping
 /// forgotten chunks so ownership boundaries stay exact at every LOD.
-fn build_lod_multi_region(grid: GridId, region: NonZeroChunkRegion, lod: u8, forgotten: &ForgottenChunks, cancellation: &CancellationToken) -> Option<Voxels> {
+fn build_lod_multi_region(region: NonZeroChunkRegion, lod: u8, chunks: &[IVec3], cancellation: &CancellationToken) -> Option<Voxels> {
 	let step = 1i32 << lod as u32;
 	let extent = IVec3::splat(CHUNK_SIZE / step);
 	let mut voxels: Option<Voxels> = None;
-	for chunk in region_chunks(region) {
+	for &chunk in chunks {
 		if cancellation.is_cancelled() { return None; }
-		if !chunk_owned(grid, chunk, forgotten) { continue; }
 		let Some(part) = build_lod_region(chunk, IVec3::ONE, lod, cancellation) else { continue };
 		let offset = (chunk - region.min()) * extent;
 		voxels.get_or_insert_with(|| Voxels::new_with_type(part.voxel_type_info())).merge_from(&part, offset);
@@ -228,19 +235,19 @@ impl ChunkSource for SphereSource {
 		voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.is_mine(grid) {
-			return None;
+			return SourceCoverage::None;
 		}
 
-		let mut owned = 0usize;
-		let mut total = 0usize;
-		for chunk in region_chunks(region) {
-			total += 1;
-			owned += chunk_owned(grid, chunk, &self.forgotten) as usize;
-		}
-		let coverage = SourceCoverage::from_count(owned, total);
-		if coverage == SourceCoverage::None {
-			return None;
-		}
+		let owned_chunks: Vec<_> = region_chunks(region)
+			.filter(|&chunk| chunk_owned(grid, chunk, &self.forgotten))
+			.collect();
+		let coverage = if owned_chunks.is_empty() {
+			return SourceCoverage::None;
+		} else if owned_chunks.len() == region.area() as usize {
+			SourceCoverage::All
+		} else {
+			SourceCoverage::Some
+		};
 
 		// `None` means "whichever representation is native to the requested lod":
 		// raw per-voxel data at lod 0, the solid-run LOD representation otherwise.
@@ -255,25 +262,27 @@ impl ChunkSource for SphereSource {
 		};
 
 		let handle = self.handle.get().expect("sphere source was not initialized").clone();
-		let forgotten = self.forgotten.clone();
 		let cancellation = cancellation.clone();
-
-		Some((coverage, async move || {
-			if cancellation.is_cancelled() { return; }
+		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let voxels = if use_raw {
-				build_raw_region(grid, region, &forgotten, &cancellation)
+				build_raw_region(region, &owned_chunks, &cancellation)
 			} else {
-				build_lod_multi_region(grid, region, lod, &forgotten, &cancellation)
+				build_lod_multi_region(region, lod, &owned_chunks, &cancellation)
 			};
-			if cancellation.is_cancelled() { return; }
-			handle.voxels(request_id, grid, region, lod, voxels);
-		}))
+			if !cancellation.is_cancelled() && let Some(voxels) = voxels {
+				handle.voxels(request_id, grid, region, lod, 0, voxels);
+			}
+			handle.voxels_loaded(request_id);
+		});
+		coverage
 	}
 
-	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, _grid: GridId) {
-		if let Some(handle) = self.handle.get() {
-			handle.presence_loaded(request_id);
+	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+		let handle = self.handle.get().expect("sphere source was not initialized");
+		if self.is_mine(grid) {
+			handle.presence(request_id, grid, sphere_chunk_region());
 		}
+		handle.presence_loaded(request_id);
 	}
 
 	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
@@ -305,12 +314,8 @@ impl Plugin for SphereSourcePlugin {
 
 fn spawn_sphere_grid(mut commands: Commands, grid: Res<SphereGrid>) {
 
-	let radius_chunks = RADIUS.div_euclid(CHUNK_SIZE) + 1;
-	let min = IVec3::splat(-radius_chunks);
-	let size = IVec3::splat(radius_chunks * 2 + 1);
-
 	let mut streaming = GridStreaming::default();
-	streaming.mark_present_area(min, size);
+	streaming.mark_present_area(sphere_chunk_region());
 
 	let body = commands
 		.spawn((

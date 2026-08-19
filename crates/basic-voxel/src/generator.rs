@@ -1,106 +1,10 @@
 use bevy::math::IVec3;
 use voxel_data::grid_tree::{GridCoord, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps};
 use voxel_data::voxel_grid_tree::VoxelGridType;
-use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, VoxelTypeId, Voxels};
-use voxel_sources::VoxelLodGenerator;
-use tile_data::{CHUNK_SIZE, ChunkRegion, NonZeroChunkRegion};
+use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, Voxels};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 
-use crate::{BasicVoxel, LodVoxel, MarchingVoxel};
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct BasicVoxelLodGenerator;
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct LodVoxelLodGenerator;
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct MarchingVoxelLodGenerator;
-
-impl VoxelLodGenerator for BasicVoxelLodGenerator {
-	fn input_type_id(&self) -> VoxelTypeId {
-		BasicVoxel::TYPE_INFO.id
-	}
-
-	fn output_type_id(&self) -> VoxelTypeId {
-		LodVoxel::TYPE_INFO.id
-	}
-
-	fn generate(&self, region: NonZeroChunkRegion, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-		downsample_region(region, lod, fetch)
-	}
-}
-
-impl VoxelLodGenerator for LodVoxelLodGenerator {
-	fn input_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_INFO.id }
-	fn output_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_INFO.id }
-	fn generate(&self, region: NonZeroChunkRegion, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-		downsample_region(region, lod, fetch)
-	}
-}
-
-impl VoxelLodGenerator for MarchingVoxelLodGenerator {
-	fn input_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_INFO.id }
-	fn output_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_INFO.id }
-	fn generate(&self, region: NonZeroChunkRegion, lod: f32, fetch: &dyn Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-		downsample_marching_region(region, lod, fetch)
-	}
-}
-
-pub fn downsample_marching_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-	let scale_down = lod.max(0.0).floor() as u8;
-	let step = 1i32 << scale_down as u32;
-	let mut loaded = Vec::new();
-	for z in 0..size.z {
-		for y in 0..size.y {
-			for x in 0..size.x {
-				let local = IVec3::new(x, y, z);
-				if let Some(voxels) = fetch(min + local) { loaded.push((local, voxels)); }
-			}
-		}
-	}
-	if loaded.is_empty() { return None; }
-	let sources: Vec<_> = loaded.iter().map(|(local, voxels)| SourceTree {
-		voxels,
-		scale_down,
-		output_offset: (*local * CHUNK_SIZE).div_euclid(IVec3::splat(step)),
-	}).collect();
-	let output_size = div_ceil_ivec3(size * CHUNK_SIZE, step);
-	let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, output_size)?;
-	Voxels::reduce_voxels(output_region, &sources, MarchingVoxelReducer)
-}
-
-struct MarchingVoxelReducer;
-
-impl VoxelReducer for MarchingVoxelReducer {
-	type Output = MarchingVoxel;
-
-	fn reduce<'overlaps, 'a, Co>(
-		&mut self,
-		_region: NonZeroVoxelRegion,
-		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
-	) -> Option<Self::Output>
-	where
-		Co: GridCoord,
-	{
-		let mut color = [0u64; 4];
-		let mut mass = 0u64;
-		let mut weight = 0u64;
-		for overlap in overlaps {
-			let voxel = MarchingVoxel::from_voxel_ref(&overlap.data);
-			let volume = region_volume(overlap.source_region);
-			for (sum, channel) in color.iter_mut().zip(voxel.0.color) {
-				*sum += u64::from(channel) * volume;
-			}
-			mass += u64::from(voxel.0.mass) * volume;
-			weight += volume;
-		}
-		if weight == 0 { return None; }
-		Some(MarchingVoxel(BasicVoxel {
-			color: color.map(|sum| ((sum + weight / 2) / weight).min(255) as u8),
-			mass: ((mass + weight / 2) / weight).min(u64::from(u32::MAX)) as u32,
-		}))
-	}
-}
+use crate::{BasicVoxel, LodVoxel};
 
 #[derive(Clone, Copy, Default)]
 struct Accum {
@@ -125,13 +29,15 @@ impl Accum {
 }
 
 pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+	let min = region.min();
+	let size = region.size().as_ivec3();
 	let scale_down = lod.max(0.0).floor() as u8;
 	let step = 1i32 << scale_down as u32;
 
 	let mut loaded = Vec::new();
-	for chunk_z in 0..region.size().z as i32 {
-		for chunk_y in 0..region.size().y as i32 {
-			for chunk_x in 0..region.size().x as i32 {
+	for chunk_z in 0..size.z {
+		for chunk_y in 0..size.y {
+			for chunk_x in 0..size.x {
 				let local = IVec3::new(chunk_x, chunk_y, chunk_z);
 				if let Some(voxels) = fetch(min + local) {
 					loaded.push((local, voxels));

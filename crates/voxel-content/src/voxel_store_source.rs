@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
 use crate::GridStore;
 
@@ -47,76 +48,81 @@ impl ChunkSource for VoxelStoreSource {
 		grid: GridId,
 		region: NonZeroChunkRegion,
 		lod: u8,
-		_voxel_type: Option<VoxelTypeId>,
-	) -> Option<(SourceCoverage, Option<impl AsyncFnOnce() + Send + 'static>)> {
-		let grids = self.inner.grids.read().unwrap();
-		let Some(store) = grids.get(&grid) else { return SourceCoverage::None };
-		let mut has_one = None;
-		let mut source_coverage = SourceCoverage::All;
-		'outer: for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					if store.contains_chunk(IVec3::new(x, y, z)) {
-						if let Some(has_one_val) = has_one {
-							if has_one_val {
-								source_coverage = SourceCoverage::Some;
-								break 'outer;
-							}
-						} else {
-							has_one = Some(true)
-						}
-					} else {
-						if let Some(has_one_val) = has_one {
-							if has_one_val {
-								source_coverage = SourceCoverage::Some;
-								break 'outer;
-							}
-						} else {
-							has_one = Some(false)
-						}
-					}
-				}
-			}
+		voxel_type: Option<VoxelTypeId>,
+	) -> SourceCoverage {
+		if cancellation.is_cancelled() {
+			return SourceCoverage::None;
 		}
-		assert!(has_one.is_some()); // has to happen as region is non zero
-		if !has_one.unwrap() {
-			return None;
-		}
-
-		let async_fn = async move || {
-			if cancellation.is_cancelled() { return; }
+		let owned = {
 			let grids = self.inner.grids.read().unwrap();
-			let Some(store) = grids.get(&grid) else { return; };
-			let input = store.voxel_type_id().expect("owned voxel-store chunks have no voxel type");
-			let handle = self.inner.handle.get().unwrap();
-			for x in region.min().x..region.end().x {
+			let Some(store) = grids.get(&grid) else { return SourceCoverage::None };
+			if let Some(voxel_type) = voxel_type
+				&& let Some(stored_type) = store.voxel_type_id() {
+				assert_eq!(voxel_type, stored_type, "voxel store source does not support requested voxel type");
+			}
+			let mut owned = 0;
+			for z in region.min().z..region.end().z {
 				for y in region.min().y..region.end().y {
-					for z in region.min().z..region.end().z {
-						let chunk = IVec3::new(x, y, z);
-						if let Some(voxels) = store.load_chunk(chunk) {
-							if cancellation.is_cancelled() { return; }
-							handle.voxels(request_id, grid, NonZeroChunkRegion::from_single(chunk), lod, generation, voxels);
+					for x in region.min().x..region.end().x {
+						owned += store.contains_chunk(IVec3::new(x, y, z)) as u32;
+					}
+				}
+			}
+			owned
+		};
+		let coverage = match owned {
+			0 => SourceCoverage::None,
+			owned if owned == region.area() => SourceCoverage::All,
+			_ => SourceCoverage::Some,
+		};
+		if coverage == SourceCoverage::None {
+			return coverage;
+		}
+
+		let source = self.clone();
+		let handle = self.inner.handle.get().expect("voxel store source was not initialized").clone();
+		let cancellation = cancellation.clone();
+		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let grids = source.inner.grids.read().unwrap();
+			if let Some(store) = grids.get(&grid) {
+				'chunks: for z in region.min().z..region.end().z {
+					for y in region.min().y..region.end().y {
+						for x in region.min().x..region.end().x {
+							if cancellation.is_cancelled() {
+								break 'chunks;
+							}
+							let chunk = IVec3::new(x, y, z);
+							if let Some(voxels) = store.load_chunk(chunk) {
+								handle.voxels(
+									request_id,
+									grid,
+									NonZeroChunkRegion::from_single(chunk),
+									lod,
+									store.chunk_generation(chunk),
+									voxels,
+								);
+							}
 						}
 					}
 				}
 			}
-		};
+			handle.voxels_loaded(request_id);
+		});
 
-		Some((source_coverage, Some(async_fn)))
+		coverage
 	}
 
 	fn request_presence(
 		&self,
 		request_id: RequestId,
-		cancellation: CancellationToken,
+		_cancellation: CancellationToken,
 		grid: GridId,
-	) -> Option<impl AsyncFnOnce() + Send + 'static> {
-		let Some(handle) = self.inner.handle.get() else { return None };
-		if let Some(region) = self.grid_available_area(grid).and_then(|area| area.try_into().ok()) {
+	) {
+		let handle = self.inner.handle.get().expect("voxel store source was not initialized");
+		if let Some(region) = self.grid_available_area(grid) {
 			handle.presence(request_id, grid, region);
 		}
-		handle.presence_loaded(region);
-		None
+		handle.presence_loaded(request_id);
 	}
 
 	fn take_ownership(

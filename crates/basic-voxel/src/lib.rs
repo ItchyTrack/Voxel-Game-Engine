@@ -1,7 +1,7 @@
 mod generator;
 mod voxel;
 
-pub use generator::{downsample_region, BasicVoxelLodGenerator, LodVoxelLodGenerator, MarchingVoxelLodGenerator};
+pub use generator::downsample_region;
 pub use voxel::{BasicVoxel, LodVoxel, MarchingVoxel};
 
 use bevy::prelude::*;
@@ -13,7 +13,6 @@ use voxel_gpu::{
 use voxel_physics::VoxelPhysicsAppExt;
 use voxel_raster_renderer::{VoxelRasterRendererPlugin, VoxelRasterTileAppExt};
 use voxel_ray_renderer::{VoxelRayRendererPlugin, VoxelRayTileAppExt};
-use voxel_sources::VoxelSourcesAppExt;
 
 pub struct BasicVoxelPlugin;
 
@@ -22,9 +21,6 @@ impl Plugin for BasicVoxelPlugin {
 		bevy::asset::embedded_asset!(app, "shaders/basic_voxel.slang");
 		bevy::asset::embedded_asset!(app, "shaders/lod_voxel.slang");
 		app
-			.register_voxel_lod_generator(BasicVoxelLodGenerator)
-			.register_voxel_lod_generator(LodVoxelLodGenerator)
-			.register_voxel_lod_generator(MarchingVoxelLodGenerator)
 			.register_voxel_mass::<BasicVoxel>()
 			.register_voxel_mass::<MarchingVoxel>()
 			.register_voxel_gpu_data::<BasicVoxel>()
@@ -42,7 +38,6 @@ impl Plugin for BasicVoxelPlugin {
 		let generators = app.world().resource::<RenderingGeneratorRegistry>().clone();
 		app.register_tile_generator(
 			rendering_class.0,
-			source_voxel_type,
 			RenderingTileGenerator::new(source_voxel_type, generators),
 		);
 	}

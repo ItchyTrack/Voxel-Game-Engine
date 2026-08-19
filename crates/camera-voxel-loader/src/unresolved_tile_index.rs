@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use tile_data::TileIndexKey;
 use voxel_streaming::TileClassId;
 use voxel_data::{
 	grid::GridId,
@@ -43,7 +42,7 @@ impl UnresolvedTileIndex {
 			return;
 		}
 		let grid = self.by_grid.entry((key.grid, key.class)).or_default();
-		grid.trees[key.lod as usize].add_area(NonZeroVoxelRegion::new(key.min(), key.size()).unwrap(), PRESENT);
+		grid.trees[key.lod as usize].add_area(NonZeroVoxelRegion::new(key.region.min(), key.region.size()).unwrap(), PRESENT);
 		grid.lod_mask |= lod_bit(key.lod);
 	}
 
@@ -52,7 +51,7 @@ impl UnresolvedTileIndex {
 			return false;
 		}
 		let Some(grid) = self.by_grid.get_mut(&(key.grid, key.class)) else { return false };
-		grid.trees[key.lod as usize].remove_area(NonZeroVoxelRegion::new(key.min(), key.size()).unwrap());
+		grid.trees[key.lod as usize].remove_area(NonZeroVoxelRegion::new(key.region.min(), key.region.size()).unwrap());
 		if grid.trees[key.lod as usize].is_empty() {
 			grid.lod_mask &= !lod_bit(key.lod);
 		}
@@ -183,8 +182,18 @@ mod tests {
 		index.insert(disjoint);
 
 		let mut actual = Vec::new();
-		index.for_each_in_region(grid, source.class, NonZeroVoxelRegion::from_min_size(source.min(), source.size()).unwrap(), 16, Some(source.lod), |key| actual.push(key));
-		actual.sort_by_key(|key| (key.lod, key.min().x, key.min().y, key.min().z));
+		index.for_each_in_region(
+			grid,
+			source.class,
+			NonZeroVoxelRegion::new(source.region.min(), source.region.size()).unwrap(),
+			16,
+			Some(source.lod),
+			|key| actual.push(key),
+		);
+		actual.sort_by_key(|key| {
+			let min = key.region.min();
+			(key.lod, min.x, min.y, min.z)
+		});
 
 		assert_eq!(actual, vec![fine, coarse]);
 	}

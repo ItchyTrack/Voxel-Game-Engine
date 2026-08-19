@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use camera_voxel_loader::{CameraVoxelLoader, CoverageDebugState, FreezeCameraVoxelLoader};
-use voxel_tasks::AsyncTaskPriorityQueueResource;
+use voxel_tasks::AsyncPriorityTaskPool;
 use voxel_physics::{
 	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
 };
@@ -71,7 +71,6 @@ fn debug_window(
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
 	mut coverage_boxes: ResMut<CoverageBoxes>,
 	mut voxel_render_mode: ResMut<VoxelRenderMode>,
-	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) -> Result {
 	let ctx = contexts.ctx_mut()?;
 
@@ -92,7 +91,7 @@ fn debug_window(
 		.map(|s| (s.bvh_bytes / 1000, s.bvh_leaf_bytes / 1000))
 		.unwrap_or((0, 0));
 
-	let async_queue_len = async_task_priority_queue.len();
+	let async_queue_len = AsyncPriorityTaskPool::get().len();
 	let mut render_mode = *voxel_render_mode;
 
 	egui::Window::new("Debug")
@@ -281,8 +280,8 @@ fn draw_coverage(
 	for loader in &loaders {
 		for tile in loader.coverage_debug_tiles() {
 			let Ok(gt) = transforms.get(tile.grid) else { continue };
-			let lo = (tile.min * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
-			let hi = ((tile.min + tile.size) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
+			let lo = (tile.region.min() * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
+			let hi = (tile.region.end() * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
 			let color = match tile.state {
 				CoverageDebugState::Pending => chunk_state_color(ChunkState::InFlight),
 				CoverageDebugState::Loaded => chunk_state_color(ChunkState::Loaded),

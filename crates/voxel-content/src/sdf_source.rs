@@ -7,10 +7,10 @@ use bevy::math::{IVec2, IVec3, Vec3};
 use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
-use voxel_sources::{CancellationToken, ChunkSource, RequestId, SourceCoverage, SourceHandle};
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, nonzero_voxel_region_from_chunks};
+use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use voxel_streaming::ForgottenChunks;
-use voxel_tasks::AsyncPriorityTaskPool;
+use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
 /// Procedural SDF contract used by [`SdfSource`].
 ///
@@ -103,7 +103,7 @@ impl SdfSource {
 		if !bounds_min.cmplt(bounds_max).all() {
 			return false;
 		}
-		let (region_min, region_max) = Self::region_bounds(min, size);
+		let (region_min, region_max) = Self::region_bounds(region.min(), region.size().as_ivec3());
 		region_min.cmplt(bounds_max).all() && region_max.cmpgt(bounds_min).all()
 	}
 
@@ -132,81 +132,87 @@ impl ChunkSource for SdfSource {
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
-		let binding = self.binding(grid)?;
-		let mut has_one = None;
-		let mut source_coverage = SourceCoverage::All;
-		'outer:for x in region.min().x..region.end().x {
+		if cancellation.is_cancelled() {
+			return SourceCoverage::None;
+		}
+		let Some(binding) = self.binding(grid) else { return SourceCoverage::None };
+		if let Some(voxel_type) = voxel_type {
+			assert!(
+				binding.sdf.voxel().type_id() == voxel_type || binding.sdf.lod_voxel().type_id() == voxel_type,
+				"SDF source does not support requested voxel type",
+			);
+		}
+		let mut owned_chunks = Vec::new();
+		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {
-				for z in region.min().z..region.end().z {
+				for x in region.min().x..region.end().x {
+					let chunk = IVec3::new(x, y, z);
 					if self.chunk_owned(grid, &binding, chunk) {
-						if let Some(has_one_val) = has_one {
-							if has_one_val {
-								source_coverage = SourceCoverage::Some;
-								break 'outer;
-							}
-						} else {
-							has_one = Some(true)
-						}
-					} else {
-						if let Some(has_one_val) = has_one {
-							if has_one_val {
-								source_coverage = SourceCoverage::Some;
-								break 'outer;
-							}
-						} else {
-							has_one = Some(false)
-						}
+						owned_chunks.push(chunk);
 					}
 				}
 			}
 		}
-		assert!(has_one.is_some()); // has to happen as region is non zero
-		if !has_one.unwrap() {
-			return None;
-		}
+		let coverage = if owned_chunks.is_empty() {
+			return SourceCoverage::None;
+		} else if owned_chunks.len() == region.area() as usize {
+			SourceCoverage::All
+		} else {
+			SourceCoverage::Some
+		};
 
-		let source = self.clone();
+		let handle = self.inner.handle.get().expect("SDF source was not initialized").clone();
 		let cancellation = cancellation.clone();
-
-		AsyncPriorityTaskPool::get().spawn(1.0, async move || {
-			if cancellation.is_cancelled() { return; }
-			let step = step_for_lod(lod.unwrap_or(0));
-			let voxel_region = nonzero_voxel_region_from_chunks(region);
-
-			let base_origin = Self::chunk_origin(min);
+		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let step = step_for_lod(lod);
 			let sample_radius = sample_radius(binding.options, step);
 			let step_f32 = step as f32;
-			let origin = base_origin.as_vec3();
-			let local_sdf = |p: Vec3| {
-				if cancellation.is_some_and(CancellationToken::is_cancelled) {
-					f32::MAX
-				} else {
-					(binding.sdf.sample(origin + p * step_f32) - sample_radius) / step_f32
-				}
+			let voxel = match voxel_type {
+				None if lod == 0 => binding.sdf.voxel(),
+				None => binding.sdf.lod_voxel(),
+				Some(id) if binding.sdf.voxel().type_id() == id => binding.sdf.voxel(),
+				Some(_) => binding.sdf.lod_voxel(),
 			};
+			let chunk_extent = IVec3::splat(CHUNK_SIZE / step as i32);
+			let mut merged: Option<Voxels> = None;
 
-			let voxel = if lod == 0 { binding.sdf.voxel() } else { binding.sdf.lod_voxel() };
-			let mut voxels = Voxels::new_with_type(voxel.type_info());
-			if cancellation.is_cancelled() { return; }
-			voxels.apply_sdf(
-				Vec3::ZERO,
-				(voxel_region.size() / step).as_vec3(),
-				&local_sdf,
-				IVec2::splat(9),
-				8,
-				voxel,
-			);
-			if cancellation.is_cancelled() { return; }
-			let handle = source.inner.handle.wait();
-			handle.voxels(request_id, grid, region, lod, 0, voxels);
+			for chunk in owned_chunks {
+				if cancellation.is_cancelled() {
+					break;
+				}
+				let origin = Self::chunk_origin(chunk).as_vec3();
+				let local_sdf = |p: Vec3| {
+					if cancellation.is_cancelled() {
+						f32::MAX
+					} else {
+						(binding.sdf.sample(origin + p * step_f32) - sample_radius) / step_f32
+					}
+				};
+				let mut voxels = Voxels::new_with_type(voxel.type_info());
+				voxels.apply_sdf(
+					Vec3::ZERO,
+					chunk_extent.as_vec3(),
+					&local_sdf,
+					IVec2::splat(9),
+					8,
+					voxel,
+				);
+				if !voxels.is_empty() {
+					let offset = (chunk - region.min()) * chunk_extent;
+					merged.get_or_insert_with(|| Voxels::new_with_type(voxel.type_info())).merge_from(&voxels, offset);
+				}
+			}
+			if !cancellation.is_cancelled() && let Some(voxels) = merged {
+				handle.voxels(request_id, grid, region, lod, 0, voxels);
+			}
 			handle.voxels_loaded(request_id);
 		});
 
-		source_coverage
+		coverage
 	}
 
 	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
-		let Some(handle) = self.inner.handle.get() else { return };
+		let handle = self.inner.handle.get().expect("SDF source was not initialized");
 		if let Some(binding) = self.binding(grid)
 			&& let Some((bounds_min, bounds_max)) = binding.sdf.bounds()
 			&& bounds_min.cmplt(bounds_max).all() {

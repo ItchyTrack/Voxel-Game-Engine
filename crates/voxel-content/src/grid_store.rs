@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bevy::math::IVec3;
-use tile_data::{ChunkRegion, NonZeroChunkRegion};
+use tile_data::NonZeroChunkRegion;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 
@@ -93,11 +93,6 @@ impl GridStore {
 		true
 	}
 
-	pub(crate) fn take_chunk(&mut self, chunk: IVec3) -> Option<(u64, Option<CompressedVoxels>)> {
-		let generation = self.generations.remove(&chunk)?;
-		let voxels = self.chunks.remove(&chunk).map(|chunk| chunk.voxels);
-		Some((generation, voxels))
-	}
 
 	pub fn forget_chunk(&mut self, chunk: IVec3) {
 		self.chunks.remove(&chunk);

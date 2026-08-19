@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use tracy_client::span;
 use voxel_data::grid::GridId;
-use tile_data::ChunkRegion;
-use tile_data::CHUNK_SIZE;
+use tile_data::{ChunkRegion, CHUNK_SIZE};
 use voxel_streaming::{GridStreaming, TileClassId};
 
 use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
@@ -49,12 +48,7 @@ pub(crate) fn update_desired_sources_delta(
 }
 
 pub(crate) fn tile_has_present_source(streaming: &GridStreaming, key: TileKey) -> bool {
-	if key.lod == 0 {
-		streaming.presence().is_present(key.min())
-	} else {
-		let size = 1i32 << key.lod;
-		streaming.presence().any_present_in_region(key.min(), key.min() + IVec3::splat(size) - IVec3::ONE)
-	}
+	streaming.presence().any_present_in_region(key.region)
 }
 
 fn desired_lod_bands(center: IVec3, settings: &CameraVoxelLoaderSettings) -> Vec<LodBand> {
@@ -105,6 +99,8 @@ fn align_up_pow2(v: IVec3, size: i32) -> IVec3 {
 
 #[cfg(test)]
 mod tests {
+	use tile_data::NonZeroChunkRegion;
+
 	use super::*;
 
 	// The center is only the reference point the LOD bands are built around, so it snaps to the
@@ -161,7 +157,7 @@ mod tests {
 		let grid: GridId = Entity::PLACEHOLDER;
 		let settings = policy_settings();
 		let mut streaming = GridStreaming::default();
-		streaming.mark_present_area(IVec3::splat(-80), IVec3::splat(161));
+		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-80), IVec3::splat(161)).unwrap());
 
 		let mut flying = CameraVoxelLoader::default();
 		flying.settings = settings.clone();
@@ -179,13 +175,13 @@ mod tests {
 		let grid: GridId = Entity::PLACEHOLDER;
 		let settings = policy_settings();
 		let mut streaming = GridStreaming::default();
-		streaming.mark_present_area(IVec3::splat(-40), IVec3::splat(81));
+		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-40), IVec3::splat(81)).unwrap());
 
 		let desired = desired_at(&settings, grid, &streaming, IVec3::new(3, -2, 5));
 		assert!(!desired.is_empty(), "control setup produced no desired tiles");
 		for tile in &desired {
-			let min = tile.min();
-			let max = min + tile.size();
+			let min = tile.region.min();
+			let max = tile.region.end();
 			let mut covers_present = false;
 			'scan: for x in min.x..max.x {
 				for y in min.y..max.y {
@@ -208,14 +204,14 @@ mod tests {
 		let grid: GridId = Entity::PLACEHOLDER;
 		let settings = policy_settings();
 		let mut streaming = GridStreaming::default();
-		streaming.mark_present_area(IVec3::splat(-60), IVec3::splat(121));
+		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-60), IVec3::splat(121)).unwrap());
 
 		for center in [IVec3::ZERO, IVec3::new(1, 0, 0), IVec3::new(12, 0, -4), IVec3::new(-17, 3, 9)] {
 			let desired = desired_at(&settings, grid, &streaming, center);
 			let mut owners: std::collections::HashMap<IVec3, u32> = std::collections::HashMap::new();
 			for tile in &desired {
-				let min = tile.min();
-				let max = min + tile.size();
+				let min = tile.region.min();
+				let max = tile.region.end();
 				for x in min.x..max.x {
 					for y in min.y..max.y {
 						for z in min.z..max.z {

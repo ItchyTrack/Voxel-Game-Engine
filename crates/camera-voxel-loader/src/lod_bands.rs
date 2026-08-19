@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use tile_data::ChunkRegion;
+use tile_data::{ChunkRegion, NonZeroChunkRegion};
 use voxel_streaming::GridStreaming;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -11,8 +11,9 @@ pub(crate) struct LodBand {
 
 /// Runs `f(lod, tile_min)` for every tile that lies within a band and overlaps the area
 /// `[area_min, area_min + area_size)`.
-pub(crate) fn for_each_tile_in_bands(bands: &[LodBand], area_region: ChunkRegion, mut f: impl FnMut(u8, IVec3)) {
-	let area_max = area_min + area_size;
+pub(crate) fn for_each_tile_in_bands(bands: &[LodBand], area_region: NonZeroChunkRegion, mut f: impl FnMut(u8, IVec3)) {
+	let area_min = area_region.min();
+	let area_max = area_region.end();
 	for band in bands {
 		let tile_size = 1i32 << band.lod;
 		let overlap_min = area_min.max(band.outer.min());
@@ -128,9 +129,8 @@ fn emit_region<F: FnMut(u8, IVec3, bool)>(region: ChunkRegion, lod: u8, size: i3
 		return;
 	}
 	streaming.presence().for_each_occupied_tile_cover(
-		region.min(),
-		region.end() - IVec3::ONE,
+		NonZeroChunkRegion::try_from(region).unwrap(),
 		size,
-		|tile_min| f(lod, tile_min, added)
+		|tile_min| f(lod, tile_min, added),
 	);
 }

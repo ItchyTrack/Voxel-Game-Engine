@@ -8,7 +8,7 @@ use std::{
 };
 
 use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
-use tile_data::chunk_of;
+use tile_data::{NonZeroChunkRegion, chunk_of};
 use voxel_data::{
 	grid::Grid,
 	voxels::{VoxelTypeId, VoxelTypeInfo},
@@ -90,7 +90,7 @@ fn mark_present(app: &mut App, grid: Entity, chunk: IVec3) {
 	app.world_mut().entity_mut(grid).get_mut::<GridStreaming>().unwrap().mark_present(chunk);
 	app.world_mut().resource_mut::<Messages<ChunkAvailabilityChanged>>().write(ChunkAvailabilityChanged {
 		grid,
-		region: tile_data::ChunkRegion::new(chunk, UVec3::ONE),
+		region: NonZeroChunkRegion::from_single(chunk),
 		kind: ChunkAvailabilityChangeKind::BecamePresent,
 	});
 }
@@ -296,7 +296,7 @@ fn church_flyover_never_opens_a_hole_or_strands_a_request() {
 
 	let mut app = test_app();
 	let mut streaming = GridStreaming::default();
-	streaming.mark_present_area(min, max - min + IVec3::ONE);
+	streaming.mark_present_area(NonZeroChunkRegion::from_min_max(min, max).unwrap());
 	let grid = spawn_grid(&mut app, streaming);
 	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 1, rings_per_lod: 1 };
 	let camera = spawn_camera(&mut app, settings, IVec3::ZERO);
@@ -469,7 +469,7 @@ fn availability_removal_retires_the_visible_tile_and_its_render_entity() {
 	app.world_mut().run_schedule(RefreshSchedule);
 
 	let loader = app.world().entity(camera).get::<CameraVoxelLoader>().unwrap();
-	assert!(!app.world().entity(grid).get::<GridStreaming>().unwrap().presence().is_present(key.min()));
+	assert!(!app.world().entity(grid).get::<GridStreaming>().unwrap().presence().is_present(key.region.min()));
 	assert!(!loader.tiles.contains_desired(key));
 	assert!(!loader.tiles.contains_source(key));
 	assert!(!loader.tiles_to_render().any(|candidate| candidate == render_entity));
@@ -568,8 +568,7 @@ fn replacement_update_swaps_the_rendered_tile_entity() {
 }
 
 fn region_contains(key: TileKey, chunk: IVec3) -> bool {
-	let max = key.min() + key.size();
-	chunk.cmpge(key.min()).all() && chunk.cmplt(max).all()
+	key.region.contains(chunk)
 }
 
 fn chunk_has_displayable_coverage(loader: &CameraVoxelLoader, grid: Entity, chunk: IVec3) -> bool {

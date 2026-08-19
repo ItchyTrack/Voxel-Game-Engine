@@ -22,7 +22,10 @@ impl Coverage {
 			roles.entry(key).or_default().1 = true;
 		}
 		let mut tiles: Vec<_> = roles.into_iter().map(|(key, (pending, retained))| (key, pending, retained)).collect();
-		tiles.sort_by_key(|(key, _, _)| (key.grid.to_bits(), key.lod, key.min().x, key.min().y, key.min().z));
+		tiles.sort_by_key(|(key, _, _)| {
+			let min = key.region.min();
+			(key.grid.to_bits(), key.lod, min.x, min.y, min.z)
+		});
 		tiles
 	}
 
@@ -74,7 +77,7 @@ impl Coverage {
 		}
 
 		let mut replacements = HashSet::new();
-		if let Some(region) = NonZeroVoxelRegion::from_min_size(key.min(), key.size()) {
+		if let Some(region) = NonZeroVoxelRegion::new(key.region.min(), key.region.size()) {
 			self.pending.for_each_in_region(key.grid, key.class, region, u8::MAX, Some(key.lod), |candidate| {
 				replacements.insert(candidate);
 			});
@@ -151,7 +154,9 @@ impl Coverage {
 }
 
 fn tiles_overlap(a: TileKey, b: TileKey) -> bool {
-	a.grid == b.grid && a.min().cmplt(b.min() + b.size()).all() && b.min().cmplt(a.min() + a.size()).all()
+	a.grid == b.grid
+		&& a.region.min().cmplt(b.region.min() + b.region.size().as_ivec3()).all()
+		&& b.region.min().cmplt(a.region.min() + a.region.size().as_ivec3()).all()
 }
 
 #[cfg(test)]
@@ -172,7 +177,7 @@ mod tests {
 		for x in 0..2 {
 			for y in 0..2 {
 				for z in 0..2 {
-					children.push(tile(child_lod, parent.min + IVec3::new(x, y, z) * child_size));
+					children.push(tile(child_lod, parent.region.min() + IVec3::new(x, y, z) * child_size));
 				}
 			}
 		}

@@ -10,7 +10,6 @@ rustc-hash = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-content = { version = "0.1.0", path = "../voxel-content" }
-voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }

@@ -1,5 +1,5 @@
 use std::{
-	collections::HashMap,
+	collections::{HashMap, HashSet},
 	sync::{Arc, OnceLock},
 };
 
@@ -10,11 +10,12 @@ use voxel_data::{
 	region::NonZeroVoxelRegion,
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
-use tile_data::{ChunkRegion, NonZeroChunkRegion};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use voxel_streaming::GridEdits;
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{chunk_of, chunk_origin};
 use voxel_streaming::{ForgottenChunks, GridStreaming};
 
@@ -103,59 +104,94 @@ struct TreeSource {
 impl TreeSource {
 	fn is_mine(&self, grid: GridId) -> bool { self.grid.get() == Some(&grid) }
 
-	fn model(&self) -> &TreeModel { self.model.get_or_init(|| Arc::new(build_tree_model(self.settings))).as_ref() }
-
 	fn model_shared(&self) -> Arc<TreeModel> { self.model.get_or_init(|| Arc::new(build_tree_model(self.settings))).clone() }
 }
 
 impl ChunkSource for TreeSource {
 	fn init(&self, handle: SourceHandle) { let _ = self.handle.set(handle); }
 
-	fn request_available_area(&self, grid: GridId) {
-		if let Some(handle) = self.handle.get() {
-			handle.presence_loaded(grid);
-		}
-	}
-
-	fn request_load(&self, grid: GridId, chunk: IVec3, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
-		if cancellation.is_cancelled() || !self.is_mine(grid) || !self.bounds.contains(chunk) || self.forgotten.contains(grid, chunk) {
-			return SourceCoverage::None;
-		}
-		let voxels = (!self.forgotten.contains(grid, chunk))
-			.then(|| rasterize_tree_chunk(self.model(), chunk, &cancellation))
-			.flatten();
-		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		if let Some(handle) = self.handle.get() { handle.loaded(grid, chunk, generation, voxels); }
-		SourceCoverage::All
-	}
-
-	fn request_voxel_area(&self, grid: GridId, region: NonZeroChunkRegion, lod: f32, voxel_type: VoxelTypeId, generation: u64, cancellation: CancellationToken) -> SourceCoverage {
+	fn request_voxels(
+		&self,
+		request_id: RequestId,
+		cancellation: &CancellationToken,
+		grid: GridId,
+		region: NonZeroChunkRegion,
+		lod: u8,
+		voxel_type: Option<VoxelTypeId>,
+	) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.is_mine(grid) { return SourceCoverage::None; }
-		let mut owned = 0;
+
+		let mut owned_chunks = Vec::new();
 		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {
 				for x in region.min().x..region.end().x {
-					owned += (self.bounds.contains(chunk) && !self.forgotten.contains(grid, chunk)) as usize;
+					let chunk = IVec3::new(x, y, z);
+					if self.bounds.contains(chunk) && !self.forgotten.contains(grid, chunk) {
+						owned_chunks.push(chunk);
+					}
 				}
 			}
 		}
-		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
-		if coverage == SourceCoverage::None { return coverage; }
-		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "tree source does not support requested voxel type");
-		let model = self.model();
-		// Skipping the fetch keeps the hole exact at every LOD, unlike punching the result.
-		let voxels = downsample_region(region, lod, |chunk| {
-			(!self.forgotten.contains(grid, chunk)).then(|| rasterize_tree_chunk(model, chunk, &cancellation)).flatten()
+		let coverage = if owned_chunks.is_empty() {
+			return SourceCoverage::None;
+		} else if owned_chunks.len() == region.area() as usize {
+			SourceCoverage::All
+		} else {
+			SourceCoverage::Some
+		};
+
+		let use_raw = match voxel_type {
+			None => lod == 0,
+			Some(id) if id == BasicVoxel::TYPE_INFO.id => {
+				assert_eq!(lod, 0, "tree source only has raw voxels at lod 0");
+				true
+			}
+			Some(id) if id == LodVoxel::TYPE_INFO.id => false,
+			Some(_) => panic!("tree source does not support requested voxel type"),
+		};
+
+		let model = self.model_shared();
+		let handle = self.handle.get().expect("tree source was not initialized").clone();
+		let cancellation = cancellation.clone();
+		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let voxels = if use_raw {
+				let mut merged: Option<Voxels> = None;
+				for &chunk in &owned_chunks {
+					if cancellation.is_cancelled() { break; }
+					let Some(part) = rasterize_tree_chunk(&model, chunk, &cancellation) else { continue };
+					let offset = (chunk - region.min()) * CHUNK_SIZE;
+					merged.get_or_insert_with(|| Voxels::new::<BasicVoxel>()).merge_from(&part, offset);
+				}
+				merged
+			} else {
+				// Skipping the fetch keeps the hole exact at every LOD, unlike punching the result.
+				let owned_chunks: HashSet<_> = owned_chunks.into_iter().collect();
+				downsample_region(region, lod as f32, |chunk| {
+					owned_chunks.contains(&chunk)
+						.then(|| rasterize_tree_chunk(&model, chunk, &cancellation))
+						.flatten()
+				})
+			};
+			if !cancellation.is_cancelled()
+				&& let Some(voxels) = voxels.filter(|voxels| !voxels.is_empty()) {
+				handle.voxels(request_id, grid, region, lod, 0, voxels);
+			}
+			handle.voxels_loaded(request_id);
 		});
-		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		if let Some(handle) = self.handle.get() {
-			handle.voxels_loaded(grid, region, lod, voxel_type, generation, voxels.and_then(|voxels| if voxels.is_empty() { None } else { Some(voxels) }));
-		}
 		coverage
 	}
 
-	fn forget(&self, grid: GridId, chunk: IVec3) {
-		self.forgotten.forget(grid, chunk);
+	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+		let handle = self.handle.get().expect("tree source was not initialized");
+		if self.is_mine(grid) {
+			handle.presence(request_id, grid, self.bounds);
+		}
+		handle.presence_loaded(request_id);
+	}
+
+	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		if !self.is_mine(grid) { return; }
+		self.forgotten.forget_area_where(grid, region.into(), |chunk| self.bounds.contains(chunk));
 	}
 }
 

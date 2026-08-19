@@ -5,8 +5,8 @@ use bevy::math::IVec3;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerId, PeerMetadata, RemoteEvent};
 use voxel_data::grid::GridId;
-use voxel_sources::ChunksEdited;
 use tile_data::ChunkRegion;
+use voxel_streaming::GridAreaEdited;
 
 use super::{EditInterest, EditStreamStart, RemoteGridEdit, WireGridEdit};
 use crate::chunks::ServerToClientChannel;
@@ -41,7 +41,7 @@ pub(super) fn receive_interest(
 	let event = trigger.event();
 	let peer = event.from;
 	let interest = event.trigger;
-	let area = interest.region;
+	let area: Area = interest.region.into();
 	let subscription = subscriptions.clients.entry(peer).or_default().entry(interest.grid).or_default();
 	let was_empty = subscription.areas.is_empty();
 	let previous_version = subscription.area_versions.get(&area).copied();
@@ -63,7 +63,7 @@ pub(super) fn receive_interest(
 }
 
 pub(super) fn flush_edits(
-	mut edits: MessageReader<ChunksEdited>,
+	mut edits: MessageReader<GridAreaEdited>,
 	peer_metadata: Option<Res<PeerMetadata>>,
 	mut senders: Query<&mut EventSender<RemoteGridEdit>>,
 	mut subscriptions: ResMut<EditSubscriptions>,
@@ -82,7 +82,7 @@ pub(super) fn flush_edits(
 			let Ok(mut sender) = senders.get_mut(entity) else { continue };
 			sender.trigger::<ServerToClientChannel>(RemoteGridEdit {
 				grid: event.grid,
-				region,
+				region: event.region,
 				stream_sequence: subscription.next_stream_sequence,
 				generation: event.generation,
 				edit: edit.clone(),

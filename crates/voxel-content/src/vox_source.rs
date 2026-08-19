@@ -9,11 +9,11 @@ use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::grid_tree::NonZeroVoxelRegion;
 use voxel_data::voxels::{VoxelType, VoxelTypeId, Voxels};
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle};
+use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle};
 use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of};
 use tile_data::CHUNK_SIZE;
 use voxel_streaming::ForgottenChunks;
-use voxel_tasks::AsyncPriorityTaskPool;
+use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -255,44 +255,50 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
-		if cancellation.is_cancelled() { return SourceCoverage::None; }
+		if cancellation.is_cancelled() {
+			return SourceCoverage::None;
+		}
 		let Some(binding) = self.binding(grid) else { return SourceCoverage::None };
-		let mut owned = 0;
-		for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-			let chunk = min + IVec3::new(x, y, z);
-			owned += (!self.inner.forgotten.contains(grid, chunk) && self.translated_chunk(&binding, chunk).is_some()) as usize;
-		}}}
-		let coverage = SourceCoverage::from_count(owned, (size.x * size.y * size.z) as usize);
-		if coverage == SourceCoverage::None { return coverage; }
-
-		AsyncPriorityTaskPool::get().spawn(1.0, move || {
-			// Forgotten chunks are skipped rather than punched out of the result, so the
-			// hole is exact at every LOD instead of snapped to the output grid.
-			let fetch = |binding: &GridBinding, chunk: IVec3| {
-				(!self.inner.forgotten.contains(grid, chunk)).then(|| self.translated_chunk(binding, chunk)).flatten()
-			};
-			let voxels = {
-				let mut merged = Voxels::new::<T>();
-				for z in 0..size.z {
-					for y in 0..size.y {
-						for x in 0..size.x {
-							let local = IVec3::new(x, y, z);
-							if let Some(chunk) = fetch(&binding, min + local) {
-								merged.merge_from(&chunk, local * CHUNK_SIZE);
-							}
-						}
+		if let Some(voxel_type) = voxel_type {
+			assert_eq!(voxel_type, T::TYPE_ID, "VOX source does not support requested voxel type");
+		}
+		let mut owned_chunks = Vec::new();
+		for z in region.min().z..region.end().z {
+			for y in region.min().y..region.end().y {
+				for x in region.min().x..region.end().x {
+					let chunk = IVec3::new(x, y, z);
+					if !self.inner.forgotten.contains(grid, chunk)
+						&& self.translated_chunk(&binding, chunk).is_some() {
+						owned_chunks.push(chunk);
 					}
-					return (!merged.is_empty()).then_some(merged);
 				}
-				let handle = self.inner.handle.get()?;
-				let generator = handle.voxel_lod_generator(T::TYPE_ID, voxel_type)?;
-				generator.generate(min, size, lod, &|chunk| fetch(&binding, chunk))
-			};
-			if cancellation.is_cancelled() { return; }
-			if let Some(handle) = self.inner.handle.get() {
-				handle.voxels(request_id, grid, region, lod, generation, voxels);
-				handle.voxels_loaded(request_id);
 			}
+		}
+		let coverage = if owned_chunks.is_empty() {
+			return SourceCoverage::None;
+		} else if owned_chunks.len() == region.area() as usize {
+			SourceCoverage::All
+		} else {
+			SourceCoverage::Some
+		};
+
+		let source = VoxFileSource { inner: self.inner.clone() };
+		let handle = self.inner.handle.get().expect("VOX source was not initialized").clone();
+		let cancellation = cancellation.clone();
+		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let mut merged = Voxels::new::<T>();
+			for chunk in owned_chunks {
+				if cancellation.is_cancelled() {
+					break;
+				}
+				if let Some(voxels) = source.translated_chunk(&binding, chunk) {
+					merged.merge_from(&voxels, (chunk - region.min()) * CHUNK_SIZE);
+				}
+			}
+			if !cancellation.is_cancelled() && !merged.is_empty() {
+				handle.voxels(request_id, grid, region, lod, 0, merged);
+			}
+			handle.voxels_loaded(request_id);
 		});
 		coverage
 	}
@@ -300,16 +306,15 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 	fn request_presence(
 		&self,
 		request_id: RequestId,
-		cancellation: CancellationToken,
+		_cancellation: CancellationToken,
 		grid: GridId,
-	) -> Option<impl AsyncFnOnce() + Send + 'static> {
-		let Some(handle) = self.inner.handle.get() else { return None };
+	) {
+		let handle = self.inner.handle.get().expect("VOX source was not initialized");
 		if let Some(binding) = self.binding(grid)
 			&& let Some(region) = self.translated_available_area(&binding) {
 			handle.presence(request_id, grid, region);
 		}
 		handle.presence_loaded(request_id);
-		None
 	}
 
 	fn take_ownership(
@@ -317,7 +322,10 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		grid: GridId,
 		region: NonZeroChunkRegion
 	) {
-		self.inner.forgotten.forget(grid, chunk);
+		let Some(binding) = self.binding(grid) else { return };
+		self.inner.forgotten.forget_area_where(grid, region.into(), |chunk| {
+			self.translated_chunk(&binding, chunk).is_some()
+		});
 	}
 }
 

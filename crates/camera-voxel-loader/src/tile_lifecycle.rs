@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use bevy::prelude::*;
-use tile_data::TileIndex;
+use tile_data::{NonZeroChunkRegion, TileIndex};
 use voxel_data::grid::GridId;
 
 use crate::{coverage::Coverage, types::TileKey};
@@ -119,7 +119,7 @@ impl TileLifecycle {
 	#[cfg(test)]
 	pub(crate) fn desired_set(&self) -> &HashSet<TileKey> { &self.desired }
 
-	pub(crate) fn desired_in_area(&self, grid: GridId, region: ChunkRegion, out: &mut Vec<TileKey>) {
+	pub(crate) fn desired_in_area(&self, grid: GridId, region: NonZeroChunkRegion, out: &mut Vec<TileKey>) {
 		out.clear();
 		if let Some(index) = self.desired_index.get(&grid) {
 			index.for_each_overlapping(region, |key| out.push(key));
@@ -139,7 +139,10 @@ impl TileLifecycle {
 	}
 
 	fn remove_releasable(&mut self, keys: &mut Vec<TileKey>) {
-		keys.sort_by_key(|key| (key.grid.to_bits(), key.lod, key.min().x, key.min().y, key.min().z));
+		keys.sort_by_key(|key| {
+			let min = key.region.min();
+			(key.grid.to_bits(), key.lod, min.x, min.y, min.z)
+		});
 		keys.dedup();
 		keys.retain(|key| {
 			if self.desired.contains(key) {

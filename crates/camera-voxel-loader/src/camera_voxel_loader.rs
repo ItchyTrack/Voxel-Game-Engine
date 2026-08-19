@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bevy::ecs::{component::Component, entity::Entity};
+use tile_data::ChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_streaming::TileClassId;
 
@@ -77,9 +78,12 @@ impl CameraVoxelLoader {
 		}
 		let mut tiles: Vec<_> = states
 			.into_iter()
-			.map(|(key, state)| CoverageDebugTile { grid: key.grid, region, lod: key.lod, state })
+			.map(|(key, state)| CoverageDebugTile { grid: key.grid, region: key.region.into(), lod: key.lod, state })
 			.collect();
-		tiles.sort_by_key(|tile| (tile.grid.to_bits(), tile.lod, tile.min.x, tile.min.y, tile.min.z));
+		tiles.sort_by_key(|tile| {
+			let min = tile.region.min();
+			(tile.grid.to_bits(), tile.lod, min.x, min.y, min.z)
+		});
 		tiles
 	}
 }

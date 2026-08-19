@@ -2,7 +2,7 @@ use std::any::Any;
 
 use basic_voxel::MarchingVoxel;
 use bevy::math::{IVec3, UVec3, Vec3};
-use tile_data::{ChunkRegion, NonZeroChunkRegion, TileData, TileGenerationSession, TileGenerator, VoxelAreaRequest};
+use tile_data::{NonZeroChunkRegion, TileData, TileGenerationSession, TileGenerator};
 use voxel_data::voxels::VoxelType;
 use tile_data::CHUNK_SIZE;
 
@@ -55,13 +55,13 @@ pub struct MarchingTileGenerator {
 #[tile_data::async_trait]
 impl TileGenerator for MarchingTileGenerator {
 	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
-		let area = ChunkRegion::new(session.key.min(), session.key.size());
+		let area = session.key.region;
 		let padded_area = NonZeroChunkRegion::new(area.min() - IVec3::ONE, area.size() + UVec3::splat(2)).unwrap();
-		session.request_voxels(VoxelAreaRequest {
-			area: padded_area,
-			lod: session.key.lod,
-			voxel_type: MarchingVoxel::TYPE_INFO.id,
-		});
+		session.request_voxels(
+			padded_area,
+			session.key.lod,
+			MarchingVoxel::TYPE_INFO.id,
+		);
 		let input = session.receive_merged_voxels(padded_area).await?;
 		let step = 1i32.checked_shl(input.lod as u32)?;
 		let cell_min = IVec3::splat(CHUNK_SIZE.div_euclid(step));

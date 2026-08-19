@@ -15,8 +15,8 @@ pub use chunk::{
 pub use class::{TileClassId, TileClassRegistry, TileGenerationParameters};
 pub use data::{DynamicTileData, LoadedTile, TileData};
 pub use generator::{
-	async_trait, GenerationVoxelReader, ReceiveVoxelsFuture,
-	TileGenerationSession, TileGenerator, TileGeneratorRegistry,
+	async_trait, GenerationVoxelReader, ReceiveVoxelsFuture, VoxelRegionRequest,
+	VoxelRegionResult, TileGenerationSession, TileGenerator, TileGeneratorRegistry,
 };
 pub use index::{TileIndex, TileIndexKey};
 pub use key::TileKey;

@@ -2,7 +2,7 @@ use bevy::math::U16Vec3;
 use bevy::prelude::*;
 use tracy_client::span;
 use voxel_data::voxels::{VoxelType, Voxels};
-use voxel_sources::CancellationToken;
+use voxel_tasks::CancellationToken;
 use tile_data::chunk_origin;
 use tile_data::CHUNK_SIZE;
 
