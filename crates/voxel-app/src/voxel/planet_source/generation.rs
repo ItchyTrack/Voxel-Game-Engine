@@ -142,7 +142,7 @@ fn append_planet_samples(
 				// let radial = PLANET_RADIUS + sample_z;
 				// let radius = (lateral_len_sq + radial * radial).sqrt();
 				// if radius <= 1e-5 {
-				//     continue;
+				//	 continue;
 				// }
 
 				// let unit = local_unit_to_planet(tile, sample_x, sample_y, radial, radius);
@@ -150,7 +150,7 @@ fn append_planet_samples(
 				// let terrain = terrain_sample(unit);
 				// let altitude = radius - PLANET_RADIUS;
 				// if altitude > terrain.height {
-				//     continue;
+				//	 continue;
 				// }
 
 				points.push((

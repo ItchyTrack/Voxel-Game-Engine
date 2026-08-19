@@ -22,7 +22,9 @@ impl SourceHandle {
 	pub fn voxels(
 		&self,
 		request_id: RequestId,
-		location: voxels_location,
+		grid: GridId,
+		region: NonZeroChunkRegion,
+		lod: u8,
 		generation: u64,
 		voxels: Voxels,
 	) {
@@ -32,7 +34,6 @@ impl SourceHandle {
 				grid,
 				region,
 				lod,
-				voxel_type,
 				generation,
 				voxels,
 			},
@@ -63,9 +64,11 @@ impl SourceHandle {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceCoverage {
-	/// The source owns part of the region and started an asynchronous request.
+	/// The source owns none of the region.
+	None,
+	/// The source may own part of the region.
 	Some,
-	/// The source owns the entire region and started an asynchronous request.
+	/// The source owns the entire region.
 	All,
 }
 
@@ -80,14 +83,14 @@ pub trait ChunkSource: Send + Sync {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-	) -> Option<(SourceCoverage, Option<impl AsyncFnOnce() + Send + 'static>)>;
+	) -> SourceCoverage;
 
 	fn request_presence(
 		&self,
 		request_id: RequestId,
 		cancellation: CancellationToken,
 		grid: GridId,
-	) -> Option<impl AsyncFnOnce() + Send + 'static>;
+	);
 
 	fn take_ownership(
 		&self,

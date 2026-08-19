@@ -7,7 +7,7 @@ use voxel_data::{
 	voxels::{VoxelTypeId, Voxels},
 };
 
-use crate::{NonZeroChunkRegion, TileClassId, TileData, TileGenerationParameters, TileKey, class::TileGenerationData};
+use crate::{CHUNK_SIZE, NonZeroChunkRegion, TileClassId, TileData, TileGenerationParameters, TileKey, class::TileGenerationData};
 
 pub use async_trait::async_trait;
 
@@ -27,19 +27,7 @@ impl TileGeneratorRegistry {
 	}
 
 	pub fn generator(&self, class: TileClassId) -> Arc<dyn TileGenerator> {
-		self.generators.get(&key).cloned().unwrap_or_else(|| panic!("no tile generator registered for {key:?}"))
-	}
-}
-
-pub trait TileAppExt {
-	fn register_tile_generator<G: TileGenerator>(&mut self, tile_class_id: TileClassId, generator: G) -> &mut Self;
-}
-
-impl TileAppExt for App {
-	fn register_tile_generator<G: TileGenerator>(&mut self, tile_class_id: TileClassId, generator: G) -> &mut Self {
-		self.init_resource::<TileGeneratorRegistry>();
-		self.world_mut().resource_mut::<TileGeneratorRegistry>().insert(tile_class_id, generator);
-		self
+		self.generators.get(&class).cloned().unwrap_or_else(|| panic!("no tile generator registered for {class:?}"))
 	}
 }
 
@@ -100,7 +88,7 @@ impl TileGenerationSession {
 			let result_lod = *lod.get_or_insert(result.lod);
 			assert_eq!(result.lod, result_lod, "cannot merge voxel-area results with different LODs");
 			let step = 1i32.checked_shl(result.lod as u32).expect("voxel-area result LOD is too large");
-			let offset = ((result.area.min() - area.min()) * self.chunk_size as i32).div_euclid(bevy::math::IVec3::splat(step));
+			let offset = ((result.area.min() - area.min()) * CHUNK_SIZE as i32).div_euclid(bevy::math::IVec3::splat(step));
 			let target = merged.get_or_insert_with(|| Voxels::new_with_type(result.voxels.voxel_type_info()));
 			assert_eq!(target.voxel_type_id(), result.voxels.voxel_type_id(), "cannot merge voxel-area results with different voxel types");
 			target.merge_from(&result.voxels, offset);

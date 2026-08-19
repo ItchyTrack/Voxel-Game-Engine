@@ -1,18 +1,11 @@
-use std::pin::Pin;
-use std::sync::Arc;
-#[cfg(target_arch = "wasm32")]
-use std::sync::OnceLock;
-#[cfg(not(target_arch = "wasm32"))]
-use std::thread;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-#[cfg(target_arch = "wasm32")]
-use wasm_thread as thread;
-#[cfg(not(target_arch = "wasm32"))]
-use thread::JoinHandle;
+use std::{
+	future::Future,
+	pin::Pin,
+	sync::{Mutex, OnceLock},
+};
 
 use async_priority_queue::PriorityQueue;
-use bevy::ecs::resource::Resource;
+use bevy::tasks::AsyncComputeTaskPool;
 
 pub struct PriorityTask {
 	priority: f32,
@@ -20,100 +13,165 @@ pub struct PriorityTask {
 }
 
 impl PriorityTask {
-	pub fn new<F: Future<Output = ()> + Send + 'static>(priority: f32, function: F) -> Self {
-		Self { priority, task_func: Box::pin(function) }
+	pub fn new<F>(priority: f32, function: F) -> Self
+	where
+		F: Future<Output = ()> + Send + 'static,
+	{
+		Self {
+			priority,
+			task_func: Box::pin(function),
+		}
 	}
-
-	pub fn run(self) -> impl Future<Output = ()> { self.task_func }
 }
 
 impl PartialEq for PriorityTask {
 	fn eq(&self, other: &Self) -> bool { self.priority == other.priority }
 }
+
 impl Eq for PriorityTask {}
+
 impl PartialOrd for PriorityTask {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
 }
+
 impl Ord for PriorityTask {
 	fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.priority.total_cmp(&other.priority) }
 }
 
-type AsyncTaskPriorityQueue = Arc<PriorityQueue<PriorityTask>>;
-
-#[cfg(target_arch = "wasm32")]
-static GLOBAL_ASYNC_TASK_QUEUE: OnceLock<AsyncTaskPriorityQueue> = OnceLock::new();
-
-#[derive(Resource)]
-pub struct AsyncTaskPriorityQueueResource {
-	queue: AsyncTaskPriorityQueue,
-	#[cfg(not(target_arch = "wasm32"))]
-	_threads: Vec<JoinHandle<()>>,
+struct State {
+	queue: PriorityQueue<PriorityTask>,
+	active_tasks: usize,
 }
 
-impl AsyncTaskPriorityQueueResource {
-	pub fn new() -> Self {
-		let queue = {
-			#[cfg(target_arch = "wasm32")]
-			{
-				GLOBAL_ASYNC_TASK_QUEUE.get_or_init(|| Arc::new(PriorityQueue::<PriorityTask>::new())).clone()
-			}
-			#[cfg(not(target_arch = "wasm32"))]
-			{
-				Arc::new(PriorityQueue::<PriorityTask>::new())
-			}
-		};
+impl State {
+	fn new() -> Self {
+		Self {
+			queue: PriorityQueue::new(),
+			active_tasks: 0,
+		}
+	}
+}
 
-		#[cfg(not(target_arch = "wasm32"))]
-		let threads = (0..8).map(|i| {
-			let queue = queue.clone();
-			thread::Builder::new()
-				.name(format!("async-task-priority-queue-{i}"))
-				.spawn(move || futures::executor::block_on(async move {
-					loop {
-						let task = queue.pop().await;
-						task.run().await;
-					}
-				}))
-				.unwrap()
-		}).collect();
+pub struct AsyncPriorityTaskPool {
+	state: Mutex<State>,
+	max_concurrency: usize,
+}
+
+static ASYNC_PRIORITY_TASK_POOL: OnceLock<AsyncPriorityTaskPool> = OnceLock::new();
+
+impl AsyncPriorityTaskPool {
+	/// Creates a new priority task pool.
+	pub fn new(max_concurrency: usize) -> Self {
+		assert!(max_concurrency > 0);
 
 		Self {
-			queue,
-			#[cfg(not(target_arch = "wasm32"))]
-			_threads: threads,
+			state: Mutex::new(State::new()),
+			max_concurrency,
 		}
 	}
 
-	pub fn push(&self, task: PriorityTask) { self.queue.push(task); }
-	pub fn pusher(&self) -> AsyncTaskPusher { AsyncTaskPusher { queue: self.queue.clone() } }
-	pub fn len(&self) -> usize { self.queue.len() }
-	pub fn is_empty(&self) -> bool { self.len() == 0 }
-}
+	/// Gets the global [`AsyncPriorityTaskPool`] instance, or initializes it
+	/// with `f`.
+	pub fn get_or_init(
+		f: impl FnOnce() -> AsyncPriorityTaskPool,
+	) -> &'static Self {
+		ASYNC_PRIORITY_TASK_POOL.get_or_init(f)
+	}
 
-impl Default for AsyncTaskPriorityQueueResource {
-	fn default() -> Self { Self::new() }
-}
+	/// Attempts to get the global [`AsyncPriorityTaskPool`] instance.
+	pub fn try_get() -> Option<&'static Self> {
+		ASYNC_PRIORITY_TASK_POOL.get()
+	}
 
-#[derive(Clone)]
-pub struct AsyncTaskPusher {
-	queue: AsyncTaskPriorityQueue,
-}
+	/// Gets the global [`AsyncPriorityTaskPool`] instance.
+	///
+	/// # Panics
+	///
+	/// Panics if the global instance has not been initialized yet.
+	pub fn get() -> &'static Self {
+		ASYNC_PRIORITY_TASK_POOL.get().expect(
+			"The AsyncPriorityTaskPool has not been initialized yet. \
+			 Please call AsyncPriorityTaskPool::get_or_init beforehand.",
+		)
+	}
 
-impl AsyncTaskPusher {
-	pub fn push(&self, task: PriorityTask) { self.queue.push(task); }
-}
+	/// Spawns a future with the given priority.
+	///
+	/// Higher priority values are executed before lower priority values
+	/// when a worker becomes available.
+	pub fn spawn<F>(&'static self, priority: f32, future: F)
+	where
+		F: Future<Output = ()> + Send + 'static,
+	{
+		let task = PriorityTask::new(priority, future);
 
-// Keep the exported name stable for the existing web worker bootstrap script.
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn voxel_data_async_worker_loop(_worker_id: u32) {
-	let queue = loop {
-		if let Some(queue) = GLOBAL_ASYNC_TASK_QUEUE.get() { break queue.clone(); }
-	};
-	futures::executor::block_on(async move {
-		loop {
-			let task = queue.pop().await;
-			task.run().await;
+		let task = {
+			let mut state = self.state.lock().unwrap();
+
+			if state.active_tasks < self.max_concurrency {
+				state.active_tasks += 1;
+				Some(task)
+			} else {
+				state.queue.push(task);
+				None
+			}
+		};
+
+		if let Some(task) = task {
+			self.spawn_task(task);
 		}
-	});
+	}
+
+	fn spawn_task(&'static self, task: PriorityTask) {
+		AsyncComputeTaskPool::get()
+			.spawn(async move {
+				task.task_func.await;
+				self.task_finished();
+			})
+			.detach();
+	}
+
+	fn task_finished(&'static self) {
+		let next_task = {
+			let mut state = self.state.lock().unwrap();
+
+			match state.queue.try_pop() {
+				Some(task) => {
+					// Transfer this active slot directly to the next task.
+					Some(task)
+				}
+				None => {
+					state.active_tasks -= 1;
+					None
+				}
+			}
+		};
+
+		if let Some(task) = next_task {
+			self.spawn_task(task);
+		}
+	}
+
+	pub fn active_tasks(&self) -> usize {
+		self.state.lock().unwrap().active_tasks
+	}
+
+	pub fn queued_tasks(&self) -> usize {
+		self.state.lock().unwrap().queue.len()
+	}
+
+	pub fn len(&self) -> usize {
+		let state = self.state.lock().unwrap();
+		state.active_tasks + state.queue.len()
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.len() == 0
+	}
+}
+
+impl Default for AsyncPriorityTaskPool {
+	fn default() -> Self {
+		Self::new(AsyncComputeTaskPool::get().thread_num())
+	}
 }

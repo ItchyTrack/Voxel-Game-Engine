@@ -30,8 +30,8 @@ struct ReceiveTakenRequest {
 struct VoxelRequest {
 	grid: GridId,
 	region: NonZeroChunkRegion,
-	lod: f32,
-	voxel_type: VoxelTypeId,
+	lod: u8,
+	voxel_type: Option<VoxelTypeId>,
 	generation: u64,
 	cancellation: CancellationToken,
 }
@@ -79,19 +79,14 @@ impl StreamingGridSource {
 		self.state.served.read().unwrap().contains(&(grid, chunk))
 	}
 
-	pub(crate) fn presence(&self, grid: GridId, region: NonZeroChunkRegion) {
-		self.state.handle.get().expect("streaming grid source was not initialized").presence(grid, region);
-	}
-
 	pub(crate) fn queue_edit(&self, grid: GridId, chunk: IVec3, edit: GridEdit) {
 		self.state.pending_edits.lock().unwrap().entry((grid, chunk)).or_default().push(edit);
 	}
 
 	pub(crate) fn edited(&self, grid: GridId, region: NonZeroChunkRegion, edit: GridEdit) {
-		let handle = self.state.handle.get().expect("streaming grid source was not initialized");
-		handle.edited(grid, region, edit);
+		// let handle = self.state.handle.get().expect("streaming grid source was not initialized");
+		// handle.edited(grid, region, edit);
 	}
-
 }
 
 impl ChunkSource for StreamingGridSource {
@@ -114,7 +109,7 @@ impl ChunkSource for StreamingGridSource {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-	) -> Option<(SourceCoverage, Option<impl AsyncFnOnce() + Send + 'static>)> {
+	) {
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
 		let owned = self.state.owned.read().unwrap();
 		let mut owned_count = 0;
@@ -129,7 +124,7 @@ impl ChunkSource for StreamingGridSource {
 			lod,
 			voxel_type,
 			generation,
-			cancellation,
+			cancellation: *cancellation,
 		});
 		coverage
 	}
@@ -139,14 +134,9 @@ impl ChunkSource for StreamingGridSource {
 		request_id: RequestId,
 		cancellation: CancellationToken,
 		grid: GridId,
-	) -> Option<impl AsyncFnOnce() + Send + 'static> {
+	) {
 		if let Some(handle) = self.state.handle.get() { handle.presence_loaded(request_id); }
 		None
-	}
-
-	fn receive_taken(&self, grid: GridId, chunk: IVec3, voxels: Option<Voxels>) {
-		assert!(self.state.owned.read().unwrap().contains(&(grid, chunk)), "received data for a chunk the grid source does not own");
-		self.state.receive_taken_requests.lock().unwrap().push_back(ReceiveTakenRequest { grid, chunk, voxels });
 	}
 
 	fn take_ownership(
@@ -263,7 +253,7 @@ pub(crate) fn serve_grid_source_requests(
 			continue;
 		}
 		let voxels = grids.get(request.grid).ok().and_then(|(grid, _)| {
-			if request.lod <= 0.0 && grid.voxel_type_info().id == request.voxel_type {
+			if request.lod <= 0 && grid.voxel_type_info().id == request.voxel_type {
 				let mut out = Voxels::new_with_type(grid.voxel_type_info());
 				for z in 0..request.region.size().z { for y in 0..request.region.size().y { for x in 0..request.region.size().x {
 					let offset = UVec3::new(x, y, z).as_ivec3();
@@ -283,15 +273,16 @@ pub(crate) fn serve_grid_source_requests(
 		drop(served);
 		drop(owned);
 		if !request.cancellation.is_cancelled() {
-			let actual = handle.region_generation(request.grid, request.region).max(request.generation);
-			handle.voxels_loaded(
-				request.grid,
-				request.region,
-				request.lod,
-				request.voxel_type,
-				actual,
-				voxels,
-			);
+			handle.voxels_loaded(request.request_id);
+			// let actual = handle.region_generation(request.grid, request.region).max(request.generation);
+
+				// request.grid,
+				// request.region,
+				// request.lod,
+				// request.voxel_type,
+				// actual,
+				// voxels,
+			// );
 		}
 	}
 }

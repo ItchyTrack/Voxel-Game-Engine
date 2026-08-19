@@ -1,6 +1,6 @@
 use bevy::ecs::message::Message;
 use tile_data::NonZeroChunkRegion;
-use voxel_data::{grid::GridId, voxels::{VoxelTypeId, Voxels}};
+use voxel_data::{grid::GridId, voxels::Voxels};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RequestId(pub(crate) u64);
@@ -16,7 +16,6 @@ pub enum SourceResultData {
 		grid: GridId,
 		region: NonZeroChunkRegion,
 		lod: u8,
-		voxel_type: VoxelTypeId,
 		generation: u64,
 		voxels: Voxels,
 	},

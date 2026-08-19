@@ -218,12 +218,6 @@ impl ChunkSource for SphereSource {
 		let _ = self.handle.set(handle);
 	}
 
-	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, _grid: GridId) {
-		if let Some(handle) = self.handle.get() {
-			handle.presence_loaded(request_id);
-		}
-	}
-
 	fn request_voxels(
 		&self,
 		request_id: RequestId,
@@ -232,7 +226,7 @@ impl ChunkSource for SphereSource {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-	) -> Option<(SourceCoverage, impl AsyncFnOnce() + Send + 'static)> {
+	) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.is_mine(grid) {
 			return None;
 		}
@@ -274,6 +268,12 @@ impl ChunkSource for SphereSource {
 			if cancellation.is_cancelled() { return; }
 			handle.voxels(request_id, grid, region, lod, voxels);
 		}))
+	}
+
+	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, _grid: GridId) {
+		if let Some(handle) = self.handle.get() {
+			handle.presence_loaded(request_id);
+		}
 	}
 
 	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {

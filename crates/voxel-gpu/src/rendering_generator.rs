@@ -2,9 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use bevy::prelude::*;
 use rustc_hash::FxHashMap;
-use tile_data::{
-	SharedTileGenerator, TileAppExt, TileClassId, TileGenerationSession, TileGenerator,
-};
+use tile_data::{TileAppExt, TileClassId, TileGenerationSession, TileGenerator};
 use voxel_data::voxels::VoxelTypeId;
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,7 +21,7 @@ pub struct RenderingContext {
 
 #[derive(Resource, Clone, Default)]
 pub struct RenderingGeneratorRegistry {
-	generators: Arc<RwLock<FxHashMap<(RenderingType, VoxelTypeId), SharedTileGenerator>>>,
+	generators: Arc<RwLock<FxHashMap<(RenderingType, VoxelTypeId), Arc<dyn TileGenerator>>>>,
 }
 
 impl RenderingGeneratorRegistry {
@@ -34,7 +32,7 @@ impl RenderingGeneratorRegistry {
 		generators.insert(key, Arc::new(generator));
 	}
 
-	fn generator(&self, rendering_type: RenderingType, source_voxel_type: VoxelTypeId) -> SharedTileGenerator {
+	fn generator(&self, rendering_type: RenderingType, source_voxel_type: VoxelTypeId) -> Arc<dyn TileGenerator> {
 		let key = (rendering_type, source_voxel_type);
 		self.generators.read().unwrap().get(&key).cloned()
 			.unwrap_or_else(|| panic!("no rendering generator registered for {key:?}"))

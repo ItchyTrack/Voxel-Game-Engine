@@ -61,10 +61,10 @@ impl<Index: Copy + Debug + PartialEq> BVH<Index> {
 	}
 
 	pub fn raycast(&'_ self, transform: &Transform, max_length: Option<f32>) -> BVHRaycastIterator<'_, Index> {
-		let start     = transform.translation;
+		let start	 = transform.translation;
 		let direction = transform.rotation * Vec3::Z;
 		let mut heap  = BinaryHeap::new();
-		let root      = &self.nodes[0];
+		let root	  = &self.nodes[0];
 		if let Some(length) = Self::ray_aabb_intersection(&start, &direction, &(root.min_corner, root.max_corner)) {
 			if max_length.is_none() || length <= max_length.unwrap() {
 				heap.push(Candidate { length, entry: BVHEntry::Node(0) });
@@ -101,11 +101,11 @@ impl<Index: PartialEq> Ord for Candidate<Index> {
 }
 
 pub struct BVHRaycastIterator<'a, Index: Copy + Debug + PartialEq> {
-	bvh:        &'a BVH<Index>,
-	start:      Vec3,
+	bvh:		&'a BVH<Index>,
+	start:	  Vec3,
 	direction:  Vec3,
 	max_length: Option<f32>,
-	heap:       BinaryHeap<Candidate<Index>>,
+	heap:	   BinaryHeap<Candidate<Index>>,
 }
 
 impl<'a, Index: Copy + Debug + PartialEq> Iterator for BVHRaycastIterator<'a, Index> {

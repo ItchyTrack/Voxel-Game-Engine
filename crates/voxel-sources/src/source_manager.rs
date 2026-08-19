@@ -5,9 +5,9 @@ use crossbeam_channel::{Receiver, Sender};
 use rustc_hash::FxHashMap;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::{grid::GridId, voxels::VoxelTypeId};
-use voxel_tasks::{AsyncTaskPriorityQueueResource, CancellationToken, PriorityTask};
+use voxel_tasks::CancellationToken;
 
-use crate::{request::{RequestId, SourceResult}, source::{ChunkSource, SourceHandle, SourceId}};
+use crate::{request::{RequestId, SourceResult}, source::{ChunkSource, SourceCoverage, SourceHandle, SourceId}};
 
 #[derive(Resource)]
 pub struct SourceManager {
@@ -44,17 +44,16 @@ impl SourceManager {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-		async_task_priority_queue: AsyncTaskPriorityQueueResource
 	) -> RequestId {
 		let request_id = self.new_request_id();
 		let cancellation_token = CancellationToken::new();
 		let mut source_request_count = 0;
 		for source in &self.sources {
-			source_request_count += 1;
-			if let Some((source_coverage, async_fn)) = source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type) {
-				async_task_priority_queue.push(PriorityTask::new(1.0, async_fn));
-				if matches!(source_coverage, SourceCoverage::All) { break; }
-			}
+			match source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type) {
+				SourceCoverage::None => {},
+				SourceCoverage::Some => { source_request_count += 1; },
+				SourceCoverage::All => { break; },
+			};
 		}
 		self.pending_requests.insert(request_id, (cancellation_token, source_request_count));
 		request_id
@@ -69,18 +68,13 @@ impl SourceManager {
 	pub fn request_presence(
 		&mut self,
 		grid: GridId,
-		async_task_priority_queue: AsyncTaskPriorityQueueResource
 	) -> RequestId {
 		let request_id = self.new_request_id();
 		let cancellation_token = CancellationToken::new();
 		let mut source_request_count = 0;
 		for source in &self.sources {
 			source_request_count += 1;
-			let source = source.clone();
-			let cancellation_token = cancellation_token.clone();
-			async_task_priority_queue.push(PriorityTask::new(1.0, async move {
-				source.request_presence(request_id, cancellation_token, grid);
-			}));
+			source.request_presence(request_id, cancellation_token.clone(), grid);
 		}
 		self.pending_requests.insert(request_id, (cancellation_token, source_request_count));
 		request_id

@@ -18,7 +18,7 @@ struct GpuBVHNode {
 	c0_min_and_ref:   [f32; 4],
 	c0_max_and_ref2:  [f32; 4],
 	c1_min_and_flags: [f32; 4],
-	c1_max_pad:       [f32; 4],
+	c1_max_pad:	   [f32; 4],
 }
 
 impl GpuBVHNode {
@@ -31,7 +31,7 @@ impl GpuBVHNode {
 			c0_min_and_ref:   [c0_min_x, c0_min_y, c0_min_z, f32::from_bits(c0_ref)],
 			c0_max_and_ref2:  [c0_max_x, c0_max_y, c0_max_z, f32::from_bits(c1_ref)],
 			c1_min_and_flags: [c1_min_x, c1_min_y, c1_min_z, f32::from_bits(0)],
-			c1_max_pad:       [c1_max_x, c1_max_y, c1_max_z, 0.0],
+			c1_max_pad:	   [c1_max_x, c1_max_y, c1_max_z, 0.0],
 		}
 	}
 
@@ -42,7 +42,7 @@ impl GpuBVHNode {
 			c0_min_and_ref:   [min_x, min_y, min_z, f32::from_bits(base)],
 			c0_max_and_ref2:  [max_x, max_y, max_z, f32::from_bits(count)],
 			c1_min_and_flags: [0.0, 0.0, 0.0, f32::from_bits(1)],
-			c1_max_pad:       [0.0; 4],
+			c1_max_pad:	   [0.0; 4],
 		}
 	}
 
@@ -53,7 +53,7 @@ impl GpuBVHNode {
 			c0_min_and_ref:   [min_x, min_y, min_z, f32::from_bits(root_ref)],
 			c0_max_and_ref2:  [max_x, max_y, max_z, 0.0],
 			c1_min_and_flags: [0.0; 4],
-			c1_max_pad:       [0.0; 4],
+			c1_max_pad:	   [0.0; 4],
 		}
 	}
 }
@@ -62,14 +62,14 @@ impl GpuBVHNode {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuBVHItem {
 	min_corner:   [f32; 3],
-	aabb_size:    [u8; 3],
+	aabb_size:	[u8; 3],
 	data_source:  u8,
 	item_index:   u32,
 	item_index_2: u32,
 	voxel_type_id: u32,
-	pos:          [f32; 3],
-	quat:         [f32; 4],
-	scale:        f32,
+	pos:		  [f32; 3],
+	quat:		 [f32; 4],
+	scale:		f32,
 }
 
 #[derive(Clone, Copy, Debug)]

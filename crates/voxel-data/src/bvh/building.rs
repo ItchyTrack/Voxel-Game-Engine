@@ -50,23 +50,23 @@ impl<Index> BuildBuffer<Index> {
 }
 
 struct Bin {
-	min_corner:      Vec3,
-	max_corner:      Vec3,
+	min_corner:	  Vec3,
+	max_corner:	  Vec3,
 	primitive_count: u32,
 }
 
 impl Bin {
 	fn empty() -> Self {
 		Bin {
-			min_corner:      Vec3::splat(f32::INFINITY),
-			max_corner:      Vec3::splat(f32::NEG_INFINITY),
+			min_corner:	  Vec3::splat(f32::INFINITY),
+			max_corner:	  Vec3::splat(f32::NEG_INFINITY),
 			primitive_count: 0,
 		}
 	}
 
 	fn extend(&mut self, item_min: Vec3, item_max: Vec3) {
-		self.min_corner      = self.min_corner.min(item_min);
-		self.max_corner      = self.max_corner.max(item_max);
+		self.min_corner	  = self.min_corner.min(item_min);
+		self.max_corner	  = self.max_corner.max(item_max);
 		self.primitive_count += 1;
 	}
 }

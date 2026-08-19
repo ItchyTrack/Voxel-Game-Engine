@@ -92,7 +92,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
 
 	// -- Pass 1: DFS pre-order → gpu_order ------------------------------------
-	let mut cpu_to_gpu: Vec<u32>       = vec![u32::MAX; nodes.len()];
+	let mut cpu_to_gpu: Vec<u32>	   = vec![u32::MAX; nodes.len()];
 	let mut gpu_order:  Vec<(u32, u8)> = Vec::with_capacity(nodes.len());
 
 	let mut dfs_stack: Vec<(u32, u8)> = vec![(0, root_depth)];
@@ -115,7 +115,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 	//
 	// Encoding (bytes 1-3 of tree_buffer header):
 	//   nx, ny, nz : 4-bit each  –  actual = encoded − 7.5
-	//   m          : 8-bit       –  actual = encoded / 32.0 − 3.984375
+	//   m		  : 8-bit	   –  actual = encoded / 32.0 − 3.984375
 	//
 	// Solid halfspace:  dot(n, pos − root_centre) <= m_actual * root_size
 
@@ -131,8 +131,8 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 	// 	while let Some((cpu_idx, depth, node_origin)) = stack.pop() {
 	// 		let node_size = 1u32 << (TREE_LOG_SIZE * (depth as u32 + 1));
 	// 		let cell_size = node_size >> TREE_LOG_SIZE;
-	// 		let half      = cell_size as f32 * 0.5;
-	// 		let node      = &nodes[cpu_idx as usize];
+	// 		let half	  = cell_size as f32 * 0.5;
+	// 		let node	  = &nodes[cpu_idx as usize];
 
 	// 		for (i, cell) in node.contents.iter().enumerate() {
 	// 			let cell_x = (i % grid_tree::SIZE_USIZE) as u32;
@@ -359,7 +359,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 	tree_buffer.extend_from_slice(&tree_bytes);
 	tree_buffer.resize(tree_padded_len, 0);
 
-	let voxel_raw_len    = voxel_bytes.len();
+	let voxel_raw_len	= voxel_bytes.len();
 	let voxel_padded_len = voxel_raw_len.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT as usize);
 	let mut voxel_buffer = Vec::with_capacity(voxel_padded_len);
 	voxel_buffer.extend_from_slice(&voxel_bytes);

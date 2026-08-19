@@ -40,7 +40,7 @@ impl ChunkSource for ClientChunkSource {
 		region: NonZeroChunkRegion,
 		required_lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-	) -> Option<(SourceCoverage, Option<AsyncFnOnce()>)> {
+	) -> SourceCoverage {
 		if !self.state.remote_grids.lock().unwrap().contains(&grid) { return None; }
 		let mut has_one = None;
 		let mut source_coverage = SourceCoverage::All;
@@ -78,11 +78,11 @@ impl ChunkSource for ClientChunkSource {
 	}
 
 	fn request_presence(
-			&self,
-			request_id: RequestId,
-			cancellation: CancellationToken,
-			grid: GridId,
-		) {
+		&self,
+		request_id: RequestId,
+		cancellation: CancellationToken,
+		grid: GridId,
+	) {
 		todo!()
 	}
 

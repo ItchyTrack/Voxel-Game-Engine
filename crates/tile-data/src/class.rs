@@ -18,47 +18,36 @@ impl TileClassRegistry {
 	}
 }
 
-pub trait TileAppExt {
-	fn register_tile_class(&mut self) -> TileClassId;
-}
-
-impl TileAppExt for App {
-	fn register_tile_class(&mut self) -> TileClassId {
-		self.init_resource::<TileClassRegistry>();
-		self.world_mut().resource_mut::<TileClassRegistry>().register()
-	}
-}
-
 pub trait TileGenerationData: Any + Send + Sync {
 	fn as_any(&self) -> &dyn Any;
-    fn eq(&self, other: &dyn TileGenerationData) -> bool;
+	fn eq(&self, other: &dyn TileGenerationData) -> bool;
 }
 
 impl<T> TileGenerationData for T
 where
-    T: Any + Send + Sync + PartialEq,
+	T: Any + Send + Sync + PartialEq,
 {
 	fn as_any(&self) -> &dyn Any {
-        self
-    }
+		self
+	}
 
-    fn eq(&self, other: &dyn TileGenerationData) -> bool {
-        other
+	fn eq(&self, other: &dyn TileGenerationData) -> bool {
+		other
 			.as_any()
-            .downcast_ref::<T>()
-            .is_some_and(|other| self == other)
-    }
+			.downcast_ref::<T>()
+			.is_some_and(|other| self == other)
+	}
 }
 
 #[derive(Component, Clone)]
 pub struct TileGenerationParameters {
-    data: Arc<dyn TileGenerationData>,
+	data: Arc<dyn TileGenerationData>,
 }
 
 impl PartialEq for TileGenerationParameters {
-    fn eq(&self, other: &Self) -> bool {
-        self.data.eq(&*other.data)
-    }
+	fn eq(&self, other: &Self) -> bool {
+		self.data.eq(&*other.data)
+	}
 }
 
 impl Eq for TileGenerationParameters {}

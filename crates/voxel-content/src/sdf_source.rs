@@ -10,6 +10,7 @@ use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
 use voxel_sources::{CancellationToken, ChunkSource, RequestId, SourceCoverage, SourceHandle};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, nonzero_voxel_region_from_chunks};
 use voxel_streaming::ForgottenChunks;
+use voxel_tasks::AsyncPriorityTaskPool;
 
 /// Procedural SDF contract used by [`SdfSource`].
 ///
@@ -122,22 +123,6 @@ impl ChunkSource for SdfSource {
 		let _ = self.inner.handle.set(handle);
 	}
 
-	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
-		let Some(handle) = self.inner.handle.get() else { return };
-		if let Some(binding) = self.binding(grid)
-			&& let Some((bounds_min, bounds_max)) = binding.sdf.bounds()
-			&& bounds_min.cmplt(bounds_max).all() {
-			let voxel_min = bounds_min.floor().as_ivec3();
-			let voxel_max = bounds_max.ceil().as_ivec3() - IVec3::ONE;
-			let chunk_min = Self::chunk_of(voxel_min);
-			let chunk_max = Self::chunk_of(voxel_max);
-			if let Some(region) = NonZeroChunkRegion::from_min_max(chunk_min, chunk_max) {
-				handle.presence(request_id, grid, region);
-			}
-		}
-		handle.presence_loaded(request_id);
-	}
-
 	fn request_voxels(
 		&self,
 		request_id: RequestId,
@@ -146,7 +131,7 @@ impl ChunkSource for SdfSource {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-	) -> Option<(SourceCoverage, Option<impl AsyncFnOnce() + Send + 'static>)> {
+	) -> SourceCoverage {
 		let binding = self.binding(grid)?;
 		let mut has_one = None;
 		let mut source_coverage = SourceCoverage::All;
@@ -183,7 +168,7 @@ impl ChunkSource for SdfSource {
 		let source = self.clone();
 		let cancellation = cancellation.clone();
 
-		let async_fn = async move || {
+		AsyncPriorityTaskPool::get().spawn(1.0, async move || {
 			if cancellation.is_cancelled() { return; }
 			let step = step_for_lod(lod.unwrap_or(0));
 			let voxel_region = nonzero_voxel_region_from_chunks(region);
@@ -215,9 +200,25 @@ impl ChunkSource for SdfSource {
 			let handle = source.inner.handle.wait();
 			handle.voxels(request_id, grid, region, lod, 0, voxels);
 			handle.voxels_loaded(request_id);
-		};
+		});
 
-		Some((source_coverage, Some(async_fn)))
+		source_coverage
+	}
+
+	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+		let Some(handle) = self.inner.handle.get() else { return };
+		if let Some(binding) = self.binding(grid)
+			&& let Some((bounds_min, bounds_max)) = binding.sdf.bounds()
+			&& bounds_min.cmplt(bounds_max).all() {
+			let voxel_min = bounds_min.floor().as_ivec3();
+			let voxel_max = bounds_max.ceil().as_ivec3() - IVec3::ONE;
+			let chunk_min = Self::chunk_of(voxel_min);
+			let chunk_max = Self::chunk_of(voxel_max);
+			if let Some(region) = NonZeroChunkRegion::from_min_max(chunk_min, chunk_max) {
+				handle.presence(request_id, grid, region);
+			}
+		}
+		handle.presence_loaded(request_id);
 	}
 
 	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {

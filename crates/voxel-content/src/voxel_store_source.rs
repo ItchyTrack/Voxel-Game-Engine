@@ -110,12 +110,13 @@ impl ChunkSource for VoxelStoreSource {
 		request_id: RequestId,
 		cancellation: CancellationToken,
 		grid: GridId,
-	) {
-		let Some(handle) = self.inner.handle.get() else { return };
+	) -> Option<impl AsyncFnOnce() + Send + 'static> {
+		let Some(handle) = self.inner.handle.get() else { return None };
 		if let Some(region) = self.grid_available_area(grid).and_then(|area| area.try_into().ok()) {
 			handle.presence(request_id, grid, region);
 		}
 		handle.presence_loaded(region);
+		None
 	}
 
 	fn take_ownership(

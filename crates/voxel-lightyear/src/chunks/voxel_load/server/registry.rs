@@ -199,7 +199,7 @@ impl PendingVoxelLoads {
 							location: todo!(),
 							generation: todo!(),
 							voxels: todo!(),
-    }
+	}
 					}
 					ServerVoxelLoad::VoxelArea(VoxelAreaLoad { key, status: VoxelLoadStatus::Ready { payload, next_send_at } }) if now >= *next_send_at => {
 						*next_send_at = now + RESPONSE_RETRY_INTERVAL.as_secs_f64();
