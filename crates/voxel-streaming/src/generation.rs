@@ -19,7 +19,6 @@ pub(crate) struct TileGenerationMetadata {
 pub(crate) struct StreamingVoxelReader {
 	grid: GridId,
 	priority: f32,
-	requests: VoxelSourcesRequestHandle,
 	events_tx: UnboundedSender<VoxelAreaLoadEvent>,
 	events_rx: UnboundedReceiver<VoxelAreaLoadEvent>,
 	outstanding: usize,
@@ -31,7 +30,6 @@ impl StreamingVoxelReader {
 	pub(crate) fn new(
 		grid: GridId,
 		priority: f32,
-		requests: VoxelSourcesRequestHandle,
 		cancellation: CancellationToken,
 		metadata: Arc<Mutex<TileGenerationMetadata>>,
 	) -> (Self, UnboundedSender<VoxelAreaLoadEvent>) {
@@ -40,7 +38,6 @@ impl StreamingVoxelReader {
 			Self {
 				grid,
 				priority,
-				requests,
 				events_tx: events_tx.clone(),
 				events_rx,
 				outstanding: 0,
@@ -148,10 +145,9 @@ pub(crate) fn session(
 	key: TileKey,
 	context: TileGenerationParameters,
 	priority: f32,
-	requests: VoxelSourcesRequestHandle,
 	cancellation: CancellationToken,
 	metadata: Arc<Mutex<TileGenerationMetadata>>,
 ) -> (TileGenerationSession, UnboundedSender<VoxelAreaLoadEvent>) {
-	let (reader, wake) = StreamingVoxelReader::new(grid, priority, requests, cancellation, metadata);
+	let (reader, wake) = StreamingVoxelReader::new(grid, priority, cancellation, metadata);
 	(TileGenerationSession::new(grid, key, context, Box::new(reader)), wake)
 }

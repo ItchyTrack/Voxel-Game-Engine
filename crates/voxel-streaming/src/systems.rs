@@ -5,7 +5,6 @@ use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use voxel_edit::apply_grid_edit;
-use voxel_sources::{ChunkLoaded, ChunkPresence, ChunksEdited, SourceManager, VoxelSourcesRequestHandleGetter};
 use voxel_tasks::CancellationToken;
 
 use tracy_client::span;
@@ -24,10 +23,10 @@ use crate::generation::{
 };
 use crate::streaming::TileStatus;
 use crate::{
-	DynamicTileData, LoadedTile, ChunkRegion, StreamingSourceRequestHandle, TileGenerationParameters,
+	DynamicTileData, LoadedTile, TileGenerationParameters,
 	TileGeneratorRegistry, TileLoadStatus, TileLoadUpdate,
 };
-use crate::{GridEdits, GridStreaming, InflightChunkPresence, PresenceLoadRequest, RequestChunkPresence};
+use crate::{GridEdits, GridStreaming, InflightChunkPresence};
 use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkEditInterestChanged, ChunkLoadResolved};
 use crate::presence::ChunkState;
 use crate::grid_source::StreamingGridSource;
@@ -427,7 +426,7 @@ pub fn invalidate_changed_generation_contexts(
 }
 
 pub(crate) fn request_tiles(
-	request_handles: Res<VoxelSourcesRequestHandleGetter>,
+	// TODO: async source_manager access is needed here
 	generators: Res<TileGeneratorRegistry>,
 	results: Res<TileGenerationChannel>,
 	mut grids: Query<(GridId, &Grid, Option<&TileGenerationParameters>, &mut GridStreaming)>,

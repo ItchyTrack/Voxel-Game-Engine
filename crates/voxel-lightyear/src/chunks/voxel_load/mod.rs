@@ -8,7 +8,6 @@ mod server;
 pub(super) use client::ClientLoadRegistry;
 use messages::{
 	VoxelLoadFinished,
-	VoxelLoadId,
 	VoxelLoadOutcome,
 	VoxelLoadRequest,
 	VoxelLoadRequestKind,

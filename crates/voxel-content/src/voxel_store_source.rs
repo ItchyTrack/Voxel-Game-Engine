@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob, VoxelSourcesAppExt};
+use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
 
 use crate::GridStore;
 

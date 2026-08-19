@@ -14,7 +14,7 @@ use tile_data::{ChunkRegion, NonZeroChunkRegion};
 use voxel_streaming::GridEdits;
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob, VoxelSourcesAppExt};
+use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
 use tile_data::{chunk_of, chunk_origin};
 use voxel_streaming::{ForgottenChunks, GridStreaming};
 

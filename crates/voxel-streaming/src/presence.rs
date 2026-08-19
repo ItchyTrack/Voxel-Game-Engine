@@ -2,7 +2,6 @@ use bevy::math::IVec3;
 use bevy::transform::components::Transform;
 
 use tile_data::NonZeroChunkRegion;
-use voxel_data::grid_tree::NonZeroChunkRegion;
 use voxel_data::region::NonZeroVoxelRegion;
 use voxel_data::signed_grid_tree::SignedGridTree;
 use voxel_data::voxel_grid_tree::PackedCell;
@@ -125,7 +124,6 @@ impl ChunkPresence {
 	}
 
 	pub fn all_present_in_region(&self, region: NonZeroChunkRegion) -> bool {
-		let size = max - min + IVec3::ONE;
 		self.tree.is_area_filled(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap())
 	}
 

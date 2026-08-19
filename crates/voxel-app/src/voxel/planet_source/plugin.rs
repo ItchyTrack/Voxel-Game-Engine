@@ -9,7 +9,7 @@ use voxel_data::{grid::{Grid, GridId}, voxels::{VoxelType, VoxelTypeId}};
 use voxel_streaming::GridEdits;
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob, VoxelSourcesAppExt};
+use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
 use voxel_streaming::{ForgottenChunks, GridStreaming};
 
 use super::generation::{build_planet_chunk, build_planet_lod_region};

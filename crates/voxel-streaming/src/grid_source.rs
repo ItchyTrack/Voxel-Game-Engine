@@ -2,24 +2,17 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bevy::prelude::*;
-use crossbeam_channel::{Sender, bounded};
 use voxel_data::grid::{Grid, GridId, reconcile_subgrids};
 use voxel_data::grid_tree::NonZeroVoxelRegion;
 use voxel_data::splat::{GridSplat, splat_voxels_blocking};
 use voxel_data::subgrid::SubGrid;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_edit::{GridEdit, apply_grid_edit};
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle, TakeJob};
+use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle};
 
-use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_origin};
+use tile_data::{NonZeroChunkRegion, chunk_origin};
 use tile_data::CHUNK_SIZE;
-
-struct ChunkRequest {
-	grid: GridId,
-	chunk: IVec3,
-	generation: u64,
-	cancellation: CancellationToken,
-}
+use voxel_tasks::CancellationToken;
 
 struct ReceiveTakenRequest {
 	grid: GridId,
@@ -28,20 +21,18 @@ struct ReceiveTakenRequest {
 }
 
 struct VoxelRequest {
+	request_id: RequestId,
 	grid: GridId,
 	region: NonZeroChunkRegion,
 	lod: u8,
 	voxel_type: Option<VoxelTypeId>,
 	generation: u64,
-	cancellation: CancellationToken,
 }
 
 struct GridSourceState {
 	handle: OnceLock<SourceHandle>,
 	owned: RwLock<HashSet<(GridId, IVec3)>>,
 	served: RwLock<HashSet<(GridId, IVec3)>>,
-	chunk_requests: Mutex<VecDeque<ChunkRequest>>,
-	transfer_requests: Mutex<VecDeque<TransferRequest>>,
 	voxel_requests: Mutex<VecDeque<VoxelRequest>>,
 	receive_taken_requests: Mutex<VecDeque<ReceiveTakenRequest>>,
 	pending_edits: Mutex<HashMap<(GridId, IVec3), Vec<GridEdit>>>,
@@ -53,8 +44,6 @@ impl Default for GridSourceState {
 			handle: OnceLock::new(),
 			owned: RwLock::new(HashSet::new()),
 			served: RwLock::new(HashSet::new()),
-			chunk_requests: Mutex::new(VecDeque::new()),
-			transfer_requests: Mutex::new(VecDeque::new()),
 			voxel_requests: Mutex::new(VecDeque::new()),
 			receive_taken_requests: Mutex::new(VecDeque::new()),
 			pending_edits: Mutex::new(HashMap::new()),
@@ -136,7 +125,6 @@ impl ChunkSource for StreamingGridSource {
 		grid: GridId,
 	) {
 		if let Some(handle) = self.state.handle.get() { handle.presence_loaded(request_id); }
-		None
 	}
 
 	fn take_ownership(

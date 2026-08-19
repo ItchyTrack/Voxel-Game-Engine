@@ -9,7 +9,6 @@ mod grid_source;
 mod tile_dependency_index;
 mod presence;
 mod streaming;
-mod source_request_handle;
 mod tile_updates;
 mod generation;
 pub mod systems;
@@ -22,12 +21,8 @@ pub use presence::{ChunkPresence, ChunkState};
 pub use tile_data::{
 	DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData,
 	TileGenerationParameters, TileGenerationSession, TileGenerator, TileGeneratorRegistry, TileKey,
-	VoxelAreaRequest, VoxelAreaResult,
 };
 pub use tile_updates::{TileLoadStatus, TileLoadUpdate};
-pub use voxel_sources::{ChunkLoadRequest, ChunkLoaded, ChunkPresenceLoaded, ChunksEdited, VoxelAreaKey, VoxelAreaMessageRequest, VoxelAreaLoaded, PresenceLoadRequest};
-pub type ChunkLoadResult = voxel_sources::ChunkLoaded;
-pub use source_request_handle::StreamingSourceRequestHandle;
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
 pub use systems::request_presence_for_new_grids;
 
@@ -115,7 +110,6 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_message::<ChunkLoadResolved>()
 			.init_resource::<TileClassRegistry>()
 			.init_resource::<TileGeneratorRegistry>()
-			.init_resource::<StreamingSourceRequestHandle>()
 			.init_resource::<systems::PendingTileUpdates>()
 			.init_resource::<generation::TileGenerationChannel>()
 			.add_systems(

@@ -10,7 +10,6 @@ use voxel_sources::{CancellationToken, SourceHandle, RequestId};
 
 use super::super::{
 	VoxelLoadFinished,
-	VoxelLoadId,
 	VoxelLoadOutcome,
 	VoxelLoadRequest,
 	VoxelLoadRequestKind,
@@ -85,7 +84,7 @@ impl ClientLoadRegistry {
 	// 	&mut self,
 	// 	handle: &SourceHandle,
 	// 	from: impl std::fmt::Debug,
-	// 	id: VoxelLoadId,
+	// 	id: RequestId,
 	// 	grid: GridId,
 	// 	chunk: IVec3,
 	// 	generation: u64,
@@ -127,24 +126,15 @@ impl ClientLoadRegistry {
 		region: NonZeroChunkRegion,
 		generation: u64,
 		voxel_type: VoxelTypeId,
-		compressed: &mut Option<CompressedVoxels>,
+		compressed: &mut CompressedVoxels,
 	) {
 
 	}
 
-	fn allocate_id(&mut self) -> VoxelLoadId {
-		self.next_id = self.next_id.checked_add(1).expect("voxel load ID space exhausted");
-		VoxelLoadId(self.next_id)
-	}
-
-	fn finish(&mut self, id: VoxelLoadId, outcome: VoxelLoadOutcome) {
+	fn finish(&mut self, id: RequestId, outcome: VoxelLoadOutcome) {
 		assert!(self.pending.remove(&id).is_some());
-		self.finished.push_back(VoxelLoadFinished { id, outcome });
+		self.finished.push_back(VoxelLoadFinished { request_id, outcome });
 	}
-}
-
-fn decompress(compressed: &mut Option<CompressedVoxels>) -> Result<Option<voxel_data::voxels::Voxels>, voxel_data::compressed_voxels::DecompressVoxelsError> {
-	compressed.take().map(|voxels| voxels.decompress()).transpose()
 }
 
 #[cfg(test)]
@@ -165,7 +155,7 @@ use tile_data::NonZeroChunkRegion;
 		cancellation.cancel();
 		loads.drain_cancelled();
 
-		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { id: request.id, outcome: VoxelLoadOutcome::Cancelled }));
+		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { request_id: request.request_id, outcome: VoxelLoadOutcome::Cancelled }));
 		assert_eq!(loads.pop_finished(), None);
 		assert!(!loads.pending.contains_key(&request.id));
 	}
@@ -191,7 +181,7 @@ use tile_data::NonZeroChunkRegion;
 		cancellation.cancel();
 		loads.drain_cancelled();
 
-		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { id: request.id, outcome: VoxelLoadOutcome::Cancelled }));
+		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { request_id: request.request_id, outcome: VoxelLoadOutcome::Cancelled }));
 		assert_eq!(loads.pop_finished(), None);
 		assert!(!loads.pending.contains_key(&request.id));
 	}
@@ -203,7 +193,7 @@ use tile_data::NonZeroChunkRegion;
 		let request = loads.pop_request().unwrap();
 
 		loads.finish(request.id, VoxelLoadOutcome::Received).is_some();
-		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { id: request.id, outcome: VoxelLoadOutcome::Received }));
+		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { request_id: request.request_id, outcome: VoxelLoadOutcome::Received }));
 		assert_eq!(loads.pop_finished(), None);
 	}
 
@@ -216,7 +206,7 @@ use tile_data::NonZeroChunkRegion;
 		let second = loads.pop_request().unwrap();
 
 		assert_ne!(first.id, second.id);
-		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { id: first.id, outcome: VoxelLoadOutcome::Cancelled }));
+		assert_eq!(loads.pop_finished(), Some(VoxelLoadFinished { request_id: first.request_id, outcome: VoxelLoadOutcome::Cancelled }));
 		assert!(!loads.pending.contains_key(&first.id));
 		assert!(loads.pending.contains_key(&second.id));
 	}

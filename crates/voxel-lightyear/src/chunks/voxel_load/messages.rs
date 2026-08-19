@@ -8,9 +8,6 @@ use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
 use voxel_sources::RequestId;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct VoxelLoadId(pub u64);
-
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub(crate) struct VoxelLoadRequest {
 	pub request_id: RequestId,
@@ -45,7 +42,7 @@ impl MapEntities for VoxelLoadResponse {
 
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct VoxelLoadFinished {
-	pub id: VoxelLoadId,
+	pub request_id: RequestId,
 	pub outcome: VoxelLoadOutcome,
 }
 

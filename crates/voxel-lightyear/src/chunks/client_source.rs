@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use tile_data::{ChunkRegion, NonZeroChunkRegion};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, TakeJob, SourceHandle};
+use voxel_sources::{CancellationToken, ChunkSource, SourceCoverage, SourceHandle};
 
 use voxel_streaming::ForgottenChunks;
 
@@ -41,7 +41,7 @@ impl ChunkSource for ClientChunkSource {
 		required_lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 	) -> SourceCoverage {
-		if !self.state.remote_grids.lock().unwrap().contains(&grid) { return None; }
+		if !self.state.remote_grids.lock().unwrap().contains(&grid) { return SourceCoverage::None; }
 		let mut has_one = None;
 		let mut source_coverage = SourceCoverage::All;
 		'outer:for x in region.min().x..region.end().x {
@@ -71,10 +71,10 @@ impl ChunkSource for ClientChunkSource {
 		}
 		assert!(has_one.is_some()); // has to happen as region is non zero
 		if !has_one.unwrap() {
-			return None;
+			return SourceCoverage::None;
 		}
 		self.state.loads.lock().unwrap().request_voxel_area(grid, regionkey, voxel_type, 0.0, generation, cancellation);
-		(source_coverage)
+		source_coverage
 	}
 
 	fn request_presence(

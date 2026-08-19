@@ -4,14 +4,14 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use lightyear::prelude::PeerId;
+use tile_data::NonZeroChunkRegion;
 use voxel_data::compressed_voxels::{CompressVoxelsError, CompressedVoxels};
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
-use voxel_sources::{CancellationToken, VoxelAreaCancellation, VoxelAreaMessageRequest, VoxelSourcesRequestHandle};
+use voxel_sources::{CancellationToken, RequestId, VoxelAreaCancellation, VoxelAreaMessageRequest, VoxelSourcesRequestHandle};
 
 use super::super::{
 	VoxelLoadFinished,
-	VoxelLoadId,
 	VoxelLoadOutcome,
 	VoxelLoadRequest,
 	VoxelLoadRequestKind,
@@ -37,7 +37,7 @@ struct PendingVoxelRegionKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct VoxelLoadOwner {
 	peer: PeerId,
-	id: VoxelLoadId,
+	id: RequestId,
 }
 
 struct ChunkPayload {
@@ -83,8 +83,8 @@ struct PendingVoxelAreaLoad {
 
 #[derive(Resource, Default)]
 pub(crate) struct PendingVoxelLoads {
-	clients: HashMap<PeerId, HashMap<VoxelLoadId, ServerVoxelLoad>>,
-	cancelled: HashMap<PeerId, HashSet<VoxelLoadId>>,
+	clients: HashMap<PeerId, HashMap<RequestId, ServerVoxelLoad>>,
+	cancelled: HashMap<PeerId, HashSet<RequestId>>,
 	chunk_loads: HashMap<PendingChunkKey, PendingChunkLoad>,
 	voxel_area_loads: HashMap<PendingVoxelAreaKey, PendingVoxelAreaLoad>,
 }
@@ -194,20 +194,22 @@ impl PendingVoxelLoads {
 				let response = match voxel_load {
 					ServerVoxelLoad::Chunk(ChunkVoxelLoad { key, status: VoxelLoadStatus::Ready { payload, next_send_at } }) if now >= *next_send_at => {
 						*next_send_at = now + RESPONSE_RETRY_INTERVAL.as_secs_f64();
-						VoxelLoadResponse{
+						VoxelLoadResponse {
 							request_id,
-							location: todo!(),
-							generation: todo!(),
-							voxels: todo!(),
-	}
+							grid: key.grid,
+							region: NonZeroChunkRegion::from_single(key.chunk),
+							lod: 0,
+							generation: ,
+							voxels: payload.voxels,
+						}
 					}
 					ServerVoxelLoad::VoxelArea(VoxelAreaLoad { key, status: VoxelLoadStatus::Ready { payload, next_send_at } }) if now >= *next_send_at => {
 						*next_send_at = now + RESPONSE_RETRY_INTERVAL.as_secs_f64();
 						VoxelLoadResponse {
 							id,
-							kind: VoxelLoadResponseKind::VoxelArea {
-								grid: key.grid,
-								key: key.key,
+							grid: key,
+							region: key.,
+
 								generation: payload.generation,
 								voxel_type: payload.voxel_type,
 								voxels: payload.voxels.clone(),
@@ -229,7 +231,7 @@ impl PendingVoxelLoads {
 		self.cancelled.retain(|peer, _| connected(*peer));
 	}
 
-	fn remove(&mut self, peer: PeerId, id: VoxelLoadId) -> bool {
+	fn remove(&mut self, peer: PeerId, id: RequestId) -> bool {
 		let Some(voxel_load) = self.clients.get_mut(&peer).and_then(|voxel_loads| voxel_loads.remove(&id)) else { return false };
 		if self.clients.get(&peer).is_some_and(HashMap::is_empty) {
 			self.clients.remove(&peer);
@@ -264,7 +266,7 @@ impl PendingVoxelLoads {
 		true
 	}
 
-	fn take_cancellation(&mut self, peer: PeerId, id: VoxelLoadId) -> bool {
+	fn take_cancellation(&mut self, peer: PeerId, id: RequestId) -> bool {
 		let cancelled = self.cancelled.get_mut(&peer).is_some_and(|ids| ids.remove(&id));
 		if self.cancelled.get(&peer).is_some_and(HashSet::is_empty) {
 			self.cancelled.remove(&peer);
@@ -306,12 +308,12 @@ mod tests {
 	#[test]
 	fn early_cancellation_is_consumed_once() {
 		let peer = PeerId::Local(1);
-		let id = VoxelLoadId(42);
+		let request_id = RequestId(42);
 		let mut pending = PendingVoxelLoads::default();
 
-		pending.finish(peer, VoxelLoadFinished { id, outcome: VoxelLoadOutcome::Cancelled });
-		assert!(pending.take_cancellation(peer, id));
-		assert!(!pending.take_cancellation(peer, id));
+		pending.finish(peer, VoxelLoadFinished { request_id, outcome: VoxelLoadOutcome::Cancelled });
+		assert!(pending.take_cancellation(peer, request_id));
+		assert!(!pending.take_cancellation(peer, request_id));
 		assert!(!pending.cancelled.contains_key(&peer));
 	}
 
@@ -319,7 +321,7 @@ mod tests {
 	fn disconnect_removes_cancellation_tombstones() {
 		let peer = PeerId::Local(1);
 		let mut pending = PendingVoxelLoads::default();
-		pending.finish(peer, VoxelLoadFinished { id: VoxelLoadId(42), outcome: VoxelLoadOutcome::Cancelled });
+		pending.finish(peer, VoxelLoadFinished { request_id: RequestId(42), outcome: VoxelLoadOutcome::Cancelled });
 
 		pending.remove_client(peer);
 
@@ -328,8 +330,8 @@ mod tests {
 
 	#[test]
 	fn shared_chunk_load_is_cancelled_after_its_last_client_leaves() {
-		let first = VoxelLoadOwner { peer: PeerId::Local(1), id: VoxelLoadId(1) };
-		let second = VoxelLoadOwner { peer: PeerId::Local(2), id: VoxelLoadId(2) };
+		let first = VoxelLoadOwner { peer: PeerId::Local(1), id: RequestId(1) };
+		let second = VoxelLoadOwner { peer: PeerId::Local(2), id: RequestId(2) };
 		let key = PendingChunkKey { grid: Entity::PLACEHOLDER, chunk: IVec3::ZERO };
 		let cancellation = CancellationToken::new();
 		let mut pending = PendingVoxelLoads::default();

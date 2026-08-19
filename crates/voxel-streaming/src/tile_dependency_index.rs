@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy::math::IVec3;
-use tile_data::{ChunkRegion, NonZeroChunkRegion, TileIndex, TileIndexKey};
+use tile_data::{NonZeroChunkRegion, TileIndex, TileIndexKey};
 
 use crate::TileKey;
 

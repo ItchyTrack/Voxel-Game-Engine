@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use bevy::math::U16Vec3;
-use tile_data::{TileData, TileGenerationSession, TileGenerator, VoxelAreaRequest};
+use tile_data::{TileData, TileGenerationSession, TileGenerator};
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo};
 use voxel_gpu::{AllocationId, PackedBufferAllocation, VoxelGpuDataReaders};
 
@@ -67,11 +67,11 @@ pub struct VoxelRayTileGenerator {
 impl TileGenerator for VoxelRayTileGenerator {
 	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
 		let region = session.key.region;
-		session.request_voxels(VoxelAreaRequest {
-			area: region,
-			lod: session.key.lod.saturating_sub(self.lod_levels),
-			voxel_type: self.voxel_type,
-		});
+		session.request_voxels(
+			region,
+			session.key.lod.saturating_sub(self.lod_levels),
+			self.voxel_type,
+		);
 		let input = session.receive_merged_voxels(region).await?;
 		let (bounds_min, bounds_max) = input.voxels.bounding_box()?;
 		let placement = RayTilePlacement {

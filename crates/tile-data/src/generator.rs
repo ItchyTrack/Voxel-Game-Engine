@@ -73,8 +73,17 @@ impl TileGenerationSession {
 		self.context.downcast_ref().unwrap_or_else(|| panic!("tile generator received generation context of the wrong type"))
 	}
 
-	pub fn request_voxels(&mut self, request: VoxelRegionRequest) {
-		self.reader.request_voxels(request);
+	pub fn request_voxels(
+		&mut self,
+		area: NonZeroChunkRegion,
+		lod: u8,
+		voxel_type: VoxelTypeId,
+	) {
+		self.reader.request_voxels(VoxelRegionRequest {
+			area,
+			lod,
+			voxel_type,
+		});
 	}
 
 	pub fn receive_voxels(&mut self) -> ReceiveVoxelsFuture<'_> {
