@@ -3,8 +3,9 @@ use std::sync::{Arc, OnceLock};
 
 use bevy::prelude::*;
 use basic_voxel::{BasicVoxel, LodVoxel};
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use voxel_data::{grid::{Grid, GridId}, voxels::{VoxelType, VoxelTypeId, Voxels}};
+use tile_data::NonZeroChunkRegion;
+use voxel_data::voxels::VoxelType;
+use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
 use voxel_streaming::GridEdits;
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
@@ -12,7 +13,7 @@ use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelS
 use voxel_streaming::{ForgottenChunks, GridStreaming};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
-use super::generation::{build_planet_chunk, build_planet_lod_region};
+use super::generation::{build_planet_region, planet_voxel_unchecked, planet_lod_voxel_unchecked};
 use super::tiles::{planet_tiles, tile_has_chunk};
 
 pub struct ProceduralPlanetPlugin;
@@ -83,7 +84,7 @@ impl ChunkSource for ProceduralPlanetSource {
 			SourceCoverage::Some
 		};
 
-		let use_raw = match voxel_type {
+		let use_basic_voxel = match voxel_type {
 			Some(id) if id == BasicVoxel::TYPE_INFO.id && lod == 0 => true,
 			Some(id) if id == LodVoxel::TYPE_INFO.id => false,
 			_ => lod == 0,
@@ -93,22 +94,12 @@ impl ChunkSource for ProceduralPlanetSource {
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let _span = bevy::log::info_span!("PlanetSource build").entered();
-			let mut voxels: Option<Voxels> = None;
-			let step = 1i32 << lod as u32;
-			let extent = if use_raw { IVec3::splat(CHUNK_SIZE) } else { IVec3::splat(CHUNK_SIZE / step) };
-			for chunk in owned_chunks {
-				if cancellation.is_cancelled() { break; }
-				let part = if use_raw {
-					build_planet_chunk(tile_index, chunk, &cancellation)
-				} else {
-					build_planet_lod_region(tile_index, chunk, IVec3::ONE, lod as f32, &cancellation)
-				};
-				let Some(part) = part else { continue };
-				let offset = (chunk - region.min()) * extent;
-				voxels.get_or_insert_with(|| Voxels::new_with_type(part.voxel_type_info())).merge_from(&part, offset);
-			}
-			if !cancellation.is_cancelled()
-				&& let Some(voxels) = voxels.filter(|voxels| !voxels.is_empty()) {
+			let voxels = if use_basic_voxel {
+				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_voxel_unchecked)
+			} else {
+				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_lod_voxel_unchecked)
+			};
+			if !cancellation.is_cancelled() && let Some(voxels) = voxels {
 				handle.voxels(request_id, grid, region, lod, 0, voxels);
 			}
 			handle.voxels_loaded(request_id);

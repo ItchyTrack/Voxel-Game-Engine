@@ -555,7 +555,7 @@ mod tests {
 		};
 
 		assert!(source.model.get().is_none());
-		assert_eq!(source.request_load(GridId::PLACEHOLDER, IVec3::ZERO, 1, CancellationToken::new()), SourceCoverage::All);
+		assert_eq!(source.request_voxels(RequestId::from_raw(1), &CancellationToken::new(), GridId::PLACEHOLDER, NonZeroChunkRegion::from_single(IVec3::ZERO), 1, None), SourceCoverage::All);
 		assert!(source.model.get().is_some());
 	}
 

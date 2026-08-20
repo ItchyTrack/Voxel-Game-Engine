@@ -101,111 +101,83 @@ fn sphere_lod_voxel_unchecked(world: IVec3) -> LodVoxel {
 	LodVoxel::solid(sphere_color(world))
 }
 
-fn build_chunk(chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels> {
-	let _zone = tracy_client::span!("sphere chunk columns");
-	let origin = chunk_origin(chunk);
-	let r2 = radius2();
-	let mut points = Vec::with_capacity((CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE / 2) as usize);
-
-	for z in 0..CHUNK_SIZE {
-		if cancellation.is_cancelled() { return None; }
-		let world_z = origin.z + z;
-		let z2 = world_z as i64 * world_z as i64;
-		for x in 0..CHUNK_SIZE {
-			let world_x = origin.x + x;
-			let rem = r2 - world_x as i64 * world_x as i64 - z2;
-			if rem < 0 {
-				continue;
-			}
-			let max_y = isqrt_u64(rem as u64) as i64;
-			let Some((y0, y1)) = sample_y_span(origin.y, CHUNK_SIZE, 1, 0, max_y) else { continue };
-			for y in y0..=y1 {
-				points.push((U16Vec3::new(x as u16, y as u16, z as u16), sphere_voxel_unchecked(origin + IVec3::new(x, y, z), 100)));
-			}
-		}
-	}
-
-	if points.is_empty() {
-		None
-	} else {
-		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
-		let mut voxels = Voxels::new::<BasicVoxel>();
-		voxels.add_voxels(&voxel_refs);
-		Some(voxels)
-	}
-}
-
-fn build_raw_region(region: NonZeroChunkRegion, chunks: &[IVec3], cancellation: &CancellationToken) -> Option<Voxels> {
-	let mut voxels: Option<Voxels> = None;
-	for &chunk in chunks {
-		if cancellation.is_cancelled() { return None; }
-		let Some(part) = build_chunk(chunk, cancellation) else { continue };
-		let offset = (chunk - region.min()) * CHUNK_SIZE;
-		voxels.get_or_insert_with(|| Voxels::new::<BasicVoxel>()).merge_from(&part, offset);
-	}
-	voxels.filter(|voxels| !voxels.is_empty())
-}
-
 fn quantize_channel(value: u8, levels: u8) -> u8 {
 	let max_level = (levels - 1) as f32;
 	let level = ((value as f32 / 255.0) * max_level).round();
 	((level / max_level) * 255.0).round() as u8
 }
 
-fn build_lod_region(min: IVec3, size: IVec3, lod: u8, cancellation: &CancellationToken) -> Option<Voxels> {
-	let _zone = tracy_client::span!("sphere direct LOD region");
-	let step = 1i32 << lod as u32;
-	let sample_offset = step / 2;
-	let extent = (size * CHUNK_SIZE) / step;
-	let origin = chunk_origin(min);
-	let max_source = size * CHUNK_SIZE - IVec3::ONE;
+fn build_region(
+	region: NonZeroChunkRegion,
+	chunks: &[IVec3],
+	lod: u8,
+	use_raw: bool,
+	cancellation: &CancellationToken,
+) -> Option<Voxels> {
+	let _zone = tracy_client::span!("sphere region");
+
+	let step = if use_raw { 1 } else { 1i32 << lod as u32 };
+	let sample_offset = if use_raw { 0 } else { step / 2 };
+	let chunk_extent = CHUNK_SIZE / step;
+	let max_source = IVec3::splat(CHUNK_SIZE - 1);
 	let r2 = radius2();
+
+	// Only one of these ends up populated, depending on `use_raw`.
+	let mut points = Vec::new();
 	let mut areas = Vec::new();
 
-	for z in 0..extent.z {
+	for &chunk in chunks {
 		if cancellation.is_cancelled() { return None; }
-		let sample_z = (z * step + sample_offset).min(max_source.z);
-		let world_z = origin.z + sample_z;
-		let z2 = world_z as i64 * world_z as i64;
-		for x in 0..extent.x {
-			let sample_x = (x * step + sample_offset).min(max_source.x);
-			let world_x = origin.x + sample_x;
-			let rem = r2 - world_x as i64 * world_x as i64 - z2;
-			if rem < 0 {
-				continue;
-			}
-			let max_y = isqrt_u64(rem as u64) as i64;
-			let Some((y0, y1)) = sample_y_span(origin.y, extent.y, step, sample_offset, max_y) else { continue };
+		let origin = chunk_origin(chunk);
+		let chunk_offset = (chunk - region.min()) * chunk_extent;
 
-			let mid_y = ((y0 + y1) / 2 * step + sample_offset).min(max_source.y);
-			let voxel = sphere_lod_voxel_unchecked(origin + IVec3::new(sample_x, mid_y, sample_z));
-			areas.push((U16Vec3::new(x as u16, y0 as u16, z as u16), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), voxel));
+		for z in 0..chunk_extent {
+			let sample_z = (z * step + sample_offset).min(max_source.z);
+			let world_z = origin.z + sample_z;
+			let z2 = world_z as i64 * world_z as i64;
+			for x in 0..chunk_extent {
+				let sample_x = (x * step + sample_offset).min(max_source.x);
+				let world_x = origin.x + sample_x;
+				let rem = r2 - world_x as i64 * world_x as i64 - z2;
+				if rem < 0 {
+					continue;
+				}
+				let max_y = isqrt_u64(rem as u64) as i64;
+				let Some((y0, y1)) = sample_y_span(origin.y, chunk_extent, step, sample_offset, max_y) else { continue };
+
+				if use_raw {
+					for y in y0..=y1 {
+						let world = origin + IVec3::new(sample_x, y, sample_z);
+						let pos = chunk_offset + IVec3::new(x, y, z);
+						points.push((pos.as_u16vec3(), sphere_voxel_unchecked(world, 100)));
+					}
+				} else {
+					let sample_y = ((y0 + y1) / 2 * step + sample_offset).min(max_source.y);
+					let world = origin + IVec3::new(sample_x, sample_y, sample_z);
+					let pos = chunk_offset + IVec3::new(x, y0, z);
+					areas.push((pos.as_u16vec3(), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), sphere_lod_voxel_unchecked(world)));
+				}
+			}
 		}
 	}
 
-	if areas.is_empty() {
-		None
+	if use_raw {
+		if points.is_empty() {
+			return None;
+		}
+		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
+		let mut voxels = Voxels::new::<BasicVoxel>();
+		voxels.add_voxels(&voxel_refs);
+		Some(voxels)
 	} else {
+		if areas.is_empty() {
+			return None;
+		}
 		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, *size, voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<LodVoxel>();
 		voxels.add_areas(&area_refs);
 		Some(voxels)
 	}
-}
-
-/// Builds the LOD representation across a possibly multi-chunk region, skipping
-/// forgotten chunks so ownership boundaries stay exact at every LOD.
-fn build_lod_multi_region(region: NonZeroChunkRegion, lod: u8, chunks: &[IVec3], cancellation: &CancellationToken) -> Option<Voxels> {
-	let step = 1i32 << lod as u32;
-	let extent = IVec3::splat(CHUNK_SIZE / step);
-	let mut voxels: Option<Voxels> = None;
-	for &chunk in chunks {
-		if cancellation.is_cancelled() { return None; }
-		let Some(part) = build_lod_region(chunk, IVec3::ONE, lod, cancellation) else { continue };
-		let offset = (chunk - region.min()) * extent;
-		voxels.get_or_insert_with(|| Voxels::new_with_type(part.voxel_type_info())).merge_from(&part, offset);
-	}
-	voxels.filter(|voxels| !voxels.is_empty())
 }
 
 struct SphereSource {
@@ -259,11 +231,7 @@ impl ChunkSource for SphereSource {
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let _span = bevy::log::info_span!("SphereSource build").entered();
-			let voxels = if use_raw {
-				build_raw_region(region, &owned_chunks, &cancellation)
-			} else {
-				build_lod_multi_region(region, lod, &owned_chunks, &cancellation)
-			};
+			let voxels = build_region(region, &owned_chunks, lod, use_raw, &cancellation);
 			if !cancellation.is_cancelled() && let Some(voxels) = voxels {
 				handle.voxels(request_id, grid, region, lod, 0, voxels);
 			}
@@ -308,7 +276,6 @@ impl Plugin for SphereSourcePlugin {
 }
 
 fn spawn_sphere_grid(mut commands: Commands, grid: Res<SphereGrid>) {
-
 	let mut streaming = GridStreaming::default();
 	streaming.mark_present_area(sphere_chunk_region());
 
