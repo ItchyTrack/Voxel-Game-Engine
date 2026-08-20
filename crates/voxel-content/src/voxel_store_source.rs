@@ -79,6 +79,7 @@ impl ChunkSource for VoxelStoreSource {
 		let handle = self.inner.handle.get().expect("voxel store source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let _span = bevy::log::info_span!("VoxelStoreSource build").entered();
 			let grids = source.inner.grids.read().unwrap();
 			if let Some(store) = grids.get(&grid) {
 				'chunks: for z in region.min().z..region.end().z {

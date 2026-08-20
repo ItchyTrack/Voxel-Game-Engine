@@ -280,7 +280,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		let handle = self.inner.handle.get().expect("VOX source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
-			let mut merged = Voxels::new::<T>();
+			let _span = bevy::log::info_span!("VoxSource build").entered();
 			for z in region.min().z..region.end().z {
 				for y in region.min().y..region.end().y {
 					for x in region.min().x..region.end().x {
@@ -288,15 +288,13 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 						if !source.inner.forgotten.contains(grid, chunk) {
 							if cancellation.is_cancelled() { return; }
 							if let Some(voxels) = source.translated_chunk(&binding, chunk) {
-								merged.merge_from(&voxels, (chunk - region.min()) * CHUNK_SIZE);
+								handle.voxels(request_id, grid, NonZeroChunkRegion::from_single(chunk), 0, 0, voxels);
 							}
 						}
 					}
 				}
 			}
-			if !cancellation.is_cancelled() && !merged.is_empty() {
-				handle.voxels(request_id, grid, region, 0, 0, merged);
-			}
+			if cancellation.is_cancelled() { return; }
 			handle.voxels_loaded(request_id);
 		});
 		coverage

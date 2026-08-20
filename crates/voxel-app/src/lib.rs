@@ -7,6 +7,8 @@ mod voxel;
 
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::app::TaskPoolThreadAssignmentPolicy;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -60,6 +62,24 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 		.set(LogPlugin {
 			custom_layer: tracy_layer,
 			..Default::default()
+		}).set(TaskPoolPlugin {
+			task_pool_options: TaskPoolOptions {
+				io: TaskPoolThreadAssignmentPolicy {
+					min_threads: 1,
+					max_threads: 4,
+					percent: 0.1,
+					on_thread_spawn: None,
+					on_thread_destroy: None,
+				},
+				async_compute: TaskPoolThreadAssignmentPolicy {
+					min_threads: 1,
+					max_threads: usize::MAX,
+					percent: 0.6,
+					on_thread_spawn: None,
+					on_thread_destroy: None,
+				},
+				..default()
+			},
 		});
 	#[cfg(target_arch = "wasm32")]
 	let default_plugins = DefaultPlugins.build()

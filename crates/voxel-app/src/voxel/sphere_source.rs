@@ -258,6 +258,7 @@ impl ChunkSource for SphereSource {
 		let handle = self.handle.get().expect("sphere source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let _span = bevy::log::info_span!("SphereSource build").entered();
 			let voxels = if use_raw {
 				build_raw_region(region, &owned_chunks, &cancellation)
 			} else {

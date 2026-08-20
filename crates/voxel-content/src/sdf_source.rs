@@ -158,6 +158,7 @@ impl ChunkSource for SdfSource {
 		let handle = self.inner.handle.get().expect("SDF source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let _span = bevy::log::info_span!("SdfSource build").entered();
 			let step = step_for_lod(lod);
 			let sample_radius = sample_radius(binding.options, step);
 			let step_f32 = step as f32;

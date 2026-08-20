@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 async-priority-queue = "0.1.1"
 crossbeam-channel = "0.5.15"
+tracy-client = { workspace = true }
 futures = "0.3.32"
 bevy = { version = "0.19.0", default-features = false }
 

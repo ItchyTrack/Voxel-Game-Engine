@@ -4,7 +4,6 @@ use std::sync::{Arc, OnceLock};
 use bevy::prelude::*;
 use basic_voxel::{BasicVoxel, LodVoxel};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use tracy_client::span;
 use voxel_data::{grid::{Grid, GridId}, voxels::{VoxelType, VoxelTypeId, Voxels}};
 use voxel_streaming::GridEdits;
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
@@ -93,8 +92,7 @@ impl ChunkSource for ProceduralPlanetSource {
 		let handle = self.handle.get().expect("planet source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
-			let _zone = span!("planet source request voxels");
-			tracy_client::plot!("planet lod level", lod as f64);
+			let _span = bevy::log::info_span!("PlanetSource build").entered();
 			let mut voxels: Option<Voxels> = None;
 			let step = 1i32 << lod as u32;
 			let extent = if use_raw { IVec3::splat(CHUNK_SIZE) } else { IVec3::splat(CHUNK_SIZE / step) };

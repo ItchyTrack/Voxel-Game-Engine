@@ -150,6 +150,7 @@ impl ChunkSource for TreeSource {
 		let handle = self.handle.get().expect("tree source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let _span = bevy::log::info_span!("TreeSource build").entered();
 			let voxels = if use_raw {
 				let mut merged: Option<Voxels> = None;
 				for &chunk in &owned_chunks {

@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_priority_queue::PriorityQueue;
-use bevy::tasks::AsyncComputeTaskPool;
+use bevy::{log::tracing::Instrument, tasks::AsyncComputeTaskPool};
 
 pub struct PriorityTask {
 	priority: f32,
@@ -127,7 +127,7 @@ impl AsyncPriorityTaskPool {
 			.spawn(async move {
 				task.task_func.await;
 				self.task_finished();
-			})
+			}.instrument(bevy::log::info_span!("priority_task")))
 			.detach();
 	}
 

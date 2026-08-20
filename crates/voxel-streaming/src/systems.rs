@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}};
 
-use bevy::ecs::message::{MessageReader, MessageWriter};
+use bevy::{ecs::message::{MessageReader, MessageWriter}, log::tracing::Instrument};
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
@@ -490,7 +490,7 @@ pub(crate) fn request_tiles(
 					dependencies,
 					data,
 				});
-			}).detach();
+			}.instrument(bevy::log::info_span!("build tile"))).detach();
 			streaming.inflight_tiles_by_tag.insert(tag, key);
 			streaming.tiles.get_mut(&key).unwrap().status = TileStatus::InFlight {
 				tag,
