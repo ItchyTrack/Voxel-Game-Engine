@@ -103,7 +103,7 @@ impl GridStore {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use bevy::math::U16Vec3;
+	use bevy::math::UVec3;
 	use voxel_data::voxels::{Voxel, VoxelTypeId, VoxelTypeInfo};
 	use tile_data::CHUNK_SIZE;
 
@@ -119,29 +119,29 @@ mod tests {
 	fn load_chunk_preserves_chunk_local_coordinates() {
 		let mut store = GridStore::default();
 		let mut voxels = Voxels::new_with_type(test_type_info());
-		voxels.add_voxel(U16Vec3::new(0, 0, 0), voxel(7).get_ref());
+		voxels.add_voxel(UVec3::new(0, 0, 0), voxel(7).get_ref());
 		store.save_chunk(IVec3::new(5, 0, 0), 0, &voxels);
 
 		let loaded = store.load_chunk(IVec3::new(5, 0, 0)).expect("chunk should load");
-		assert_eq!(loaded.voxel(&U16Vec3::new(0, 0, 0)), Some(voxel(7).get_ref()));
+		assert_eq!(loaded.voxel(&UVec3::new(0, 0, 0)), Some(voxel(7).get_ref()));
 	}
 
 	#[test]
 	fn load_lod_region_offsets_output_by_region_min_chunk() {
 		let mut store = GridStore::default();
 		let mut voxels = Voxels::new_with_type(test_type_info());
-		voxels.add_voxel(U16Vec3::new(0, 0, 0), voxel(9).get_ref());
+		voxels.add_voxel(UVec3::new(0, 0, 0), voxel(9).get_ref());
 		store.save_chunk(IVec3::new(5, 0, 0), 0, &voxels);
 
 		let loaded = store.load_lod_region(IVec3::new(4, 0, 0), IVec3::new(2, 1, 1), 0.0).expect("lod region should load");
-		assert_eq!(loaded.voxel(&U16Vec3::new(CHUNK_SIZE as u16, 0, 0)), Some(voxel(9).get_ref()));
+		assert_eq!(loaded.voxel(&UVec3::new(CHUNK_SIZE, 0, 0)), Some(voxel(9).get_ref()));
 	}
 
 	#[test]
 	fn load_lod_region_lod1_is_not_generated_by_content_store() {
 		let mut store = GridStore::default();
 		let mut voxels = Voxels::new_with_type(test_type_info());
-		voxels.add_voxel(U16Vec3::new(0, 0, 0), voxel(12).get_ref());
+		voxels.add_voxel(UVec3::new(0, 0, 0), voxel(12).get_ref());
 		store.save_chunk(IVec3::new(5, 0, 0), 0, &voxels);
 
 		assert!(store.load_lod_region(IVec3::new(4, 0, 0), IVec3::new(2, 1, 1), 1.0).is_none());
@@ -151,11 +151,11 @@ mod tests {
 	fn load_lod_region_tracks_negative_chunk_offsets_for_lod0() {
 		let mut store = GridStore::default();
 		let mut voxels = Voxels::new_with_type(test_type_info());
-		voxels.add_voxel(U16Vec3::new(0, 0, 0), voxel(3).get_ref());
+		voxels.add_voxel(UVec3::new(0, 0, 0), voxel(3).get_ref());
 		store.save_chunk(IVec3::new(-2, 1, 0), 0, &voxels);
 
 		let loaded = store.load_lod_region(IVec3::new(-3, 1, 0), IVec3::new(2, 1, 1), 0.0).expect("lod region should load");
 		let positions: Vec<_> = loaded.grid_tree().iter().map(|(pos, _, _)| pos).collect();
-		assert!(positions.contains(&U16Vec3::new(CHUNK_SIZE as u16, 0, 0)), "positions={positions:?}");
+		assert!(positions.contains(&UVec3::new(CHUNK_SIZE, 0, 0)), "positions={positions:?}");
 	}
 }

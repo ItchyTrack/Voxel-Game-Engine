@@ -1,11 +1,11 @@
 use bevy::math::{I8Vec3, IVec3, UVec3, Vec3};
 use bevy::transform::components::Transform;
 
-use crate::grid_tree::{NonZeroVoxelRegion, GridTree, GridType, U32Coord};
+use crate::grid_tree::{NonZeroVoxelRegion, GridTree, GridType};
 
 #[derive(Clone, Debug)]
 pub struct SignedGridTree<G: GridType> {
-	trees: [GridTree<G, U32Coord>; 8],
+	trees: [GridTree<G>; 8],
 }
 
 impl<G: GridType + Default> Default for SignedGridTree<G> {
@@ -73,10 +73,10 @@ impl<G: GridType + Default> SignedGridTree<G> {
 		}
 	}
 
-	pub fn for_each_occupied_tile_cover(&self, region: NonZeroVoxelRegion, tile_size: i32, mut f: impl FnMut(IVec3)) {
+	pub fn for_each_occupied_tile_cover(&self, region: NonZeroVoxelRegion, tile_size: u32, mut f: impl FnMut(IVec3)) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].for_each_occupied_tile_cover(local, tile_size, |tile| {
-				f(join_region_origin(oct, tile.as_uvec3(), tile_size as u32));
+				f(join_region_origin(oct, tile, tile_size as u32));
 			});
 		}
 	}

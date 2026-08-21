@@ -100,7 +100,7 @@ fn stage_cells(voxels: &Voxels, cell_region: NonZeroVoxelRegion) -> FxHashMap<IV
 	if let Some(sample_region) = NonZeroVoxelRegion::from_min_end(sample_min, sample_end) {
 		voxels.grid_tree().for_each_in_region(sample_region, |origin, size, voxel| {
 			let leaf_min = origin.as_ivec3();
-			let leaf_end = leaf_min + IVec3::splat(i32::from(size));
+			let leaf_end = leaf_min + IVec3::splat(size as i32);
 			stage_leaf_boundary(
 				&mut cells,
 				cell_region,

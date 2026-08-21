@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 
-use bevy::math::{I8Vec3, IVec2, IVec3, Quat, U16Vec3, Vec3};
+use bevy::math::{I8Vec3, IVec2, IVec3, Quat, Vec3};
 use bevy::prelude::*;
 
 use tracy_client::span;
@@ -79,8 +79,8 @@ impl Grid {
 		self.subgrids.iter().find_map(|(sub_grid_pos, slot)| slot.owns(pos).then_some(*sub_grid_pos)).unwrap_or(default)
 	}
 
-	fn local_of(sub_grid_pos: IVec3, pos: IVec3) -> U16Vec3 {
-		(pos - sub_grid_pos).as_u16vec3()
+	fn local_of(sub_grid_pos: IVec3, pos: IVec3) -> UVec3 {
+		(pos - sub_grid_pos).as_uvec3()
 	}
 
 	fn intersecting_subgrids(&self, min: IVec3, hi: IVec3) -> Vec<IVec3> {
@@ -193,16 +193,16 @@ impl Grid {
 		let region_lo = Self::local_of(sub_grid_pos, cell_lo);
 		let region_hi = Self::local_of(sub_grid_pos, cell_hi);
 		let mut areas = Vec::new();
-		let read_region = crate::grid_tree::NonZeroVoxelRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_uvec3()).unwrap();
+		let read_region = crate::grid_tree::NonZeroVoxelRegion::from_min_size(region_lo.as_ivec3(), region_hi - region_lo).unwrap();
 		for (pos, run, voxel) in slot.voxels.grid_tree().iter() {
 			let leaf_region = crate::grid_tree::NonZeroVoxelRegion::from_min_end(pos.as_ivec3(), pos.as_ivec3() + IVec3::splat(run as i32)).unwrap();
 			if !leaf_region.intersects(read_region) { continue; }
 			let run_lo = pos.max(region_lo);
-			let run_hi = (pos + U16Vec3::splat(run)).min(region_hi);
+			let run_hi = (pos + UVec3::splat(run)).min(region_hi);
 			let out_extent = run_hi - run_lo;
-			if out_extent == U16Vec3::ZERO { continue; }
+			if out_extent == UVec3::ZERO { continue; }
 			let world = sub_grid_pos + run_lo.as_ivec3();
-			areas.push(((world - out_min).as_u16vec3(), out_extent.as_uvec3(), voxel));
+			areas.push(((world - out_min).as_uvec3(), out_extent, voxel));
 		}
 		out.add_areas(&areas);
 	}
@@ -235,7 +235,7 @@ impl Grid {
 		if let Some(voxel) = voxel {
 			for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(min, hi) {
 				let local = Self::local_of(sub_grid_pos, cell_lo);
-				let extent = (cell_hi - cell_lo).as_u16vec3();
+				let extent = (cell_hi - cell_lo).as_uvec3();
 				let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos, self.voxel_type_info));
 				slot.voxels.add_area(local, extent, voxel);
 				touched.insert(sub_grid_pos);
@@ -245,7 +245,7 @@ impl Grid {
 				let Some(slot) = self.subgrids.get_mut(&sub_grid_pos) else { continue };
 				let Some((cell_lo, cell_hi)) = slot.owned_intersection(min, hi) else { continue };
 				let local = Self::local_of(sub_grid_pos, cell_lo);
-				let extent = (cell_hi - cell_lo).as_u16vec3();
+				let extent = (cell_hi - cell_lo).as_uvec3();
 				if cell_lo == slot.owned_region.min() && cell_hi == slot.owned_hi() {
 					slot.voxels = Voxels::new_with_type(self.voxel_type_info);
 				} else {
@@ -410,7 +410,7 @@ pub struct GridRaycastHit {
 }
 
 pub struct SubGridRaycastHit {
-	pub voxel_pos: U16Vec3,
+	pub voxel_pos: UVec3,
 	pub normal: I8Vec3,
 	pub distance: f32,
 }
@@ -448,7 +448,6 @@ pub fn reconcile_subgrids(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use bevy::math::U16Vec3;
 	use crate::voxels::Voxel;
 
 	fn test_type_info() -> VoxelTypeInfo {
@@ -463,7 +462,7 @@ mod tests {
 	fn splat_voxels_blocking_uses_tree_merge_for_empty_single_subgrid() {
 		bevy::tasks::ComputeTaskPool::get_or_init(|| bevy::tasks::TaskPoolBuilder::new().build());
 		let mut src = Voxels::new_with_type(test_type_info());
-		src.add_area(U16Vec3::ZERO, U16Vec3::splat(16), vox(7).get_ref());
+		src.add_area(UVec3::ZERO, UVec3::splat(16), vox(7).get_ref());
 
 		let mut grid = Grid::new_with_type(test_type_info());
 		let touched = crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::ZERO, voxels: &src, replace: None }]);
@@ -476,7 +475,7 @@ mod tests {
 	#[test]
 	fn splat_voxels_uses_tree_merge_for_empty_single_subgrid() {
 		let mut src = Voxels::new_with_type(test_type_info());
-		src.add_area(U16Vec3::ZERO, U16Vec3::splat(16), vox(7).get_ref());
+		src.add_area(UVec3::ZERO, UVec3::splat(16), vox(7).get_ref());
 
 		let mut grid = Grid::new_with_type(test_type_info());
 		let touched = grid.splat_voxels(IVec3::ZERO, &src);
@@ -493,12 +492,12 @@ mod tests {
 		for x in 0..40 {
 			for y in 0..40 {
 				for z in 0..40 {
-					src.add_voxel(U16Vec3::new(x as u16, y as u16, z as u16), vox(1).get_ref());
+					src.add_voxel(UVec3::new(x, y, z), vox(1).get_ref());
 				}
 			}
 		}
-		for &(x, y, z, c) in &[(5i16, 60i16, 3i16, 2u8), (70, 1, 70, 3), (33, 33, 33, 4)] {
-			src.add_voxel(U16Vec3::new(x as u16, y as u16, z as u16), vox(c).get_ref());
+		for &(x, y, z, c) in &[(5, 60, 3, 2), (70, 1, 70, 3), (33, 33, 33, 4)] {
+			src.add_voxel(UVec3::new(x, y, z), vox(c).get_ref());
 		}
 
 		let base = IVec3::new(-17, 5, -70);
@@ -544,7 +543,7 @@ mod tests {
 	fn subgrid_bvh_stays_in_sync_after_blocking_splat() {
 		bevy::tasks::ComputeTaskPool::get_or_init(|| bevy::tasks::TaskPoolBuilder::new().build());
 		let mut src = Voxels::new_with_type(test_type_info());
-		src.add_area(U16Vec3::ZERO, U16Vec3::splat(8), vox(7).get_ref());
+		src.add_area(UVec3::ZERO, UVec3::splat(8), vox(7).get_ref());
 		let mut grid = Grid::new_with_type(test_type_info());
 
 		crate::splat::splat_voxels_blocking(std::slice::from_mut(&mut grid), &[crate::splat::GridSplat { grid: 0, base: IVec3::new(64, 0, 0), voxels: &src, replace: None }]);

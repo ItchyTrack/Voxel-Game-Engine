@@ -1,6 +1,6 @@
 use super::*;
 
-impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+impl<G: GridType> GridTree<G> {
 	pub(super) fn occupied_count_in_cell(&self, node_depth: u8, node_index: u32, child_index: u8) -> u64 {
 		match self.raw.cell_kind(node_index, child_index) {
 			CellKind::Empty => 0,
@@ -125,7 +125,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		self.remove_node(child_index_abs);
 	}
 
-	pub(super) fn add_areas_recurse<'a>(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, ops: &[AreaOp<'a, G>]) -> bool {
+	pub(super) fn add_areas_recurse<'a>(&mut self, node_index: u32, node_depth: u8, node_origin: UVec3, ops: &[AreaOp<'a, G>]) -> bool {
 		if ops.is_empty() {
 			return true;
 		}
@@ -133,20 +133,19 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		let cell_size = child_size(node_depth);
 		let mut child_ops: [Vec<AreaOp<'a, G>>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
 
-		let node_end = node_origin + IVec3::splat(size(node_depth) as i32);
-		let cell_size_i = cell_size as i32;
+		let node_end = node_origin + UVec3::splat(size(node_depth));
 		for op in ops {
-			let overlap_min = op.region.min().max(node_origin);
-			let overlap_end = op.region.end().min(node_end);
+			let overlap_min = op.region.min().as_uvec3().max(node_origin);
+			let overlap_end = op.region.end().as_uvec3().min(node_end);
 			if overlap_min.cmpge(overlap_end).any() {
 				continue;
 			}
-			let child_min = (overlap_min - node_origin).div_euclid(IVec3::splat(cell_size_i));
-			let child_max = (overlap_end - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size_i));
+			let child_min = (overlap_min - node_origin) / UVec3::splat(cell_size);
+			let child_max = (overlap_end - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 			for z in child_min.z..=child_max.z {
 				for y in child_min.y..=child_max.y {
 					for x in child_min.x..=child_max.x {
-						let i = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as usize;
+						let i = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as usize;
 						child_ops[i].push(*op);
 					}
 				}
@@ -167,13 +166,13 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 				continue;
 			}
 
-			let child_origin = node_origin + (get_child_contents_pos(i).as_uvec3() * cell_size).as_ivec3();
-			let child_end = child_origin + IVec3::splat(cell_size as i32);
+			let child_origin = node_origin + get_child_contents_pos(i).as_uvec3() * cell_size;
+			let child_end = child_origin + UVec3::splat(cell_size);
 			let mut partial_run_start = 0usize;
 
 			for op_index in 0..bucket.len() {
 				let op = bucket[op_index];
-				let fully_covered = op.region.min().cmple(child_origin).all() && child_end.cmple(op.region.end()).all();
+				let fully_covered = op.region.min().as_uvec3().cmple(child_origin).all() && child_end.cmple(op.region.end().as_uvec3()).all();
 				if !fully_covered && node_depth != 0 {
 					continue;
 				}

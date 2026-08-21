@@ -1,4 +1,4 @@
-use crate::{grid_tree::{AsGridData, GridTree, GridType, U16Coord}, voxels::{VoxelRef, VoxelType, VoxelTypeId, VoxelTypeInfo}};
+use crate::{grid_tree::{AsGridData, GridTree, GridType}, voxels::{VoxelRef, VoxelType, VoxelTypeId, VoxelTypeInfo}};
 use serde::{Deserialize, Serialize};
 
 /// Fixed-width `u16` grid type for non-voxel trees that store compact ids.
@@ -56,6 +56,6 @@ impl GridType for VoxelGridType {
 	}
 }
 
-pub type PackedGridTree = GridTree<PackedCell, U16Coord>;
-pub type VoxelGridTree = GridTree<VoxelGridType, U16Coord>;
+pub type PackedGridTree = GridTree<PackedCell>;
+pub type VoxelGridTree = GridTree<VoxelGridType>;
 pub type PackedNode<'a> = crate::grid_tree::GridTreeNode<'a>;

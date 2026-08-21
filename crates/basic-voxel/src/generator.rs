@@ -1,6 +1,6 @@
 use bevy::math::{IVec3, UVec3};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileVoxelReducer, VoxelRegionResult};
-use voxel_data::grid_tree::{GridCoord, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps};
+use voxel_data::grid_tree::{NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps};
 use voxel_data::voxel_grid_tree::VoxelGridType;
 use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, VoxelTypeId, Voxels};
 
@@ -156,14 +156,11 @@ struct BasicVoxelReducer {
 impl VoxelReducer for BasicVoxelReducer {
 	type Output = LodVoxel;
 
-	fn reduce<'overlaps, 'a, Co>(
+	fn reduce<'overlaps, 'a>(
 		&mut self,
 		region: NonZeroVoxelRegion,
-		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
-	) -> Option<Self::Output>
-	where
-		Co: GridCoord,
-	{
+		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
+	) -> Option<Self::Output> {
 		reduce_basic_voxel(region, &self.sources, overlaps.map(|overlap| SourceOverlap {
 			source_index: overlap.source_index,
 			source_region: overlap.source_region,
@@ -215,14 +212,11 @@ struct MarchingVoxelReducer;
 impl VoxelReducer for MarchingVoxelReducer {
 	type Output = MarchingVoxel;
 
-	fn reduce<'overlaps, 'a, Co>(
+	fn reduce<'overlaps, 'a>(
 		&mut self,
 		_region: NonZeroVoxelRegion,
-		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
-	) -> Option<Self::Output>
-	where
-		Co: GridCoord,
-	{
+		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
+	) -> Option<Self::Output> {
 		let mut color = [0u64; 4];
 		let mut mass = 0u64;
 		let mut weight = 0u64;
@@ -302,7 +296,7 @@ fn round_channel(sum: u64, weight: u64) -> u8 {
 
 #[cfg(test)]
 mod tests {
-	use bevy::math::{IVec3, U16Vec3};
+	use bevy::math::{IVec3, UVec3};
 	use tile_data::{NonZeroChunkRegion, TileVoxelReducerRegistry, VoxelRegionResult};
 	use voxel_data::voxels::{VoxelType, Voxels};
 
@@ -310,7 +304,7 @@ mod tests {
 
 	fn basic_result(chunk: IVec3, color: [u8; 4]) -> VoxelRegionResult {
 		let mut voxels = Voxels::new::<BasicVoxel>();
-		voxels.add_voxel(U16Vec3::ZERO, BasicVoxel { color, mass: 1 }.get_ref());
+		voxels.add_voxel(UVec3::ZERO, BasicVoxel { color, mass: 1 }.get_ref());
 		VoxelRegionResult { area: NonZeroChunkRegion::from_single(chunk), lod: 0, voxels }
 	}
 
@@ -322,8 +316,8 @@ mod tests {
 		let inputs = [&first, &second];
 		let output = tile_data::TileVoxelReducer::reduce(&BasicToLodVoxelReducer, area, 1, &inputs).unwrap();
 
-		let first = LodVoxel::from_voxel_ref(&output.voxel(&U16Vec3::ZERO).unwrap());
-		let second = LodVoxel::from_voxel_ref(&output.voxel(&U16Vec3::new(32, 0, 0)).unwrap());
+		let first = LodVoxel::from_voxel_ref(&output.voxel(&UVec3::ZERO).unwrap());
+		let second = LodVoxel::from_voxel_ref(&output.voxel(&UVec3::new(32, 0, 0)).unwrap());
 		assert!(first.colors.contains(&[255, 0, 0, 255]));
 		assert!(second.colors.contains(&[0, 255, 0, 255]));
 	}
@@ -333,7 +327,7 @@ mod tests {
 		let area = NonZeroChunkRegion::new(IVec3::new(-2, 0, 0), bevy::math::UVec3::new(2, 1, 1)).unwrap();
 		let raw = basic_result(IVec3::new(-2, 0, 0), [255, 0, 0, 255]);
 		let mut exact_voxels = Voxels::new::<LodVoxel>();
-		exact_voxels.add_voxel(U16Vec3::ZERO, LodVoxel::solid([0, 0, 255, 255]).get_ref());
+		exact_voxels.add_voxel(UVec3::ZERO, LodVoxel::solid([0, 0, 255, 255]).get_ref());
 		let exact = VoxelRegionResult {
 			area: NonZeroChunkRegion::from_single(IVec3::new(-1, 0, 0)),
 			lod: 1,
@@ -343,8 +337,8 @@ mod tests {
 		registry.insert(BasicToLodVoxelReducer);
 		let output = registry.reduce(area, 1, LodVoxel::TYPE_ID, &[raw, exact]).unwrap();
 
-		let raw = LodVoxel::from_voxel_ref(&output.voxel(&U16Vec3::ZERO).unwrap());
-		let exact = LodVoxel::from_voxel_ref(&output.voxel(&U16Vec3::new(32, 0, 0)).unwrap());
+		let raw = LodVoxel::from_voxel_ref(&output.voxel(&UVec3::ZERO).unwrap());
+		let exact = LodVoxel::from_voxel_ref(&output.voxel(&UVec3::new(32, 0, 0)).unwrap());
 		assert!(raw.colors.contains(&[255, 0, 0, 255]));
 		assert_eq!(exact, LodVoxel::solid([0, 0, 255, 255]));
 	}

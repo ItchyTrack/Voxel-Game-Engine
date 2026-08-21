@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use bevy::math::U16Vec3;
+use bevy::math::UVec3;
 use tile_data::{TileData, TileGenerationSession, TileGenerator, TileVoxelReducerRegistry};
 use voxel_data::voxels::VoxelTypeId;
 use voxel_gpu::{VoxelGpuDataReaders, packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupId}};
@@ -12,8 +12,8 @@ pub struct RasterTileData {
 	pub faces: PackedBufferGroupAllocation,
 	pub palette: PackedBufferGroupAllocation,
 	pub face_count: u32,
-	pub bounds_min: U16Vec3,
-	pub bounds_max: U16Vec3,
+	pub bounds_min: UVec3,
+	pub bounds_max: UVec3,
 	pub voxel_lod: u8,
 }
 
@@ -26,8 +26,8 @@ pub struct RasterTileCapabilityData {
 	pub faces: PackedBufferGroupId,
 	pub palette: PackedBufferGroupId,
 	pub face_count: u32,
-	pub bounds_min: U16Vec3,
-	pub bounds_max: U16Vec3,
+	pub bounds_min: UVec3,
+	pub bounds_max: UVec3,
 	pub voxel_lod: u8,
 }
 

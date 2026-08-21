@@ -60,7 +60,7 @@ pub(crate) fn run_over_diff(
 		let (old_outer, old_inner) = band_boxes(old_bands, lod);
 		let (new_outer, new_inner) = band_boxes(new_bands, lod);
 		if new_outer == old_outer && new_inner == old_inner { continue; }
-		let size = 1i32 << lod;
+		let size = 1u32 << lod;
 		emit_minus_minus(new_outer, old_outer, new_inner, lod, size, true, streaming, &mut f);
 		emit_minus(intersection(new_outer, old_inner), new_inner, lod, size, true, streaming, &mut f);
 
@@ -84,7 +84,7 @@ fn band_boxes(bands: &[LodBand], lod: u8) -> (ChunkRegion, ChunkRegion) {
 	}
 }
 
-fn emit_minus<F: FnMut(u8, IVec3, bool)>(region: ChunkRegion, cut: ChunkRegion, lod: u8, size: i32, added: bool, streaming: &GridStreaming, f: &mut F) {
+fn emit_minus<F: FnMut(u8, IVec3, bool)>(region: ChunkRegion, cut: ChunkRegion, lod: u8, size: u32, added: bool, streaming: &GridStreaming, f: &mut F) {
 	for slab in region_minus_region(region, cut) {
 		emit_region(slab, lod, size, added, streaming, f);
 	}
@@ -95,7 +95,7 @@ fn emit_minus_minus<F: FnMut(u8, IVec3, bool)>(
 	cut_a: ChunkRegion,
 	cut_b: ChunkRegion,
 	lod: u8,
-	size: i32,
+	size: u32,
 	added: bool,
 	streaming: &GridStreaming,
 	f: &mut F,
@@ -124,7 +124,7 @@ fn region_minus_region(a: ChunkRegion, b: ChunkRegion) -> [ChunkRegion; 6] {
 	]
 }
 
-fn emit_region<F: FnMut(u8, IVec3, bool)>(region: ChunkRegion, lod: u8, size: i32, added: bool, streaming: &GridStreaming, f: &mut F) {
+fn emit_region<F: FnMut(u8, IVec3, bool)>(region: ChunkRegion, lod: u8, size: u32, added: bool, streaming: &GridStreaming, f: &mut F) {
 	if region.is_empty() {
 		return;
 	}

@@ -25,7 +25,7 @@ impl StreamingVoxels {
 
 	pub fn add_voxel(&mut self, pos: IVec3, voxel: VoxelRef) {
 		let chunk = chunk_of(pos);
-		let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE as i32)).as_u16vec3();
+		let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE as i32)).as_uvec3();
 		self.chunks.entry(chunk).or_insert_with(|| Voxels::new_with_type(self.voxel_type_info)).add_voxel(local, voxel);
 	}
 

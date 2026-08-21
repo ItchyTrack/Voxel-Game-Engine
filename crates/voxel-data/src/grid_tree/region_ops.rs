@@ -11,7 +11,7 @@ enum BlockSdfRelation {
 	Intersecting,
 }
 
-fn sdf_relation_for_block(sdf: &(impl Sdf + ?Sized), block_min: IVec3, block_size: i32) -> BlockSdfRelation {
+fn sdf_relation_for_block(sdf: &(impl Sdf + ?Sized), block_min: UVec3, block_size: u32) -> BlockSdfRelation {
 	let min = block_min.as_vec3();
 	let size = Vec3::splat(block_size as f32);
 	let center = min + size * 0.5;
@@ -26,7 +26,7 @@ fn sdf_relation_for_block(sdf: &(impl Sdf + ?Sized), block_min: IVec3, block_siz
 	}
 }
 
-impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+impl<G: GridType> GridTree<G> {
 	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, data: G::Data<'_>) {
 		let (min, max) = shrink_aabb_with_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
 		let Some(region) = voxel_region_from_bounds(min, max) else { return };
@@ -41,7 +41,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 
 	fn fill_sdf_region(&mut self, region: NonZeroVoxelRegion, sdf: &(impl Sdf + ?Sized), data: G::Data<'_>) {
 		let Some(region) = NonZeroVoxelRegion::from_min_end(region.min(), region.end()) else { return };
-		if !self.make_sure_root_covers_area(region.min(), region.max()) || !self.has_node_budget() {
+		if !self.make_sure_root_covers_area(region.min().as_uvec3(), region.max().as_uvec3()) || !self.has_node_budget() {
 			return;
 		}
 
@@ -64,22 +64,22 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		&mut self,
 		node_index: u32,
 		node_depth: u8,
-		node_origin: IVec3,
+		node_origin: UVec3,
 		region: NonZeroVoxelRegion,
 		sdf: &(impl Sdf + ?Sized),
 		data: G::Data<'_>,
 	) -> bool {
-		let node_region = NonZeroVoxelRegion::from_min_end(node_origin, node_origin + IVec3::splat(size(node_depth) as i32)).unwrap();
+		let node_region = NonZeroVoxelRegion::from_min_size(node_origin.as_ivec3(), UVec3::splat(size(node_depth))).unwrap();
 		let Some(overlap) = node_region.intersection(region) else { return true };
 		if region.contains_region(node_region) {
-			match sdf_relation_for_block(sdf, node_origin, size(node_depth) as i32) {
+			match sdf_relation_for_block(sdf, node_origin, size(node_depth)) {
 				BlockSdfRelation::Outside => return true,
 				BlockSdfRelation::Inside => {
 					if node_index == 0 {
-						for z in 0..SIZE as i32 {
-							for y in 0..SIZE as i32 {
-								for x in 0..SIZE as i32 {
-									let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+						for z in 0..SIZE {
+							for y in 0..SIZE {
+								for x in 0..SIZE {
+									let child_index = (x + y * SIZE + z * SIZE * SIZE) as u8;
 									self.set_child_area_to_data(node_index, node_depth, child_index, data);
 								}
 							}
@@ -91,16 +91,16 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 				BlockSdfRelation::Intersecting => {}
 			}
 		}
-		let cell_size = child_size(node_depth) as i32;
-		let child_min = (overlap.min() - node_origin).div_euclid(IVec3::splat(cell_size));
-		let child_max = (overlap.end() - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		let cell_size = child_size(node_depth);
+		let child_min = (overlap.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
+		let child_max = (overlap.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 
 		for z in child_min.z..=child_max.z {
 			for y in child_min.y..=child_max.y {
 				for x in child_min.x..=child_max.x {
-					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
-					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
-					let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+					let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
+					let child_origin = node_origin + UVec3::new(x, y, z) * cell_size;
+					let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 					match sdf_relation_for_block(sdf, child_origin, cell_size) {
 						BlockSdfRelation::Outside => continue,
 						BlockSdfRelation::Inside if region.contains_region(child_region) => {
@@ -110,7 +110,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 						BlockSdfRelation::Inside | BlockSdfRelation::Intersecting => {}
 					}
 					if node_depth == 0 {
-						if sdf.sample(voxel_center(child_origin)) <= 0.0 {
+						if sdf.sample(voxel_center(child_origin.as_ivec3())) <= 0.0 {
 							self.set_voxel_child_to_data(node_index, child_index, data);
 						}
 						continue;
@@ -134,14 +134,14 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		&mut self,
 		node_index: u32,
 		node_depth: u8,
-		node_origin: IVec3,
+		node_origin: UVec3,
 		region: NonZeroVoxelRegion,
 		sdf: &(impl Sdf + ?Sized),
 	) -> bool {
-		let node_region = NonZeroVoxelRegion::from_min_end(node_origin, node_origin + IVec3::splat(size(node_depth) as i32)).unwrap();
+		let node_region = NonZeroVoxelRegion::from_min_size(node_origin.as_ivec3(), UVec3::splat(size(node_depth))).unwrap();
 		let Some(overlap) = node_region.intersection(region) else { return true };
 		if region.contains_region(node_region) {
-			match sdf_relation_for_block(sdf, node_origin, size(node_depth) as i32) {
+			match sdf_relation_for_block(sdf, node_origin, size(node_depth)) {
 				BlockSdfRelation::Outside => return true,
 				BlockSdfRelation::Inside => {
 					if node_index == 0 {
@@ -160,16 +160,16 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 				BlockSdfRelation::Intersecting => {}
 			}
 		}
-		let cell_size = child_size(node_depth) as i32;
-		let child_min = (overlap.min() - node_origin).div_euclid(IVec3::splat(cell_size));
-		let child_max = (overlap.end() - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		let cell_size = child_size(node_depth);
+		let child_min = (overlap.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
+		let child_max = (overlap.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 
 		for z in child_min.z..=child_max.z {
 			for y in child_min.y..=child_max.y {
 				for x in child_min.x..=child_max.x {
-					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
-					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
-					let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+					let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
+					let child_origin = node_origin + UVec3::new(x, y, z) * cell_size;
+					let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 					let cell_kind = self.raw.cell_kind(node_index, child_index);
 					if cell_kind == CellKind::Empty {
 						continue;
@@ -183,7 +183,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 						BlockSdfRelation::Inside | BlockSdfRelation::Intersecting => {}
 					}
 					if node_depth == 0 {
-						if sdf.sample(voxel_center(child_origin)) <= 0.0 {
+						if sdf.sample(voxel_center(child_origin.as_ivec3())) <= 0.0 {
 							self.set_child_area_to_empty(node_index, node_depth, child_index);
 						}
 						continue;
@@ -232,7 +232,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		let Some(source_region) = source_region.intersection(other.root_region()) else { return };
 		if self.is_empty() && source_region.contains_region(other.root_region()) {
 			*self = other.clone();
-			self.raw.set_root(other.raw.root_pos() + offset, other.raw.root_depth());
+			self.raw.set_root((other.raw.root_pos().as_ivec3() + offset).as_uvec3(), other.raw.root_depth());
 			return;
 		}
 		let Some(source_bounds) = other.occupied_bounds_in_region(source_region) else { return };
@@ -267,9 +267,9 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		let Some(source_region) = source_region.intersection(other.root_region()) else { return };
 		let Some(source_bounds) = other.occupied_bounds_in_region(source_region) else { return };
 		let dest_bounds = source_bounds.translated(offset);
-		if !self.make_sure_root_covers_area(dest_bounds.min(), dest_bounds.max()) { return; }
+		if !self.make_sure_root_covers_area(dest_bounds.min().as_uvec3(), dest_bounds.max().as_uvec3()) { return; }
 		let leaves: Vec<_> = other.view().leaves().filter_map(|leaf| {
-			let leaf_region = NonZeroVoxelRegion::from_min_end(leaf.origin, leaf.origin + IVec3::splat(leaf.size as i32)).unwrap();
+			let leaf_region = NonZeroVoxelRegion::from_min_size(leaf.origin.as_ivec3(), UVec3::splat(leaf.size)).unwrap();
 			leaf_region.intersection(source_region).map(|clipped| (clipped, leaf.data_value()))
 		}).collect();
 		for (clipped, data) in leaves {
@@ -290,12 +290,12 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 
 	fn merge_region_from_source_walk(&mut self, other: &Self, source_bounds: NonZeroVoxelRegion, full_root_covered: bool, offset: IVec3, overwrite: bool) {
 		let dest_bounds = source_bounds.translated(offset);
-		if !self.make_sure_root_covers_area(dest_bounds.min(), dest_bounds.max()) || !self.has_node_budget() {
+		if !self.make_sure_root_covers_area(dest_bounds.min().as_uvec3(), dest_bounds.max().as_uvec3()) || !self.has_node_budget() {
 			return;
 		}
 
 		if full_root_covered {
-			if let Some(dest_node_index) = self.node_for_region(other.raw.root_pos() + offset, other.raw.root_depth()) {
+			if let Some(dest_node_index) = self.node_for_region((other.raw.root_pos().as_ivec3() + offset).as_uvec3(), other.raw.root_depth()) {
 				if self.merge_aligned_nodes_from(other, 0, dest_node_index, other.raw.root_depth(), overwrite) {
 					return;
 				}
@@ -304,21 +304,19 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		let _ = self.merge_region_from_recurse(other, 0, other.raw.root_depth(), other.raw.root_pos(), source_bounds, offset, overwrite);
 	}
 
-	fn node_for_region(&mut self, target_origin: IVec3, target_depth: u8) -> Option<u32> {
+	fn node_for_region(&mut self, target_origin: UVec3, target_depth: u8) -> Option<u32> {
 		let mut node_index = 0;
 		let mut node_depth = self.raw.root_depth();
 		let mut node_origin = self.raw.root_pos();
 		while node_depth > target_depth {
-			let cell_size = child_size(node_depth) as i32;
+			let cell_size = child_size(node_depth);
+			if target_origin.cmple(node_origin).any() { return None;}
 			let rel = target_origin - node_origin;
-			if rel.is_negative_bitmask() != 0 {
+			let child_pos = rel / UVec3::splat(cell_size);
+			if child_pos.cmpge(UVec3::splat(SIZE as u32)).any() {
 				return None;
 			}
-			let child_pos = rel.div_euclid(IVec3::splat(cell_size));
-			if child_pos.cmplt(IVec3::ZERO).any() || child_pos.cmpge(IVec3::splat(SIZE as i32)).any() {
-				return None;
-			}
-			let child_index = (child_pos.x + child_pos.y * SIZE as i32 + child_pos.z * SIZE as i32 * SIZE as i32) as u8;
+			let child_index = (child_pos.x + child_pos.y * SIZE as u32 + child_pos.z * SIZE as u32 * SIZE as u32) as u8;
 			node_origin += child_pos * cell_size;
 			node_index = self.child_node_for_partial_area(node_index, child_index)?;
 			node_depth -= 1;
@@ -356,21 +354,21 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		true
 	}
 
-	fn merge_region_from_recurse(&mut self, other: &Self, src_node_index: u32, src_node_depth: u8, src_node_origin: IVec3, source_region: NonZeroVoxelRegion, offset: IVec3, overwrite: bool) -> bool {
-		let node_region = NonZeroVoxelRegion::from_min_end(src_node_origin, src_node_origin + IVec3::splat(size(src_node_depth) as i32)).unwrap();
+	fn merge_region_from_recurse(&mut self, other: &Self, src_node_index: u32, src_node_depth: u8, src_node_origin: UVec3, source_region: NonZeroVoxelRegion, offset: IVec3, overwrite: bool) -> bool {
+		let node_region = NonZeroVoxelRegion::from_min_size(src_node_origin.as_ivec3(), UVec3::splat(size(src_node_depth))).unwrap();
 		let Some(overlap) = source_region.intersection(node_region) else { return true };
-		let cell_size = child_size(src_node_depth) as i32;
-		let child_min = (overlap.min() - src_node_origin).div_euclid(IVec3::splat(cell_size));
-		let child_max = (overlap.end() - src_node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		let cell_size = child_size(src_node_depth);
+		let child_max = (overlap.end().as_uvec3() - src_node_origin - UVec3::ONE) / UVec3::splat(cell_size);
+		let child_min = (overlap.min().as_uvec3() - src_node_origin) / UVec3::splat(cell_size);
 
 		for z in child_min.z..=child_max.z {
 			for y in child_min.y..=child_max.y {
 				for x in child_min.x..=child_max.x {
-					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+					let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
 					let cell_kind = other.raw.cell_kind(src_node_index, child_index);
 					if cell_kind == CellKind::Empty && !overwrite { continue; }
-					let child_origin = src_node_origin + IVec3::new(x, y, z) * cell_size;
-					let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+					let child_origin = src_node_origin + UVec3::new(x, y, z) * cell_size;
+					let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 					let Some(clipped_source) = source_region.intersection(child_region) else { continue };
 					match cell_kind {
 						CellKind::Empty => self.clear_region(clipped_source.translated(offset)),
@@ -382,7 +380,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 							let child_node_index = other.raw.child_index(src_node_index, child_index);
 							let child_depth = src_node_depth - 1;
 							if source_region.contains_region(child_region) {
-								if let Some(dest_node_index) = self.node_for_region(child_origin + offset, child_depth) {
+								if let Some(dest_node_index) = self.node_for_region((child_origin.as_ivec3() + offset).as_uvec3(), child_depth) {
 									if !self.merge_aligned_nodes_from(other, child_node_index, dest_node_index, child_depth, overwrite) { return false; }
 									continue;
 								}
@@ -400,19 +398,19 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		self.fill_region_recurse(0, self.raw.root_depth(), self.raw.root_pos(), region, data)
 	}
 
-	fn fill_region_recurse(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, region: NonZeroVoxelRegion, data: G::Data<'_>) -> bool {
-		let node_region = NonZeroVoxelRegion::from_min_end(node_origin, node_origin + IVec3::splat(size(node_depth) as i32)).unwrap();
+	fn fill_region_recurse(&mut self, node_index: u32, node_depth: u8, node_origin: UVec3, region: NonZeroVoxelRegion, data: G::Data<'_>) -> bool {
+		let node_region = NonZeroVoxelRegion::from_min_size(node_origin.as_ivec3(), UVec3::splat(size(node_depth))).unwrap();
 		let Some(overlap) = region.intersection(node_region) else { return true };
-		let cell_size = child_size(node_depth) as i32;
-		let child_min = (overlap.min() - node_origin).div_euclid(IVec3::splat(cell_size));
-		let child_max = (overlap.end() - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		let cell_size = child_size(node_depth);
+		let child_min = (overlap.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
+		let child_max = (overlap.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 
 		for z in child_min.z..=child_max.z {
 			for y in child_min.y..=child_max.y {
 				for x in child_min.x..=child_max.x {
-					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
-					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
-					let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+					let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
+					let child_origin = node_origin + UVec3::new(x, y, z) * cell_size;
+					let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 					if region.contains_region(child_region) || node_depth == 0 {
 						self.set_child_area_to_data(node_index, node_depth, child_index, data);
 						continue;
@@ -441,31 +439,31 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 			return self.raw.item_count();
 		}
 
-		fn recurse<G: GridType, Co: GridCoord>(tree: &GridTree<G, Co>, node_index: u32, node_depth: u8, node_origin: IVec3, region: NonZeroVoxelRegion) -> u64 {
+		fn recurse<G: GridType>(tree: &GridTree<G>, node_index: u32, node_depth: u8, node_origin: UVec3, region: NonZeroVoxelRegion) -> u64 {
 			if tree.raw.used_cell_count(node_index) == 0 {
 				return 0;
 			}
 
-			let node_region = NonZeroVoxelRegion::from_min_end(node_origin, node_origin + IVec3::splat(size(node_depth) as i32)).unwrap();
+			let node_region = NonZeroVoxelRegion::from_min_size(node_origin.as_ivec3(), UVec3::splat(size(node_depth))).unwrap();
 			if region == node_region {
 				return tree.occupied_count_in_node(node_index, node_depth);
 			}
 
-			let cell_size = child_size(node_depth) as i32;
-			let child_min = (region.min() - node_origin).div_euclid(IVec3::splat(cell_size));
-			let child_max = (region.end() - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+			let cell_size = child_size(node_depth);
+			let child_min = (region.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
+			let child_max = (region.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 			let mut count = 0u64;
 			for z in child_min.z..=child_max.z {
 				for y in child_min.y..=child_max.y {
 					for x in child_min.x..=child_max.x {
-						let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+						let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
 						let cell_kind = tree.raw.cell_kind(node_index, child_index);
 						if cell_kind == CellKind::Empty {
 							continue;
 						}
 
-						let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
-						let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+						let child_origin = node_origin + UVec3::new(x, y, z) * cell_size;
+						let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 						if region.contains_region(child_region) {
 							count += tree.occupied_count_in_cell(node_depth, node_index, child_index);
 							continue;
@@ -500,26 +498,26 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		source: &Self,
 		src_node_index: u32,
 		src_node_depth: u8,
-		src_node_origin: IVec3,
+		src_node_origin: UVec3,
 		source_region: NonZeroVoxelRegion,
 		offset: IVec3,
 	) {
-		let node_region = NonZeroVoxelRegion::from_min_end(src_node_origin, src_node_origin + IVec3::splat(size(src_node_depth) as i32)).unwrap();
+		let node_region = NonZeroVoxelRegion::from_min_size(src_node_origin.as_ivec3(), UVec3::splat(size(src_node_depth))).unwrap();
 		let Some(overlap) = source_region.intersection(node_region) else { return };
-		let cell_size = child_size(src_node_depth) as i32;
-		let child_min = (overlap.min() - src_node_origin).div_euclid(IVec3::splat(cell_size));
-		let child_max = (overlap.end() - src_node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		let cell_size = child_size(src_node_depth);
+		let child_min = (overlap.min().as_uvec3() - src_node_origin) / UVec3::splat(cell_size);
+		let child_max = (overlap.end().as_uvec3() - src_node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 		for z in child_min.z..=child_max.z {
 			for y in child_min.y..=child_max.y {
 				for x in child_min.x..=child_max.x {
-					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+					let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
 					let cell_kind = source.raw.cell_kind(src_node_index, child_index);
 					if cell_kind == CellKind::Empty {
 						continue;
 					}
 
-					let child_origin = src_node_origin + IVec3::new(x, y, z) * cell_size;
-					let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+					let child_origin = src_node_origin + UVec3::new(x, y, z) * cell_size;
+					let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 					let clipped_source = NonZeroVoxelRegion::from_min_end(child_region.min().max(overlap.min()), child_region.end().min(overlap.end())).unwrap();
 					match cell_kind {
 						CellKind::Empty => unreachable!(),
@@ -568,13 +566,13 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		}
 	}
 
-	pub fn remove_area(&mut self, pos: &Co::Pos, size: UVec3) {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), size) else { return };
+	pub fn remove_area(&mut self, pos: &UVec3, size: UVec3) {
+		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size) else { return };
 		self.clear_region(region);
 	}
 
 	fn root_region(&self) -> NonZeroVoxelRegion {
-		NonZeroVoxelRegion::from_min_end(self.raw.root_pos(), self.raw.root_pos() + IVec3::splat(size(self.raw.root_depth()) as i32)).unwrap()
+		NonZeroVoxelRegion::from_min_size(self.raw.root_pos().as_ivec3(), UVec3::splat(size(self.raw.root_depth()))).unwrap()
 	}
 
 	pub fn occupied_bounds(&self) -> Option<NonZeroVoxelRegion> {
@@ -589,34 +587,34 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		enum Edge { Min, Max }
 
 		#[inline]
-		fn axis_value(v: IVec3, axis: Axis) -> i32 {
+		fn axis_value(v: UVec3, axis: Axis) -> u32 {
 			match axis { Axis::X => v.x, Axis::Y => v.y, Axis::Z => v.z }
 		}
 
 		#[inline]
-		fn region_edge(region: NonZeroVoxelRegion, axis: Axis, edge: Edge) -> i32 {
+		fn region_edge(region: NonZeroVoxelRegion, axis: Axis, edge: Edge) -> u32 {
 			match (axis, edge) {
-				(Axis::X, Edge::Min) => region.min().x,
-				(Axis::X, Edge::Max) => region.end().x,
-				(Axis::Y, Edge::Min) => region.min().y,
-				(Axis::Y, Edge::Max) => region.end().y,
-				(Axis::Z, Edge::Min) => region.min().z,
-				(Axis::Z, Edge::Max) => region.end().z,
+				(Axis::X, Edge::Min) => region.min().x as u32,
+				(Axis::X, Edge::Max) => region.end().x as u32,
+				(Axis::Y, Edge::Min) => region.min().y as u32,
+				(Axis::Y, Edge::Max) => region.end().y as u32,
+				(Axis::Z, Edge::Min) => region.min().z as u32,
+				(Axis::Z, Edge::Max) => region.end().z as u32,
 			}
 		}
 
-		fn frontier_from_child<G: GridType, Co: GridCoord>(
-			tree: &GridTree<G, Co>,
+		fn frontier_from_child<G: GridType>(
+			tree: &GridTree<G>,
 			node_index: u32,
 			child_index: u8,
 			node_depth: u8,
-			child_origin: IVec3,
-			cell_size: i32,
+			child_origin: UVec3,
+			cell_size: u32,
 			region: NonZeroVoxelRegion,
 			axis: Axis,
 			edge: Edge,
-		) -> Option<i32> {
-			let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+		) -> Option<u32> {
+			let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 			let overlap = if region.contains_region(child_region) {
 				child_region
 			} else {
@@ -630,22 +628,22 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 			}
 		}
 
-		fn frontier<G: GridType, Co: GridCoord>(
-			tree: &GridTree<G, Co>,
+		fn frontier<G: GridType>(
+			tree: &GridTree<G>,
 			node_index: u32,
 			node_depth: u8,
-			node_origin: IVec3,
+			node_origin: UVec3,
 			region: NonZeroVoxelRegion,
 			axis: Axis,
 			edge: Edge,
-		) -> Option<i32> {
+		) -> Option<u32> {
 			if tree.raw.used_cell_count(node_index) == 0 {
 				return None;
 			}
 
-			let cell_size = child_size(node_depth) as i32;
-			let child_min = (region.min() - node_origin).div_euclid(IVec3::splat(cell_size));
-			let child_max = (region.end() - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+			let cell_size = child_size(node_depth);
+			let child_min = (region.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
+			let child_max = (region.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 			let outer_start = axis_value(child_min, axis);
 			let outer_end = axis_value(child_max, axis);
 			let region_min = region_edge(region, axis, Edge::Min);
@@ -656,15 +654,15 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 				let slab_min = axis_value(node_origin, axis) + outer * cell_size;
 				let slab_end = slab_min + cell_size;
 				let best_possible = if edge == Edge::Min { slab_min.max(region_min) } else { slab_end.min(region_max) };
-				let mut best: Option<i32> = None;
+				let mut best: Option<u32> = None;
 
 				match axis {
 					Axis::X => {
 						for z in child_min.z..=child_max.z {
 							for y in child_min.y..=child_max.y {
-								let child_index = (outer + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+								let child_index = (outer + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
 								if tree.raw.cell_kind(node_index, child_index) == CellKind::Empty { continue; }
-								let child_origin = node_origin + IVec3::new(outer, y, z) * cell_size;
+								let child_origin = node_origin + UVec3::new(outer, y, z) * cell_size;
 								if let Some(candidate) = frontier_from_child(tree, node_index, child_index, node_depth, child_origin, cell_size, region, axis, edge) {
 									best = Some(match best { Some(current) if edge == Edge::Min => current.min(candidate), Some(current) => current.max(candidate), None => candidate });
 									if Some(best_possible) == best { return best; }
@@ -675,9 +673,9 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 					Axis::Y => {
 						for z in child_min.z..=child_max.z {
 							for x in child_min.x..=child_max.x {
-								let child_index = (x + outer * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
+								let child_index = (x + outer * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
 								if tree.raw.cell_kind(node_index, child_index) == CellKind::Empty { continue; }
-								let child_origin = node_origin + IVec3::new(x, outer, z) * cell_size;
+								let child_origin = node_origin + UVec3::new(x, outer, z) * cell_size;
 								if let Some(candidate) = frontier_from_child(tree, node_index, child_index, node_depth, child_origin, cell_size, region, axis, edge) {
 									best = Some(match best { Some(current) if edge == Edge::Min => current.min(candidate), Some(current) => current.max(candidate), None => candidate });
 									if Some(best_possible) == best { return best; }
@@ -688,9 +686,9 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 					Axis::Z => {
 						for y in child_min.y..=child_max.y {
 							for x in child_min.x..=child_max.x {
-								let child_index = (x + y * SIZE as i32 + outer * SIZE as i32 * SIZE as i32) as u8;
+								let child_index = (x + y * SIZE as u32 + outer * SIZE as u32 * SIZE as u32) as u8;
 								if tree.raw.cell_kind(node_index, child_index) == CellKind::Empty { continue; }
-								let child_origin = node_origin + IVec3::new(x, y, outer) * cell_size;
+								let child_origin = node_origin + UVec3::new(x, y, outer) * cell_size;
 								if let Some(candidate) = frontier_from_child(tree, node_index, child_index, node_depth, child_origin, cell_size, region, axis, edge) {
 									best = Some(match best { Some(current) if edge == Edge::Min => current.min(candidate), Some(current) => current.max(candidate), None => candidate });
 									if Some(best_possible) == best { return best; }
@@ -714,30 +712,30 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 
 		let region = self.root_region().intersection(region)?;
 		NonZeroVoxelRegion::from_min_end(
-			IVec3::new(
+			UVec3::new(
 				frontier(self, 0, self.raw.root_depth(), self.raw.root_pos(), region, Axis::X, Edge::Min)?,
 				frontier(self, 0, self.raw.root_depth(), self.raw.root_pos(), region, Axis::Y, Edge::Min)?,
 				frontier(self, 0, self.raw.root_depth(), self.raw.root_pos(), region, Axis::Z, Edge::Min)?,
-			),
-			IVec3::new(
+			).as_ivec3(),
+			UVec3::new(
 				frontier(self, 0, self.raw.root_depth(), self.raw.root_pos(), region, Axis::X, Edge::Max)?,
 				frontier(self, 0, self.raw.root_depth(), self.raw.root_pos(), region, Axis::Y, Edge::Max)?,
 				frontier(self, 0, self.raw.root_depth(), self.raw.root_pos(), region, Axis::Z, Edge::Max)?,
-			),
+			).as_ivec3(),
 		)
 	}
 
-	pub(super) fn clear_region_recurse(&mut self, node_index: u32, node_depth: u8, node_origin: IVec3, region: NonZeroVoxelRegion) -> bool {
-		let Some(overlap) = region.intersection(NonZeroVoxelRegion::from_min_end(node_origin, node_origin + IVec3::splat(size(node_depth) as i32)).unwrap()) else { return true };
-		let cell_size = child_size(node_depth) as i32;
-		let child_min = (overlap.min() - node_origin).div_euclid(IVec3::splat(cell_size));
-		let child_max = (overlap.end() - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+	pub(super) fn clear_region_recurse(&mut self, node_index: u32, node_depth: u8, node_origin: UVec3, region: NonZeroVoxelRegion) -> bool {
+		let Some(overlap) = region.intersection(NonZeroVoxelRegion::from_min_size(node_origin.as_ivec3(), UVec3::splat(size(node_depth))).unwrap()) else { return true };
+		let cell_size = child_size(node_depth) as u32;
+		let child_min = (overlap.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
+		let child_max = (overlap.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 		for z in child_min.z..=child_max.z {
 			for y in child_min.y..=child_max.y {
 				for x in child_min.x..=child_max.x {
-					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
-					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
-					let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+					let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
+					let child_origin = node_origin + UVec3::new(x, y, z) * cell_size;
+					let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 					let fully_covered = region.contains(child_region.min()) && region.contains(child_region.end() - IVec3::ONE);
 
 					if fully_covered || node_depth == 0 {

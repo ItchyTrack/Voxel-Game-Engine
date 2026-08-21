@@ -100,7 +100,7 @@ impl UnresolvedTileIndex {
 		}
 		while lod_mask != 0 {
 			let lod = lod_mask.trailing_zeros() as u8;
-			grid_index.trees[lod as usize].for_each_occupied_tile_cover(region, 1i32 << lod, |min| {
+			grid_index.trees[lod as usize].for_each_occupied_tile_cover(region, 1u32 << lod, |min| {
 				f(TileKey::new(grid, class, lod, min));
 			});
 			lod_mask &= lod_mask - 1;

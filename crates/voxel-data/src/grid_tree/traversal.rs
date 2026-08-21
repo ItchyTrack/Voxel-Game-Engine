@@ -1,16 +1,13 @@
 use std::collections::HashSet;
 
-use bevy::math::IVec3;
+use bevy::math::UVec3;
 
-use super::{CellKind, GridCoord, GridTreeView, GridType, NodeRef};
+use super::{CellKind, GridTreeView, GridType, NodeRef};
 
 #[inline]
-pub fn get<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>, pos: Co::Pos) -> Option<G::Data<'_>> {
-	let root_relative_pos = Co::to_ivec3(pos) - view.root_origin();
-	if root_relative_pos.is_negative_bitmask() != 0 {
-		return None;
-	}
-	let root_relative_pos = root_relative_pos.as_uvec3();
+pub fn get<G: GridType>(view: GridTreeView<'_, G>, pos: UVec3) -> Option<G::Data<'_>> {
+	if pos.cmple(view.root_pos()).any() { return None; }
+	let root_relative_pos = pos - view.root_pos();
 	let root_size = super::size(view.root_depth());
 	if root_relative_pos.x >= root_size || root_relative_pos.y >= root_size || root_relative_pos.z >= root_size {
 		return None;
@@ -34,56 +31,54 @@ pub fn get<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>, pos: Co::P
 
 /// Visit every DATA leaf whose cell box intersects inclusive region `[min, max]`.
 #[inline]
-pub fn for_each_in_region<G, Co, F>(view: GridTreeView<'_, G, Co>, min: Co::Pos, max: Co::Pos, mut f: F)
+pub fn for_each_in_region<G, F>(view: GridTreeView<'_, G>, min: UVec3, max: UVec3, mut f: F)
 where
 	G: GridType,
-	Co: GridCoord,
-	F: FnMut(Co::Pos, Co::Size, G::Data<'_>),
+	F: FnMut(UVec3, u32, G::Data<'_>),
 {
 	if view.is_empty() {
 		return;
 	}
-	let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
-	region_recurse(view, view.root(), min, max, &mut |o, s, v| f(Co::from_ivec3(o), Co::size_from_u32(s), v));
+	let (min, max) = (min, max);
+	region_recurse(view, view.root(), min, max, &mut |o, s, v| f(o, s, v));
 }
 
 /// Visit every occupied cell (internal node or data leaf) whose cell box
 /// intersects inclusive region `[min, max]`.
 #[inline]
-pub fn for_each_node_in_region<G, Co, F>(view: GridTreeView<'_, G, Co>, min: Co::Pos, max: Co::Pos, mut f: F)
+pub fn for_each_node_in_region<G, F>(view: GridTreeView<'_, G>, min: UVec3, max: UVec3, mut f: F)
 where
 	G: GridType,
-	Co: GridCoord,
-	F: FnMut(Co::Pos, Co::Size, bool),
+	F: FnMut(UVec3, u32, bool),
 {
 	if view.is_empty() {
 		return;
 	}
-	let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
-	node_region_recurse(view, view.root(), min, max, &mut |o, s, is_leaf| f(Co::from_ivec3(o), Co::size_from_u32(s), is_leaf));
+	let (min, max) = (min, max);
+	node_region_recurse(view, view.root(), min, max, &mut |o, s, is_leaf| f(o, s, is_leaf));
 }
 
 #[inline]
-pub fn any_in_region<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>, min: Co::Pos, max: Co::Pos) -> bool {
+pub fn any_in_region<G: GridType>(view: GridTreeView<'_, G>, min: UVec3, max: UVec3) -> bool {
 	if view.is_empty() {
 		return false;
 	}
-	let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
+	let (min, max) = (min, max);
 	region_any_recurse(view, view.root(), min, max)
 }
 
 #[inline]
-pub fn is_area_filled<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>, pos: Co::Pos, size: IVec3) -> bool {
-	if size.cmple(IVec3::ZERO).any() {
+pub fn is_area_filled<G: GridType>(view: GridTreeView<'_, G>, pos: UVec3, size: UVec3) -> bool {
+	if size.cmple(UVec3::ZERO).any() {
 		return true;
 	}
 	if view.is_empty() {
 		return false;
 	}
-	let min = Co::to_ivec3(pos);
+	let min = pos;
 	let end = min + size;
 	let root = view.root();
-	let root_end = root.origin + IVec3::splat(super::size(root.depth) as i32);
+	let root_end = root.origin + UVec3::splat(super::size(root.depth));
 	if min.cmplt(root.origin).any() || end.cmpgt(root_end).any() {
 		return false;
 	}
@@ -91,14 +86,13 @@ pub fn is_area_filled<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>,
 }
 
 #[inline]
-fn region_recurse<G, Co, F>(view: GridTreeView<'_, G, Co>, node: NodeRef, min: IVec3, max: IVec3, f: &mut F)
+fn region_recurse<G, F>(view: GridTreeView<'_, G>, node: NodeRef, min: UVec3, max: UVec3, f: &mut F)
 where
 	G: GridType,
-	Co: GridCoord,
-	F: FnMut(IVec3, u32, G::Data<'_>),
+	F: FnMut(UVec3, u32, G::Data<'_>),
 {
 	for child in view.occupied_children(node) {
-		let child_end = child.origin + IVec3::splat(child.size as i32); // exclusive
+		let child_end = child.origin + UVec3::splat(child.size); // exclusive
 		if child.origin.cmpgt(max).any() || child_end.cmple(min).any() {
 			continue;
 		}
@@ -111,14 +105,13 @@ where
 }
 
 #[inline]
-fn node_region_recurse<G, Co, F>(view: GridTreeView<'_, G, Co>, node: NodeRef, min: IVec3, max: IVec3, f: &mut F)
+fn node_region_recurse<G, F>(view: GridTreeView<'_, G>, node: NodeRef, min: UVec3, max: UVec3, f: &mut F)
 where
 	G: GridType,
-	Co: GridCoord,
-	F: FnMut(IVec3, u32, bool),
+	F: FnMut(UVec3, u32, bool),
 {
 	for child in view.occupied_children(node) {
-		let child_end = child.origin + IVec3::splat(child.size as i32); // exclusive
+		let child_end = child.origin + UVec3::splat(child.size); // exclusive
 		if child.origin.cmpgt(max).any() || child_end.cmple(min).any() {
 			continue;
 		}
@@ -131,9 +124,9 @@ where
 }
 
 #[inline]
-fn region_any_recurse<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>, node: NodeRef, min: IVec3, max: IVec3) -> bool {
+fn region_any_recurse<G: GridType>(view: GridTreeView<'_, G>, node: NodeRef, min: UVec3, max: UVec3) -> bool {
 	for child in view.occupied_children(node) {
-		let child_end = child.origin + IVec3::splat(child.size as i32); // exclusive
+		let child_end = child.origin + UVec3::splat(child.size); // exclusive
 		if child.origin.cmpgt(max).any() || child_end.cmple(min).any() {
 			continue;
 		}
@@ -151,23 +144,21 @@ fn region_any_recurse<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>,
 }
 
 #[inline]
-pub fn for_each_occupied_tile_cover<G, Co, F>(
-	view: GridTreeView<'_, G, Co>,
-	min: Co::Pos,
-	max: Co::Pos,
-	tile_size: i32,
+pub fn for_each_occupied_tile_cover<G, F>(
+	view: GridTreeView<'_, G>,
+	min: UVec3,
+	max: UVec3,
+	tile_size: u32,
 	mut f: F,
 ) where
 	G: GridType,
-	Co: GridCoord,
-	F: FnMut(IVec3),
+	F: FnMut(UVec3),
 {
 	if view.is_empty() || tile_size <= 0 {
 		return;
 	}
-	let (min, max) = (Co::to_ivec3(min), Co::to_ivec3(max));
-	let first = min.div_euclid(IVec3::splat(tile_size));
-	let last = max.div_euclid(IVec3::splat(tile_size));
+	let first = min / UVec3::splat(tile_size);
+	let last = max / UVec3::splat(tile_size);
 	if first == last {
 		if region_any_recurse(view, view.root(), min, max) {
 			f(first * tile_size);
@@ -179,38 +170,37 @@ pub fn for_each_occupied_tile_cover<G, Co, F>(
 }
 
 #[inline]
-fn occupied_tile_cover_recurse<G, Co, F>(
-	view: GridTreeView<'_, G, Co>,
+fn occupied_tile_cover_recurse<G, F>(
+	view: GridTreeView<'_, G>,
 	node: NodeRef,
-	min: IVec3,
-	max: IVec3,
-	tile_size: i32,
-	seen: &mut HashSet<IVec3>,
+	min: UVec3,
+	max: UVec3,
+	tile_size: u32,
+	seen: &mut HashSet<UVec3>,
 	f: &mut F,
 ) where
 	G: GridType,
-	Co: GridCoord,
-	F: FnMut(IVec3),
+	F: FnMut(UVec3),
 {
-	let node_end = node.origin + IVec3::splat(super::size(node.depth) as i32);
+	let node_end = node.origin + UVec3::splat(super::size(node.depth));
 	if node.origin.cmpgt(max).any() || node_end.cmple(min).any() {
 		return;
 	}
 	for child in view.occupied_children(node) {
-		let child_end = child.origin + IVec3::splat(child.size as i32);
+		let child_end = child.origin + UVec3::splat(child.size);
 		if child.origin.cmpgt(max).any() || child_end.cmple(min).any() {
 			continue;
 		}
 		let overlap_min = child.origin.max(min);
-		let overlap_max = (child_end - IVec3::ONE).min(max);
-		let first = overlap_min.div_euclid(IVec3::splat(tile_size));
-		let last = overlap_max.div_euclid(IVec3::splat(tile_size));
+		let overlap_max = (child_end - UVec3::ONE).min(max);
+		let first = overlap_min / UVec3::splat(tile_size);
+		let last = overlap_max /UVec3::splat(tile_size);
 		match child.kind() {
 			CellKind::Data => {
 				for x in first.x..=last.x {
 					for y in first.y..=last.y {
 						for z in first.z..=last.z {
-							let tile_min = IVec3::new(x, y, z) * tile_size;
+							let tile_min = UVec3::new(x, y, z) * tile_size;
 							if seen.insert(tile_min) {
 								f(tile_min);
 							}
@@ -232,9 +222,9 @@ fn occupied_tile_cover_recurse<G, Co, F>(
 	}
 }
 
-fn region_filled_recurse<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>, node: NodeRef, min: IVec3, end: IVec3) -> bool {
+fn region_filled_recurse<G: GridType>(view: GridTreeView<'_, G>, node: NodeRef, min: UVec3, end: UVec3) -> bool {
 	for child in view.children(node) {
-		let child_end = child.origin + IVec3::splat(child.size as i32);
+		let child_end = child.origin + UVec3::splat(child.size);
 		if child.origin.cmpge(end).any() || child_end.cmple(min).any() {
 			continue;
 		}

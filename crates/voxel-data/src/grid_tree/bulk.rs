@@ -2,13 +2,13 @@ use bevy::math::UVec3;
 
 use super::*;
 
-impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+impl<G: GridType> GridTree<G> {
 	pub fn fill_region(&mut self, region: NonZeroVoxelRegion, data: G::Data<'_>) {
 		self.add_regions(&[(region, data)]);
 	}
 
-	pub fn add_area(&mut self, pos: &Co::Pos, size: UVec3, data: G::Data<'_>) {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), size) else { return };
+	pub fn add_area(&mut self, pos: &UVec3, size: UVec3, data: G::Data<'_>) {
+		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size) else { return };
 		self.fill_region(region, data);
 	}
 
@@ -26,20 +26,19 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		self.apply_area_ops(&ops, bounds);
 	}
 
-	pub fn add_single_voxels<'a>(&mut self, voxels: &[(Co::Pos, G::Data<'a>)]) {
-		let mut bounds: Option<(IVec3, IVec3)> = None;
+	pub fn add_single_voxels<'a>(&mut self, voxels: &[(UVec3, G::Data<'a>)]) {
+		let mut bounds: Option<(UVec3, UVec3)> = None;
 		for (pos, _) in voxels {
-			let pos = Co::to_ivec3(*pos);
 			bounds = Some(match bounds {
-				Some((lo, hi)) => (lo.min(pos), hi.max(pos)),
-				None => (pos, pos),
+				Some((lo, hi)) => (lo.min(*pos), hi.max(*pos)),
+				None => (*pos, *pos),
 			});
 		}
 		let Some((min, max)) = bounds else { return };
 		self.add_single_voxels_in_bounds(voxels, min, max);
 	}
 
-	pub fn add_single_voxels_in_bounds<'a>(&mut self, voxels: &[(Co::Pos, G::Data<'a>)], min: IVec3, max: IVec3) {
+	pub fn add_single_voxels_in_bounds<'a>(&mut self, voxels: &[(UVec3, G::Data<'a>)], min: UVec3, max: UVec3) {
 		if self.is_empty() && self.build_single_voxel_pairs(min, max, voxels) {
 			return;
 		}
@@ -51,10 +50,10 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		}
 	}
 
-	pub fn add_areas<'a>(&mut self, areas: &[(Co::Pos, UVec3, G::Data<'a>)]) {
+	pub fn add_areas<'a>(&mut self, areas: &[(UVec3, UVec3, G::Data<'a>)]) {
 		let mut regions = Vec::with_capacity(areas.len());
 		for (pos, size, data) in areas {
-			let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), *size) else { continue };
+			let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), *size) else { continue };
 			regions.push((region, *data));
 		}
 		self.add_regions(&regions);
@@ -64,10 +63,10 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		if ops.is_empty() {
 			return;
 		}
-		if self.is_empty() && ops.iter().all(|op| op.region.end() - op.region.min() == IVec3::ONE) && self.build_single_voxel_batch(bounds.min(), bounds.max(), ops) {
+		if self.is_empty() && ops.iter().all(|op| op.region.end() - op.region.min() == IVec3::ONE) && self.build_single_voxel_batch(bounds.min().as_uvec3(), bounds.max().as_uvec3(), ops) {
 			return;
 		}
-		if !self.make_sure_root_covers_area(bounds.min(), bounds.max()) || !self.has_node_budget() {
+		if !self.make_sure_root_covers_area(bounds.min().as_uvec3(), bounds.max().as_uvec3()) || !self.has_node_budget() {
 			return;
 		}
 

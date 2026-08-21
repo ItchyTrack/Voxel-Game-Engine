@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use bevy::math::U16Vec3;
+use bevy::math::UVec3;
 use tile_data::{TileData, TileGenerationSession, TileGenerator, TileVoxelReducerRegistry};
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo};
 use voxel_gpu::{AllocationId, PackedBufferAllocation, VoxelGpuDataReaders};
@@ -9,9 +9,9 @@ use crate::{gpu_data::RayWorldGpuData, gpu_grid_tree::make_gpu_grid_tree};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RayTilePlacement {
-	pub tree_root_pos: U16Vec3,
-	pub bounds_min: U16Vec3,
-	pub bounds_max: U16Vec3,
+	pub tree_root_pos: UVec3,
+	pub bounds_min: UVec3,
+	pub bounds_max: UVec3,
 }
 
 #[derive(Debug)]

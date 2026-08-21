@@ -1,30 +1,30 @@
 use super::*;
 
-impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+impl<G: GridType> GridTree<G> {
 	#[inline]
-	pub(super) fn max_extent() -> i32 {
-		size(Co::MAX_ROOT_DEPTH) as i32
+	pub(super) fn max_extent() -> u32 {
+		size(13) // may be 6 for voxels... need to add this param somewhere else
 	}
 
 	#[inline]
 	pub(super) fn canonical_extent_region() -> NonZeroVoxelRegion {
-		NonZeroVoxelRegion::from_min_end(IVec3::ZERO, IVec3::splat(Self::max_extent())).unwrap()
+		NonZeroVoxelRegion::from_min_end(IVec3::ZERO, IVec3::splat(Self::max_extent() as i32)).unwrap()
 	}
 
 	#[inline]
-	pub(super) fn reset_empty_root(&mut self, root_pos: IVec3, root_depth: u8) {
+	pub(super) fn reset_empty_root(&mut self, root_pos: UVec3, root_depth: u8) {
 		self.raw.reset_empty_root(root_pos, root_depth);
 	}
 
 	#[inline]
-	pub(super) fn canonical_root_for_bounds(min: IVec3, max: IVec3) -> Option<(IVec3, u8)> {
-		if min.cmplt(IVec3::ZERO).any() || max.cmplt(min).any() || max.cmpge(IVec3::splat(Self::max_extent())).any() {
+	pub(super) fn canonical_root_for_bounds(min: UVec3, max: UVec3) -> Option<(UVec3, u8)> {
+		if min.cmplt(UVec3::ZERO).any() || max.cmplt(min).any() || max.cmpge(UVec3::splat(Self::max_extent())).any() {
 			return None;
 		}
-		for depth in 0..=Co::MAX_ROOT_DEPTH {
-			let cube = size(depth) as i32;
-			let origin = min.div_euclid(IVec3::splat(cube)) * cube;
-			let end = origin + IVec3::splat(cube);
+		for depth in 0..=13/*Co::MAX_ROOT_DEPTH*/ {
+			let cube = size(depth);
+			let origin = min / UVec3::splat(cube) * cube;
+			let end = origin + UVec3::splat(cube);
 			if max.cmplt(end).all() {
 				return Some((origin, depth));
 			}
@@ -32,7 +32,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		None
 	}
 
-	pub(super) fn make_sure_root_covers_pos(&mut self, pos: IVec3) -> bool {
+	pub(super) fn make_sure_root_covers_pos(&mut self, pos: UVec3) -> bool {
 		if self.raw.used_cell_count(0) == 0 {
 			let Some((root_pos, root_depth)) = Self::canonical_root_for_bounds(pos, pos) else {
 				bevy::log::warn!("GridTree position {pos:?} is outside canonical positive extent {:?}; skipping insert", Self::canonical_extent_region());
@@ -47,12 +47,12 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		self.promote_root_to_cover_bounds(pos, pos)
 	}
 
-	pub(super) fn root_covers(&self, pos: IVec3) -> bool {
+	pub(super) fn root_covers(&self, pos: UVec3) -> bool {
 		let r = pos - self.raw.root_pos();
 		r.min_element() >= 0 && (r.max_element() as i64) < size(self.raw.root_depth()) as i64
 	}
 
-	pub(super) fn make_sure_root_covers_area(&mut self, min: IVec3, max: IVec3) -> bool {
+	pub(super) fn make_sure_root_covers_area(&mut self, min: UVec3, max: UVec3) -> bool {
 		if self.raw.used_cell_count(0) == 0 {
 			let Some((root_pos, root_depth)) = Self::canonical_root_for_bounds(min, max) else {
 				bevy::log::warn!("GridTree area {min:?}..={max:?} is outside canonical positive extent {:?}; skipping edit", Self::canonical_extent_region());
@@ -67,8 +67,8 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		self.promote_root_to_cover_bounds(min, max)
 	}
 
-	pub(super) fn promote_root_to_cover_bounds(&mut self, min: IVec3, max: IVec3) -> bool {
-		let existing_max = self.raw.root_pos() + IVec3::splat(size(self.raw.root_depth()) as i32 - 1);
+	pub(super) fn promote_root_to_cover_bounds(&mut self, min: UVec3, max: UVec3) -> bool {
+		let existing_max = self.raw.root_pos() + UVec3::splat(size(self.raw.root_depth()) - 1);
 		let cover_min = self.raw.root_pos().min(min);
 		let cover_max = existing_max.max(max);
 		let Some((target_pos, target_depth)) = Self::canonical_root_for_bounds(cover_min, cover_max) else {
@@ -83,9 +83,9 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 			let old_root_pos = self.raw.root_pos();
 			let old_root_depth = self.raw.root_depth();
 			let new_depth = old_root_depth + 1;
-			let new_size = size(new_depth) as i32;
-			let new_pos = old_root_pos.div_euclid(IVec3::splat(new_size)) * new_size;
-			let rel = (old_root_pos - new_pos).div_euclid(IVec3::splat(size(old_root_depth) as i32));
+			let new_size = size(new_depth);
+			let new_pos = old_root_pos / UVec3::splat(new_size) * new_size;
+			let rel = (old_root_pos - new_pos) / UVec3::splat(size(old_root_depth));
 			let child_index = get_child_contents_index(rel.as_u8vec3());
 			self.raw.insert_empty_node(0, 0);
 			self.raw.set_parent_offset(1, 1);
@@ -165,8 +165,8 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		}
 	}
 
-	pub fn internals(&self) -> (GridTreeView<'_, G, Co>, Co::Pos, u8) {
-		(self.view(), Co::from_ivec3(self.raw.root_pos()), self.raw.root_depth())
+	pub fn internals(&self) -> (GridTreeView<'_, G>, UVec3, u8) {
+		(self.view(), self.raw.root_pos(), self.raw.root_depth())
 	}
 
 	/// Collapse a full uniform child subtree back into one data cell and continue upward.

@@ -1,9 +1,9 @@
-use bevy::math::{IVec2, IVec3, U16Vec3, UVec3, Vec3};
+use bevy::math::{IVec2, IVec3, UVec3, Vec3};
 use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{io::{self, Read, Write}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 
-use super::{grid_tree::{self, AsGridData, GridReducer, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps, U16Coord}, sdf::Sdf, voxel_grid_tree::{VoxelGridTree, VoxelGridType}};
+use super::{grid_tree::{self, AsGridData, GridReducer, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps}, sdf::Sdf, voxel_grid_tree::{VoxelGridTree, VoxelGridType}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VoxelTypeId(pub u16);
@@ -119,7 +119,7 @@ pub struct SourceOverlap<'a> {
 }
 
 pub struct SourceOverlaps<'overlaps, 'a> {
-	overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, U16Coord>,
+	overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
 }
 
 impl<'overlaps, 'a> Iterator for SourceOverlaps<'overlaps, 'a> {
@@ -139,12 +139,12 @@ impl<'overlaps, 'a> Iterator for SourceOverlaps<'overlaps, 'a> {
 pub struct Voxels {
 	voxels: VoxelGridTree,
 	#[serde(skip, default = "default_bounding_box")]
-	bounding_box: Mutex<Option<(U16Vec3, U16Vec3)>>,
+	bounding_box: Mutex<Option<(UVec3, UVec3)>>,
 	#[serde(skip, default = "default_bounding_box_dirty")]
 	bounding_box_dirty: AtomicBool,
 }
 
-fn default_bounding_box() -> Mutex<Option<(U16Vec3, U16Vec3)>> { Mutex::new(None) }
+fn default_bounding_box() -> Mutex<Option<(UVec3, UVec3)>> { Mutex::new(None) }
 fn default_bounding_box_dirty() -> AtomicBool { AtomicBool::new(true) }
 
 impl Clone for Voxels {
@@ -164,13 +164,11 @@ pub trait VoxelReducer {
 		Self::Output::TYPE_INFO
 	}
 
-	fn reduce<'overlaps, 'a, Co>(
+	fn reduce<'overlaps, 'a>(
 		&mut self,
 		region: NonZeroVoxelRegion,
-		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
-	) -> Option<Self::Output>
-	where
-		Co: grid_tree::GridCoord;
+		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
+	) -> Option<Self::Output>;
 }
 
 impl<R> GridReducer<VoxelGridType> for R
@@ -184,13 +182,11 @@ where
 		VoxelGridType::new(self.output_type_info())
 	}
 
-	fn reduce<'overlaps, 'a, Co>(
+	fn reduce<'overlaps, 'a>(
 		&mut self,
 		region: NonZeroVoxelRegion,
-		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType, Co>,
+		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
 	) -> Option<Self::Output>
-	where
-		Co: grid_tree::GridCoord,
 	{
 		VoxelReducer::reduce(self, region, overlaps)
 	}
@@ -238,7 +234,7 @@ impl Voxels {
 		self.voxel_type_id().assert_type(voxel_type);
 	}
 
-	pub fn add_voxel(&mut self, pos: U16Vec3, voxel: VoxelRef) -> bool {
+	pub fn add_voxel(&mut self, pos: UVec3, voxel: VoxelRef) -> bool {
 		self.assert_type(voxel.type_id());
 		let bb = *self.bounding_box.lock().unwrap();
 		*self.bounding_box.get_mut().unwrap() = Some(match bb {
@@ -248,7 +244,7 @@ impl Voxels {
 		self.voxels.insert(&pos, voxel)
 	}
 
-	pub fn add_voxe_get_replaced(&mut self, pos: U16Vec3, voxel: VoxelRef, out_voxel_bytes: &mut [u8]) -> bool {
+	pub fn add_voxe_get_replaced(&mut self, pos: UVec3, voxel: VoxelRef, out_voxel_bytes: &mut [u8]) -> bool {
 		self.assert_type(voxel.type_id());
 		let bb = *self.bounding_box.lock().unwrap();
 		*self.bounding_box.get_mut().unwrap() = Some(match bb {
@@ -265,45 +261,45 @@ impl Voxels {
 		}
 	}
 
-	pub fn ensure_area_covered(&mut self, pos: U16Vec3, size: U16Vec3) -> bool {
-		self.voxels.ensure_area_covered(&pos, size.as_uvec3())
+	pub fn ensure_area_covered(&mut self, pos: UVec3, size: UVec3) -> bool {
+		self.voxels.ensure_area_covered(&pos, size)
 	}
 
-	pub fn add_area(&mut self, pos: U16Vec3, size: U16Vec3, voxel: VoxelRef) {
-		if size == U16Vec3::ZERO { return; }
+	pub fn add_area(&mut self, pos: UVec3, size: UVec3, voxel: VoxelRef) {
+		if size == UVec3::ZERO { return; }
 		self.assert_type(voxel.type_id());
-		let max = pos + size - U16Vec3::ONE;
-		self.add_tree_areas(&vec![(pos, size.as_uvec3(), voxel)], Some((pos, max)));
+		let max = pos + size - UVec3::ONE;
+		self.add_tree_areas(&vec![(pos, size, voxel)], Some((pos, max)));
 	}
 
-	pub fn add_voxels<'a>(&mut self, voxels: &[(U16Vec3, VoxelRef<'a>)]) {
+	pub fn add_voxels<'a>(&mut self, voxels: &[(UVec3, VoxelRef<'a>)]) {
 		if voxels.is_empty() { return; }
-		let (min, max) = voxels.iter().fold((U16Vec3::splat(u16::MAX), U16Vec3::ZERO), |(mn, mx), (pos, _)| (mn.min(*pos), mx.max(*pos)));
+		let (min, max) = voxels.iter().fold((UVec3::splat(u32::MAX), UVec3::ZERO), |(mn, mx), (pos, _)| (mn.min(*pos), mx.max(*pos)));
 		self.add_voxels_in_bounds(voxels, min, max);
 	}
 
-	pub fn add_voxels_in_bounds<'a>(&mut self, voxels: &[(U16Vec3, VoxelRef<'a>)], min: U16Vec3, max: U16Vec3) {
+	pub fn add_voxels_in_bounds<'a>(&mut self, voxels: &[(UVec3, VoxelRef<'a>)], min: UVec3, max: UVec3) {
 		if voxels.is_empty() { return; }
 		for (_, voxel) in voxels {
 			self.assert_type(voxel.type_id());
 		}
-		self.voxels.add_single_voxels_in_bounds(voxels, min.as_ivec3(), max.as_ivec3());
+		self.voxels.add_single_voxels_in_bounds(voxels, min, max);
 		let bb = self.bounding_box.get_mut().unwrap();
 		*bb = Some(match *bb { Some((mn, mx)) => (mn.min(min), mx.max(max)), None => (min, max) });
 	}
 
-	pub fn add_areas<'a>(&mut self, areas: &[(U16Vec3, UVec3, VoxelRef<'a>)]) {
-		let mut bounds: Option<(U16Vec3, U16Vec3)> = None;
+	pub fn add_areas<'a>(&mut self, areas: &[(UVec3, UVec3, VoxelRef<'a>)]) {
+		let mut bounds: Option<(UVec3, UVec3)> = None;
 		for (pos, size, voxel) in areas {
 			if *size == UVec3::ZERO { continue; }
 			self.assert_type(voxel.type_id());
-			let max = *pos + size.as_u16vec3() - U16Vec3::ONE;
+			let max = *pos + size - UVec3::ONE;
 			bounds = Some(match bounds { Some((mn, mx)) => (mn.min(*pos), mx.max(max)), None => (*pos, max) });
 		}
 		self.add_tree_areas(areas, bounds);
 	}
 
-	fn add_tree_areas<'a>(&mut self, tree_areas: &[(U16Vec3, UVec3, VoxelRef<'a>)], bounds: Option<(U16Vec3, U16Vec3)>) {
+	fn add_tree_areas<'a>(&mut self, tree_areas: &[(UVec3, UVec3, VoxelRef<'a>)], bounds: Option<(UVec3, UVec3)>) {
 		if tree_areas.is_empty() { return; }
 		self.voxels.add_areas(&tree_areas);
 		let Some((min, max)) = bounds else { return };
@@ -311,13 +307,13 @@ impl Voxels {
 		*bb = Some(match *bb { Some((mn, mx)) => (mn.min(min), mx.max(max)), None => (min, max) });
 	}
 
-	pub fn remove_voxel(&mut self, pos: &U16Vec3) -> bool {
+	pub fn remove_voxel(&mut self, pos: &UVec3) -> bool {
 		let out = self.voxels.remove(pos);
 		self.bounding_box_dirty.store(true, Ordering::Release);
 		out
 	}
 
-	pub fn remove_voxel_get_removed(&mut self, pos: &U16Vec3, out_voxel_bytes: &mut [u8]) -> bool {
+	pub fn remove_voxel_get_removed(&mut self, pos: &UVec3, out_voxel_bytes: &mut [u8]) -> bool {
 		let old = self.voxels.get(pos).map(|v| v.bytes().to_vec());
 		if self.voxels.remove(pos) {
 			self.bounding_box_dirty.store(true, Ordering::Release);
@@ -330,8 +326,8 @@ impl Voxels {
 		}
 	}
 
-	pub fn remove_area(&mut self, pos: U16Vec3, size: U16Vec3) {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size.as_uvec3()) else { return };
+	pub fn remove_area(&mut self, pos: UVec3, size: UVec3) {
+		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size) else { return };
 		self.voxels.clear_region(region);
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
@@ -354,7 +350,7 @@ impl Voxels {
 		let bounds = match source_region {
 			Some(region) => source.voxels.occupied_bounds_in_region(region),
 			None => source.voxels.occupied_bounds(),
-		}.map(|region| ((region.min() + offset).as_u16vec3(), (region.end() + offset - IVec3::ONE).as_u16vec3()));
+		}.map(|region| ((region.min() + offset).as_uvec3(), (region.end() + offset - IVec3::ONE).as_uvec3()));
 		match source_region {
 			Some(region) => self.voxels.merge_region_from(&source.voxels, region, offset),
 			None => self.voxels.merge_tree(&source.voxels, offset),
@@ -371,18 +367,18 @@ impl Voxels {
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
-	pub fn voxel(&self, pos: &U16Vec3) -> Option<VoxelRef<'_>> { self.voxels.get(pos) }
-	pub fn raw(&self, pos: &U16Vec3) -> Option<&[u8]> {
+	pub fn voxel(&self, pos: &UVec3) -> Option<VoxelRef<'_>> { self.voxels.get(pos) }
+	pub fn raw(&self, pos: &UVec3) -> Option<&[u8]> {
 		let voxel = self.voxels.get(pos)?;
 		Some(voxel.bytes())
 	}
 	pub fn grid_tree(&self) -> &VoxelGridTree { &self.voxels }
 	pub fn is_empty(&self) -> bool { self.voxels.len() == 0 }
 
-	pub fn bounding_box(&self) -> Option<(U16Vec3, U16Vec3)> {
+	pub fn bounding_box(&self) -> Option<(UVec3, UVec3)> {
 		if self.bounding_box_dirty.load(Ordering::Acquire) {
 			let _zone = span!("rebuild voxel bounding box");
-			let bounds = self.voxels.occupied_bounds().map(|region| (region.min().as_u16vec3(), (region.end() - IVec3::ONE).as_u16vec3()));
+			let bounds = self.voxels.occupied_bounds().map(|region| (region.min().as_uvec3(), (region.end() - IVec3::ONE).as_uvec3()));
 			self.bounding_box_dirty.store(false, Ordering::Release);
 			*(self.bounding_box.lock()).unwrap() = bounds;
 		}

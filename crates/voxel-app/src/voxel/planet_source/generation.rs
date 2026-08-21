@@ -61,7 +61,7 @@ pub(super) fn build_planet_region<V: VoxelType>(
 	if areas.is_empty() {
 		return None;
 	}
-	let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, *size, voxel.get_ref())).collect();
+	let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (pos.as_uvec3(), *size, voxel.get_ref())).collect();
 	let mut voxels = Voxels::new::<V>();
 	voxels.add_areas(&area_refs);
 	Some(voxels)

@@ -165,7 +165,7 @@ fn build_region(
 		if points.is_empty() {
 			return None;
 		}
-		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
+		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (pos.as_uvec3(), voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<BasicVoxel>();
 		voxels.add_voxels(&voxel_refs);
 		Some(voxels)
@@ -173,7 +173,7 @@ fn build_region(
 		if areas.is_empty() {
 			return None;
 		}
-		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, size.as_uvec3(), voxel.get_ref())).collect();
+		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (pos.as_uvec3(), size.as_uvec3(), voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<LodVoxel>();
 		voxels.add_areas(&area_refs);
 		Some(voxels)

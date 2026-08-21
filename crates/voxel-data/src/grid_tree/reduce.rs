@@ -2,8 +2,8 @@ use bevy::math::{IVec3, UVec3};
 
 use super::*;
 
-pub struct SourceTree<'a, G: GridType, Co: GridCoord> {
-	pub tree: &'a GridTree<G, Co>,
+pub struct SourceTree<'a, G: GridType> {
+	pub tree: &'a GridTree<G>,
 
 	/// Source-local coordinates are divided by `1 << scale_down`.
 	pub scale_down: u8,
@@ -36,22 +36,20 @@ struct SourceCursor {
 	query: NonZeroVoxelRegion,
 }
 
-pub struct SourceOverlaps<'overlaps, 'a, G: GridType, Co: GridCoord> {
+pub struct SourceOverlaps<'overlaps, 'a, G: GridType> {
 	collected: &'overlaps [SourceOverlap<'a, G>],
 	index: usize,
-	_coord: std::marker::PhantomData<Co>,
 }
 
-impl<'overlaps, 'a, G: GridType, Co: GridCoord> SourceOverlaps<'overlaps, 'a, G, Co> {
+impl<'overlaps, 'a, G: GridType> SourceOverlaps<'overlaps, 'a, G> {
 	fn from_collected(collected: &'overlaps [SourceOverlap<'a, G>]) -> Self {
-		Self { collected, index: 0, _coord: std::marker::PhantomData }
+		Self { collected, index: 0 }
 	}
 }
 
-impl<'overlaps, 'a, G, Co> Iterator for SourceOverlaps<'overlaps, 'a, G, Co>
+impl<'overlaps, 'a, G> Iterator for SourceOverlaps<'overlaps, 'a, G>
 where
 	G: GridType,
-	Co: GridCoord,
 {
 	type Item = SourceOverlap<'a, G>;
 
@@ -67,38 +65,35 @@ pub trait GridReducer<G: GridType> {
 
 	fn output_grid_type(&self) -> G;
 
-	fn reduce<'overlaps, 'a, Co>(
+	fn reduce<'overlaps, 'a>(
 		&mut self,
 		region: NonZeroVoxelRegion,
-		overlaps: SourceOverlaps<'overlaps, 'a, G, Co>,
-	) -> Option<Self::Output>
-	where
-		Co: GridCoord;
+		overlaps: SourceOverlaps<'overlaps, 'a, G>,
+	) -> Option<Self::Output>;
 }
 
-pub fn reduce_grid_trees<'a, G, Co, R>(
+pub fn reduce_grid_trees<'a, G, R>(
 	output_region: NonZeroVoxelRegion,
-	sources: &[SourceTree<'a, G, Co>],
+	sources: &[SourceTree<'a, G>],
 	mut reducer: R,
-) -> Option<GridTree<G, Co>>
+) -> Option<GridTree<G>>
 where
 	G: GridType,
-	Co: GridCoord,
 	R: GridReducer<G>,
 	for<'d> &'d R::Output: AsGridData<'d, G>,
 {
 	let output_region = NonZeroVoxelRegion::from_min_end(output_region.min(), output_region.end())?;
-	if !region_fits_tree::<Co>(output_region) {
+	if !region_fits_tree(output_region) {
 		return None;
 	}
 
 	let mut out = GridTree::new_with_type(reducer.output_grid_type());
-	if !out.make_sure_root_covers_area(output_region.min(), output_region.max()) || !out.has_node_budget() {
+	if !out.make_sure_root_covers_area(output_region.min().as_uvec3(), output_region.max().as_uvec3()) || !out.has_node_budget() {
 		return None;
 	}
 	let root_depth = out.raw.root_depth();
 	let root_origin = out.raw.root_pos();
-	let source_bounds = tree_region::<Co>();
+	let source_bounds = tree_region();
 	let active_sources: Vec<_> = sources
 		.iter()
 		.enumerate()
@@ -114,37 +109,36 @@ where
 	Some(out)
 }
 
-fn reduce_output_region<'a, G, Co, R>(
+fn reduce_output_region<'a, G, R>(
 	region: NonZeroVoxelRegion,
-	sources: &[SourceTree<'a, G, Co>],
+	sources: &[SourceTree<'a, G>],
 	active_sources: &[SourceCursor],
 	overlaps_scratch: &mut Vec<SourceOverlap<'a, G>>,
 	reducer: &mut R,
-	out: &mut GridTree<G, Co>,
+	out: &mut GridTree<G>,
 	node_index: u32,
 	node_depth: u8,
-	node_origin: IVec3,
+	node_origin: UVec3,
 ) -> bool
 where
 	G: GridType,
-	Co: GridCoord,
 	R: GridReducer<G>,
 	for<'d> &'d R::Output: AsGridData<'d, G>,
 {
-	let node_region = NonZeroVoxelRegion::from_min_end(node_origin, node_origin + IVec3::splat(size(node_depth) as i32)).unwrap();
+	let node_region = NonZeroVoxelRegion::from_min_size(node_origin.as_ivec3(), UVec3::splat(size(node_depth) as u32)).unwrap();
 	let Some(region) = node_region.intersection(region) else { return true };
-	let cell_size = child_size(node_depth) as i32;
-	let child_min = (region.min() - node_origin).div_euclid(IVec3::splat(cell_size));
-	let child_max = (region.end() - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+	let cell_size = child_size(node_depth);
+	let child_min = (region.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
+	let child_max = (region.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 	let mut child_active_sources: [smallvec::SmallVec<[SourceCursor; 2]>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| smallvec::SmallVec::new());
 	partition_source_cursors_by_child(sources, active_sources, region, node_origin, cell_size, &mut child_active_sources);
 
 	for z in child_min.z..=child_max.z {
 		for y in child_min.y..=child_max.y {
 			for x in child_min.x..=child_max.x {
-				let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
-				let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
-				let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+				let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
+				let child_origin = node_origin + UVec3::new(x as u32, y as u32, z as u32) * cell_size;
+				let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 				let Some(work_region) = child_region.intersection(region) else { continue };
 				let child_active_sources = &child_active_sources[child_index as usize];
 
@@ -173,28 +167,27 @@ where
 	true
 }
 
-fn reduce_output_child<'a, G, Co, R>(
+fn reduce_output_child<'a, G, R>(
 	region: NonZeroVoxelRegion,
-	sources: &[SourceTree<'a, G, Co>],
+	sources: &[SourceTree<'a, G>],
 	active_sources: &[SourceCursor],
 	overlaps_scratch: &mut Vec<SourceOverlap<'a, G>>,
 	reducer: &mut R,
-	out: &mut GridTree<G, Co>,
+	out: &mut GridTree<G>,
 	node_index: u32,
 	node_depth: u8,
-	node_origin: IVec3,
+	node_origin: UVec3,
 	child_index: u8,
 ) -> bool
 where
 	G: GridType,
-	Co: GridCoord,
 	R: GridReducer<G>,
 	for<'d> &'d R::Output: AsGridData<'d, G>,
 {
 	match classify_region(sources, region, active_sources, overlaps_scratch) {
 		RegionAction::Empty => true,
 		RegionAction::Reduce => {
-			if let Some(value) = reducer.reduce(region, SourceOverlaps::<G, Co>::from_collected(overlaps_scratch)) {
+			if let Some(value) = reducer.reduce(region, SourceOverlaps::<G>::from_collected(overlaps_scratch)) {
 				out.set_child_area_to_data(node_index, node_depth, child_index, (&value).as_grid_data());
 			}
 			true
@@ -203,7 +196,7 @@ where
 			if node_depth == 0 {
 				return true;
 			}
-			let child_origin = node_origin + (get_child_contents_pos(child_index).as_uvec3() * child_size(node_depth)).as_ivec3();
+			let child_origin = node_origin + get_child_contents_pos(child_index).as_uvec3() * child_size(node_depth);
 			let Some(child_node_index) = out.child_node_for_partial_area(node_index, child_index) else { return false };
 			let a_active_sources = child_source_cursors(sources, active_sources, a);
 			if !reduce_output_region(a, sources, &a_active_sources, overlaps_scratch, reducer, out, child_node_index, node_depth - 1, child_origin) {
@@ -226,15 +219,14 @@ enum RegionAction {
 	Split { a: NonZeroVoxelRegion, b: NonZeroVoxelRegion },
 }
 
-fn classify_region<'a, G, Co>(
-	sources: &[SourceTree<'a, G, Co>],
+fn classify_region<'a, G>(
+	sources: &[SourceTree<'a, G>],
 	region: NonZeroVoxelRegion,
 	active_sources: &[SourceCursor],
 	overlaps: &mut Vec<SourceOverlap<'a, G>>,
 ) -> RegionAction
 where
 	G: GridType,
-	Co: GridCoord,
 {
 	overlaps.clear();
 	for &cursor in active_sources {
@@ -253,18 +245,17 @@ enum SourceRegionInspection {
 	Split(NonZeroVoxelRegion, NonZeroVoxelRegion),
 }
 
-fn inspect_source_region<'a, G, Co>(
-	source: &SourceTree<'a, G, Co>,
+fn inspect_source_region<'a, G>(
+	source: &SourceTree<'a, G>,
 	region: NonZeroVoxelRegion,
 	cursor: SourceCursor,
 	overlaps: &mut Vec<SourceOverlap<'a, G>>,
 ) -> SourceRegionInspection
 where
 	G: GridType,
-	Co: GridCoord,
 {
-	fn recurse<'a, G, Co>(
-		source: &SourceTree<'a, G, Co>,
+	fn recurse<'a, G>(
+		source: &SourceTree<'a, G>,
 		region: NonZeroVoxelRegion,
 		source_index: usize,
 		node: NodeRef,
@@ -273,7 +264,6 @@ where
 	) -> Option<(NonZeroVoxelRegion, NonZeroVoxelRegion)>
 	where
 		G: GridType,
-		Co: GridCoord,
 	{
 		let view = source.tree.view();
 		for (child, source_region) in view.occupied_children_in_region(node, query) {
@@ -305,41 +295,39 @@ where
 	if overlaps.len() == overlap_start { SourceRegionInspection::Empty } else { SourceRegionInspection::Overlap }
 }
 
-fn root_source_cursor<G, Co>(source_index: usize, source: &SourceTree<'_, G, Co>, output_region: NonZeroVoxelRegion, source_bounds: NonZeroVoxelRegion) -> Option<SourceCursor>
+fn root_source_cursor<G>(source_index: usize, source: &SourceTree<'_, G>, output_region: NonZeroVoxelRegion, source_bounds: NonZeroVoxelRegion) -> Option<SourceCursor>
 where
 	G: GridType,
-	Co: GridCoord,
 {
 	let query = source_preimage(output_region, source).and_then(|region| region.intersection(source_bounds))?;
 	let view = source.tree.view();
 	let root = view.root();
-	let root_region = NonZeroVoxelRegion::from_min_end(root.origin, root.origin + IVec3::splat(size(root.depth) as i32)).unwrap();
+	let root_region = NonZeroVoxelRegion::from_min_size(root.origin.as_ivec3(), UVec3::splat(size(root.depth))).unwrap();
 	let query = query.intersection(root_region)?;
 	refine_cursor(source, SourceCursor { source_index, node: root, query })
 }
 
-fn partition_source_cursors_by_child<G, Co>(
-	sources: &[SourceTree<'_, G, Co>],
+fn partition_source_cursors_by_child<G>(
+	sources: &[SourceTree<'_, G>],
 	active_sources: &[SourceCursor],
 	region: NonZeroVoxelRegion,
-	node_origin: IVec3,
-	cell_size: i32,
+	node_origin: UVec3,
+	cell_size: u32,
 	child_active_sources: &mut [smallvec::SmallVec<[SourceCursor; 2]>; SIZE_USIZE_CUBED],
 ) where
 	G: GridType,
-	Co: GridCoord,
 {
 	for &cursor in active_sources {
 		let source = &sources[cursor.source_index];
 		let Some(output_region) = project_source_region(cursor.query, source).and_then(|output_region| output_region.intersection(region)) else { continue };
-		let child_min = (output_region.min() - node_origin).div_euclid(IVec3::splat(cell_size));
-		let child_max = (output_region.end() - node_origin - IVec3::ONE).div_euclid(IVec3::splat(cell_size));
+		let child_min = (output_region.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
+		let child_max = (output_region.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 		for z in child_min.z..=child_max.z {
 			for y in child_min.y..=child_max.y {
 				for x in child_min.x..=child_max.x {
-					let child_index = (x + y * SIZE as i32 + z * SIZE as i32 * SIZE as i32) as u8;
-					let child_origin = node_origin + IVec3::new(x, y, z) * cell_size;
-					let child_region = NonZeroVoxelRegion::from_min_end(child_origin, child_origin + IVec3::splat(cell_size)).unwrap();
+					let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
+					let child_origin = node_origin + UVec3::new(x, y, z) * cell_size;
+					let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 					let Some(work_region) = child_region.intersection(region) else { continue };
 					if let Some(child_cursor) = child_cursor(source, cursor, work_region) {
 						child_active_sources[child_index as usize].push(child_cursor);
@@ -350,10 +338,9 @@ fn partition_source_cursors_by_child<G, Co>(
 	}
 }
 
-fn child_source_cursors<G, Co>(sources: &[SourceTree<'_, G, Co>], active_sources: &[SourceCursor], region: NonZeroVoxelRegion) -> Vec<SourceCursor>
+fn child_source_cursors<G>(sources: &[SourceTree<'_, G>], active_sources: &[SourceCursor], region: NonZeroVoxelRegion) -> Vec<SourceCursor>
 where
 	G: GridType,
-	Co: GridCoord,
 {
 	let mut child_sources = Vec::new();
 	for &cursor in active_sources {
@@ -364,19 +351,17 @@ where
 	child_sources
 }
 
-fn child_cursor<G, Co>(source: &SourceTree<'_, G, Co>, cursor: SourceCursor, child_region: NonZeroVoxelRegion) -> Option<SourceCursor>
+fn child_cursor<G>(source: &SourceTree<'_, G>, cursor: SourceCursor, child_region: NonZeroVoxelRegion) -> Option<SourceCursor>
 where
 	G: GridType,
-	Co: GridCoord,
 {
 	let query = source_preimage(child_region, source)?.intersection(cursor.query)?;
 	refine_cursor(source, SourceCursor { query, ..cursor })
 }
 
-fn refine_cursor<G, Co>(source: &SourceTree<'_, G, Co>, mut cursor: SourceCursor) -> Option<SourceCursor>
+fn refine_cursor<G>(source: &SourceTree<'_, G>, mut cursor: SourceCursor) -> Option<SourceCursor>
 where
 	G: GridType,
-	Co: GridCoord,
 {
 	let view = source.tree.view();
 	loop {
@@ -428,14 +413,14 @@ fn split_at(region: NonZeroVoxelRegion, axis: usize, cut: i32) -> Option<(NonZer
 	Some((NonZeroVoxelRegion::from_min_end(region.min(), a_end)?, NonZeroVoxelRegion::from_min_end(b_min, region.end())?))
 }
 
-fn source_preimage<G: GridType, Co: GridCoord>(region: NonZeroVoxelRegion, source: &SourceTree<'_, G, Co>) -> Option<NonZeroVoxelRegion> {
+fn source_preimage<G: GridType>(region: NonZeroVoxelRegion, source: &SourceTree<'_, G>) -> Option<NonZeroVoxelRegion> {
 	let factor = scale_factor(source.scale_down)?;
 	let min = checked_mul_ivec3(checked_sub_ivec3(region.min(), source.output_offset)?, factor)?;
 	let end = checked_mul_ivec3(checked_sub_ivec3(region.end(), source.output_offset)?, factor)?;
 	NonZeroVoxelRegion::from_min_end(min, end)
 }
 
-fn project_source_region<G: GridType, Co: GridCoord>(region: NonZeroVoxelRegion, source: &SourceTree<'_, G, Co>) -> Option<NonZeroVoxelRegion> {
+fn project_source_region<G: GridType>(region: NonZeroVoxelRegion, source: &SourceTree<'_, G>) -> Option<NonZeroVoxelRegion> {
 	let factor = scale_factor(source.scale_down)?;
 	let min = checked_add_ivec3(div_floor_ivec3(region.min(), factor), source.output_offset)?;
 	let end = checked_add_ivec3(div_ceil_ivec3(region.end(), factor), source.output_offset)?;
@@ -475,12 +460,12 @@ fn region_is_unit(region: NonZeroVoxelRegion) -> bool {
 	region.size() == UVec3::ONE
 }
 
-fn region_fits_tree<Co: GridCoord>(region: NonZeroVoxelRegion) -> bool {
-	tree_region::<Co>().contains_region(region)
+fn region_fits_tree(region: NonZeroVoxelRegion) -> bool {
+	tree_region().contains_region(region)
 }
 
-fn tree_region<Co: GridCoord>() -> NonZeroVoxelRegion {
-	NonZeroVoxelRegion::from_min_end(IVec3::ZERO, IVec3::splat(size(Co::MAX_ROOT_DEPTH) as i32)).unwrap()
+fn tree_region() -> NonZeroVoxelRegion {
+	NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(size(13/*Co::MAX_ROOT_DEPTH*/))).unwrap()
 }
 
 fn axis_value(v: IVec3, axis: usize) -> i32 {
@@ -503,8 +488,6 @@ fn set_axis(v: &mut IVec3, axis: usize, value: i32) {
 
 #[cfg(test)]
 mod tests {
-	use bevy::math::U16Vec3;
-
 	use crate::voxel_grid_tree::PackedCell;
 
 	use super::*;
@@ -519,14 +502,11 @@ mod tests {
 			PackedCell
 		}
 
-		fn reduce<'overlaps, 'a, Co>(
+		fn reduce<'overlaps, 'a>(
 			&mut self,
 			_region: NonZeroVoxelRegion,
-			overlaps: SourceOverlaps<'overlaps, 'a, PackedCell, Co>,
-		) -> Option<Self::Output>
-		where
-			Co: GridCoord,
-		{
+			overlaps: SourceOverlaps<'overlaps, 'a, PackedCell>,
+		) -> Option<Self::Output> {
 			let mut seen = false;
 			let mut sum = 0u16;
 			for overlap in overlaps {
@@ -539,23 +519,23 @@ mod tests {
 
 	#[test]
 	fn reduce_unit_region_sees_all_downsampled_cells_from_one_source() {
-		let mut source = GridTree::<PackedCell, U16Coord>::new();
-		source.insert(&U16Vec3::new(0, 0, 0), 10);
-		source.insert(&U16Vec3::new(1, 0, 0), 20);
+		let mut source = GridTree::<PackedCell>::new();
+		source.insert(&UVec3::new(0, 0, 0), 10);
+		source.insert(&UVec3::new(1, 0, 0), 20);
 
 		let sources = [SourceTree { tree: &source, scale_down: 1, output_offset: IVec3::ZERO }];
 		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::ONE).expect("unit output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
-		assert_eq!(output.get(&U16Vec3::ZERO), Some(30));
+		assert_eq!(output.get(&UVec3::ZERO), Some(30));
 	}
 
 	#[test]
 	fn reduce_unit_region_sees_all_active_sources() {
-		let mut first = GridTree::<PackedCell, U16Coord>::new();
-		first.insert(&U16Vec3::new(0, 0, 0), 11);
-		let mut second = GridTree::<PackedCell, U16Coord>::new();
-		second.insert(&U16Vec3::new(1, 0, 0), 22);
+		let mut first = GridTree::<PackedCell>::new();
+		first.insert(&UVec3::new(0, 0, 0), 11);
+		let mut second = GridTree::<PackedCell>::new();
+		second.insert(&UVec3::new(1, 0, 0), 22);
 
 		let sources = [
 			SourceTree { tree: &first, scale_down: 1, output_offset: IVec3::ZERO },
@@ -564,21 +544,21 @@ mod tests {
 		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::ONE).expect("unit output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
-		assert_eq!(output.get(&U16Vec3::ZERO), Some(33));
+		assert_eq!(output.get(&UVec3::ZERO), Some(33));
 	}
 
 	#[test]
 	fn reduce_preserves_leaf_boundaries_across_a_larger_region() {
-		let mut source = GridTree::<PackedCell, U16Coord>::new();
-		source.add_area(&U16Vec3::ZERO, UVec3::new(4, 8, 8), 7);
-		source.add_area(&U16Vec3::new(4, 0, 0), UVec3::new(4, 8, 8), 9);
+		let mut source = GridTree::<PackedCell>::new();
+		source.add_area(&UVec3::ZERO, UVec3::new(4, 8, 8), 7);
+		source.add_area(&UVec3::new(4, 0, 0), UVec3::new(4, 8, 8), 9);
 
 		let sources = [SourceTree { tree: &source, scale_down: 0, output_offset: IVec3::ZERO }];
 		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(8)).expect("output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
-		assert_eq!(output.get(&U16Vec3::new(3, 6, 6)), Some(7));
-		assert_eq!(output.get(&U16Vec3::new(4, 6, 6)), Some(9));
+		assert_eq!(output.get(&UVec3::new(3, 6, 6)), Some(7));
+		assert_eq!(output.get(&UVec3::new(4, 6, 6)), Some(9));
 	}
 
 	#[derive(Clone, Copy, Debug)]
@@ -589,13 +569,11 @@ mod tests {
 
 		fn output_grid_type(&self) -> PackedCell { PackedCell }
 
-		fn reduce<'overlaps, 'a, Co>(
+		fn reduce<'overlaps, 'a>(
 			&mut self,
 			_region: NonZeroVoxelRegion,
-			overlaps: SourceOverlaps<'overlaps, 'a, PackedCell, Co>,
+			overlaps: SourceOverlaps<'overlaps, 'a, PackedCell>,
 		) -> Option<Self::Output>
-		where
-			Co: GridCoord,
 		{
 			let mut volume = 0u16;
 			for overlap in overlaps {
@@ -608,14 +586,14 @@ mod tests {
 
 	#[test]
 	fn reduce_keeps_source_region_clipping_when_reusing_overlaps() {
-		let mut source = GridTree::<PackedCell, U16Coord>::new();
-		source.add_area(&U16Vec3::ZERO, UVec3::splat(8), 1);
+		let mut source = GridTree::<PackedCell>::new();
+		source.add_area(&UVec3::ZERO, UVec3::splat(8), 1);
 
 		let sources = [SourceTree { tree: &source, scale_down: 1, output_offset: IVec3::ZERO }];
 		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(4)).expect("output region");
 		let output = reduce_grid_trees(output_region, &sources, SourceVolumeReducer).expect("reduced output");
 
-		assert_eq!(output.get(&U16Vec3::new(0, 0, 0)), Some(8));
-		assert_eq!(output.get(&U16Vec3::new(3, 3, 3)), Some(8));
+		assert_eq!(output.get(&UVec3::new(0, 0, 0)), Some(8));
+		assert_eq!(output.get(&UVec3::new(3, 3, 3)), Some(8));
 	}
 }

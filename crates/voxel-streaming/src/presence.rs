@@ -127,7 +127,7 @@ impl ChunkPresence {
 		self.tree.is_area_filled(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap())
 	}
 
-	pub fn for_each_occupied_tile_cover(&self, region: NonZeroChunkRegion, tile_size: i32, f: impl FnMut(IVec3)) {
+	pub fn for_each_occupied_tile_cover(&self, region: NonZeroChunkRegion, tile_size: u32, f: impl FnMut(IVec3)) {
 		self.tree.for_each_occupied_tile_cover(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), tile_size, f);
 	}
 

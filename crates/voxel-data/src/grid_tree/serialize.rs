@@ -2,15 +2,15 @@ use std::{io::{self, Read, Write}, marker::PhantomData};
 
 use serde::{de::{self, SeqAccess, Visitor}, ser::SerializeTuple, Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{raw::RawGridTree, CellKind, GridCoord, GridTree, GridType, SIZE_CUBED, SIZE_USIZE_CUBED};
+use super::{raw::RawGridTree, CellKind, GridTree, GridType, SIZE_CUBED, SIZE_USIZE_CUBED};
 
 fn push_u64(out: &mut Vec<u8>, value: u64) { out.extend_from_slice(&value.to_le_bytes()); }
 fn write_u8<W: Write>(writer: &mut W, value: u8) -> io::Result<()> { writer.write_all(&[value]) }
 fn write_u64<W: Write>(writer: &mut W, value: u64) -> io::Result<()> { writer.write_all(&value.to_le_bytes()) }
-fn write_i32<W: Write>(writer: &mut W, value: i32) -> io::Result<()> { writer.write_all(&value.to_le_bytes()) }
+fn write_u32<W: Write>(writer: &mut W, value: u32) -> io::Result<()> { writer.write_all(&value.to_le_bytes()) }
 fn read_u8<R: Read>(reader: &mut R) -> io::Result<u8> { let mut buf = [0u8; 1]; reader.read_exact(&mut buf)?; Ok(buf[0]) }
 fn read_u64_from<R: Read>(reader: &mut R) -> io::Result<u64> { let mut buf = [0u8; 8]; reader.read_exact(&mut buf)?; Ok(u64::from_le_bytes(buf)) }
-fn read_i32<R: Read>(reader: &mut R) -> io::Result<i32> { let mut buf = [0u8; 4]; reader.read_exact(&mut buf)?; Ok(i32::from_le_bytes(buf)) }
+fn read_u32<R: Read>(reader: &mut R) -> io::Result<u32> { let mut buf = [0u8; 4]; reader.read_exact(&mut buf)?; Ok(u32::from_le_bytes(buf)) }
 
 fn read_u64(input: &mut &[u8]) -> Result<u64, String> {
 	if input.len() < 8 { return Err("grid tree byte stream ended early while reading u64".into()); }
@@ -117,23 +117,23 @@ fn read_node_from<R: Read, G: GridType>(reader: &mut R, raw: &mut RawGridTree, g
 	Ok(node_index)
 }
 
-impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+impl<G: GridType> GridTree<G> {
 	pub fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-		write_i32(writer, self.raw.root_pos().x)?;
-		write_i32(writer, self.raw.root_pos().y)?;
-		write_i32(writer, self.raw.root_pos().z)?;
+		write_u32(writer, self.raw.root_pos().x)?;
+		write_u32(writer, self.raw.root_pos().y)?;
+		write_u32(writer, self.raw.root_pos().z)?;
 		write_u8(writer, self.raw.root_depth())?;
 		write_u64(writer, self.raw.item_count())?;
 		write_node_to(writer, &self.raw, &self.grid_type, 0)
 	}
 }
 
-impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+impl<G: GridType> GridTree<G> {
 	pub fn read_from_with_type<R: Read>(grid_type: G, reader: &mut R) -> io::Result<Self> {
-		let root_pos = bevy::math::IVec3::new(read_i32(reader)?, read_i32(reader)?, read_i32(reader)?);
+		let root_pos = bevy::math::UVec3::new(read_u32(reader)?, read_u32(reader)?, read_u32(reader)?);
 		let root_depth = read_u8(reader)?;
 		let _stored_item_count = read_u64_from(reader)?;
-		if root_depth > Co::MAX_ROOT_DEPTH {
+		if root_depth > 13/*Co::MAX_ROOT_DEPTH*/ {
 			return Err(io::Error::new(io::ErrorKind::InvalidData, "grid tree root depth exceeds coordinate depth"));
 		}
 		let mut raw = RawGridTree::new(grid_type.data_size_bytes());
@@ -145,20 +145,19 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		}
 		raw.set_root(root_pos, root_depth);
 		raw.set_item_count(raw_occupied_count(&raw, 0, root_depth));
-		Ok(GridTree { grid_type, raw, _coord: PhantomData })
+		Ok(GridTree { grid_type, raw })
 	}
 }
 
-impl<G: GridType + Default, Co: GridCoord> GridTree<G, Co> {
+impl<G: GridType + Default> GridTree<G> {
 	pub fn read_from<R: Read>(reader: &mut R) -> io::Result<Self> {
 		Self::read_from_with_type(G::default(), reader)
 	}
 }
 
-impl<G, Co> Serialize for GridTree<G, Co>
+impl<G> Serialize for GridTree<G>
 where
 	G: GridType + Serialize,
-	Co: GridCoord,
 {
 	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
 	where
@@ -176,23 +175,21 @@ where
 	}
 }
 
-impl<'de, G, Co> Deserialize<'de> for GridTree<G, Co>
+impl<'de, G> Deserialize<'de> for GridTree<G>
 where
 	G: GridType + Deserialize<'de>,
-	Co: GridCoord,
 {
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where
 		D: Deserializer<'de>,
 	{
-		struct GridTreeVisitor<G: GridType, Co: GridCoord>(PhantomData<(G, Co)>);
+		struct GridTreeVisitor<G: GridType>(PhantomData<G>);
 
-		impl<'de, G, Co> Visitor<'de> for GridTreeVisitor<G, Co>
+		impl<'de, G> Visitor<'de> for GridTreeVisitor<G>
 		where
 			G: GridType + Deserialize<'de>,
-			Co: GridCoord,
 		{
-			type Value = GridTree<G, Co>;
+			type Value = GridTree<G>;
 
 			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result { formatter.write_str("a grid tree tuple") }
 
@@ -213,10 +210,10 @@ where
 				if !input.is_empty() { return Err(de::Error::custom("grid tree byte stream has trailing data")); }
 				raw.set_root(root_pos, root_depth);
 				raw.set_item_count(item_count);
-				Ok(GridTree { grid_type, raw, _coord: PhantomData })
+				Ok(GridTree { grid_type, raw })
 			}
 		}
 
-		deserializer.deserialize_tuple(5, GridTreeVisitor::<G, Co>(PhantomData))
+		deserializer.deserialize_tuple(5, GridTreeVisitor::<G>(PhantomData))
 	}
 }

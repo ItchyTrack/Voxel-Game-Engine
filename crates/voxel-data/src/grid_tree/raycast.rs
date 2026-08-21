@@ -1,7 +1,7 @@
 use bevy::math::{I8Vec3, UVec3, Vec3};
 use bevy::transform::components::Transform;
 
-use super::{CellKind, GridCoord, GridTreeView, GridType, child_size, get_child_contents_index, size};
+use super::{CellKind, GridTreeView, GridType, child_size, get_child_contents_index, size};
 
 fn ray_aabb_intersection(start: &Vec3, direction: &Vec3, aabb: &(Vec3, Vec3)) -> Option<f32> {
 	let (min, max) = aabb;
@@ -15,10 +15,10 @@ fn ray_aabb_intersection(start: &Vec3, direction: &Vec3, aabb: &(Vec3, Vec3)) ->
 	Some(tmin)
 }
 
-pub fn raycast<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>, transform: &Transform, max_length: Option<f32>) -> Option<(Co::Pos, I8Vec3, f32)> {
+pub fn raycast<G: GridType>(view: GridTreeView<'_, G>, transform: &Transform, max_length: Option<f32>) -> Option<(UVec3, I8Vec3, f32)> {
 	let max_length = max_length.unwrap_or(f32::MAX);
 	let raw = view.raw();
-	let root_pos = view.root_origin();
+	let root_pos = view.root_pos();
 	let root_depth = view.root_depth();
 
 	let origin = transform.translation;
@@ -114,7 +114,7 @@ pub fn raycast<G: GridType, Co: GridCoord>(view: GridTreeView<'_, G, Co>, transf
 					_ => unreachable!(),
 				}
 			}
-			CellKind::Data => return Some((Co::from_ivec3(root_relative_grid_pos.as_ivec3() + root_pos), -step.to_array()[last_step_axis as usize] * I8Vec3::AXES[last_step_axis as usize], last_distance)),
+			CellKind::Data => return Some((root_relative_grid_pos + root_pos, -step.to_array()[last_step_axis as usize] * I8Vec3::AXES[last_step_axis as usize], last_distance)),
 			CellKind::Node => { current_depth -= 1; current_node_index = raw.child_index(current_node_index, contents_index); }
 		}
 	}

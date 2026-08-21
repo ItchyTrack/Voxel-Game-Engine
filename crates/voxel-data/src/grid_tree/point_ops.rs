@@ -1,22 +1,21 @@
 use super::*;
 
-impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
+impl<G: GridType> GridTree<G> {
 	/// Insert one data cell. Returns true when the position was already occupied.
-	pub fn insert(&mut self, pos: &Co::Pos, data: G::Data<'_>) -> bool {
-		let pos = Co::to_ivec3(*pos);
-		if !self.make_sure_root_covers_pos(pos) {
+	pub fn insert(&mut self, pos: &UVec3, data: G::Data<'_>) -> bool {
+		if !self.make_sure_root_covers_pos(*pos) {
 			return false;
 		}
 		if !self.has_node_budget() {
 			return false;
 		}
-		self.insert_into_covered(pos, data)
+		self.insert_into_covered(*pos, data)
 	}
 
 	/// Insert assuming the root already covers `pos` (no root growth). Returns true when replacing an occupied cell.
-	pub(super) fn insert_into_covered(&mut self, pos: IVec3, data: G::Data<'_>) -> bool {
+	pub(super) fn insert_into_covered(&mut self, pos: UVec3, data: G::Data<'_>) -> bool {
 		let mut current_node_index: u32 = 0;
-		let mut current_relative_pos = (pos - self.raw.root_pos()).as_uvec3();
+		let mut current_relative_pos = pos - self.raw.root_pos();
 		let mut cell_index_stack = [0; MAX_TREE_DEPTH_USIZE];
 		let mut cell_index_stack_size = 0;
 		let mut current_depth = self.raw.root_depth();
@@ -59,17 +58,11 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 	}
 
 	/// Remove one cell. Returns true when the position was occupied.
-	pub fn remove(&mut self, pos: &Co::Pos) -> bool {
-		let pos = Co::to_ivec3(*pos);
-		let root_relative_pos = pos - self.raw.root_pos();
-		if root_relative_pos.is_negative_bitmask() != 0 {
-			return false;
-		}
-		let root_relative_pos = root_relative_pos.as_uvec3();
-		if root_relative_pos.x >= size(self.raw.root_depth())
-			|| root_relative_pos.y >= size(self.raw.root_depth())
-			|| root_relative_pos.z >= size(self.raw.root_depth())
-		{
+	pub fn remove(&mut self, pos: &UVec3) -> bool {
+		if pos.cmple(self.view().root_pos()).any() { return false; }
+		let root_relative_pos = pos - self.view().root_pos();
+		let root_size = super::size(self.view().root_depth());
+		if root_relative_pos.x >= root_size || root_relative_pos.y >= root_size || root_relative_pos.z >= root_size {
 			return false;
 		}
 		if !self.has_node_budget() {

@@ -1,4 +1,4 @@
-use bevy::math::IVec3;
+use bevy::math::UVec3;
 
 use super::{CellKind, GridType, SIZE_USIZE_CUBED};
 
@@ -14,7 +14,7 @@ const CHILD_INDEX_BYTES: usize = std::mem::size_of::<u32>();
 pub struct RawGridTree {
 	buffer: Vec<u8>,
 	cell_stride: usize,
-	root_pos: IVec3,
+	root_pos: UVec3,
 	root_depth: u8,
 	item_count: u64,
 	dead_nodes: usize,
@@ -27,7 +27,7 @@ impl RawGridTree {
 		let mut out = Self {
 			buffer: Vec::new(),
 			cell_stride,
-			root_pos: IVec3::ZERO,
+			root_pos: UVec3::ZERO,
 			root_depth: 0,
 			item_count: 0,
 			dead_nodes: 0,
@@ -40,14 +40,14 @@ impl RawGridTree {
 	pub fn cell_stride(&self) -> usize { self.cell_stride }
 	pub fn node_stride(&self) -> usize { NODE_HEADER_SIZE + SIZE_USIZE_CUBED * self.cell_stride }
 	pub fn node_count(&self) -> usize { self.buffer.len() / self.node_stride() }
-	pub fn root_pos(&self) -> IVec3 { self.root_pos }
+	pub fn root_pos(&self) -> UVec3 { self.root_pos }
 	pub fn root_depth(&self) -> u8 { self.root_depth }
 	pub fn item_count(&self) -> u64 { self.item_count }
 	pub fn is_empty(&self) -> bool { self.item_count == 0 }
 	pub fn bytes(&self) -> &[u8] { &self.buffer }
 	pub(crate) fn free_node_count(&self) -> usize { self.free_nodes.len() }
 
-	pub(crate) fn set_root(&mut self, pos: IVec3, depth: u8) {
+	pub(crate) fn set_root(&mut self, pos: UVec3, depth: u8) {
 		self.root_pos = pos;
 		self.root_depth = depth;
 	}
@@ -73,7 +73,7 @@ impl RawGridTree {
 		&mut self.buffer[start..start + self.cell_stride]
 	}
 
-	pub(crate) fn reset_empty_root(&mut self, root_pos: IVec3, root_depth: u8) {
+	pub(crate) fn reset_empty_root(&mut self, root_pos: UVec3, root_depth: u8) {
 		self.clear_all_nodes();
 		self.item_count = 0;
 		self.root_pos = root_pos;

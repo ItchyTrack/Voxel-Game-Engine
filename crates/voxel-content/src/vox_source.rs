@@ -186,7 +186,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 		cache.available_area = touched_bounds.and_then(|(min, max)| ChunkRegion::from_min_max(min, max));
 
 		for (chunk, points) in chunk_points {
-			let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
+			let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (pos.as_uvec3(), voxel.get_ref())).collect();
 			let mut voxels = Voxels::new::<T>();
 			voxels.add_voxels(&voxel_refs);
 			if let Ok(compressed) = CompressedVoxels::new(&voxels, 0) {

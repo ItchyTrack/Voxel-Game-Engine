@@ -5,7 +5,7 @@ use bevy::camera::primitives::{Aabb, Frustum};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::system::{Commands, Query, Res};
-use bevy::math::{U16Vec3, Vec3};
+use bevy::math::{UVec3, Vec3};
 use bevy::render::Extract;
 use bevy::render::sync_world::RenderEntity;
 use bevy::transform::components::{GlobalTransform, Transform};
@@ -44,7 +44,7 @@ struct RenderItem {
 	transform: Transform,
 }
 
-fn in_frustum(frustum: &Frustum, min: U16Vec3, max: U16Vec3, transform: &Transform) -> bool {
+fn in_frustum(frustum: &Frustum, min: UVec3, max: UVec3, transform: &Transform) -> bool {
 	let aabb = Aabb::from_min_max(min.as_vec3(), max.as_vec3() + Vec3::ONE);
 	frustum.intersects_obb(&aabb, &transform.compute_affine(), true, true)
 }
