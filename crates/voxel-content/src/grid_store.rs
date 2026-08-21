@@ -72,7 +72,7 @@ impl GridStore {
 						let chunk = min + IVec3::new(x, y, z);
 						let Some(voxels) = self.load_chunk(chunk) else { continue };
 						out.get_or_insert_with(|| Voxels::new_with_type(voxels.voxel_type_info()))
-							.merge_from(&voxels, IVec3::new(x, y, z) * tile_data::CHUNK_SIZE);
+							.merge_from(&voxels, IVec3::new(x, y, z) * tile_data::CHUNK_SIZE as i32);
 					}
 				}
 			}

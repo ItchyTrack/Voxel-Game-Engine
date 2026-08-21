@@ -162,7 +162,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 								current_chunk = Some(chunk);
 								current_points = chunk_points.remove(&chunk).unwrap_or_default();
 							}
-							let local = source_pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_u16vec3();
+							let local = source_pos.rem_euclid(IVec3::splat(CHUNK_SIZE as i32)).as_u16vec3();
 							let palette = dot_vox_data.palette[voxel.i as usize];
 							let material = VoxMaterial {
 								palette_index: voxel.i,
@@ -201,26 +201,26 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 	}
 
 	fn translated_chunk(&self, binding: &GridBinding, grid_chunk: IVec3) -> Option<Voxels> {
-		let grid_chunk_origin = grid_chunk * CHUNK_SIZE;
+		let grid_chunk_origin = grid_chunk * CHUNK_SIZE as i32;
 		let source_min = grid_chunk_origin - binding.offset;
-		let source_max_exclusive = source_min + IVec3::splat(CHUNK_SIZE);
-		let source_chunk_min = source_min.div_euclid(IVec3::splat(CHUNK_SIZE));
-		let source_chunk_max = (source_max_exclusive - IVec3::ONE).div_euclid(IVec3::splat(CHUNK_SIZE));
+		let source_max_exclusive = source_min + IVec3::splat(CHUNK_SIZE as i32);
+		let source_chunk_min = chunk_of(source_min);
+		let source_chunk_max = chunk_of(source_max_exclusive - IVec3::ONE);
 
 		let mut out = Voxels::new::<T>();
 		for z in source_chunk_min.z..=source_chunk_max.z {
 			for y in source_chunk_min.y..=source_chunk_max.y {
 				for x in source_chunk_min.x..=source_chunk_max.x {
 					let source_chunk = IVec3::new(x, y, z);
-					let source_chunk_origin = source_chunk * CHUNK_SIZE;
+					let source_chunk_origin = source_chunk * CHUNK_SIZE as i32;
 					let local_min = source_min.max(source_chunk_origin) - source_chunk_origin;
-					let local_max = source_max_exclusive.min(source_chunk_origin + IVec3::splat(CHUNK_SIZE)) - source_chunk_origin;
+					let local_max = source_max_exclusive.min(source_chunk_origin + IVec3::splat(CHUNK_SIZE as i32)) - source_chunk_origin;
 					let local_size = local_max - local_min;
 					if local_size.cmple(IVec3::ZERO).any() { continue; }
 					let Some(source_voxels) = self.source_chunk(&binding.path, source_chunk) else { continue };
 					out.merge_region_from(
 						&source_voxels,
-						NonZeroVoxelRegion::from_min_size(local_min, local_size),
+						NonZeroVoxelRegion::from_min_size(local_min, local_size.as_uvec3()),
 						source_chunk_origin + binding.offset - grid_chunk_origin,
 					);
 				}
@@ -233,10 +233,10 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 		self.ensure_file_loaded(&binding.path);
 		let files = self.inner.files.read().unwrap();
 		let area = files.get(&binding.path)?.available_area?;
-		let min_voxel = area.min() * CHUNK_SIZE + binding.offset;
-		let max_voxel_exclusive = area.end() * CHUNK_SIZE + binding.offset;
-		let min_chunk = min_voxel.div_euclid(IVec3::splat(CHUNK_SIZE));
-		let max_chunk = (max_voxel_exclusive - IVec3::ONE).div_euclid(IVec3::splat(CHUNK_SIZE));
+		let min_voxel = area.min() * CHUNK_SIZE as i32 + binding.offset;
+		let max_voxel_exclusive = area.end() * CHUNK_SIZE as i32 + binding.offset;
+		let min_chunk = chunk_of(min_voxel);
+		let max_chunk = chunk_of(max_voxel_exclusive - IVec3::ONE);
 		NonZeroChunkRegion::from_min_max(min_chunk, max_chunk)
 	}
 }

@@ -8,7 +8,7 @@ use std::{
 };
 
 use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
-use tile_data::{NonZeroChunkRegion, chunk_of};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_of};
 use voxel_data::{
 	grid::Grid,
 	voxels::{VoxelTypeId, VoxelTypeInfo},
@@ -73,7 +73,7 @@ fn spawn_camera(app: &mut App, settings: CameraVoxelLoaderSettings, center: IVec
 	app.world_mut()
 		.spawn((
 			Camera3d::default(),
-			GlobalTransform::from_translation((center * tile_data::CHUNK_SIZE).as_vec3()),
+			GlobalTransform::from_translation((center * CHUNK_SIZE as i32).as_vec3()),
 			CameraVoxelTileClass(TEST_CLASS),
 			CameraVoxelLoader::with_settings(settings),
 			CameraVoxelLoaderConsumer::default(),
@@ -83,7 +83,7 @@ fn spawn_camera(app: &mut App, settings: CameraVoxelLoaderSettings, center: IVec
 
 fn move_camera(app: &mut App, camera: Entity, center: IVec3) {
 	*app.world_mut().entity_mut(camera).get_mut::<GlobalTransform>().unwrap() =
-		GlobalTransform::from_translation((center * tile_data::CHUNK_SIZE).as_vec3());
+		GlobalTransform::from_translation((center * CHUNK_SIZE as i32).as_vec3());
 }
 
 fn mark_present(app: &mut App, grid: Entity, chunk: IVec3) {

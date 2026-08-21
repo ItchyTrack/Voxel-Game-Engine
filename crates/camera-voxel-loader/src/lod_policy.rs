@@ -157,7 +157,7 @@ mod tests {
 		let grid: GridId = Entity::PLACEHOLDER;
 		let settings = policy_settings();
 		let mut streaming = GridStreaming::default();
-		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-80), IVec3::splat(161)).unwrap());
+		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-80), UVec3::splat(161)).unwrap());
 
 		let mut flying = CameraVoxelLoader::default();
 		flying.settings = settings.clone();
@@ -175,7 +175,7 @@ mod tests {
 		let grid: GridId = Entity::PLACEHOLDER;
 		let settings = policy_settings();
 		let mut streaming = GridStreaming::default();
-		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-40), IVec3::splat(81)).unwrap());
+		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-40), UVec3::splat(81)).unwrap());
 
 		let desired = desired_at(&settings, grid, &streaming, IVec3::new(3, -2, 5));
 		assert!(!desired.is_empty(), "control setup produced no desired tiles");
@@ -204,7 +204,7 @@ mod tests {
 		let grid: GridId = Entity::PLACEHOLDER;
 		let settings = policy_settings();
 		let mut streaming = GridStreaming::default();
-		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-60), IVec3::splat(121)).unwrap());
+		streaming.mark_present_area(NonZeroChunkRegion::from_min_size(IVec3::splat(-60), UVec3::splat(121)).unwrap());
 
 		for center in [IVec3::ZERO, IVec3::new(1, 0, 0), IVec3::new(12, 0, -4), IVec3::new(-17, 3, 9)] {
 			let desired = desired_at(&settings, grid, &streaming, center);

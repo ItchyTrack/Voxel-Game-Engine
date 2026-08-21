@@ -76,10 +76,10 @@ fn region_chunks(region: NonZeroChunkRegion) -> impl Iterator<Item = IVec3> {
 }
 
 fn sphere_chunk_region() -> NonZeroChunkRegion {
-	let radius_chunks = RADIUS.div_euclid(CHUNK_SIZE) + 1;
+	let radius_chunks = RADIUS.div_euclid(CHUNK_SIZE as i32) + 1;
 	NonZeroChunkRegion::from_min_size(
 		IVec3::splat(-radius_chunks),
-		IVec3::splat(radius_chunks * 2 + 1),
+		UVec3::splat(radius_chunks as u32 * 2 + 1),
 	).unwrap()
 }
 
@@ -118,8 +118,8 @@ fn build_region(
 
 	let step = if use_raw { 1 } else { 1i32 << lod as u32 };
 	let sample_offset = if use_raw { 0 } else { step / 2 };
-	let chunk_extent = CHUNK_SIZE / step;
-	let max_source = IVec3::splat(CHUNK_SIZE - 1);
+	let chunk_extent = CHUNK_SIZE as i32 / step;
+	let max_source = IVec3::splat(CHUNK_SIZE as i32 - 1);
 	let r2 = radius2();
 
 	// Only one of these ends up populated, depending on `use_raw`.
@@ -173,7 +173,7 @@ fn build_region(
 		if areas.is_empty() {
 			return None;
 		}
-		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, *size, voxel.get_ref())).collect();
+		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, size.as_uvec3(), voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<LodVoxel>();
 		voxels.add_areas(&area_refs);
 		Some(voxels)

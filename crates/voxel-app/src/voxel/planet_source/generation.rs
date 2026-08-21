@@ -30,7 +30,7 @@ pub(super) fn build_planet_region<V: VoxelType>(
 	let tile = planet_tiles().get(tile_index)?;
 	let step = 1i32 << lod as u32;
 	let sample_offset = step / 2;
-	let chunk_extent = CHUNK_SIZE / step;
+	let chunk_extent = CHUNK_SIZE as i32 / step;
 	let step_f = step as f32;
 
 	let mut areas = Vec::new();
@@ -52,7 +52,7 @@ pub(super) fn build_planet_region<V: VoxelType>(
 				};
 
 				let pos = chunk_offset + IVec3::new(x, y, z0);
-				let size = U16Vec3::new(1, 1, (z1 - z0) as u16);
+				let size = UVec3::new(1, 1, (z1 - z0) as u32);
 				areas.push((pos.as_u16vec3(), size, sample(IVec3::new(x, y, z0))));
 			}
 		}

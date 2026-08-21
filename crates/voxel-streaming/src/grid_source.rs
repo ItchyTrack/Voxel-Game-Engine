@@ -155,7 +155,7 @@ pub(crate) fn serve_grid_source_requests(
 					NonZeroChunkRegion::from_single(chunk),
 					0,
 					streaming.chunk_generation(chunk),
-					grid.read_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE)),
+					grid.read_area(chunk_origin(chunk), UVec3::splat(CHUNK_SIZE)),
 				);
 			}
 		}

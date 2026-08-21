@@ -1,38 +1,30 @@
 use bevy::ecs::entity::{EntityMapper, MapEntities};
-use bevy::math::IVec3;
 use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
 use voxel_data::grid::GridId;
 use voxel_data::region::NonZeroVoxelRegion;
 use voxel_data::voxels::Voxel;
-use voxel_edit::GridEdit;
+use voxel_edit::ResolvedGridEdit;
 use tile_data::{ChunkRegion, NonZeroChunkRegion};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) enum WireGridEdit {
-	Add { voxel_pos: IVec3, voxel: Voxel },
-	Remove { voxel_pos: IVec3 },
 	AddArea { region: NonZeroVoxelRegion, voxel: Voxel },
 	RemoveArea { region: NonZeroVoxelRegion },
 }
 
 impl WireGridEdit {
-	pub(super) fn from_edit(edit: &GridEdit) -> Option<Self> {
+	pub(super) fn from_edit(edit: &ResolvedGridEdit) -> Option<Self> {
 		match edit {
-			GridEdit::Add { voxel_pos, voxel } => Some(Self::Add { voxel_pos: *voxel_pos, voxel: voxel.clone() }),
-			GridEdit::Remove { voxel_pos } => Some(Self::Remove { voxel_pos: *voxel_pos }),
-			GridEdit::AddArea { region, voxel } => Some(Self::AddArea { region: *region, voxel: voxel.clone() }),
-			GridEdit::RemoveArea { region } => Some(Self::RemoveArea { region: *region }),
-			GridEdit::ApplySdf { .. } | GridEdit::ClearSdf { .. } => None,
+			ResolvedGridEdit::AddArea { region, voxel } => Some(Self::AddArea { region: *region, voxel: voxel.clone() }),
+			ResolvedGridEdit::RemoveArea { region } => Some(Self::RemoveArea { region: *region }),
 		}
 	}
 
-	pub(super) fn into_edit(self) -> GridEdit {
+	pub(super) fn into_edit(self) -> ResolvedGridEdit {
 		match self {
-			Self::Add { voxel_pos, voxel } => GridEdit::Add { voxel_pos, voxel },
-			Self::Remove { voxel_pos } => GridEdit::Remove { voxel_pos },
-			Self::AddArea { region, voxel } => GridEdit::AddArea { region, voxel },
-			Self::RemoveArea { region } => GridEdit::RemoveArea { region },
+			Self::AddArea { region, voxel } => ResolvedGridEdit::AddArea { region, voxel },
+			Self::RemoveArea { region } => ResolvedGridEdit::RemoveArea { region },
 		}
 	}
 }

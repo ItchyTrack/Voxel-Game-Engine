@@ -4,7 +4,7 @@ use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use tile_data::{NonZeroChunkRegion, chunk_origin};
 use voxel_data::{grid::Grid, grid_tree::NonZeroVoxelRegion, voxels::{Voxel, VoxelTypeId, VoxelTypeInfo}};
-use voxel_edit::GridEdit;
+use voxel_edit::ResolvedGridEdit;
 use voxel_sources::{
 	ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceManager, VoxelSourcesAppExt,
 	VoxelSourcesPlugin,
@@ -110,7 +110,7 @@ fn authoritative_region_command_applies_loaded_chunks_and_waits_on_unloaded_chun
 		region: NonZeroChunkRegion::new(loaded_chunk, UVec3::new(2, 1, 1)).unwrap(),
 		stream_sequence: 1,
 		generation: 1,
-		edit: GridEdit::AddArea { region, voxel: Voxel::new(test_type_info().id, [7]) },
+		edit: ResolvedGridEdit::AddArea { region, voxel: Voxel::new(test_type_info().id, [7]) },
 	});
 	app.update();
 

@@ -56,7 +56,7 @@ impl TileVoxelReducerRegistry {
 
 		let step = 1i32.checked_shl(output_lod as u32)?;
 		for input in exact {
-			let offset = ((input.area.min() - area.min()) * CHUNK_SIZE).div_euclid(bevy::math::IVec3::splat(step));
+			let offset = ((input.area.min() - area.min()) * CHUNK_SIZE as i32).div_euclid(bevy::math::IVec3::splat(step));
 			output.get_or_insert_with(|| Voxels::new_with_type(input.voxels.voxel_type_info())).merge_from(&input.voxels, offset);
 		}
 		output.filter(|voxels| !voxels.is_empty())

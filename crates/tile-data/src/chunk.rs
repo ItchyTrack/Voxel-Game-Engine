@@ -4,24 +4,24 @@ use voxel_data::{
 	region::{NonZeroVoxelRegion, VoxelRegion},
 };
 
-pub const CHUNK_SIZE: i32 = 64;
+pub const CHUNK_SIZE: u32 = 64;
 
 define_region_types!(ChunkRegion, NonZeroChunkRegion);
 
 pub fn chunk_of(voxel_position: IVec3) -> IVec3 {
-	voxel_position.div_euclid(IVec3::splat(CHUNK_SIZE))
+	voxel_position.div_euclid(IVec3::splat(CHUNK_SIZE as i32))
 }
 
 pub fn chunk_origin(chunk_position: IVec3) -> IVec3 {
-	chunk_position * CHUNK_SIZE
+	chunk_position * CHUNK_SIZE as i32
 }
 
 pub fn voxel_region_from_chunks(region: ChunkRegion) -> VoxelRegion {
-	VoxelRegion::new(chunk_origin(region.min()), region.size() * CHUNK_SIZE as u32)
+	VoxelRegion::new(chunk_origin(region.min()), region.size() * CHUNK_SIZE)
 }
 
 pub fn nonzero_voxel_region_from_chunks(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
-	NonZeroVoxelRegion::new(chunk_origin(region.min()), region.size() * CHUNK_SIZE as u32).unwrap()
+	NonZeroVoxelRegion::new(chunk_origin(region.min()), region.size() * CHUNK_SIZE).unwrap()
 }
 
 pub fn chunks_covering_voxel_region(region: VoxelRegion) -> ChunkRegion {

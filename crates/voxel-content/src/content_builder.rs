@@ -23,9 +23,9 @@ impl StreamingVoxels {
 
 	pub fn reserve(&mut self, _additional: usize) {}
 
-	pub fn add_voxel(&mut self, pos: &IVec3, voxel: VoxelRef) {
-		let chunk = chunk_of(*pos);
-		let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE)).as_u16vec3();
+	pub fn add_voxel(&mut self, pos: IVec3, voxel: VoxelRef) {
+		let chunk = chunk_of(pos);
+		let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE as i32)).as_u16vec3();
 		self.chunks.entry(chunk).or_insert_with(|| Voxels::new_with_type(self.voxel_type_info)).add_voxel(local, voxel);
 	}
 
@@ -40,9 +40,9 @@ impl StreamingVoxels {
 			for y in chunk_min.y..=chunk_max.y {
 				for x in chunk_min.x..=chunk_max.x {
 					let chunk = IVec3::new(x, y, z);
-					let chunk_origin = chunk * CHUNK_SIZE;
+					let chunk_origin = chunk * CHUNK_SIZE as i32;
 					let local_min = min.max(chunk_origin) - chunk_origin;
-					let local_max = max.min(chunk_origin + IVec3::splat(CHUNK_SIZE)) - chunk_origin;
+					let local_max = max.min(chunk_origin + IVec3::splat(CHUNK_SIZE as i32)) - chunk_origin;
 					let local_size = local_max - local_min;
 					if local_size.cmple(IVec3::ZERO).any() {
 						continue;

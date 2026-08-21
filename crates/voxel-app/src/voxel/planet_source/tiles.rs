@@ -298,7 +298,7 @@ pub(super) fn tile_has_chunk(tile: &PlanetTile, chunk: IVec3) -> bool {
 
 fn chunk_intersects_tile_shape(halfspaces: &[Halfspace], chunk: IVec3) -> bool {
 	let min = chunk_origin(chunk).as_vec3();
-	let max = (chunk_origin(chunk) + IVec3::splat(CHUNK_SIZE)).as_vec3();
+	let max = (chunk_origin(chunk) + IVec3::splat(CHUNK_SIZE as i32)).as_vec3();
 	if max.z <= -TILE_INWARD_DEPTH as f32 || min.z >= TILE_OUTWARD_HEIGHT as f32 {
 		return false;
 	}
@@ -312,6 +312,6 @@ fn chunk_intersects_tile_shape(halfspaces: &[Halfspace], chunk: IVec3) -> bool {
 			if h.normal.y >= 0.0 { max.y } else { min.y },
 			if h.normal.z >= 0.0 { max.z } else { min.z },
 		);
-		h.normal.dot(p) + h.offset >= -CHUNK_SIZE as f32
+		h.normal.dot(p) + h.offset >= -(CHUNK_SIZE as f32)
 	})
 }

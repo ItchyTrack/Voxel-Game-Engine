@@ -34,7 +34,7 @@ fn gradient_chunk() -> Voxels {
 		for y in 0..CHUNK {
 			for x in 0..CHUNK {
 				let pos = IVec3::new(x, y, z);
-				voxels.add_voxel(pos.as_u16vec3(), gradient_voxel(pos));
+				voxels.add_voxel(pos.as_u16vec3(), gradient_voxel(pos).get_ref());
 			}
 		}
 	}
@@ -53,7 +53,7 @@ fn sphere_surface_chunk() -> Voxels {
 				let d = pos - center;
 				let dist2 = d.dot(d);
 				if dist2 <= radius_outer && dist2 >= radius_inner {
-					voxels.add_voxel(pos.as_u16vec3(), gradient_voxel(pos));
+					voxels.add_voxel(pos.as_u16vec3(), gradient_voxel(pos).get_ref());
 				}
 			}
 		}

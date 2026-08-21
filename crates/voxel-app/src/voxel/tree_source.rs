@@ -156,7 +156,7 @@ impl ChunkSource for TreeSource {
 				for &chunk in &owned_chunks {
 					if cancellation.is_cancelled() { break; }
 					let Some(part) = rasterize_tree_chunk(&model, chunk, &cancellation) else { continue };
-					let offset = (chunk - region.min()) * CHUNK_SIZE;
+					let offset = (chunk - region.min()) * CHUNK_SIZE as i32;
 					merged.get_or_insert_with(|| Voxels::new::<BasicVoxel>()).merge_from(&part, offset);
 				}
 				merged
@@ -314,7 +314,7 @@ fn sphere_voxel_bounds(center: Vec3, radius: f32) -> VoxelBounds {
 fn rasterize_tree_chunk(model: &TreeModel, chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels> {
 	let primitives = model.primitive_index.get(&chunk)?;
 	let origin = chunk_origin(chunk);
-	let bounds = VoxelBounds::from_min_end(origin, origin + IVec3::splat(tile_data::CHUNK_SIZE)).unwrap();
+	let bounds = VoxelBounds::from_min_size(origin, UVec3::splat(tile_data::CHUNK_SIZE)).unwrap();
 	let mut points = HashMap::new();
 
 	for &index in &primitives.branches {

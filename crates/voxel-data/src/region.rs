@@ -156,8 +156,8 @@ macro_rules! define_region_types {
 				(size.x != 0 && size.y != 0 && size.z != 0).then_some(Self { min, size })
 			}
 
-			pub fn from_min_size(min: ::bevy::math::IVec3, size: ::bevy::math::IVec3) -> Option<Self> {
-				(size.cmpgt(::bevy::math::IVec3::ZERO).all()).then(|| Self { min, size: size.as_uvec3() })
+			pub fn from_min_size(min: ::bevy::math::IVec3, size: ::bevy::math::UVec3) -> Option<Self> {
+				(size.cmpgt(::bevy::math::UVec3::ZERO).all()).then(|| Self { min, size })
 			}
 
 			pub fn from_min_end(min: ::bevy::math::IVec3, end: ::bevy::math::IVec3) -> Option<Self> {

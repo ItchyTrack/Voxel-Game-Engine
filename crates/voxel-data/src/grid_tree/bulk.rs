@@ -1,3 +1,5 @@
+use bevy::math::UVec3;
+
 use super::*;
 
 impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
@@ -5,7 +7,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		self.add_regions(&[(region, data)]);
 	}
 
-	pub fn add_area(&mut self, pos: &Co::Pos, size: IVec3, data: G::Data<'_>) {
+	pub fn add_area(&mut self, pos: &Co::Pos, size: UVec3, data: G::Data<'_>) {
 		let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), size) else { return };
 		self.fill_region(region, data);
 	}
@@ -49,7 +51,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		}
 	}
 
-	pub fn add_areas<'a>(&mut self, areas: &[(Co::Pos, IVec3, G::Data<'a>)]) {
+	pub fn add_areas<'a>(&mut self, areas: &[(Co::Pos, UVec3, G::Data<'a>)]) {
 		let mut regions = Vec::with_capacity(areas.len());
 		for (pos, size, data) in areas {
 			let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), *size) else { continue };

@@ -22,12 +22,12 @@ impl GridEdits {
 		self.pending.push(PendingGridEdit { edit });
 	}
 
-	pub fn add_voxel(&mut self, voxel_pos: &IVec3, voxel: Voxel) {
-		self.push_pending(GridEdit::Add { voxel_pos: *voxel_pos, voxel });
+	pub fn add_voxel(&mut self, voxel_pos: IVec3, voxel: Voxel) {
+		self.push_pending(GridEdit::AddArea { region: NonZeroVoxelRegion::from_single(voxel_pos), voxel } );
 	}
 
-	pub fn remove_voxel(&mut self, voxel_pos: &IVec3) {
-		self.push_pending(GridEdit::Remove { voxel_pos: *voxel_pos });
+	pub fn remove_voxel(&mut self, voxel_pos: IVec3) {
+		self.push_pending(GridEdit::RemoveArea { region: NonZeroVoxelRegion::from_single(voxel_pos) });
 	}
 
 	pub fn add_area(&mut self, region: NonZeroVoxelRegion, voxel: Voxel) {
@@ -45,10 +45,6 @@ impl GridEdits {
 	pub fn clear_sdf(&mut self, bounds_min: Vec3, bounds_max: Vec3, sdf: Arc<dyn Sdf>) {
 		self.push_pending(GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution: IVec2::splat(9), iterations: 6, sdf });
 	}
-
-	pub fn push_edit(&mut self, edit: GridEdit) {
-		self.push_pending(edit);
-	}
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,7 +55,7 @@ pub fn apply_grid_edits(
 ) {
 	for (mut edits, mut streaming) in &mut grids {
 		for PendingGridEdit { edit } in std::mem::take(&mut edits.pending) {
-			streaming.pending_take_edits.extend(edit.resolved_commands());
+			streaming.pending_take_edits.extend(edit.into_resolved());
 		}
 	}
 }

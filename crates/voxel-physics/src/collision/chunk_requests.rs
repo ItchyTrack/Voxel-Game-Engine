@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use rustc_hash::FxHashMap;
 use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
 use voxel_data::bvh::BVH;
-use tile_data::CHUNK_SIZE;
+use tile_data::{CHUNK_SIZE, chunk_origin};
 use voxel_sources::SourceManager;
 use voxel_streaming::GridStreaming;
 
@@ -46,8 +46,8 @@ pub fn cache_presence_aabb(
 		}
 		commands.entity(entity).insert((
 			PresenceAabb {
-				lo: (min * CHUNK_SIZE).as_vec3(),
-				hi: (max * CHUNK_SIZE).as_vec3(),
+				lo: (chunk_origin(min)).as_vec3(),
+				hi: (chunk_origin(max)).as_vec3(),
 			},
 			WantedChunks::default(),
 		));
@@ -169,7 +169,7 @@ pub fn request_collision_chunks(
 				return;
 			}
 
-			let local_center = (origin * CHUNK_SIZE).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 * size as f32 * 0.5);
+			let local_center = (origin * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 * size as f32 * 0.5);
 			let world_center = req.grid_affine.transform_point3(local_center);
 			let node_world_half = req.chunk_world_half * size as f32;
 			let node_box = (world_center - node_world_half, world_center + node_world_half);
@@ -192,7 +192,7 @@ pub fn request_collision_chunks(
 				for y in origin.y..origin.y + size as i32 {
 					for z in origin.z..origin.z + size as i32 {
 						let chunk = IVec3::new(x, y, z);
-						let local_center = (chunk * CHUNK_SIZE).as_vec3() + chunk_local_center_offset;
+						let local_center = (chunk * CHUNK_SIZE as i32).as_vec3() + chunk_local_center_offset;
 						let world_center = req.grid_affine.transform_point3(local_center);
 						let chunk_box = (world_center - req.chunk_world_half, world_center + req.chunk_world_half);
 						if partners.iter().any(|p| overlap(chunk_box, *p)) {

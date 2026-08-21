@@ -207,9 +207,9 @@ fn spawn_bb8(
 ) {
 	let mut base_grid = StreamingVoxels::new::<BasicVoxel>();
 	for x in -6..=6 { for y in 0..3 { for z in -6..=6 {
-		base_grid.add_voxel(&IVec3::new(x, y, z), voxel([128, 128, 128, 255], 200).get_ref());
+		base_grid.add_voxel(IVec3::new(x, y, z), voxel([128, 128, 128, 255], 200).get_ref());
 	}}}
-	base_grid.add_voxel(&IVec3::new(0, 3, 0), voxel([255, 0, 0, 255], 200).get_ref());
+	base_grid.add_voxel(IVec3::new(0, 3, 0), voxel([255, 0, 0, 255], 200).get_ref());
 
 	let base = commands.spawn((
 		RigidBody,
@@ -239,7 +239,7 @@ fn spawn_ball(commands: &mut Commands, store: &VoxelStoreSource, position: Vec3,
 			for z in -radius..=radius {
 				let p = IVec3::new(x, y, z);
 				if p.as_vec3().length_squared() > radius_sq { continue; }
-				top.add_voxel(&p, voxel([(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], 100).get_ref());
+				top.add_voxel(p, voxel([(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], 100).get_ref());
 			}
 		}
 	}
@@ -250,7 +250,7 @@ fn spawn_ball(commands: &mut Commands, store: &VoxelStoreSource, position: Vec3,
 			for z in -radius..=radius {
 				let p = IVec3::new(x, y, z);
 				if p.as_vec3().length_squared() > radius_sq { continue; }
-				bottom.add_voxel(&p, voxel([(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], 100).get_ref());
+				bottom.add_voxel(p, voxel([(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], 100).get_ref());
 			}
 		}
 	}

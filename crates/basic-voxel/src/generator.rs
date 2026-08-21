@@ -1,4 +1,4 @@
-use bevy::math::IVec3;
+use bevy::math::{IVec3, UVec3};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileVoxelReducer, VoxelRegionResult};
 use voxel_data::grid_tree::{GridCoord, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps};
 use voxel_data::voxel_grid_tree::VoxelGridType;
@@ -52,7 +52,7 @@ impl TileVoxelReducer for MarchingToMarchingVoxelReducer {
 
 pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 	let min = region.min();
-	let size = region.size().as_ivec3();
+	let size = region.size();
 	let scale_down = lod.max(0.0).floor() as u8;
 	let step = 1i32 << scale_down as u32;
 
@@ -60,7 +60,7 @@ pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IV
 	for chunk_z in 0..size.z {
 		for chunk_y in 0..size.y {
 			for chunk_x in 0..size.x {
-				let local = IVec3::new(chunk_x, chunk_y, chunk_z);
+				let local = IVec3::new(chunk_x as i32, chunk_y as i32, chunk_z as i32);
 				if let Some(voxels) = fetch(min + local) {
 					loaded.push((local, voxels));
 				}
@@ -76,14 +76,14 @@ pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IV
 		.map(|(local, voxels)| SourceTree {
 			voxels,
 			scale_down,
-			output_offset: (*local * CHUNK_SIZE).div_euclid(IVec3::splat(step)),
+			output_offset: (*local * CHUNK_SIZE as i32).div_euclid(IVec3::splat(step)),
 		})
 		.collect();
 	let source_infos = sources
 		.iter()
 		.map(|source| SourceInfo { scale_down: source.scale_down, output_offset: source.output_offset })
 		.collect();
-	let output_size = div_ceil_ivec3(size * CHUNK_SIZE, step);
+	let output_size = div_ceil_uvec3(size * CHUNK_SIZE, step as u32);
 	let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, output_size)?;
 	Voxels::reduce_voxels(output_region, &sources, BasicVoxelReducer { sources: source_infos })
 }
@@ -94,14 +94,14 @@ fn result_sources<'a>(
 	inputs: &[&'a VoxelRegionResult],
 ) -> Option<(NonZeroVoxelRegion, Vec<SourceTree<'a>>)> {
 	let output_step = 1i32.checked_shl(output_lod as u32)?;
-	let output_size = div_ceil_ivec3(area.size().as_ivec3() * CHUNK_SIZE, output_step);
+	let output_size = div_ceil_uvec3(area.size() * CHUNK_SIZE, output_step as u32);
 	let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, output_size)?;
 	let sources = inputs
 		.iter()
 		.map(|input| Some(SourceTree {
 			voxels: &input.voxels,
 			scale_down: output_lod.checked_sub(input.lod)?,
-			output_offset: ((input.area.min() - area.min()) * CHUNK_SIZE).div_euclid(IVec3::splat(output_step)),
+			output_offset: ((input.area.min() - area.min()) * CHUNK_SIZE as i32).div_euclid(IVec3::splat(output_step)),
 		}))
 		.collect::<Option<Vec<_>>>()?;
 	Some((output_region, sources))
@@ -287,11 +287,11 @@ fn region_volume(region: NonZeroVoxelRegion) -> u64 {
 	size.x as u64 * size.y as u64 * size.z as u64
 }
 
-fn div_ceil_ivec3(value: IVec3, divisor: i32) -> IVec3 {
-	IVec3::new(div_ceil(value.x, divisor), div_ceil(value.y, divisor), div_ceil(value.z, divisor))
+fn div_ceil_uvec3(value: UVec3, divisor: u32) -> UVec3 {
+	UVec3::new(div_ceil(value.x, divisor), div_ceil(value.y, divisor), div_ceil(value.z, divisor))
 }
 
-fn div_ceil(value: i32, divisor: i32) -> i32 {
+fn div_ceil(value: u32, divisor: u32) -> u32 {
 	let floor = value.div_euclid(divisor);
 	if value.rem_euclid(divisor) == 0 { floor } else { floor + 1 }
 }

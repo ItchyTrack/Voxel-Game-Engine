@@ -264,8 +264,8 @@ fn draw_chunk_presence(
 	const INSET: f32 = 0.75;
 	for (gt, streaming) in grids.iter() {
 		for (origin, size, state) in streaming.presence().iter_states() {
-			let lo = (origin * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
-			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
+			let lo = (origin * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
+			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
 			draw_box_edges(&mut gizmos, gt, lo, hi, chunk_state_color(state));
 		}
 	}
@@ -280,8 +280,8 @@ fn draw_coverage(
 	for loader in &loaders {
 		for tile in loader.coverage_debug_tiles() {
 			let Ok(gt) = transforms.get(tile.grid) else { continue };
-			let lo = (tile.region.min() * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
-			let hi = (tile.region.end() * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
+			let lo = (tile.region.min() * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
+			let hi = (tile.region.end() * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
 			let color = match tile.state {
 				CoverageDebugState::Pending => chunk_state_color(ChunkState::InFlight),
 				CoverageDebugState::Loaded => chunk_state_color(ChunkState::Loaded),

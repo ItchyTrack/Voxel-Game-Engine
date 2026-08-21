@@ -66,7 +66,7 @@ impl TileGenerator for MarchingTileGenerator {
 		}
 		let voxels = self.reducers.reduce(padded_area, voxel_lod, MarchingVoxel::TYPE_INFO.id, &inputs)?;
 		let step = 1i32.checked_shl(voxel_lod as u32)?;
-		let cell_min = IVec3::splat(CHUNK_SIZE.div_euclid(step));
+		let cell_min = IVec3::splat((CHUNK_SIZE as i32).div_euclid(step));
 		let unscaled_size = (area.size() * CHUNK_SIZE as u32).as_ivec3();
 		let cell_size = (unscaled_size + IVec3::splat(step - 1)).div_euclid(IVec3::splat(step));
 		let (vertices, vertex_count, bounds_min, bounds_max) =

@@ -544,7 +544,7 @@ mod tests {
 		source.insert(&U16Vec3::new(1, 0, 0), 20);
 
 		let sources = [SourceTree { tree: &source, scale_down: 1, output_offset: IVec3::ZERO }];
-		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::ONE).expect("unit output region");
+		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::ONE).expect("unit output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
 		assert_eq!(output.get(&U16Vec3::ZERO), Some(30));
@@ -561,7 +561,7 @@ mod tests {
 			SourceTree { tree: &first, scale_down: 1, output_offset: IVec3::ZERO },
 			SourceTree { tree: &second, scale_down: 1, output_offset: IVec3::ZERO },
 		];
-		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::ONE).expect("unit output region");
+		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::ONE).expect("unit output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
 		assert_eq!(output.get(&U16Vec3::ZERO), Some(33));
@@ -570,11 +570,11 @@ mod tests {
 	#[test]
 	fn reduce_preserves_leaf_boundaries_across_a_larger_region() {
 		let mut source = GridTree::<PackedCell, U16Coord>::new();
-		source.add_area(&U16Vec3::ZERO, IVec3::new(4, 8, 8), 7);
-		source.add_area(&U16Vec3::new(4, 0, 0), IVec3::new(4, 8, 8), 9);
+		source.add_area(&U16Vec3::ZERO, UVec3::new(4, 8, 8), 7);
+		source.add_area(&U16Vec3::new(4, 0, 0), UVec3::new(4, 8, 8), 9);
 
 		let sources = [SourceTree { tree: &source, scale_down: 0, output_offset: IVec3::ZERO }];
-		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::splat(8)).expect("output region");
+		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(8)).expect("output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
 		assert_eq!(output.get(&U16Vec3::new(3, 6, 6)), Some(7));
@@ -609,10 +609,10 @@ mod tests {
 	#[test]
 	fn reduce_keeps_source_region_clipping_when_reusing_overlaps() {
 		let mut source = GridTree::<PackedCell, U16Coord>::new();
-		source.add_area(&U16Vec3::ZERO, IVec3::splat(8), 1);
+		source.add_area(&U16Vec3::ZERO, UVec3::splat(8), 1);
 
 		let sources = [SourceTree { tree: &source, scale_down: 1, output_offset: IVec3::ZERO }];
-		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::splat(4)).expect("output region");
+		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(4)).expect("output region");
 		let output = reduce_grid_trees(output_region, &sources, SourceVolumeReducer).expect("reduced output");
 
 		assert_eq!(output.get(&U16Vec3::new(0, 0, 0)), Some(8));

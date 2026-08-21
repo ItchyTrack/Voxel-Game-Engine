@@ -4,7 +4,7 @@ use bevy::{ecs::message::{MessageReader, MessageWriter}, log::tracing::Instrumen
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
-use voxel_edit::apply_grid_edit;
+use voxel_edit::{apply_resolved_grid_edit};
 use voxel_sources::{SourceManager, SourceResult, SourceResultData};
 use voxel_tasks::CancellationToken;
 
@@ -15,7 +15,7 @@ use voxel_data::grid_tree::NonZeroVoxelRegion;
 use voxel_data::splat::{splat_voxels_blocking, GridSplat};
 use voxel_data::subgrid::SubGrid;
 
-use tile_data::{NonZeroChunkRegion, chunk_origin, chunks_covering_voxel_region};
+use tile_data::{NonZeroChunkRegion, chunk_origin, chunks_covering_nonzero_voxel_region};
 use tile_data::CHUNK_SIZE;
 use crate::consumer::ChunkConsumer;
 use crate::generation::{
@@ -79,10 +79,10 @@ pub fn materialize_authoritative_commands(
 			for y in command.region.min().y..command.region.end().y {
 				for x in command.region.min().x..command.region.end().x {
 					let chunk = IVec3::new(x, y, z);
-					let limit = NonZeroVoxelRegion::from_min_size(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE)).unwrap();
+					let limit = NonZeroVoxelRegion::from_min_size(chunk_origin(chunk), UVec3::splat(CHUNK_SIZE)).unwrap();
 					let Some(edit) = command.edit.clipped_to(limit) else { continue };
 					if streaming.is_chunk_data_resident(chunk) {
-						touched.extend(apply_grid_edit(grid_data.as_mut(), &edit));
+						touched.extend(apply_resolved_grid_edit(grid_data.as_mut(), &edit));
 					} else {
 						streaming.pending_authoritative_edits.entry(chunk).or_default().push((command.generation, edit));
 					}
@@ -118,7 +118,7 @@ pub(crate) fn request_edit_takes(
 		let mut deferred = Vec::new();
 		let mut pending = std::mem::take(&mut streaming.pending_take_edits).into_iter();
 		while let Some(edit) = pending.next() {
-			let Ok(region) = NonZeroChunkRegion::try_from(chunks_covering_voxel_region(edit.voxel_bounds())) else { continue };
+			let region = chunks_covering_nonzero_voxel_region(edit.voxel_bounds());
 			let mut waiting = false;
 			for z in region.min().z..region.end().z { for y in region.min().y..region.end().y { for x in region.min().x..region.end().x {
 				let chunk = IVec3::new(x, y, z);
@@ -146,7 +146,7 @@ pub(crate) fn request_edit_takes(
 
 			source.claim(grid, region);
 			sources.transfer_onwership(source_id, grid, region);
-			touched.extend(apply_grid_edit(grid_data.as_mut(), &edit));
+			touched.extend(apply_resolved_grid_edit(grid_data.as_mut(), &edit));
 			for z in region.min().z..region.end().z { for y in region.min().y..region.end().y { for x in region.min().x..region.end().x {
 				let chunk = IVec3::new(x, y, z);
 				streaming.presence.set_state(chunk, ChunkState::InternalDirty);
@@ -314,7 +314,7 @@ pub fn receive_results(
 	for (grid_entity, loaded) in loaded_by_grid {
 		let _zone = span!("apply grouped chunk splats");
 		let Ok((_, mut streaming, mut grid)) = grids.get_mut(grid_entity) else { continue };
-		let chunk_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, IVec3::splat(CHUNK_SIZE)).unwrap();
+		let chunk_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(CHUNK_SIZE)).unwrap();
 		let splats: Vec<_> = loaded.iter()
 			.map(|(chunk, _, voxels)| GridSplat { grid: 0, base: chunk_origin(*chunk), voxels, replace: Some(chunk_region) })
 			.collect();
@@ -323,7 +323,7 @@ pub fn receive_results(
 		for (chunk, generation, _) in &loaded {
 			if let Some(commands) = streaming.pending_authoritative_edits.remove(chunk) {
 				for (command_generation, edit) in commands {
-					if *generation < command_generation { touched.extend(apply_grid_edit(grid.as_mut(), &edit)); }
+					if *generation < command_generation { touched.extend(apply_resolved_grid_edit(grid.as_mut(), &edit)); }
 				}
 			}
 		}
@@ -331,7 +331,7 @@ pub fn receive_results(
 		for (chunk, _, _) in loaded {
 			let min = chunk_origin(chunk);
 			let visible = touched.iter()
-				.any(|subgrid| grid.subgrid_owned_area_intersects(*subgrid, min, IVec3::splat(CHUNK_SIZE)));
+				.any(|subgrid| grid.subgrid_owned_area_intersects(*subgrid, min, UVec3::splat(CHUNK_SIZE)));
 			chunk_resolved.write(ChunkLoadResolved { grid: grid_entity, chunk, visible });
 		}
 	}
@@ -380,7 +380,7 @@ pub fn receive_tile_results(world: &mut World) {
 				let entity = world.spawn((
 					DynamicTileData::new(data),
 					LoadedTile { grid: result.grid, key },
-					Transform::from_translation((key.min() * CHUNK_SIZE).as_vec3()),
+					Transform::from_translation((key.min() * CHUNK_SIZE as i32).as_vec3()),
 					ChildOf(result.grid),
 				)).id();
 				let mut streaming = world.get_mut::<GridStreaming>(result.grid).unwrap();
@@ -533,7 +533,7 @@ pub(crate) fn apply_chunk_clears(
 						still_pending.push((chunk, frames - 1));
 						continue;
 					}
-					let touched = grid.set_area(chunk_origin(chunk), IVec3::splat(CHUNK_SIZE), None);
+					let touched = grid.set_area(chunk_origin(chunk), UVec3::splat(CHUNK_SIZE), None);
 					reconcile_subgrids(grid_entity, grid.as_mut(), touched, &mut commands, &mut sub_grids);
 					streaming.presence.set_state(chunk, ChunkState::Available);
 				}

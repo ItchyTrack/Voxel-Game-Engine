@@ -75,12 +75,12 @@ fn voxel_place_break_system(
 	if place {
 		let Some(voxel) = edit_voxel_for_grid(grid, PLACE_VOXEL) else { return };
 		let pos = hit.voxel_pos + hit.normal;
-		edits.add_voxel(&pos, voxel);
+		edits.add_voxel(pos, voxel);
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 		}
 	} else {
-		edits.remove_voxel(&hit.voxel_pos);
+		edits.remove_voxel(hit.voxel_pos);
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
 		}

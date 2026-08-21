@@ -1,4 +1,4 @@
-use bevy::math::{IVec2, IVec3, Vec3};
+use bevy::math::{IVec2, IVec3, UVec3, Vec3};
 
 use crate::sdf::{shrink_aabb_with_sdf, voxel_center, voxel_region_from_bounds, Sdf};
 
@@ -568,7 +568,7 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		}
 	}
 
-	pub fn remove_area(&mut self, pos: &Co::Pos, size: IVec3) {
+	pub fn remove_area(&mut self, pos: &Co::Pos, size: UVec3) {
 		let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), size) else { return };
 		self.clear_region(region);
 	}

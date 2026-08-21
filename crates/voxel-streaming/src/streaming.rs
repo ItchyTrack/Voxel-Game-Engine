@@ -9,7 +9,7 @@ use voxel_data::{
 	signed_grid_tree::SignedGridTree,
 	voxels::Voxels,
 };
-use voxel_edit::GridEdit;
+use voxel_edit::ResolvedGridEdit;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use crate::consumer::ChunkConsumer;
@@ -43,9 +43,9 @@ pub struct GridStreaming {
 	pub(crate) pending_chunk_results: FxHashMap<RequestId, (u64, Voxels)>,
 	pub(crate) pending_clears: Vec<(IVec3, u8)>,
 	pub(crate) stalled_pinned: FxHashSet<IVec3>,
-	pub(crate) pending_take_edits: Vec<GridEdit>,
+	pub(crate) pending_take_edits: Vec<ResolvedGridEdit>,
 	pub(crate) pending_newly_present_edits: FxHashSet<IVec3>,
-	pub(crate) pending_authoritative_edits: FxHashMap<IVec3, Vec<(u64, GridEdit)>>,
+	pub(crate) pending_authoritative_edits: FxHashMap<IVec3, Vec<(u64, ResolvedGridEdit)>>,
 	pub(crate) newly_dirty: Vec<IVec3>,
 	pub(crate) newly_present_dirty: Vec<IVec3>,
 	pub(crate) tiles: FxHashMap<TileKey, TileState>,

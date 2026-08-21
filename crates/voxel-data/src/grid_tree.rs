@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use bevy::math::{I8Vec3, IVec3, U8Vec3};
+use bevy::math::{I8Vec3, IVec3, U8Vec3, UVec3};
 use bevy::transform::components::Transform;
 
 mod cell;
@@ -95,17 +95,17 @@ impl<G: GridType, Co: GridCoord> GridTree<G, Co> {
 		traversal::is_area_filled(self.view(), Co::from_ivec3(region.min()), region.size().as_ivec3())
 	}
 
-	pub fn is_area_filled(&self, pos: &Co::Pos, size: IVec3) -> bool {
+	pub fn is_area_filled(&self, pos: &Co::Pos, size: UVec3) -> bool {
 		let Some(region) = NonZeroVoxelRegion::from_min_size(Co::to_ivec3(*pos), size) else { return true };
 		self.is_region_filled(region)
 	}
 
-	pub fn ensure_area_covered(&mut self, pos: &Co::Pos, size: IVec3) -> bool {
-		if size.cmple(IVec3::ZERO).any() {
+	pub fn ensure_area_covered(&mut self, pos: &Co::Pos, size: UVec3) -> bool {
+		if size.cmple(UVec3::ZERO).any() {
 			return true;
 		}
 		let min = Co::to_ivec3(*pos);
-		let max = min + size - IVec3::ONE;
+		let max = min + size.as_ivec3() - IVec3::ONE;
 		self.make_sure_root_covers_area(min, max)
 	}
 
@@ -218,7 +218,7 @@ mod tests {
 	#[test]
 	fn add_area_preserves_large_runs() {
 		let mut tree = GridTree::<PackedCell, U16Coord>::new();
-		tree.add_area(&U16Vec3::ZERO, IVec3::splat(16), 7);
+		tree.add_area(&U16Vec3::ZERO, UVec3::splat(16), 7);
 		assert_eq!(tree.len(), 16 * 16 * 16);
 		assert_eq!(tree.get(&U16Vec3::new(0, 0, 0)), Some(7));
 		assert_eq!(tree.get(&U16Vec3::new(15, 15, 15)), Some(7));
@@ -227,8 +227,8 @@ mod tests {
 	#[test]
 	fn remove_area_clears_bulk_region_without_touching_neighbours() {
 		let mut tree = GridTree::<PackedCell, U16Coord>::new();
-		tree.add_area(&U16Vec3::ZERO, IVec3::splat(64), 7);
-		tree.remove_area(&U16Vec3::new(16, 16, 16), IVec3::splat(32));
+		tree.add_area(&U16Vec3::ZERO, UVec3::splat(64), 7);
+		tree.remove_area(&U16Vec3::new(16, 16, 16), UVec3::splat(32));
 		assert_eq!(tree.get(&U16Vec3::new(15, 16, 16)), Some(7));
 		assert_eq!(tree.get(&U16Vec3::new(16, 16, 16)), None);
 	}
@@ -236,7 +236,7 @@ mod tests {
 	#[test]
 	fn clear_sdf_only_removes_inside_shape() {
 		let mut tree = GridTree::<PackedCell, U16Coord>::new();
-		tree.add_area(&U16Vec3::ZERO, IVec3::splat(16), 3);
+		tree.add_area(&U16Vec3::ZERO, UVec3::splat(16), 3);
 		let center = Vec3::splat(8.0);
 		let radius = 5.0f32;
 		let sdf = |p: Vec3| (p - center).length() - radius;

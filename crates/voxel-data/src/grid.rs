@@ -193,7 +193,7 @@ impl Grid {
 		let region_lo = Self::local_of(sub_grid_pos, cell_lo);
 		let region_hi = Self::local_of(sub_grid_pos, cell_hi);
 		let mut areas = Vec::new();
-		let read_region = crate::grid_tree::NonZeroVoxelRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_ivec3()).unwrap();
+		let read_region = crate::grid_tree::NonZeroVoxelRegion::from_min_size(region_lo.as_ivec3(), (region_hi - region_lo).as_uvec3()).unwrap();
 		for (pos, run, voxel) in slot.voxels.grid_tree().iter() {
 			let leaf_region = crate::grid_tree::NonZeroVoxelRegion::from_min_end(pos.as_ivec3(), pos.as_ivec3() + IVec3::splat(run as i32)).unwrap();
 			if !leaf_region.intersects(read_region) { continue; }
@@ -202,7 +202,7 @@ impl Grid {
 			let out_extent = run_hi - run_lo;
 			if out_extent == U16Vec3::ZERO { continue; }
 			let world = sub_grid_pos + run_lo.as_ivec3();
-			areas.push(((world - out_min).as_u16vec3(), out_extent, voxel));
+			areas.push(((world - out_min).as_u16vec3(), out_extent.as_uvec3(), voxel));
 		}
 		out.add_areas(&areas);
 	}
@@ -226,12 +226,12 @@ impl Grid {
 		sub_grid_pos
 	}
 
-	pub fn set_area(&mut self, min: IVec3, size: IVec3, voxel: Option<VoxelRef<'_>>) -> HashSet<IVec3> {
+	pub fn set_area(&mut self, min: IVec3, size: UVec3, voxel: Option<VoxelRef<'_>>) -> HashSet<IVec3> {
 		let mut touched = HashSet::new();
-		if size.cmple(IVec3::ZERO).any() {
+		if size.cmple(UVec3::ZERO).any() {
 			return touched;
 		}
-		let hi = min + size;
+		let hi = min + size.as_ivec3();
 		if let Some(voxel) = voxel {
 			for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(min, hi) {
 				let local = Self::local_of(sub_grid_pos, cell_lo);
@@ -260,19 +260,19 @@ impl Grid {
 		touched
 	}
 
-	pub fn read_set_area(&mut self, min: IVec3, size: IVec3, voxel: Option<VoxelRef<'_>>) -> (HashSet<IVec3>, Voxels) {
+	pub fn read_set_area(&mut self, min: IVec3, size: UVec3, voxel: Option<VoxelRef<'_>>) -> (HashSet<IVec3>, Voxels) {
 		let out = self.read_area(min, size);
 		let touched = self.set_area(min, size, voxel);
 		(touched, out)
 	}
 
-	pub fn read_area(&self, min: IVec3, size: IVec3) -> Voxels {
+	pub fn read_area(&self, min: IVec3, size: UVec3) -> Voxels {
 		let _span = span!();
 		let mut out = Voxels::new_with_type(self.voxel_type_info);
-		if size.cmple(IVec3::ZERO).any() {
+		if size.cmple(UVec3::ZERO).any() {
 			return out;
 		}
-		let hi = min + size;
+		let hi = min + size.as_ivec3();
 		for (sub_grid_pos, slot) in &self.subgrids {
 			let Some((cell_lo, cell_hi)) = slot.owned_intersection(min, hi) else { continue };
 			Self::read_region_into(&mut out, min, *sub_grid_pos, slot, cell_lo, cell_hi);
@@ -294,7 +294,7 @@ impl Grid {
 		for (sub_grid_pos, cell_lo, cell_hi) in self.write_regions(world_min, world_end) {
 			let source_min = cell_lo - base;
 			let source_size = cell_hi - cell_lo;
-			let Some(source_region) = crate::grid_tree::NonZeroVoxelRegion::from_min_size(source_min, source_size) else { continue };
+			let Some(source_region) = crate::grid_tree::NonZeroVoxelRegion::from_min_size(source_min, source_size.as_uvec3()) else { continue };
 			let slot = self.subgrids.entry(sub_grid_pos).or_insert_with(|| SubGridSlot::new_default(sub_grid_pos, self.voxel_type_info));
 			slot.voxels.merge_region_from(src, Some(source_region), base - sub_grid_pos);
 			touched.insert(sub_grid_pos);
@@ -358,12 +358,12 @@ impl Grid {
 	/// True when the sub-grid's owned AABB intersects the half-open grid-local area
 	/// `[min, min + size)`. Intended for callers that are already handling touched
 	/// sub-grid positions returned by grid mutation methods.
-	pub fn subgrid_owned_area_intersects(&self, sub_grid_pos: IVec3, min: IVec3, size: IVec3) -> bool {
-		if size.cmple(IVec3::ZERO).any() {
+	pub fn subgrid_owned_area_intersects(&self, sub_grid_pos: IVec3, min: IVec3, size: UVec3) -> bool {
+		if size.cmple(UVec3::ZERO).any() {
 			return false;
 		}
 		let Some(slot) = self.subgrids.get(&sub_grid_pos) else { return false };
-		slot.owned_intersection(min, min + size).is_some()
+		slot.owned_intersection(min, min + size.as_ivec3()).is_some()
 	}
 
 	/// Entities for non-empty sub-grids whose occupied voxel bounds intersect the

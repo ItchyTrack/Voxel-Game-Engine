@@ -8,7 +8,7 @@ use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
 use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle};
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_of, chunk_origin};
 use voxel_streaming::ForgottenChunks;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
@@ -84,17 +84,9 @@ impl SdfSource {
 		self.inner.bindings.read().unwrap().get(&grid).cloned()
 	}
 
-	fn chunk_origin(chunk: IVec3) -> IVec3 {
-		chunk * CHUNK_SIZE
-	}
-
-	fn chunk_of(voxel: IVec3) -> IVec3 {
-		voxel.div_euclid(IVec3::splat(CHUNK_SIZE))
-	}
-
 	fn region_bounds(min: IVec3, size: IVec3) -> (Vec3, Vec3) {
-		let lo = Self::chunk_origin(min).as_vec3();
-		let hi = Self::chunk_origin(min + size).as_vec3();
+		let lo = chunk_origin(min).as_vec3();
+		let hi = chunk_origin(min + size).as_vec3();
 		(lo, hi)
 	}
 
@@ -168,14 +160,14 @@ impl ChunkSource for SdfSource {
 				_ if lod == 0 => binding.sdf.voxel(),
 				_ => binding.sdf.lod_voxel(),
 			};
-			let chunk_extent = IVec3::splat(CHUNK_SIZE / step as i32);
+			let chunk_extent = IVec3::splat(CHUNK_SIZE as i32 / step as i32);
 			let mut merged: Option<Voxels> = None;
 
 			for chunk in owned_chunks {
 				if cancellation.is_cancelled() {
 					break;
 				}
-				let origin = Self::chunk_origin(chunk).as_vec3();
+				let origin = chunk_origin(chunk).as_vec3();
 				let local_sdf = |p: Vec3| {
 					if cancellation.is_cancelled() {
 						f32::MAX
@@ -213,8 +205,8 @@ impl ChunkSource for SdfSource {
 			&& bounds_min.cmplt(bounds_max).all() {
 			let voxel_min = bounds_min.floor().as_ivec3();
 			let voxel_max = bounds_max.ceil().as_ivec3() - IVec3::ONE;
-			let chunk_min = Self::chunk_of(voxel_min);
-			let chunk_max = Self::chunk_of(voxel_max);
+			let chunk_min = chunk_of(voxel_min);
+			let chunk_max = chunk_of(voxel_max);
 			if let Some(region) = NonZeroChunkRegion::from_min_max(chunk_min, chunk_max) {
 				handle.presence(request_id, grid, region);
 			}

@@ -9,9 +9,29 @@ use voxel_data::sdf::{Sdf, shrink_aabb_with_sdf, voxel_center, voxel_region_from
 use voxel_data::voxels::Voxel;
 
 #[derive(Clone)]
+pub enum ResolvedGridEdit {
+	AddArea { region: NonZeroVoxelRegion, voxel: Voxel },
+	RemoveArea { region: NonZeroVoxelRegion },
+}
+
+impl ResolvedGridEdit {
+	pub fn voxel_bounds(&self) -> NonZeroVoxelRegion {
+		match self {
+			ResolvedGridEdit::AddArea { region, .. } | ResolvedGridEdit::RemoveArea { region } => *region,
+		}
+	}
+
+	/// Restrict this edit to `limit`
+	pub fn clipped_to(&self, limit: NonZeroVoxelRegion) -> Option<Self> {
+		match self {
+			ResolvedGridEdit::AddArea { region, voxel } => region.intersection(limit).map(|region| ResolvedGridEdit::AddArea { region, voxel: voxel.clone() }),
+			ResolvedGridEdit::RemoveArea { region } => region.intersection(limit).map(|region| ResolvedGridEdit::RemoveArea { region }),
+		}
+	}
+}
+
+#[derive(Clone)]
 pub enum GridEdit {
-	Add { voxel_pos: IVec3, voxel: Voxel },
-	Remove { voxel_pos: IVec3 },
 	AddArea { region: NonZeroVoxelRegion, voxel: Voxel },
 	RemoveArea { region: NonZeroVoxelRegion },
 	ApplySdf {
@@ -34,7 +54,6 @@ pub enum GridEdit {
 impl GridEdit {
 	pub fn voxel_bounds(&self) -> VoxelRegion {
 		match self {
-			GridEdit::Add { voxel_pos, .. } | GridEdit::Remove { voxel_pos } => VoxelRegion::new(*voxel_pos, UVec3::ONE),
 			GridEdit::AddArea { region, .. } | GridEdit::RemoveArea { region } => (*region).into(),
 			GridEdit::ApplySdf { bounds_min, bounds_max, .. } | GridEdit::ClearSdf { bounds_min, bounds_max, .. } => {
 				let min = bounds_min.floor().as_ivec3();
@@ -43,24 +62,9 @@ impl GridEdit {
 		}
 	}
 
-	/// Resolve edits containing process-local SDFs into replayable area commands.
-	pub fn resolved_commands(&self) -> Vec<Self> {
-		match self {
-			GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
-				sdf_area_edits(*bounds_min, *bounds_max, *face_resolution, *iterations, &**sdf, Some(voxel.clone()))
-			}
-			GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution, iterations, sdf } => {
-				sdf_area_edits(*bounds_min, *bounds_max, *face_resolution, *iterations, &**sdf, None)
-			}
-			_ => vec![self.clone()],
-		}
-	}
-
-	/// Restrict this edit to `limit`, preserving world-space SDF coordinates.
+	/// Restrict this edit to `limit`
 	pub fn clipped_to(&self, limit: NonZeroVoxelRegion) -> Option<Self> {
 		match self {
-			GridEdit::Add { voxel_pos, voxel } => limit.contains(*voxel_pos).then(|| GridEdit::Add { voxel_pos: *voxel_pos, voxel: voxel.clone() }),
-			GridEdit::Remove { voxel_pos } => limit.contains(*voxel_pos).then_some(GridEdit::Remove { voxel_pos: *voxel_pos }),
 			GridEdit::AddArea { region, voxel } => region.intersection(limit).map(|region| GridEdit::AddArea { region, voxel: voxel.clone() }),
 			GridEdit::RemoveArea { region } => region.intersection(limit).map(|region| GridEdit::RemoveArea { region }),
 			GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
@@ -88,6 +92,23 @@ impl GridEdit {
 			}
 		}
 	}
+
+	pub fn into_resolved(self) -> Vec<ResolvedGridEdit> {
+		match self {
+			GridEdit::AddArea { region, voxel } => {
+				vec![ResolvedGridEdit::AddArea { region, voxel }]
+			}
+			GridEdit::RemoveArea { region } => {
+				vec![ResolvedGridEdit::RemoveArea { region }]
+			}
+			GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
+				sdf_area_edits(bounds_min, bounds_max, face_resolution, iterations, &*sdf, Some(voxel.clone()))
+			}
+			GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution, iterations, sdf } => {
+				sdf_area_edits(bounds_min, bounds_max, face_resolution, iterations, &*sdf, None)
+			}
+		}
+	}
 }
 
 fn sdf_area_edits(
@@ -97,7 +118,7 @@ fn sdf_area_edits(
 	iterations: usize,
 	sdf: &(impl Sdf + ?Sized),
 	voxel: Option<Voxel>,
-) -> Vec<GridEdit> {
+) -> Vec<ResolvedGridEdit> {
 	let (min, max) = shrink_aabb_with_sdf(bounds_min, bounds_max, sdf, face_resolution, iterations);
 	let Some(region) = voxel_region_from_bounds(min, max) else { return Vec::new() };
 	let mut edits = Vec::new();
@@ -117,8 +138,8 @@ fn sdf_area_edits(
 				let min = IVec3::new(run_start, y, z);
 				let region = NonZeroVoxelRegion::new(min, UVec3::new((x - run_start) as u32, 1, 1)).unwrap();
 				edits.push(match &voxel {
-					Some(voxel) => GridEdit::AddArea { region, voxel: voxel.clone() },
-					None => GridEdit::RemoveArea { region },
+					Some(voxel) => ResolvedGridEdit::AddArea { region, voxel: voxel.clone() },
+					None => ResolvedGridEdit::RemoveArea { region },
 				});
 			}
 		}
@@ -126,18 +147,24 @@ fn sdf_area_edits(
 	edits
 }
 
+// /// Apply one edit directly and return the touched sub-grid positions.
+// pub fn apply_grid_edit(grid: &mut Grid, edit: &GridEdit) -> HashSet<IVec3> {
+// 	match edit {
+// 		GridEdit::AddArea { region, voxel } => grid.set_area(region.min(), region.size(), Some(voxel.get_ref())),
+// 		GridEdit::RemoveArea { region } => grid.set_area(region.min(), region.size(), None),
+// 		GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
+// 			grid.apply_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations, voxel.get_ref())
+// 		}
+// 		GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution, iterations, sdf } => {
+// 			grid.clear_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations)
+// 		}
+// 	}
+// }
+
 /// Apply one edit directly and return the touched sub-grid positions.
-pub fn apply_grid_edit(grid: &mut Grid, edit: &GridEdit) -> HashSet<IVec3> {
+pub fn apply_resolved_grid_edit(grid: &mut Grid, edit: &ResolvedGridEdit) -> HashSet<IVec3> {
 	match edit {
-		GridEdit::Add { voxel_pos, voxel } => HashSet::from([grid.set_voxel(*voxel_pos, Some(voxel.get_ref()))]),
-		GridEdit::Remove { voxel_pos } => HashSet::from([grid.set_voxel(*voxel_pos, None)]),
-		GridEdit::AddArea { region, voxel } => grid.set_area(region.min(), region.size().as_ivec3(), Some(voxel.get_ref())),
-		GridEdit::RemoveArea { region } => grid.set_area(region.min(), region.size().as_ivec3(), None),
-		GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
-			grid.apply_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations, voxel.get_ref())
-		}
-		GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution, iterations, sdf } => {
-			grid.clear_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations)
-		}
+		ResolvedGridEdit::AddArea { region, voxel } => grid.set_area(region.min(), region.size(), Some(voxel.get_ref())),
+		ResolvedGridEdit::RemoveArea { region } => grid.set_area(region.min(), region.size(), None),
 	}
 }

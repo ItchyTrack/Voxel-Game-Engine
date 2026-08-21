@@ -66,7 +66,7 @@ pub struct GridAreaEdited {
 	pub grid: voxel_data::grid::GridId,
 	pub region: NonZeroChunkRegion,
 	pub generation: u64,
-	pub edit: voxel_edit::GridEdit,
+	pub edit: voxel_edit::ResolvedGridEdit,
 }
 
 #[derive(Message, Clone)]
@@ -75,7 +75,7 @@ pub struct AuthoritativeGridCommand {
 	pub region: NonZeroChunkRegion,
 	pub stream_sequence: u64,
 	pub generation: u64,
-	pub edit: voxel_edit::GridEdit,
+	pub edit: voxel_edit::ResolvedGridEdit,
 }
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]

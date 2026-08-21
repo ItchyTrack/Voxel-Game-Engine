@@ -1,4 +1,4 @@
-use bevy::math::{IVec2, IVec3, U16Vec3, Vec3};
+use bevy::math::{IVec2, IVec3, U16Vec3, UVec3, Vec3};
 use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{io::{self, Read, Write}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
@@ -266,14 +266,14 @@ impl Voxels {
 	}
 
 	pub fn ensure_area_covered(&mut self, pos: U16Vec3, size: U16Vec3) -> bool {
-		self.voxels.ensure_area_covered(&pos, size.as_ivec3())
+		self.voxels.ensure_area_covered(&pos, size.as_uvec3())
 	}
 
 	pub fn add_area(&mut self, pos: U16Vec3, size: U16Vec3, voxel: VoxelRef) {
 		if size == U16Vec3::ZERO { return; }
 		self.assert_type(voxel.type_id());
 		let max = pos + size - U16Vec3::ONE;
-		self.add_tree_areas(vec![(pos, size.as_ivec3(), voxel)], Some((pos, max)));
+		self.add_tree_areas(&vec![(pos, size.as_uvec3(), voxel)], Some((pos, max)));
 	}
 
 	pub fn add_voxels<'a>(&mut self, voxels: &[(U16Vec3, VoxelRef<'a>)]) {
@@ -292,20 +292,18 @@ impl Voxels {
 		*bb = Some(match *bb { Some((mn, mx)) => (mn.min(min), mx.max(max)), None => (min, max) });
 	}
 
-	pub fn add_areas<'a>(&mut self, areas: &[(U16Vec3, U16Vec3, VoxelRef<'a>)]) {
-		let mut tree_areas = Vec::with_capacity(areas.len());
+	pub fn add_areas<'a>(&mut self, areas: &[(U16Vec3, UVec3, VoxelRef<'a>)]) {
 		let mut bounds: Option<(U16Vec3, U16Vec3)> = None;
 		for (pos, size, voxel) in areas {
-			if *size == U16Vec3::ZERO { continue; }
+			if *size == UVec3::ZERO { continue; }
 			self.assert_type(voxel.type_id());
-			tree_areas.push((*pos, size.as_ivec3(), *voxel));
-			let max = *pos + *size - U16Vec3::ONE;
+			let max = *pos + size.as_u16vec3() - U16Vec3::ONE;
 			bounds = Some(match bounds { Some((mn, mx)) => (mn.min(*pos), mx.max(max)), None => (*pos, max) });
 		}
-		self.add_tree_areas(tree_areas, bounds);
+		self.add_tree_areas(areas, bounds);
 	}
 
-	fn add_tree_areas<'a>(&mut self, tree_areas: Vec<(U16Vec3, IVec3, VoxelRef<'a>)>, bounds: Option<(U16Vec3, U16Vec3)>) {
+	fn add_tree_areas<'a>(&mut self, tree_areas: &[(U16Vec3, UVec3, VoxelRef<'a>)], bounds: Option<(U16Vec3, U16Vec3)>) {
 		if tree_areas.is_empty() { return; }
 		self.voxels.add_areas(&tree_areas);
 		let Some((min, max)) = bounds else { return };
@@ -333,7 +331,7 @@ impl Voxels {
 	}
 
 	pub fn remove_area(&mut self, pos: U16Vec3, size: U16Vec3) {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size.as_ivec3()) else { return };
+		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size.as_uvec3()) else { return };
 		self.voxels.clear_region(region);
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
