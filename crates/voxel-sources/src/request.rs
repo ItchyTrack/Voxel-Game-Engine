@@ -5,7 +5,7 @@ use voxel_data::{grid::GridId, voxels::Voxels};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RequestId(pub(crate) u64);
 
-#[cfg(test)]
+// #[cfg(test)] // TODO: figure out why this was not working
 impl RequestId {
 	pub fn from_raw(request_id: u64) -> RequestId {
 		RequestId(request_id)
