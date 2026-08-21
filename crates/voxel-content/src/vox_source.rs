@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use bevy::ecs::resource::Resource;
-use bevy::math::{IVec3, Quat, U16Vec3, Vec3};
+use bevy::math::{IVec3, Quat, UVec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::grid_tree::NonZeroVoxelRegion;
@@ -102,7 +102,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 			flip: IVec3,
 		}
 
-		let mut chunk_points: HashMap<IVec3, Vec<(U16Vec3, T)>> = HashMap::new();
+		let mut chunk_points: HashMap<IVec3, Vec<(UVec3, T)>> = HashMap::new();
 		let mut current_chunk: Option<IVec3> = None;
 		let mut current_points = Vec::new();
 		let mut touched_bounds: Option<(IVec3, IVec3)> = None;
@@ -113,9 +113,9 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 		})];
 		while let Some((scene_id, pose)) = stack.pop() {
 			let flush_current_chunk = |
-				chunk_points: &mut HashMap<IVec3, Vec<(U16Vec3, T)>>,
+				chunk_points: &mut HashMap<IVec3, Vec<(UVec3, T)>>,
 				current_chunk: &mut Option<IVec3>,
-				current_points: &mut Vec<(U16Vec3, T)>
+				current_points: &mut Vec<(UVec3, T)>
 			| {
 				if let Some(chunk) = current_chunk.take() {
 					chunk_points.insert(chunk, std::mem::take(current_points));
@@ -162,7 +162,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 								current_chunk = Some(chunk);
 								current_points = chunk_points.remove(&chunk).unwrap_or_default();
 							}
-							let local = source_pos.rem_euclid(IVec3::splat(CHUNK_SIZE as i32)).as_u16vec3();
+							let local = source_pos.rem_euclid(IVec3::splat(CHUNK_SIZE as i32)).as_uvec3();
 							let palette = dot_vox_data.palette[voxel.i as usize];
 							let material = VoxMaterial {
 								palette_index: voxel.i,
@@ -186,7 +186,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 		cache.available_area = touched_bounds.and_then(|(min, max)| ChunkRegion::from_min_max(min, max));
 
 		for (chunk, points) in chunk_points {
-			let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (pos.as_uvec3(), voxel.get_ref())).collect();
+			let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 			let mut voxels = Voxels::new::<T>();
 			voxels.add_voxels(&voxel_refs);
 			if let Ok(compressed) = CompressedVoxels::new(&voxels, 0) {

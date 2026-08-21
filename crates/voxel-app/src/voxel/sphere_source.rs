@@ -1,6 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
-use bevy::math::{IVec3, U16Vec3, Vec3};
+use bevy::math::{IVec3, Vec3};
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
@@ -149,13 +149,13 @@ fn build_region(
 					for y in y0..=y1 {
 						let world = origin + IVec3::new(sample_x, y, sample_z);
 						let pos = chunk_offset + IVec3::new(x, y, z);
-						points.push((pos.as_u16vec3(), sphere_voxel_unchecked(world, 100)));
+						points.push((pos.as_uvec3(), sphere_voxel_unchecked(world, 100)));
 					}
 				} else {
 					let sample_y = ((y0 + y1) / 2 * step + sample_offset).min(max_source.y);
 					let world = origin + IVec3::new(sample_x, sample_y, sample_z);
 					let pos = chunk_offset + IVec3::new(x, y0, z);
-					areas.push((pos.as_u16vec3(), U16Vec3::new(1, (y1 + 1 - y0) as u16, 1), sphere_lod_voxel_unchecked(world)));
+					areas.push((pos.as_uvec3(), UVec3::new(1, (y1 + 1 - y0) as u32, 1), sphere_lod_voxel_unchecked(world)));
 				}
 			}
 		}
@@ -165,7 +165,7 @@ fn build_region(
 		if points.is_empty() {
 			return None;
 		}
-		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (pos.as_uvec3(), voxel.get_ref())).collect();
+		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<BasicVoxel>();
 		voxels.add_voxels(&voxel_refs);
 		Some(voxels)
@@ -173,7 +173,7 @@ fn build_region(
 		if areas.is_empty() {
 			return None;
 		}
-		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (pos.as_uvec3(), size.as_uvec3(), voxel.get_ref())).collect();
+		let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, *size, voxel.get_ref())).collect();
 		let mut voxels = Voxels::new::<LodVoxel>();
 		voxels.add_areas(&area_refs);
 		Some(voxels)

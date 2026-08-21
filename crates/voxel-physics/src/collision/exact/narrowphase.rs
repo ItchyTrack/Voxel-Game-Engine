@@ -1,4 +1,4 @@
-use bevy::math::{Quat, U16Vec3, U8Vec3, Vec3};
+use bevy::math::{Quat, UVec3, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
 use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, GridType, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
@@ -10,7 +10,7 @@ use crate::collision::CubeFeature;
 /// ((min_a, max_a), (min_b, max_b), axis, index)
 type SeparatingAxes = Vec<((f32, f32), (f32, f32), Vec3, u8)>;
 
-type SubgridContact = (Vec3, CubeFeature, Vec3, CubeFeature, U16Vec3, U16Vec3);
+type SubgridContact = (Vec3, CubeFeature, Vec3, CubeFeature, UVec3, UVec3);
 
 fn get_bit(num: u8, bit: u8) -> u8 {
 	((num & (1 << bit)) != 0) as u8
@@ -18,8 +18,8 @@ fn get_bit(num: u8, bit: u8) -> u8 {
 
 #[derive(Clone, Copy)]
 struct DescendBox {
-	origin: U16Vec3,
-	size: u16,
+	origin: UVec3,
+	size: u32,
 	src: BoxSrc,
 }
 
@@ -41,8 +41,8 @@ pub(super) fn get_collisions_between_subgrids(
 	let view_2 = voxels_2.grid_tree().view();
 	let root_1 = view_1.root();
 	let root_2 = view_2.root();
-	let box_1 = DescendBox { origin: root_1.origin.as_u16vec3(), size: voxel_data::grid_tree::size(root_1.depth) as u16, src: BoxSrc::Node(root_1) };
-	let box_2 = DescendBox { origin: root_2.origin.as_u16vec3(), size: voxel_data::grid_tree::size(root_2.depth) as u16, src: BoxSrc::Node(root_2) };
+	let box_1 = DescendBox { origin: root_1.origin, size: voxel_data::grid_tree::size(root_1.depth), src: BoxSrc::Node(root_1) };
+	let box_2 = DescendBox { origin: root_2.origin, size: voxel_data::grid_tree::size(root_2.depth), src: BoxSrc::Node(root_2) };
 	descend(&mut collisions, &separating_axes, transform_of_1_in_2, view_1, box_1, view_2, box_2);
 	collisions
 }
@@ -86,8 +86,8 @@ fn collect_children<G: GridType>(parent: &DescendBox, view: GridTreeView<'_, G>,
 	match parent.src {
 		BoxSrc::Node(node) => {
 			for child in view.occupied_children(node) {
-				let origin = child.origin.as_u16vec3();
-				let size = child.size as u16;
+				let origin = child.origin;
+				let size = child.size;
 				match child.kind() {
 					CellKind::Empty => {}
 					CellKind::Data => { out[count] = DescendBox { origin, size, src: BoxSrc::Solid }; count += 1; }
@@ -96,9 +96,9 @@ fn collect_children<G: GridType>(parent: &DescendBox, view: GridTreeView<'_, G>,
 			}
 		}
 		BoxSrc::Solid => {
-			let child_size = parent.size / SIZE as u16;
+			let child_size = parent.size / SIZE as u32;
 			for i in 0..SIZE_CUBED {
-				let origin = parent.origin + get_child_contents_pos(i).as_u16vec3() * child_size;
+				let origin = parent.origin + get_child_contents_pos(i).as_uvec3() * child_size;
 				out[count] = DescendBox { origin, size: child_size, src: BoxSrc::Solid };
 				count += 1;
 			}
@@ -123,8 +123,8 @@ fn boxes_overlap(separating_axes: &SeparatingAxes, rel_center: Vec3, size_1: f32
 fn get_collision_1x1x1_voxel_pair(
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,
-	pos_1: U16Vec3,
-	pos_2: U16Vec3,
+	pos_1: UVec3,
+	pos_2: UVec3,
 ) -> Vec<SubgridContact> {
 	let shift = Transform { translation: pos_2.as_vec3() + Vec3::splat(0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE };
 	let local = shift.inverse() * *transform_of_1_in_2 * Transform::from_translation(pos_1.as_vec3() + Vec3::splat(0.5));

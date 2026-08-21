@@ -226,7 +226,7 @@ mod tests {
 	use std::collections::{HashMap, HashSet};
 
 	use basic_voxel::BasicVoxel;
-	use bevy::math::U16Vec3;
+	use bevy::math::UVec3;
 
 	fn triangulate_case(occupied: u8) -> Vec<[usize; 3]> {
 		let samples = CellSamples { colors: [u32::MAX; 8], occupied };
@@ -282,7 +282,7 @@ mod tests {
 			if position.is_negative_bitmask() != 0 || position.cmpgt(IVec3::splat(u16::MAX as i32)).any() {
 				continue;
 			}
-			let Some(voxel) = voxels.voxel(&position.as_u16vec3()) else { continue };
+			let Some(voxel) = voxels.voxel(&position.as_uvec3()) else { continue };
 			let voxel = MarchingVoxel::from_voxel_ref(&voxel);
 			samples.colors[index] = u32::from_le_bytes(voxel.0.color);
 			samples.occupied |= 1 << index;
@@ -311,11 +311,11 @@ mod tests {
 		let green = MarchingVoxel(BasicVoxel { color: [0, 255, 0, 255], mass: 2 });
 		let blue = MarchingVoxel(BasicVoxel { color: [0, 0, 255, 255], mass: 3 });
 		let mut voxels = Voxels::new::<MarchingVoxel>();
-		voxels.add_area(U16Vec3::new(2, 3, 4), U16Vec3::new(7, 5, 6), red.get_ref());
-		voxels.add_area(U16Vec3::new(5, 1, 6), U16Vec3::new(4, 8, 3), green.get_ref());
-		voxels.remove_area(U16Vec3::new(6, 4, 6), U16Vec3::new(2, 2, 2));
-		voxels.add_voxel(U16Vec3::new(0, 0, 0), blue.get_ref());
-		voxels.add_voxel(U16Vec3::new(12, 11, 10), blue.get_ref());
+		voxels.add_area(UVec3::new(2, 3, 4), UVec3::new(7, 5, 6), red.get_ref());
+		voxels.add_area(UVec3::new(5, 1, 6), UVec3::new(4, 8, 3), green.get_ref());
+		voxels.remove_area(UVec3::new(6, 4, 6), UVec3::new(2, 2, 2));
+		voxels.add_voxel(UVec3::new(0, 0, 0), blue.get_ref());
+		voxels.add_voxel(UVec3::new(12, 11, 10), blue.get_ref());
 
 		let region = NonZeroVoxelRegion::from_min_end(IVec3::splat(-1), IVec3::splat(15)).unwrap();
 		let staged = stage_cells(&voxels, region);
@@ -341,9 +341,9 @@ mod tests {
 		let red = MarchingVoxel(BasicVoxel { color: [255, 0, 0, 255], mass: 1 });
 		let green = MarchingVoxel(BasicVoxel { color: [0, 255, 0, 255], mass: 2 });
 		let mut voxels = Voxels::new::<MarchingVoxel>();
-		voxels.add_area(U16Vec3::new(2, 3, 4), U16Vec3::new(7, 5, 6), red.get_ref());
-		voxels.add_area(U16Vec3::new(5, 1, 6), U16Vec3::new(4, 8, 3), green.get_ref());
-		voxels.remove_area(U16Vec3::new(6, 4, 6), U16Vec3::new(2, 2, 2));
+		voxels.add_area(UVec3::new(2, 3, 4), UVec3::new(7, 5, 6), red.get_ref());
+		voxels.add_area(UVec3::new(5, 1, 6), UVec3::new(4, 8, 3), green.get_ref());
+		voxels.remove_area(UVec3::new(6, 4, 6), UVec3::new(2, 2, 2));
 
 		let cell_min = IVec3::splat(-1);
 		let cell_size = IVec3::splat(15);

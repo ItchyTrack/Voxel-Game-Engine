@@ -117,6 +117,7 @@ impl<'a, G: GridType> GridTreeView<'a, G> {
 
 	#[inline]
 	pub fn occupied_children_in_region(self, node: NodeRef, region: NonZeroVoxelRegion) -> ChildCellsInRegion<'a, G> {
+		assert!(region.min().is_negative_bitmask() == 0);
 		ChildCellsInRegion::new(self, node, region)
 	}
 
@@ -206,6 +207,7 @@ impl<'a, G: GridType> Clone for ChildCellsInRegion<'a, G> {
 impl<'a, G: GridType> ChildCellsInRegion<'a, G> {
 	#[inline]
 	fn new(view: GridTreeView<'a, G>, node: NodeRef, region: NonZeroVoxelRegion) -> Self {
+		assert!(region.min().is_negative_bitmask() == 0);
 		let data_mask = view.raw.data_mask(node.index);
 		let occupied_mask = data_mask | view.raw.node_mask(node.index);
 		let node_region = NonZeroVoxelRegion::from_min_size(node.origin.as_ivec3(), UVec3::splat(size(node.depth) as u32)).unwrap();

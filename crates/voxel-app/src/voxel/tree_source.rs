@@ -333,8 +333,8 @@ fn rasterize_tree_chunk(model: &TreeModel, chunk: IVec3, cancellation: &Cancella
 	if points.is_empty() {
 		return None;
 	}
-	let points: Vec<_> = points.into_iter().map(|(position, voxel)| ((position - origin).as_u16vec3(), voxel)).collect();
-	let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (pos.as_uvec3(), voxel.get_ref())).collect();
+	let points: Vec<_> = points.into_iter().map(|(position, voxel)| ((position - origin).as_uvec3(), voxel)).collect();
+	let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
 	let mut voxels = Voxels::new::<BasicVoxel>();
 	voxels.add_voxels(&voxel_refs);
 	Some(voxels)

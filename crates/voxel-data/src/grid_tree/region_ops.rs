@@ -40,7 +40,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	fn fill_sdf_region(&mut self, region: NonZeroVoxelRegion, sdf: &(impl Sdf + ?Sized), data: G::Data<'_>) {
-		let Some(region) = NonZeroVoxelRegion::from_min_end(region.min(), region.end()) else { return };
+		assert!(region.min().is_negative_bitmask() == 0);
 		if !self.make_sure_root_covers_area(region.min().as_uvec3(), region.max().as_uvec3()) || !self.has_node_budget() {
 			return;
 		}
@@ -49,6 +49,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	fn clear_sdf_region(&mut self, region: NonZeroVoxelRegion, sdf: &(impl Sdf + ?Sized)) {
+		assert!(region.min().is_negative_bitmask() == 0);
 		if self.is_empty() {
 			return;
 		}
@@ -69,6 +70,7 @@ impl<G: GridType> GridTree<G> {
 		sdf: &(impl Sdf + ?Sized),
 		data: G::Data<'_>,
 	) -> bool {
+		assert!(region.min().is_negative_bitmask() == 0);
 		let node_region = NonZeroVoxelRegion::from_min_size(node_origin.as_ivec3(), UVec3::splat(size(node_depth))).unwrap();
 		let Some(overlap) = node_region.intersection(region) else { return true };
 		if region.contains_region(node_region) {
@@ -211,6 +213,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	pub fn split_region(&mut self, region: NonZeroVoxelRegion) -> Self {
+		assert!(region.min().is_negative_bitmask() == 0);
 		let mut out = Self::new_with_type(self.grid_type.clone());
 		if self.is_empty() {
 			return out;
@@ -226,6 +229,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	pub fn merge_region_from(&mut self, other: &Self, source_region: NonZeroVoxelRegion, offset: IVec3) {
+		assert!(source_region.min().is_negative_bitmask() == 0);
 		if other.is_empty() {
 			return;
 		}
@@ -240,6 +244,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	pub fn overwrite_region_from(&mut self, other: &Self, source_region: NonZeroVoxelRegion, offset: IVec3) {
+		assert!(source_region.min().is_negative_bitmask() == 0);
 		let destination_region = source_region.translated(offset);
 		let source_bounds = source_region
 			.intersection(other.root_region())
@@ -260,9 +265,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	pub fn merge_region_from_mapped<'a>(&'a mut self, other: &'a Self, source_region: NonZeroVoxelRegion, offset: IVec3, mut map: impl FnMut(G::Data<'a>) -> G::Data<'a>) {
-		// Keep the mapped API, but mapping arbitrary borrowed GridData cannot use the
-		// byte-copy aligned-node fast path. The identity merge path above is the hot
-		// voxel merge path and preserves the old structural algorithm.
+		assert!(source_region.min().is_negative_bitmask() == 0);
 		if other.is_empty() { return; }
 		let Some(source_region) = source_region.intersection(other.root_region()) else { return };
 		let Some(source_bounds) = other.occupied_bounds_in_region(source_region) else { return };
@@ -278,6 +281,8 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	fn merge_region_from_with_bounds(&mut self, other: &Self, source_region: NonZeroVoxelRegion, source_bounds: NonZeroVoxelRegion, offset: IVec3, overwrite: bool) {
+		assert!(source_region.min().is_negative_bitmask() == 0);
+		assert!(source_bounds.min().is_negative_bitmask() == 0);
 		if !overwrite {
 			let source_count = other.occupied_count_in_region(source_bounds);
 			let walk_destination = !self.is_empty() && self.len() < source_count;
@@ -289,6 +294,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	fn merge_region_from_source_walk(&mut self, other: &Self, source_bounds: NonZeroVoxelRegion, full_root_covered: bool, offset: IVec3, overwrite: bool) {
+		assert!(source_bounds.min().is_negative_bitmask() == 0);
 		let dest_bounds = source_bounds.translated(offset);
 		if !self.make_sure_root_covers_area(dest_bounds.min().as_uvec3(), dest_bounds.max().as_uvec3()) || !self.has_node_budget() {
 			return;
@@ -355,6 +361,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	fn merge_region_from_recurse(&mut self, other: &Self, src_node_index: u32, src_node_depth: u8, src_node_origin: UVec3, source_region: NonZeroVoxelRegion, offset: IVec3, overwrite: bool) -> bool {
+		assert!(source_region.min().is_negative_bitmask() == 0);
 		let node_region = NonZeroVoxelRegion::from_min_size(src_node_origin.as_ivec3(), UVec3::splat(size(src_node_depth))).unwrap();
 		let Some(overlap) = source_region.intersection(node_region) else { return true };
 		let cell_size = child_size(src_node_depth);

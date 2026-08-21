@@ -1,4 +1,3 @@
-use bevy::math::U16Vec3;
 use bevy::prelude::*;
 use tracy_client::span;
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
@@ -53,7 +52,7 @@ pub(super) fn build_planet_region<V: VoxelType>(
 
 				let pos = chunk_offset + IVec3::new(x, y, z0);
 				let size = UVec3::new(1, 1, (z1 - z0) as u32);
-				areas.push((pos.as_u16vec3(), size, sample(IVec3::new(x, y, z0))));
+				areas.push((pos.as_uvec3(), size, sample(IVec3::new(x, y, z0))));
 			}
 		}
 	}
@@ -61,7 +60,7 @@ pub(super) fn build_planet_region<V: VoxelType>(
 	if areas.is_empty() {
 		return None;
 	}
-	let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (pos.as_uvec3(), *size, voxel.get_ref())).collect();
+	let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, *size, voxel.get_ref())).collect();
 	let mut voxels = Voxels::new::<V>();
 	voxels.add_areas(&area_refs);
 	Some(voxels)

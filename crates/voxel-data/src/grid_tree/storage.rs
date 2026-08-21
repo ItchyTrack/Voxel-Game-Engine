@@ -48,7 +48,7 @@ impl<G: GridType> GridTree<G> {
 	}
 
 	pub(super) fn root_covers(&self, pos: UVec3) -> bool {
-		let r = pos - self.raw.root_pos();
+		let r = pos.as_ivec3() - self.raw.root_pos().as_ivec3();
 		r.min_element() >= 0 && (r.max_element() as i64) < size(self.raw.root_depth()) as i64
 	}
 
