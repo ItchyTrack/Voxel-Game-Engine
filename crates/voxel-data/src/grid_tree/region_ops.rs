@@ -316,7 +316,7 @@ impl<G: GridType> GridTree<G> {
 		let mut node_origin = self.raw.root_pos();
 		while node_depth > target_depth {
 			let cell_size = child_size(node_depth);
-			if target_origin.cmple(node_origin).any() { return None;}
+			if target_origin.cmplt(node_origin).any() { return None;}
 			let rel = target_origin - node_origin;
 			let child_pos = rel / UVec3::splat(cell_size);
 			if child_pos.cmpge(UVec3::splat(SIZE as u32)).any() {

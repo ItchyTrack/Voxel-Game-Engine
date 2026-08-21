@@ -6,7 +6,7 @@ use super::{CellKind, GridTreeView, GridType, NodeRef};
 
 #[inline]
 pub fn get<G: GridType>(view: GridTreeView<'_, G>, pos: UVec3) -> Option<G::Data<'_>> {
-	if pos.cmple(view.root_pos()).any() { return None; }
+	if pos.cmplt(view.root_pos()).any() { return None; }
 	let root_relative_pos = pos - view.root_pos();
 	let root_size = super::size(view.root_depth());
 	if root_relative_pos.x >= root_size || root_relative_pos.y >= root_size || root_relative_pos.z >= root_size {

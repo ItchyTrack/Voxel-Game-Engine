@@ -59,7 +59,7 @@ impl<G: GridType> GridTree<G> {
 
 	/// Remove one cell. Returns true when the position was occupied.
 	pub fn remove(&mut self, pos: &UVec3) -> bool {
-		if pos.cmple(self.view().root_pos()).any() { return false; }
+		if pos.cmplt(self.view().root_pos()).any() { return false; }
 		let root_relative_pos = pos - self.view().root_pos();
 		let root_size = super::size(self.view().root_depth());
 		if root_relative_pos.x >= root_size || root_relative_pos.y >= root_size || root_relative_pos.z >= root_size {
