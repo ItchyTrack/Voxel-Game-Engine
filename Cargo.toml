@@ -5,7 +5,6 @@ members = [
 	"crates/voxel-tasks",
 	"crates/voxel-data",
 	"crates/tile-data",
-	"crates/voxel-edit",
 	"crates/voxel-gpu",
 	"crates/voxel-streaming",
 	"crates/camera-voxel-loader",
@@ -32,7 +31,6 @@ strip = true
 [workspace.dependencies]
 bevy = "0.19"
 bevy_ecs = "0.19"
-bevy-trait-query = "0.19"
 crossbeam-channel = "0.5.15"
 wgpu = "29.0.3"
 log = "0.4"
