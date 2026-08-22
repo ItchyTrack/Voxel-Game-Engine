@@ -20,8 +20,8 @@ struct VoxelContributionRaycastHit {
 	bool hit;
 	bool face_occluded;
 	float distance;
-	float3 normal;
-	float3 surface_pos;
+	uint normal_axis;
+	bool normal_negative;
 };
 
 struct AnisotropicSamplingState {
@@ -77,15 +77,9 @@ VoxelContributionRaycastHit raycast_voxel_contribution(VoxelContributionRaycastD
 	VoxelContributionRaycastHit result = {};
 	if (!data.valid) { return result; }
 
+	// Axis-aligned directions need no special casing here: their infinite slab
+	// distances are handled by the 1e38 inverse below combined with the slab test.
 	let local_ray_dir = Quat::inv_rotate(data.transform_quat, normalized_world_ray_dir);
-	if (
-		(local_ray_dir.x == 0.0 && (data.ray_origin_relative_min.x > 0.0 || data.ray_origin_relative_max.x < 0.0)) ||
-		(local_ray_dir.y == 0.0 && (data.ray_origin_relative_min.y > 0.0 || data.ray_origin_relative_max.y < 0.0)) ||
-		(local_ray_dir.z == 0.0 && (data.ray_origin_relative_min.z > 0.0 || data.ray_origin_relative_max.z < 0.0))
-	) {
-		return result;
-	}
-
 	let inv_local_ray_dir = float3(
 		local_ray_dir.x != 0.0 ? 1.0 / local_ray_dir.x : 1e38,
 		local_ray_dir.y != 0.0 ? 1.0 / local_ray_dir.y : 1e38,
@@ -102,16 +96,29 @@ VoxelContributionRaycastHit raycast_voxel_contribution(VoxelContributionRaycastD
 	let normal_axis = entry_distances.x >= entry_distances.y && entry_distances.x >= entry_distances.z
 		? 0u
 		: (entry_distances.y >= entry_distances.z ? 1u : 2u);
-	float3 local_normal = float3(0.0);
-	local_normal[normal_axis] = local_ray_dir[normal_axis] >= 0.0 ? -1.0 : 1.0;
 
 	result.hit = true;
 	result.face_occluded = (data.camera_face_occlusion_mask & (1u << normal_axis)) != 0u;
 	result.distance = max(entry_distance, 0.0);
-	result.normal = Quat::rotate(data.transform_quat, local_normal);
-	let local_hit = local_ray_dir * result.distance;
-	result.surface_pos = clamp((local_hit - data.ray_origin_relative_min) * data.inverse_scale, float3(0.0), float3(1.0));
+	result.normal_axis = normal_axis;
+	result.normal_negative = local_ray_dir[normal_axis] >= 0.0;
 	return result;
+}
+
+float3 voxel_raycast_hit_normal(VoxelContributionRaycastData data, VoxelContributionRaycastHit hit) {
+	float3 local_normal = float3(0.0);
+	local_normal[hit.normal_axis] = hit.normal_negative ? -1.0 : 1.0;
+	return Quat::rotate(data.transform_quat, local_normal);
+}
+
+float3 voxel_raycast_hit_surface_pos(
+	VoxelContributionRaycastData data,
+	VoxelContributionRaycastHit hit,
+	float3 normalized_world_ray_dir
+) {
+	let local_ray_dir = Quat::inv_rotate(data.transform_quat, normalized_world_ray_dir);
+	let local_hit = local_ray_dir * hit.distance;
+	return clamp((local_hit - data.ray_origin_relative_min) * data.inverse_scale, float3(0.0), float3(1.0));
 }
 
 uint anisotropic_sampling_face_mask(VoxelContribution contribution) {
@@ -238,11 +245,13 @@ float4 anti_aliased_voxel_color(uint2 texture_pos, uint2 texture_size) {
 		let ray_direction = normalize(world_ray_vector(pixel_min + sample_offset, texture_denominator));
 
 		var closest_contribution = top_left;
+		var closest_data = top_left_raycast_data;
 		var closest_hit = raycast_voxel_contribution(top_left_raycast_data, ray_direction);
 		{
 			let hit = raycast_voxel_contribution(top_right_raycast_data, ray_direction);
 			if (hit.hit && (!closest_hit.hit || hit.distance < closest_hit.distance)) {
 				closest_contribution = top_right;
+				closest_data = top_right_raycast_data;
 				closest_hit = hit;
 			}
 		}
@@ -250,6 +259,7 @@ float4 anti_aliased_voxel_color(uint2 texture_pos, uint2 texture_size) {
 			let hit = raycast_voxel_contribution(bottom_left_raycast_data, ray_direction);
 			if (hit.hit && (!closest_hit.hit || hit.distance < closest_hit.distance)) {
 				closest_contribution = bottom_left;
+				closest_data = bottom_left_raycast_data;
 				closest_hit = hit;
 			}
 		}
@@ -257,12 +267,15 @@ float4 anti_aliased_voxel_color(uint2 texture_pos, uint2 texture_size) {
 			let hit = raycast_voxel_contribution(bottom_right_raycast_data, ray_direction);
 			if (hit.hit && (!closest_hit.hit || hit.distance < closest_hit.distance)) {
 				closest_contribution = bottom_right;
+				closest_data = bottom_right_raycast_data;
 				closest_hit = hit;
 			}
 		}
 
 		if (closest_hit.hit && !closest_hit.face_occluded) {
-			accumulated_color += color_voxel_surface(closest_contribution, closest_hit.surface_pos, closest_hit.normal);
+			let surface_pos = voxel_raycast_hit_surface_pos(closest_data, closest_hit, ray_direction);
+			let world_normal = voxel_raycast_hit_normal(closest_data, closest_hit);
+			accumulated_color += color_voxel_surface(closest_contribution, surface_pos, world_normal);
 			ray_hit_count++;
 		}
 	}
