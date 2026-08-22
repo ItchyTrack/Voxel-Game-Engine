@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dot_vox = "5.2.0"
 bevy = { workspace = true }
 bytemuck = { workspace = true }
+dot_vox = "5.2.0"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-sources = { version = "0.1.0", path = "../voxel-sources" }

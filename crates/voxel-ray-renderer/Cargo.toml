@@ -9,15 +9,15 @@ gpu_profiling = []
 shader_hot_reload = ["bevy/embedded_watcher"]
 
 [dependencies]
-anyhow = "1.0"
-crossbeam-channel = "0.5.15"
+bevy = { workspace = true }
+crossbeam-channel = { workspace = true }
 rustc-hash = { workspace = true }
 log = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 bitflags = { workspace = true }
 tracy-client = { workspace = true }
-bevy = { workspace = true }
+anyhow = "1.0"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }

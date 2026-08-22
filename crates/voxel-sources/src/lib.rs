@@ -1,13 +1,15 @@
 mod request;
 mod source_manager;
+pub mod edit;
 mod source;
 
 use bevy::prelude::*;
 
-pub use crate::source::{ChunkSource, SourceHandle, SourceCoverage, SourceId};
-pub use crate::request::{SourceResult, SourceResultData, RequestId};
-pub use crate::source_manager::SourceManager;
-use crate::source_manager::publish_source_results_messages;
+pub use crate::{
+	request::{RequestId, SourceResult, SourceResultData},
+	source::{ChunkSource, SourceCoverage, SourceHandle, SourceId},
+	source_manager::{SourceManager, publish_source_results_messages,
+};
 
 pub trait VoxelSourcesAppExt {
 	fn register_voxel_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self;
@@ -15,8 +17,9 @@ pub trait VoxelSourcesAppExt {
 
 impl VoxelSourcesAppExt for App {
 	fn register_voxel_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self {
-		self.world_mut().get_resource_or_init::<SourceManager>().add_source(source);
-		self
+		self.world_mut()
+			.get_resource_or_init::<SourceManager>()
+			.add_source(source)
 	}
 }
 

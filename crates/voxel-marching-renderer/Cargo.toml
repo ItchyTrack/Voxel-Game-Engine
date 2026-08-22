@@ -9,9 +9,9 @@ shader_hot_reload = ["bevy/embedded_watcher"]
 
 [dependencies]
 wgpu = { workspace = true }
-bytemuck = { workspace = true }
-rustc-hash = { workspace = true }
 bevy = { workspace = true }
+rustc-hash = { workspace = true }
+bytemuck = { workspace = true }
 basic-voxel = { version = "0.1.0", path = "../basic-voxel" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }

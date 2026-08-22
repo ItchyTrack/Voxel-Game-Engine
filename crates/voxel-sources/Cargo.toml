@@ -8,16 +8,17 @@ default = []
 tracy = ["tracy-client/enable"]
 
 [dependencies]
-crossbeam-channel = "0.5.15"
 bevy = { workspace = true }
-bevy-trait-query = "0.19.0"
+bevy-trait-query =  { workspace = true }
+crossbeam-channel =  { workspace = true }
 rustc-hash = { workspace = true }
 serde = { version = "1", features = ["derive"] }
-futures = "0.3.32"
+futures = { workspace = true }
+tracy-client = { workspace = true }
+typetag = "0.2"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
-tracy-client = { workspace = true }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

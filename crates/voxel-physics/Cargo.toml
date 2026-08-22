@@ -9,10 +9,10 @@ tracy = ["tracy-client/enable"]
 gpu_profiling = []
 
 [dependencies]
+bevy = { workspace = true }
+rustc-hash = { workspace = true }
 num = { workspace = true }
 tracy-client = { workspace = true }
-rustc-hash = { workspace = true }
-bevy = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }

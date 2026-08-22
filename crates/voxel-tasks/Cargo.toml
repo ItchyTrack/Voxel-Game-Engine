@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-priority-queue = "0.1.1"
-crossbeam-channel = "0.5.15"
-tracy-client = { workspace = true }
-futures = "0.3.32"
 bevy = { version = "0.19.0", default-features = false }
+crossbeam-channel =  { workspace = true }
+tracy-client = { workspace = true }
+futures = { workspace = true }
+async-priority-queue = "0.1.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.114"
