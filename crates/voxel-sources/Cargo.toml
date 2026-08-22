@@ -9,8 +9,8 @@ tracy = ["tracy-client/enable"]
 
 [dependencies]
 bevy = { workspace = true }
-bevy-trait-query =  { workspace = true }
-crossbeam-channel =  { workspace = true }
+bevy-trait-query = { workspace = true }
+crossbeam-channel = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 futures = { workspace = true }

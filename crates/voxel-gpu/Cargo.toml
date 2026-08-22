@@ -9,9 +9,7 @@ tracy = ["tracy-client/enable"]
 gpu_profiling = []
 
 [dependencies]
-rand = "0.10.1"
-clone_cell = "0.4.2"
-parry3d = "0.26.0"
+bevy = { workspace = true }
 log = { workspace = true }
 wgpu = { workspace = true }
 num = { workspace = true }
@@ -19,9 +17,11 @@ bytemuck = { workspace = true }
 bitflags = { workspace = true }
 tracy-client = { workspace = true }
 rustc-hash = { workspace = true }
-bevy = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 orderly-allocator = "0.2.2"
+rand = "0.10.1"
+clone_cell = "0.4.2"
+parry3d = "0.26.0"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
