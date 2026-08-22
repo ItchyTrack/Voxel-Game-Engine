@@ -1,10 +1,9 @@
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
-use voxel_sources::{RequestId, SourceManager};
+use voxel_sources::RequestId;
 
 use voxel_data::{
-	grid::GridId,
 	grid_tree::NonZeroVoxelRegion,
 	signed_grid_tree::SignedGridTree,
 	voxels::Voxels,
@@ -12,11 +11,10 @@ use voxel_data::{
 use voxel_edit::ResolvedGridEdit;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use crate::consumer::ChunkConsumer;
 use crate::generation::{GenerationCell, TileGenerationCancellation};
+use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
 use crate::{ChunkRegion, TileKey, TileLoadStatus, TileLoadUpdate};
-use crate::presence::{ChunkPresence, ChunkState};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
 
@@ -43,7 +41,6 @@ pub struct GridStreaming {
 	pub(crate) pending_chunk_results: FxHashMap<RequestId, (u64, Voxels)>,
 	pub(crate) pending_clears: Vec<(IVec3, u8)>,
 	pub(crate) stalled_pinned: FxHashSet<IVec3>,
-	pub(crate) pending_take_edits: Vec<ResolvedGridEdit>,
 	pub(crate) pending_newly_present_edits: FxHashSet<IVec3>,
 	pub(crate) pending_authoritative_edits: FxHashMap<IVec3, Vec<(u64, ResolvedGridEdit)>>,
 	pub(crate) newly_dirty: Vec<IVec3>,
@@ -74,64 +71,6 @@ impl GridStreaming {
 
 	pub fn mark_present(&mut self, chunk: IVec3) { self.presence.mark_present(chunk); }
 	pub fn mark_present_area(&mut self, region: NonZeroChunkRegion) { self.presence.mark_present_area(region); }
-	pub fn state(&self, chunk: IVec3) -> Option<ChunkState> { self.presence.state(chunk) }
-	pub fn is_loaded(&self, chunk: IVec3) -> bool { matches!(self.presence.state(chunk), Some(ChunkState::Loaded)) }
-
-	fn start_request(&mut self, source_manager: &mut SourceManager, grid: GridId, chunk: IVec3) -> bool {
-		match self.presence.state(chunk) {
-			None => return false,
-			Some(ChunkState::Available) => {
-				self.presence.set_state(chunk, ChunkState::InFlight);
-				let request_id = source_manager.request_voxels(grid, NonZeroChunkRegion::from_single(chunk), 0, None);
-				self.inflight_chunk_cancellations.insert(chunk, request_id);
-			}
-			_ => {}
-		}
-		let first_request = self.presence.request_count(chunk) == 0;
-		self.presence.add_request(chunk);
-		if first_request { self.retain_edit_interest(chunk); }
-		true
-	}
-
-	pub fn fetch(&mut self, source_manager: &mut SourceManager, grid: GridId, chunk: IVec3) { self.start_request(source_manager, grid, chunk); }
-
-	pub fn fetch_needed<C: ChunkConsumer>(&mut self, source_manager: &mut SourceManager, grid: GridId, consumer: &mut C, chunk: IVec3) {
-		if !self.start_request(source_manager, grid, chunk) { return; }
-		let resident = matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty));
-		if consumer.needed_mut().entry(grid).or_default().insert(chunk) && !resident { *consumer.outstanding_mut() += 1; }
-	}
-
-	pub fn release(&mut self, source_manager: &mut SourceManager, chunk: IVec3) {
-		if self.presence.remove_request(chunk) > 0 { return; }
-		self.release_edit_interest(chunk);
-		match self.presence.state(chunk) {
-			Some(ChunkState::InFlight) => {
-				self.presence.set_state(chunk, ChunkState::Available);
-				if let Some(request_id) = self.inflight_chunk_cancellations.remove(&chunk) {
-					self.pending_chunk_results.remove(&request_id);
-					source_manager.cancel_voxels(request_id);
-				}
-			}
-			Some(ChunkState::Loaded) => self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES)),
-			_ => {}
-		}
-	}
-
-	pub(crate) fn release_completed(&mut self, chunk: IVec3) {
-		if self.presence.remove_request(chunk) > 0 { return; }
-		self.release_edit_interest(chunk);
-		if matches!(self.presence.state(chunk), Some(ChunkState::Loaded)) {
-			self.pending_clears.push((chunk, CLEAR_DELAY_FRAMES));
-		}
-	}
-
-	pub fn release_needed<C: ChunkConsumer>(&mut self, source_manager: &mut SourceManager, grid: GridId, consumer: &mut C, chunk: IVec3) {
-		let resident = matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty));
-		let removed = consumer.needed_mut().get_mut(&grid).is_some_and(|set| set.remove(&chunk));
-		if consumer.needed().get(&grid).is_some_and(|set| set.is_empty()) { consumer.needed_mut().remove(&grid); }
-		if removed && !resident { *consumer.outstanding_mut() = consumer.outstanding().saturating_sub(1); }
-		self.release(source_manager, chunk);
-	}
 
 	pub fn fetch_tile(&mut self, requester: Entity, key: TileKey, priority: f32) -> bool {
 		if !valid_tile_key(key) { return false; }
@@ -173,14 +112,6 @@ impl GridStreaming {
 			}
 			other => self.tiles.get_mut(&key).unwrap().status = other,
 		}
-	}
-
-	pub(crate) fn mark_loaded(&mut self, chunk: IVec3) {
-		self.presence.set_state(chunk, ChunkState::Loaded);
-	}
-
-	pub fn is_chunk_data_resident(&self, chunk: IVec3) -> bool {
-		matches!(self.presence.state(chunk), Some(ChunkState::Loaded | ChunkState::InternalDirty))
 	}
 
 	pub(crate) fn mark_empty(&mut self, region: NonZeroChunkRegion) {

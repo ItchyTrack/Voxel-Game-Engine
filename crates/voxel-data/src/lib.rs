@@ -6,12 +6,9 @@ pub mod grid_tree;
 pub mod region;
 pub mod sdf;
 pub mod signed_grid_tree;
-pub mod splat;
-pub mod subgrid;
 pub mod transform_ext;
 pub mod voxel_grid_tree;
 pub mod voxels;
-pub mod world_query;
 
 use bevy::prelude::*;
 

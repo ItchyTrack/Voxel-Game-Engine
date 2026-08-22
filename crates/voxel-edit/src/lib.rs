@@ -1,9 +1,8 @@
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use bevy::math::{IVec2, IVec3, Vec3};
 use bevy::prelude::*;
 
-use voxel_data::grid::Grid;
 use voxel_data::region::{NonZeroVoxelRegion, VoxelRegion};
 use voxel_data::sdf::{Sdf, shrink_aabb_with_sdf, voxel_center, voxel_region_from_bounds};
 use voxel_data::voxels::Voxel;
@@ -145,26 +144,4 @@ fn sdf_area_edits(
 		}
 	}
 	edits
-}
-
-// /// Apply one edit directly and return the touched sub-grid positions.
-// pub fn apply_grid_edit(grid: &mut Grid, edit: &GridEdit) -> HashSet<IVec3> {
-// 	match edit {
-// 		GridEdit::AddArea { region, voxel } => grid.set_area(region.min(), region.size(), Some(voxel.get_ref())),
-// 		GridEdit::RemoveArea { region } => grid.set_area(region.min(), region.size(), None),
-// 		GridEdit::ApplySdf { bounds_min, bounds_max, face_resolution, iterations, voxel, sdf } => {
-// 			grid.apply_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations, voxel.get_ref())
-// 		}
-// 		GridEdit::ClearSdf { bounds_min, bounds_max, face_resolution, iterations, sdf } => {
-// 			grid.clear_sdf(*bounds_min, *bounds_max, &**sdf, *face_resolution, *iterations)
-// 		}
-// 	}
-// }
-
-/// Apply one edit directly and return the touched sub-grid positions.
-pub fn apply_resolved_grid_edit(grid: &mut Grid, edit: &ResolvedGridEdit) -> HashSet<IVec3> {
-	match edit {
-		ResolvedGridEdit::AddArea { region, voxel } => grid.set_area(region.min(), region.size(), Some(voxel.get_ref())),
-		ResolvedGridEdit::RemoveArea { region } => grid.set_area(region.min(), region.size(), None),
-	}
 }
