@@ -61,7 +61,7 @@ pub struct GridAreaEdited {
 	pub grid: voxel_data::grid::GridId,
 	pub region: NonZeroChunkRegion,
 	pub generation: u64,
-	pub edit: voxel_edit::ResolvedGridEdit,
+	pub edit: ,
 }
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]

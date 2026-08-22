@@ -8,7 +8,6 @@ use voxel_data::{
 	signed_grid_tree::SignedGridTree,
 	voxels::Voxels,
 };
-use voxel_edit::ResolvedGridEdit;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use crate::generation::{GenerationCell, TileGenerationCancellation};

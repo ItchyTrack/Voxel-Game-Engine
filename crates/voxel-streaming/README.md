@@ -4,6 +4,5 @@ This crate manages voxel-grid edits and the loading, updating, and unloading of 
 
 Deps:
 - voxel-data
-- voxel-edit
 - voxel-gpu
 - voxel-sources

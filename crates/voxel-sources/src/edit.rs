@@ -64,3 +64,19 @@ pub struct GirdEditMessage {
 	edit: Box<dyn GirdEdit>,
 	grid_edit_id: GridEditId,
 }
+
+#[derive(Debug, Component)]
+pub struct GridEditIdManager {
+	current: GridEditId,
+}
+
+impl GridEditIdManager {
+	pub fn current_id(&self) -> GridEditId {
+		self.current
+	}
+
+	pub fn bump_id(&mut self) -> GridEditId {
+		self.current = self.current.get_next();
+		self.current
+	}
+}

@@ -4,7 +4,6 @@ use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use tile_data::{NonZeroChunkRegion, chunk_origin};
 use voxel_data::{grid::Grid, grid_tree::NonZeroVoxelRegion, voxels::{Voxel, VoxelTypeId, VoxelTypeInfo}};
-use voxel_edit::ResolvedGridEdit;
 use voxel_sources::{
 	ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceManager, VoxelSourcesAppExt,
 	VoxelSourcesPlugin,

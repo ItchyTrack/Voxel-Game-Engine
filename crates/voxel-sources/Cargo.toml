@@ -9,7 +9,6 @@ tracy = ["tracy-client/enable"]
 
 [dependencies]
 bevy = { workspace = true }
-bevy-trait-query = { workspace = true }
 crossbeam-channel = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { version = "1", features = ["derive"] }
@@ -17,7 +16,6 @@ futures = { workspace = true }
 tracy-client = { workspace = true }
 typetag = "0.2"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
-voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 

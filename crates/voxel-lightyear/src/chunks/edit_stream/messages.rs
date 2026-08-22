@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use voxel_data::grid::GridId;
 use voxel_data::region::NonZeroVoxelRegion;
 use voxel_data::voxels::Voxel;
-use voxel_edit::ResolvedGridEdit;
 use tile_data::{ChunkRegion, NonZeroChunkRegion};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

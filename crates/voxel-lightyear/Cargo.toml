@@ -14,7 +14,6 @@ serde = { version = "1", features = ["derive"] }
 tracy-client = { workspace = true }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
-voxel-edit = { version = "0.1.0", path = "../voxel-edit" }
 voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
 voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }

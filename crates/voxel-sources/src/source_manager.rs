@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bevy::prelude::*;
 use crossbeam_channel::{Receiver, Sender};
 use rustc_hash::FxHashMap;
@@ -13,7 +11,7 @@ use crate::{request::{RequestId, SourceResult}, source::{ChunkSource, SourceCove
 pub struct SourceManager {
 	last_request_id: RequestId,
 	pending_requests: FxHashMap<RequestId, (CancellationToken, u32)>,
-	sources: Vec<Arc<dyn ChunkSource>>,
+	sources: Vec<Box<dyn ChunkSource>>,
 	source_result_sender: Sender<SourceResult>,
 	source_result_receiver: Receiver<SourceResult>,
 }
@@ -110,7 +108,7 @@ impl SourceManager {
 
 	pub(crate) fn add_source<S: ChunkSource + 'static>(&mut self, source: S) {
 		source.init(SourceHandle { id: SourceId(self.sources.len()), messages: self.source_result_sender.clone() });
-		self.sources.push(Arc::new(source));
+		self.sources.push(Box::new(source));
 	}
 }
 
