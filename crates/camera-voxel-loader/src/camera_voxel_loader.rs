@@ -19,7 +19,7 @@ impl Default for CameraVoxelLoaderSettings {
 	fn default() -> Self {
 		Self {
 			max_lod: 6,
-			near_radius_chunks: 8,
+			near_radius_chunks: 5,
 			rings_per_lod: 5,
 		}
 	}
