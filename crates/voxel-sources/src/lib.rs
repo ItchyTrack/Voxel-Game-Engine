@@ -5,7 +5,7 @@ mod source;
 
 use bevy::prelude::*;
 
-use crate::source_manager::publish_source_results_messages;
+use crate::{edit::GridEditMessage, source_manager::publish_source_results_messages};
 pub use crate::{
 	request::{RequestId, SourceResult, SourceResultData},
 	source::{ChunkSource, SourceCoverage, SourceHandle, SourceId},
@@ -32,6 +32,7 @@ impl Plugin for VoxelSourcesPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<SourceManager>()
 			.add_message::<SourceResult>()
+			.add_message::<GridEditMessage>()
 			.add_systems(PreUpdate, publish_source_results_messages);
 	}
 }

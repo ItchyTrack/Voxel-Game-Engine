@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use voxel_data::grid::Grid;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelType};
-use voxel_streaming::GridEdits;
+use voxel_sources::edit::GridEditIdManager;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
@@ -101,7 +101,7 @@ pub fn spawn_mandelbulb_grid(mut commands: Commands, source: Res<SdfSource>) {
 		.spawn((
 			Transform::from_translation(Vec3::new(0.0, 0.0, -1000.0)),
 			Grid::new::<BasicVoxel>(),
-			GridEdits::default(),
+			GridEditIdManager::default(),
 			GridStreaming::default(),
 			RequestChunkPresence,
 			ReplicateVoxels,

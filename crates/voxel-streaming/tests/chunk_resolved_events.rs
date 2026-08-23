@@ -10,8 +10,7 @@ use voxel_sources::{
 };
 use voxel_streaming::systems;
 use voxel_streaming::{
-	apply_grid_edits, AuthoritativeGridCommand, ChunkAvailabilityChanged, ChunkState,
-	GridEdits, GridStreaming,
+	apply_grid_edits, AuthoritativeGridCommand, ChunkAvailabilityChanged, ChunkState, GridStreaming,
 };
 use voxel_tasks::CancellationToken;
 

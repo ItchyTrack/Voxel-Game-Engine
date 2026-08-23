@@ -11,7 +11,6 @@ use voxel_data::{
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use voxel_streaming::GridEdits;
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_lightyear::ReplicateVoxels;
 use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
@@ -198,7 +197,7 @@ fn spawn_tree(mut commands: Commands, tree: Res<TreeGrid>) {
 	let mut streaming = GridStreaming::default();
 	streaming.mark_present_area(tree.bounds);
 
-	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEdits::default(), ReplicateVoxels, VoxelCollider, streaming)).id();
+	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEditIdManager::default(), ReplicateVoxels, VoxelCollider, streaming)).id();
 	let _ = tree.grid.set(grid);
 	commands.entity(body).add_child(grid);
 }

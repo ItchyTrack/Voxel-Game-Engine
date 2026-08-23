@@ -1,4 +1,4 @@
-use bevy::{ecs::component::Component, math::IVec3};
+use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
 use voxel_data::{
 	region::NonZeroVoxelRegion,
@@ -6,7 +6,7 @@ use voxel_data::{
 };
 
 #[typetag::serde(tag = "type")]
-pub trait GridEdit {
+pub trait GridEdit: std::fmt::Debug + Send + Sync + 'static {
 	fn affected_region(&self) -> NonZeroVoxelRegion;
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels);
 	fn apply_to_tracking(&self) {} // todo once voxel tracking is added
@@ -60,29 +60,7 @@ impl GridEditId {
 	pub const fn is_next(self, maybe_next_id: GridEditId) -> bool { self.get_next().0 == maybe_next_id.0 }
 }
 
-pub struct GridEditMessage {
-	edit_id: GridEditId,
-	edit: Box<dyn GridEdit>,
-}
-
-impl GridEditMessage {
-	pub fn new<T: GridEdit + 'static>(grid_edit: T, grid_edit_id: GridEditId) -> Self {
-		Self {
-			edit_id: grid_edit_id,
-			edit: Box::new(grid_edit),
-		}
-	}
-
-	pub fn edit_id(&self) -> GridEditId {
-		self.edit_id
-	}
-
-	pub fn edit(&self) -> &dyn GridEdit {
-		self.edit.as_ref()
-	}
-}
-
-#[derive(Debug, Component)]
+#[derive(Default, Debug, Component)]
 pub struct GridEditIdManager {
 	current: GridEditId,
 }
@@ -95,5 +73,28 @@ impl GridEditIdManager {
 	pub fn bump_id(&mut self) -> GridEditId {
 		self.current = self.current.get_next();
 		self.current
+	}
+}
+
+#[derive(Debug, Message)]
+pub struct GridEditMessage {
+	edit_id: GridEditId,
+	edit: Box<dyn GridEdit>,
+}
+
+impl GridEditMessage {
+	pub fn new<T: GridEdit>(grid_edit: T, grid_edit_id: GridEditId) -> Self {
+		Self {
+			edit_id: grid_edit_id,
+			edit: Box::new(grid_edit),
+		}
+	}
+
+	pub fn edit_id(&self) -> GridEditId {
+		self.edit_id
+	}
+
+	pub fn edit(&self) -> &dyn GridEdit {
+		self.edit.as_ref()
 	}
 }

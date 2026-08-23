@@ -6,7 +6,6 @@ use basic_voxel::{BasicVoxel, LodVoxel};
 use tile_data::NonZeroChunkRegion;
 use voxel_data::voxels::VoxelType;
 use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
-use voxel_streaming::GridEdits;
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
 use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
@@ -154,7 +153,7 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 				transform,
 				Grid::new::<BasicVoxel>(),
 				VoxelCollider,
-				GridEdits::default(),
+				GridEditIdManager,
 				ReplicateVoxels,
 				streaming,
 			))

@@ -2,13 +2,13 @@ use std::f32::consts::PI;
 
 use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
+use voxel_sources::edit::GridEditIdManager;
 use std::path::PathBuf;
 
 use basic_voxel::{BasicVoxel, MarchingVoxel};
 use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_data::voxels::VoxelType;
-use voxel_streaming::GridEdits;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::{
@@ -106,7 +106,7 @@ fn spawn_sponza(commands: &mut Commands, vox_source: &MarchingVoxFileSource) {
 	let grid = commands.spawn((
 		Transform::IDENTITY,
 		Grid::new::<MarchingVoxel>(),
-		GridEdits::default(),
+		GridEditIdManager::default(),
 		GridStreaming::default(),
 		RequestChunkPresence,
 		ReplicateVoxels,
@@ -129,7 +129,7 @@ fn spawn_church(commands: &mut Commands, vox_source: &SceneVoxFileSource) {
 	let grid = commands.spawn((
 			Transform::IDENTITY,
 			Grid::new::<BasicVoxel>(),
-			GridEdits::default(),
+			GridEditIdManager::default(),
 			GridStreaming::default(),
 			RequestChunkPresence,
 			ReplicateVoxels,

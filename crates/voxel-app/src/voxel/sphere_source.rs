@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
 use voxel_data::voxels::{VoxelType, VoxelTypeId, Voxels};
-use voxel_streaming::GridEdits;
+use voxel_sources::edit::GridEditIdManager;
 use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
 use voxel_lightyear::ReplicateVoxels;
@@ -292,7 +292,7 @@ fn spawn_sphere_grid(mut commands: Commands, grid: Res<SphereGrid>) {
 			Transform::IDENTITY,
 			Grid::new::<BasicVoxel>(),
 			VoxelCollider,
-			GridEdits::default(),
+			GridEditIdManager::default(),
 			ReplicateVoxels,
 			streaming,
 		))

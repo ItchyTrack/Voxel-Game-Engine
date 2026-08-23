@@ -11,7 +11,6 @@ mod tile_updates;
 mod generation;
 pub mod systems;
 
-pub use edit::GridEdits;
 pub use forgotten_chunks::ForgottenChunks;
 pub use tile_data::{
 	DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData,
