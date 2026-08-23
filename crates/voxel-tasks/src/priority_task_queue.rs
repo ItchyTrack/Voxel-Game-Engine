@@ -70,8 +70,7 @@ impl AsyncPriorityTaskPool {
 		}
 	}
 
-	/// Gets the global [`AsyncPriorityTaskPool`] instance, or initializes it
-	/// with `f`.
+	/// Gets the global [`AsyncPriorityTaskPool`] instance, or initializes it with `f`.
 	pub fn get_or_init(
 		f: impl FnOnce() -> AsyncPriorityTaskPool,
 	) -> &'static Self {
@@ -97,8 +96,7 @@ impl AsyncPriorityTaskPool {
 
 	/// Spawns a future with the given priority.
 	///
-	/// Higher priority values are executed before lower priority values
-	/// when a worker becomes available.
+	/// Higher priority values are executed before lower priority values.
 	pub fn spawn<F>(&'static self, priority: f32, future: F)
 	where
 		F: Future<Output = ()> + Send + 'static,

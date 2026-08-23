@@ -1,4 +1,4 @@
-use bevy::math::IVec3;
+use bevy::{ecs::component::Component, math::IVec3};
 use serde::{Deserialize, Serialize};
 use voxel_data::{
 	region::NonZeroVoxelRegion,
@@ -6,7 +6,7 @@ use voxel_data::{
 };
 
 #[typetag::serde(tag = "type")]
-pub trait GirdEdit {
+pub trait GridEdit {
 	fn affected_region(&self) -> NonZeroVoxelRegion;
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels);
 	fn apply_to_tracking(&self) {} // todo once voxel tracking is added
@@ -24,7 +24,7 @@ pub struct RemoveArea {
 }
 
 #[typetag::serde]
-impl GirdEdit for AddArea {
+impl GridEdit for AddArea {
 	fn affected_region(&self) -> NonZeroVoxelRegion { self.region }
 
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels) {
@@ -38,7 +38,7 @@ impl GirdEdit for AddArea {
 }
 
 #[typetag::serde]
-impl GirdEdit for RemoveArea {
+impl GridEdit for RemoveArea {
 	fn affected_region(&self) -> NonZeroVoxelRegion { self.region }
 
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels) {
@@ -60,9 +60,26 @@ impl GridEditId {
 	pub const fn is_next(self, maybe_next_id: GridEditId) -> bool { self.get_next().0 == maybe_next_id.0 }
 }
 
-pub struct GirdEditMessage {
-	edit: Box<dyn GirdEdit>,
-	grid_edit_id: GridEditId,
+pub struct GridEditMessage {
+	edit_id: GridEditId,
+	edit: Box<dyn GridEdit>,
+}
+
+impl GridEditMessage {
+	pub fn new<T: GridEdit + 'static>(grid_edit: T, grid_edit_id: GridEditId) -> Self {
+		Self {
+			edit_id: grid_edit_id,
+			edit: Box::new(grid_edit),
+		}
+	}
+
+	pub fn edit_id(&self) -> GridEditId {
+		self.edit_id
+	}
+
+	pub fn edit(&self) -> &dyn GridEdit {
+		self.edit.as_ref()
+	}
 }
 
 #[derive(Debug, Component)]

@@ -48,8 +48,6 @@ pub struct GridStreaming {
 	pub(crate) pending_tile_requests: FxHashSet<TileKey>,
 	pub(crate) tile_dependencies: TileDependencyIndex,
 	pub(crate) inflight_tiles_by_tag: FxHashMap<u64, TileKey>,
-	pub(crate) generation: u64,
-	pub(crate) chunk_generations: SignedGridTree<GenerationCell>,
 	pub(crate) next_tile_tag: u64,
 	pub(crate) queued_tile_updates: Vec<TileLoadUpdate>,
 	pub(crate) edit_interest_counts: FxHashMap<IVec3, u32>,
@@ -150,35 +148,6 @@ impl GridStreaming {
 				for x in region.min().x..region.end().x { self.release_edit_interest(IVec3::new(x, y, z)); }
 			}
 		}
-	}
-
-	pub(crate) fn chunk_generation(&self, chunk: IVec3) -> u64 {
-		self.chunk_generations.get(chunk).unwrap_or(0)
-	}
-
-	pub(crate) fn region_generation(&self, region: NonZeroChunkRegion) -> u64 {
-		let mut latest = 0;
-		self.chunk_generations.for_each_in_region(chunk_tree_region(region), |_, _, generation| {
-			latest = latest.max(generation);
-		});
-		latest
-	}
-
-	pub(crate) fn note_source_generation(&mut self, region: NonZeroChunkRegion, generation: u64) {
-		self.generation = self.generation.max(generation);
-		if self.region_generation(region) <= generation {
-			self.chunk_generations.add_area(chunk_tree_region(region), generation);
-		}
-	}
-
-	pub(crate) fn next_local_generation(&mut self, region: NonZeroChunkRegion) -> u64 {
-		self.generation = self.generation.checked_add(1).expect("grid generation space exhausted");
-		self.chunk_generations.add_area(chunk_tree_region(region), self.generation);
-		self.generation
-	}
-
-	pub(crate) fn command_follows(&self, region: NonZeroChunkRegion, generation: u64) -> bool {
-		self.region_generation(region) < generation
 	}
 
 	pub(crate) fn dirty_stale_tiles(&mut self, region: NonZeroChunkRegion, generation: u64) {

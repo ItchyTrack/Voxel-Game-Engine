@@ -127,7 +127,11 @@ impl ChunkSource for ProceduralPlanetSource {
 
 fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 	let parent = commands
-		.spawn((RigidBody, IsStatic, Transform::from_xyz(0.0, 0.0, -2000.0)))
+		.spawn((
+			RigidBody,
+			IsStatic,
+			Transform::from_xyz(0.0, 0.0, -2000.0)
+		))
 		.id();
 
 	let mut grid_map = HashMap::with_capacity(planet_tiles().len());
