@@ -121,20 +121,9 @@ pub fn receive_results(
 			SourceResultData::Voxels { grid, region, lod, generation, voxels } if *lod == 0 && region.size() == UVec3::ONE => {
 				let Ok((_, mut streaming, _)) = grids.get_mut(*grid) else { continue };
 				let chunk = region.min();
-				if streaming.inflight_chunk_cancellations.get(&chunk) != Some(&result.request_id) { continue; }
-				let replace = streaming.pending_chunk_results.get(&result.request_id)
-					.is_none_or(|(known_generation, _)| *known_generation <= *generation);
-				if replace {
-					streaming.pending_chunk_results.insert(result.request_id, (*generation, voxels.clone()));
-				}
 			}
 			SourceResultData::VoxelsLoaded => {
 				for (grid, mut streaming, _) in &mut grids {
-					let Some(chunk) = streaming.inflight_chunk_cancellations.iter()
-						.find_map(|(chunk, request_id)| (*request_id == result.request_id).then_some(*chunk))
-					else { continue };
-					streaming.inflight_chunk_cancellations.remove(&chunk);
-					let data = streaming.pending_chunk_results.remove(&result.request_id);
 					let (generation, voxels) = data.map_or((0, None), |(generation, voxels)| (generation, Some(voxels)));
 					completed.push((grid, chunk, generation, voxels));
 					break;
@@ -288,7 +277,7 @@ pub(crate) fn request_tiles(
 	results: Res<TileGenerationChannel>,
 	mut grids: Query<(GridId, Option<&TileGenerationParameters>, &mut GridStreaming)>,
 ) {
-	let requests = crate::generation::bridge_sender(&bridge);
+	let requests = bridge.sender();
 	for (grid, context, mut streaming) in grids.iter_mut() {
 		let pending: Vec<_> = std::mem::take(&mut streaming.pending_tile_requests).into_iter().collect();
 		if !pending.is_empty() {

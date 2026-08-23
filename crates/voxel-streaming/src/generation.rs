@@ -7,36 +7,11 @@ use tile_data::{
 	GenerationVoxelReader, TileData, TileGenerationParameters, TileGenerationSession, TileKey,
 	VoxelRegionRequest, VoxelRegionResult,
 };
-use voxel_data::{
-	grid::GridId,
-	grid_tree::GridType,
-};
+use voxel_data::grid::GridId;
 use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData};
 use voxel_tasks::CancellationToken;
 
 use crate::tile_dependency_index::TileDependency;
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct GenerationCell;
-
-impl GridType for GenerationCell {
-	type Data<'a> = u64;
-	const MAX_NODE_OFFSET: u32 = u32::MAX;
-
-	fn data_size_bytes(&self) -> usize { std::mem::size_of::<u64>() }
-
-	fn read_data<'a>(&self, bytes: &'a [u8]) -> Self::Data<'a> {
-		u64::from_le_bytes(bytes[..8].try_into().expect("generation bytes"))
-	}
-
-	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]) {
-		bytes[..8].copy_from_slice(&data.to_le_bytes());
-	}
-
-	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {
-		bytes[..8] == data.to_le_bytes()
-	}
-}
 
 #[derive(Default)]
 pub(crate) struct TileGenerationMetadata {
@@ -76,7 +51,7 @@ impl Default for TileVoxelSourceBridge {
 }
 
 impl TileVoxelSourceBridge {
-	fn sender(&self) -> Sender<PendingVoxelRequest> { self.request_tx.clone() }
+	pub(crate) fn sender(&self) -> Sender<PendingVoxelRequest> { self.request_tx.clone() }
 }
 
 pub(crate) struct StreamingVoxelReader {
@@ -262,8 +237,4 @@ pub(crate) fn route_tile_source_results(
 			SourceResultData::Presence { .. } | SourceResultData::PresenceLoaded => {}
 		}
 	}
-}
-
-pub(crate) fn bridge_sender(bridge: &TileVoxelSourceBridge) -> Sender<PendingVoxelRequest> {
-	bridge.sender()
 }

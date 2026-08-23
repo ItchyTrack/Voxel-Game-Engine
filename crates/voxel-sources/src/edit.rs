@@ -1,8 +1,7 @@
 use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
 use voxel_data::{
-	region::NonZeroVoxelRegion,
-	voxels::{Voxel, Voxels},
+	grid::GridId, region::NonZeroVoxelRegion, voxels::{Voxel, Voxels},
 };
 
 #[typetag::serde(tag = "type")]
@@ -78,16 +77,22 @@ impl GridEditIdManager {
 
 #[derive(Debug, Message)]
 pub struct GridEditMessage {
+	grid_id: GridId,
 	edit_id: GridEditId,
 	edit: Box<dyn GridEdit>,
 }
 
 impl GridEditMessage {
-	pub fn new<T: GridEdit>(grid_edit: T, grid_edit_id: GridEditId) -> Self {
+	pub fn new<T: GridEdit>(grid_id: GridId, grid_edit_id: GridEditId, grid_edit: T) -> Self {
 		Self {
+			grid_id,
 			edit_id: grid_edit_id,
 			edit: Box::new(grid_edit),
 		}
+	}
+
+	pub fn grid_id(&self) -> GridId {
+		self.grid_id
 	}
 
 	pub fn edit_id(&self) -> GridEditId {

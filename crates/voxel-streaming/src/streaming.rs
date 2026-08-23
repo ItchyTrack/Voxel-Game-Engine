@@ -5,12 +5,11 @@ use voxel_sources::RequestId;
 
 use voxel_data::{
 	grid_tree::NonZeroVoxelRegion,
-	signed_grid_tree::SignedGridTree,
 	voxels::Voxels,
 };
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use crate::generation::{GenerationCell, TileGenerationCancellation};
+use crate::generation::TileGenerationCancellation;
 use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
 use crate::{ChunkRegion, TileKey, TileLoadStatus, TileLoadUpdate};
@@ -36,14 +35,7 @@ pub(crate) enum TileStatus {
 #[derive(Component, Default)]
 pub struct GridStreaming {
 	pub(crate) presence: ChunkPresence,
-	pub(crate) inflight_chunk_cancellations: FxHashMap<IVec3, RequestId>,
-	pub(crate) pending_chunk_results: FxHashMap<RequestId, (u64, Voxels)>,
-	pub(crate) pending_clears: Vec<(IVec3, u8)>,
-	pub(crate) stalled_pinned: FxHashSet<IVec3>,
-	pub(crate) pending_newly_present_edits: FxHashSet<IVec3>,
-	pub(crate) pending_authoritative_edits: FxHashMap<IVec3, Vec<(u64, ResolvedGridEdit)>>,
-	pub(crate) newly_dirty: Vec<IVec3>,
-	pub(crate) newly_present_dirty: Vec<IVec3>,
+	// pub(crate) inflight_chunk_cancellations: FxHashMap<IVec3, RequestId>,
 	pub(crate) tiles: FxHashMap<TileKey, TileState>,
 	pub(crate) pending_tile_requests: FxHashSet<TileKey>,
 	pub(crate) tile_dependencies: TileDependencyIndex,
