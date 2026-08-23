@@ -57,19 +57,6 @@ pub fn apply_source_presence(
 	}
 }
 
-pub fn materialize_authoritative_commands(
-	mut ecs_commands: Commands,
-	mut commands: MessageReader<crate::AuthoritativeGridCommand>,
-	mut grids: Query<(&mut GridStreaming, &mut Grid)>,
-) {
-	for command in commands.read() {
-		let Ok((mut streaming, mut grid_data)) = grids.get_mut(command.grid) else { continue };
-		if !streaming.command_follows(command.region, command.generation) { continue; }
-		streaming.note_source_generation(command.region, command.generation);
-		streaming.dirty_stale_tiles(command.region, command.generation);
-	}
-}
-
 pub(crate) fn publish_edit_interest_changes(
 	mut events: MessageWriter<ChunkEditInterestChanged>,
 	mut grids: Query<(GridId, &mut GridStreaming)>,

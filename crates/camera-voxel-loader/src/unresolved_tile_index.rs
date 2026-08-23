@@ -5,7 +5,7 @@ use voxel_data::{
 	grid::GridId,
 	grid_tree::NonZeroVoxelRegion,
 	signed_grid_tree::SignedGridTree,
-	voxel_grid_tree::PackedCell,
+	voxel_grid_tree::U16Cell,
 };
 
 use crate::types::TileKey;
@@ -22,7 +22,7 @@ pub(crate) struct UnresolvedTileIndex {
 #[derive(Debug, Clone)]
 struct PerGridIndex {
 	lod_mask: u32,
-	trees: [SignedGridTree<PackedCell>; MAX_LOD_BITS],
+	trees: [SignedGridTree<U16Cell>; MAX_LOD_BITS],
 }
 
 impl Default for PerGridIndex {

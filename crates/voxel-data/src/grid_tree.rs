@@ -10,6 +10,7 @@ mod view;
 pub use cell::CellKind;
 pub use data::{AsGridData, GridData, GridType};
 pub use raw::GridTreeNode;
+use serde::{Deserialize, Serialize};
 pub use view::{CellRef, ChildCells, ChildCellsInRegion, GridTreeView, LeafCells, NodeRef};
 
 pub const LOG_SIZE: u8 = 2;
@@ -204,15 +205,83 @@ impl<'a, G: GridType> Iterator for GridTreeIterator<'a, G> {
 	}
 }
 
+/// Fixed-width `u16` grid type
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub struct U16Cell;
+
+impl GridType for U16Cell {
+	type Data<'a> = u16;
+	const MAX_NODE_OFFSET: u32 = u32::MAX;
+	fn data_size_bytes(&self) -> usize { std::mem::size_of::<u16>() }
+	fn read_data<'a>(&self, bytes: &'a [u8]) -> Self::Data<'a> {
+		u16::from_le_bytes(bytes[..2].try_into().expect("U16Cell data bytes"))
+	}
+	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]) {
+		bytes[..2].copy_from_slice(&data.to_le_bytes());
+	}
+	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {
+		bytes[..2] == data.to_le_bytes()
+	}
+}
+
+impl<'a> AsGridData<'a, U16Cell> for &'a u16 {
+	fn as_grid_data(self) -> u16 { *self }
+}
+
+/// Fixed-width `u32` grid type
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub struct U32Cell;
+
+impl GridType for U32Cell {
+	type Data<'a> = u32;
+	const MAX_NODE_OFFSET: u32 = u32::MAX;
+	fn data_size_bytes(&self) -> usize { std::mem::size_of::<u32>() }
+	fn read_data<'a>(&self, bytes: &'a [u8]) -> Self::Data<'a> {
+		u32::from_le_bytes(bytes[..4].try_into().expect("U32Cell data bytes"))
+	}
+	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]) {
+		bytes[..4].copy_from_slice(&data.to_le_bytes());
+	}
+	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {
+		bytes[..4] == data.to_le_bytes()
+	}
+}
+
+impl<'a> AsGridData<'a, U32Cell> for &'a u32 {
+	fn as_grid_data(self) -> u32 { *self }
+}
+
+/// Fixed-width `u64` grid type
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub struct U64Cell;
+
+impl GridType for U64Cell {
+	type Data<'a> = u64;
+	const MAX_NODE_OFFSET: u32 = u32::MAX;
+	fn data_size_bytes(&self) -> usize { std::mem::size_of::<u64>() }
+	fn read_data<'a>(&self, bytes: &'a [u8]) -> Self::Data<'a> {
+		u64::from_le_bytes(bytes[..8].try_into().expect("U64Cell data bytes"))
+	}
+	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]) {
+		bytes[..8].copy_from_slice(&data.to_le_bytes());
+	}
+	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {
+		bytes[..8] == data.to_le_bytes()
+	}
+}
+
+impl<'a> AsGridData<'a, U64Cell> for &'a u64 {
+	fn as_grid_data(self) -> u64 { *self }
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::voxel_grid_tree::PackedCell;
 	use bevy::math::Vec3;
 
 	#[test]
 	fn add_area_preserves_large_runs() {
-		let mut tree = GridTree::<PackedCell>::new();
+		let mut tree = GridTree::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 7);
 		assert_eq!(tree.len(), 16 * 16 * 16);
 		assert_eq!(tree.get(&UVec3::new(0, 0, 0)), Some(7));
@@ -221,7 +290,7 @@ mod tests {
 
 	#[test]
 	fn remove_area_clears_bulk_region_without_touching_neighbours() {
-		let mut tree = GridTree::<PackedCell>::new();
+		let mut tree = GridTree::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(64), 7);
 		tree.remove_area(&UVec3::new(16, 16, 16), UVec3::splat(32));
 		assert_eq!(tree.get(&UVec3::new(15, 16, 16)), Some(7));
@@ -230,7 +299,7 @@ mod tests {
 
 	#[test]
 	fn clear_sdf_only_removes_inside_shape() {
-		let mut tree = GridTree::<PackedCell>::new();
+		let mut tree = GridTree::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 3);
 		let center = Vec3::splat(8.0);
 		let radius = 5.0f32;

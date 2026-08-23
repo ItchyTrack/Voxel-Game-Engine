@@ -1,7 +1,7 @@
 use tracy_client::span;
 
-use voxel_data::grid_tree::{self, CellKind};
-use voxel_data::voxel_grid_tree::{VoxelGridTree, PackedNode};
+use voxel_data::grid_tree::{self, CellKind, GridTreeNode};
+use voxel_data::voxel_grid_tree::{VoxelGridTree};
 use voxel_data::voxels::{VoxelRef, VoxelTypeInfo};
 
 use voxel_gpu::voxel_color::{VoxelGpuBlockEncoder, VoxelGpuDataReaders, VoxelGpuNodeEntry};
@@ -19,7 +19,7 @@ fn slots_for_nonleaf(bitmap: u64, depth: u8) -> usize {
 	( get_header_bytes(bitmap) as usize + count * entry_bytes).div_ceil(SLOT_BYTES)
 }
 
-fn build_bitmap(node: &PackedNode<'_>) -> u64 {
+fn build_bitmap(node: &GridTreeNode<'_>) -> u64 {
 	let mut bitmap = 0u64;
 	for i in 0..grid_tree::SIZE_CUBED {
 		if node.kind(i) != CellKind::Empty {
@@ -29,7 +29,7 @@ fn build_bitmap(node: &PackedNode<'_>) -> u64 {
 	bitmap
 }
 
-fn collect_voxel_refs<'a>(nodes: &[PackedNode<'a>], gpu_order: &[(u32, u8)], voxel_type: VoxelTypeInfo) -> Vec<VoxelRef<'a>> {
+fn collect_voxel_refs<'a>(nodes: &[GridTreeNode<'a>], gpu_order: &[(u32, u8)], voxel_type: VoxelTypeInfo) -> Vec<VoxelRef<'a>> {
 	let data_cell_count = gpu_order
 		.iter()
 		.map(|&(cpu_idx, _)| nodes[cpu_idx as usize].data_mask().count_ones() as usize)
@@ -49,7 +49,7 @@ fn collect_voxel_refs<'a>(nodes: &[PackedNode<'a>], gpu_order: &[(u32, u8)], vox
 	voxels
 }
 
-fn collect_node_entries<'a>(node: &PackedNode<'a>, voxel_type: VoxelTypeInfo) -> Vec<VoxelGpuNodeEntry<'a>> {
+fn collect_node_entries<'a>(node: &GridTreeNode<'a>, voxel_type: VoxelTypeInfo) -> Vec<VoxelGpuNodeEntry<'a>> {
 	let bitmap = build_bitmap(node);
 	let mut entries = Vec::with_capacity(bitmap.count_ones() as usize);
 	for i in 0..grid_tree::SIZE_USIZE_CUBED {

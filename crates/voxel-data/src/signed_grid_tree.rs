@@ -194,12 +194,12 @@ fn split_region(region: NonZeroVoxelRegion) -> Vec<(usize, NonZeroVoxelRegion)> 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::voxel_grid_tree::PackedCell;
+	use crate::grid_tree::U16Cell;
 	use std::collections::HashMap;
 
 	#[test]
 	fn raycast_hits_negative_space() {
-		let mut t = SignedGridTree::<PackedCell>::new();
+		let mut t = SignedGridTree::<U16Cell>::new();
 		t.insert(IVec3::new(-1, 0, 0), 1);
 		let tf = Transform::from_translation(Vec3::new(1.5, 0.5, 0.5)).looking_to(Vec3::NEG_X, Vec3::Y);
 		let hit = t.raycast(&tf, Some(10.0)).map(|(pos, _, _)| pos);
@@ -208,7 +208,7 @@ mod tests {
 
 	#[test]
 	fn iter_preserves_negative_voxel_coverage() {
-		let mut t = SignedGridTree::<PackedCell>::new();
+		let mut t = SignedGridTree::<U16Cell>::new();
 		t.add_area(NonZeroVoxelRegion::new(IVec3::new(-4, -4, -4), UVec3::splat(4)).unwrap(), 1);
 		let mut seen = HashMap::new();
 		for (origin, size, value) in t.iter() {

@@ -1,29 +1,6 @@
 use crate::{grid_tree::{AsGridData, GridTree, GridType}, voxels::{VoxelRef, VoxelType, VoxelTypeId, VoxelTypeInfo}};
 use serde::{Deserialize, Serialize};
 
-/// Fixed-width `u16` grid type for non-voxel trees that store compact ids.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub struct PackedCell;
-
-impl GridType for PackedCell {
-	type Data<'a> = u16;
-	const MAX_NODE_OFFSET: u32 = u32::MAX;
-	fn data_size_bytes(&self) -> usize { std::mem::size_of::<u16>() }
-	fn read_data<'a>(&self, bytes: &'a [u8]) -> Self::Data<'a> {
-		u16::from_le_bytes(bytes[..2].try_into().expect("PackedCell data bytes"))
-	}
-	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]) {
-		bytes[..2].copy_from_slice(&data.to_le_bytes());
-	}
-	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {
-		bytes[..2] == data.to_le_bytes()
-	}
-}
-
-impl<'a> AsGridData<'a, PackedCell> for &'a u16 {
-	fn as_grid_data(self) -> u16 { *self }
-}
-
 /// Voxel grid storage type. The tree stores voxel bytes directly in each data slot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct VoxelGridType {
@@ -56,6 +33,4 @@ impl GridType for VoxelGridType {
 	}
 }
 
-pub type PackedGridTree = GridTree<PackedCell>;
 pub type VoxelGridTree = GridTree<VoxelGridType>;
-pub type PackedNode<'a> = crate::grid_tree::GridTreeNode<'a>;

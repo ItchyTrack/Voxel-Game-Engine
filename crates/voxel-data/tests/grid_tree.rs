@@ -5,11 +5,12 @@ mod tests {
 	use std::{collections::{HashMap, HashSet}, io::Cursor};
 	use voxel_data::{
 		grid_tree::{CellKind, NonZeroVoxelRegion, SIZE},
-		voxel_grid_tree::PackedGridTree,
+		voxel_grid_tree::GridTree,
+		U16Cell,
 	};
 	use bincode;
 
-	fn tree_voxels(tree: &PackedGridTree) -> HashMap<UVec3, u16> {
+	fn tree_voxels(tree: &GridTree<U16Cell>) -> HashMap<UVec3, u16> {
 		let mut m = HashMap::new();
 		for (origin, size, value) in tree.iter() {
 			for dx in 0..size {
@@ -48,7 +49,7 @@ mod tests {
 
 	#[test]
 	fn basic_insert_get_remove() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		assert!(!t.insert(&UVec3::new(3, 4, 5), 7));
 		assert_eq!(t.get(&UVec3::new(3, 4, 5)), Some(7));
 		assert!(t.remove(&UVec3::new(3, 4, 5)));
@@ -57,13 +58,13 @@ mod tests {
 
 	#[test]
 	fn negative_space_is_not_representable() {
-		let t = PackedGridTree::new();
+		let t = GridTree<U16Cell>::new();
 		assert_eq!(t.get(&UVec3::new(0, 0, 0)), None);
 	}
 
 	#[test]
 	fn view_exposes_root_metadata_and_children() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		t.add_area(&UVec3::new(0, 0, 0), UVec3::splat(16), 7);
 		let view = t.view();
 		let root = view.root();
@@ -78,20 +79,20 @@ mod tests {
 
 	#[test]
 	fn serialization_roundtrips() {
-		let mut tree = PackedGridTree::new();
+		let mut tree = GridTree<U16Cell>::new();
 		tree.add_area(&UVec3::new(2, 4, 6), UVec3::new(6, 5, 4), 3);
 		tree.add_area(&UVec3::new(12, 10, 3), UVec3::new(5, 7, 2), 9);
 		tree.remove_area(&UVec3::new(3, 5, 7), UVec3::new(2, 2, 2));
 		tree.insert(&UVec3::new(31, 1, 1), 12);
 
 		let encoded = bincode::serialize(&tree).expect("serialize grid tree");
-		let decoded: PackedGridTree = bincode::deserialize(&encoded).expect("deserialize grid tree");
+		let decoded: GridTree<U16Cell> = bincode::deserialize(&encoded).expect("deserialize grid tree");
 		assert_eq!(decoded.iter().collect::<Vec<_>>(), tree.iter().collect::<Vec<_>>());
 	}
 
 	#[test]
 	fn region_queries_match_iterator() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		for x in 0..16 {
 			for y in 0..16 {
 				for z in 0..16 {
@@ -121,7 +122,7 @@ mod tests {
 
 	#[test]
 	fn occupied_bounds_queries_match_oracle() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		t.add_area(&UVec3::new(2, 3, 4), UVec3::new(5, 6, 7), 3);
 		t.remove_area(&UVec3::new(4, 5, 6), UVec3::new(2, 2, 2));
 		t.insert(&UVec3::new(20, 1, 9), 8);
@@ -139,7 +140,7 @@ mod tests {
 
 	#[test]
 	fn occupied_tile_cover_matches_oracle() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		for x in 0..24 {
 			for y in 0..20 {
 				for z in 0..18 {
@@ -167,7 +168,7 @@ mod tests {
 
 	#[test]
 	fn occupied_tile_cover_does_not_report_occupancy_from_an_adjacent_tile() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		t.add_area(&UVec3::new(2, 0, 0), UVec3::splat(2), 1);
 		let region = NonZeroVoxelRegion::from_single(IVec3::ZERO);
 		let mut actual = Vec::new();
@@ -179,7 +180,7 @@ mod tests {
 
 	#[test]
 	fn raycast_hits() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		t.insert(&UVec3::new(0, 0, 10), 1);
 		let tf = Transform {
 			translation: Vec3::new(0.5, 0.5, -1.0),
@@ -192,7 +193,7 @@ mod tests {
 
 	#[test]
 	fn root_promotion_preserves_existing_and_new_data() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		assert!(!t.insert(&UVec3::new(0, 0, 0), 1));
 		t.add_area(&UVec3::new(16, 0, 0), UVec3::ONE, 2);
 		assert_eq!(t.get(&UVec3::new(0, 0, 0)), Some(1));
@@ -201,7 +202,7 @@ mod tests {
 
 	#[test]
 	fn single_voxel_pair_build_uses_canonical_root_origin() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		t.add_single_voxels(&[(UVec3::new(5, 0, 0), 7), (UVec3::new(8, 0, 0), 9)]);
 		assert_eq!(t.get(&UVec3::new(5, 0, 0)), Some(7));
 		assert_eq!(t.get(&UVec3::new(8, 0, 0)), Some(9));
@@ -209,7 +210,7 @@ mod tests {
 
 	#[test]
 	fn single_voxel_pair_depth_two_builds_directly_and_keeps_last_duplicate() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		t.add_single_voxels(&[(UVec3::new(0, 0, 0), 1), (UVec3::new(63, 63, 63), 2), (UVec3::new(0, 0, 0), 3)]);
 		assert_eq!(t.len(), 2);
 		assert_eq!(t.get(&UVec3::new(0, 0, 0)), Some(3));
@@ -221,7 +222,7 @@ mod tests {
 		let voxels: Vec<_> = (0..16)
 			.flat_map(|z| (0..16).flat_map(move |y| (0..16).map(move |x| (UVec3::new(x, y, z), 7))))
 			.collect();
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		t.add_single_voxels(&voxels);
 		assert_eq!(t.len(), 16 * 16 * 16);
 		assert_eq!(t.iter().count(), 64);
@@ -229,7 +230,7 @@ mod tests {
 
 	#[test]
 	fn single_voxel_insert_uses_canonical_root_origin() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		assert!(!t.insert(&UVec3::new(5, 0, 0), 7));
 		assert!(!t.insert(&UVec3::new(8, 0, 0), 9));
 		assert_eq!(t.get(&UVec3::new(5, 0, 0)), Some(7));
@@ -238,7 +239,7 @@ mod tests {
 
 	#[test]
 	fn apply_sdf_fills_single_voxel_from_exact_bounds_on_empty_tree() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		let sdf = |q: Vec3| if (q - Vec3::new(16.5, 0.5, 0.5)).length() < 0.1 { -1.0 } else { 1.0 };
 		t.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, 2);
 		assert_eq!(t.get(&UVec3::new(16, 0, 0)), Some(2));
@@ -246,7 +247,7 @@ mod tests {
 
 	#[test]
 	fn apply_sdf_fills_single_voxel_from_exact_bounds_after_root_growth() {
-		let mut t = PackedGridTree::new();
+		let mut t = GridTree<U16Cell>::new();
 		t.insert(&UVec3::new(0, 0, 0), 1);
 		let sdf = |q: Vec3| if (q - Vec3::new(16.5, 0.5, 0.5)).length() < 0.1 { -1.0 } else { 1.0 };
 		t.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, 2);
@@ -260,19 +261,19 @@ mod tests {
 	fn read_from_rejects_trailing_bytes() {
 		let mut bytes = root_only_stream(0, 0);
 		bytes.push(123);
-		let result = PackedGridTree::read_from(&mut Cursor::new(bytes));
+		let result = GridTree<U16Cell>::read_from(&mut Cursor::new(bytes));
 		assert!(result.is_err(), "read_from accepted trailing bytes");
 	}
 
 	#[test]
 	fn read_from_rejects_invalid_root_depth() {
-		let result = PackedGridTree::read_from(&mut Cursor::new(root_only_stream(255, 0)));
+		let result = GridTree<U16Cell>::read_from(&mut Cursor::new(root_only_stream(255, 0)));
 		assert!(result.is_err(), "read_from accepted an impossible root depth");
 	}
 
 	#[test]
 	fn read_from_recomputes_item_count_from_contents() {
-		let tree = PackedGridTree::read_from(&mut Cursor::new(root_only_stream(0, 99))).expect("deserializing minimal tree");
+		let tree = GridTree<U16Cell>::read_from(&mut Cursor::new(root_only_stream(0, 99))).expect("deserializing minimal tree");
 		assert_eq!(tree.len(), 0, "header item_count should not outrank actual node contents");
 	}
 }

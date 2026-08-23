@@ -4,9 +4,9 @@ use bevy::transform::components::Transform;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::region::NonZeroVoxelRegion;
 use voxel_data::signed_grid_tree::SignedGridTree;
-use voxel_data::voxel_grid_tree::PackedCell;
+use voxel_data::grid_tree::U16Cell;
 
-type ChunkGridTree = SignedGridTree<PackedCell>;
+type ChunkGridTree = SignedGridTree<U16Cell>;
 
 pub struct ChunkPresence {
 	tree: ChunkGridTree,

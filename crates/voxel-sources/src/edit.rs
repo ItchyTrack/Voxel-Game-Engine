@@ -1,7 +1,8 @@
 use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
+use tile_data::{NonZeroChunkRegion, chunks_covering_nonzero_voxel_region};
 use voxel_data::{
-	grid::GridId, region::NonZeroVoxelRegion, voxels::{Voxel, Voxels},
+	grid::GridId, region::NonZeroVoxelRegion, signed_grid_tree::SignedGridTree, grid_tree::U64Cell, voxels::{Voxel, Voxels},
 };
 
 #[typetag::serde(tag = "type")]
@@ -53,6 +54,9 @@ impl GridEdit for RemoveArea {
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GridEditId(u64);
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GridChunkGeneration(u64);
+
 impl GridEditId {
 	pub const fn get_next(self) -> GridEditId { GridEditId(self.0 + 1) }
 
@@ -61,17 +65,32 @@ impl GridEditId {
 
 #[derive(Default, Debug, Component)]
 pub struct GridEditIdManager {
-	current: GridEditId,
+	current_edit_id: GridEditId,
+	current_chunk_generation: GridChunkGeneration,
+	chunk_generations: SignedGridTree<U64Cell>
 }
 
 impl GridEditIdManager {
 	pub fn current_id(&self) -> GridEditId {
-		self.current
+		self.current_edit_id
 	}
 
-	pub fn bump_id(&mut self, grid_edit: impl GridEdit) -> GridEditId {
-		self.current = self.current.get_next();
-		self.current
+	pub fn latest_region_generation(&self, region: NonZeroChunkRegion) -> GridChunkGeneration {
+		let mut max_gen: u64 = 0;
+		self.chunk_generations.for_each_in_region(
+			NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(),
+			|_, _, chunk_gen| max_gen = max_gen.max(chunk_gen)
+		);
+		GridChunkGeneration(max_gen)
+	}
+
+	// this function is called to update the generation of the region and to get the new GridEditId and ChunkGeneration
+	pub fn apply_edit(&mut self, grid_edit: &(impl GridEdit + ?Sized)) -> (GridEditId, GridChunkGeneration) {
+		let region = chunks_covering_nonzero_voxel_region(grid_edit.affected_region());
+		self.current_chunk_generation.0 += 1;
+		self.chunk_generations.add_area(NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(), self.current_chunk_generation.0);
+		self.current_edit_id = self.current_edit_id.get_next();
+		(self.current_edit_id, self.current_chunk_generation)
 	}
 }
 

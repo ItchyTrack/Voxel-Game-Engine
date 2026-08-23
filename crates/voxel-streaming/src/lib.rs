@@ -53,14 +53,6 @@ pub struct ChunkEditInterestChanged {
 	pub interested: bool,
 }
 
-#[derive(Message, Clone)]
-pub struct GridAreaEdited {
-	pub grid: voxel_data::grid::GridId,
-	pub region: NonZeroChunkRegion,
-	pub generation: u64,
-	pub edit: ,
-}
-
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StreamingPhase {
 	Ingest,
@@ -87,7 +79,6 @@ impl Plugin for VoxelStreamingPlugin {
 		}
 		app.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkEditInterestChanged>()
-			.add_message::<GridAreaEdited>()
 			.init_resource::<TileClassRegistry>()
 			.init_resource::<TileGeneratorRegistry>()
 			.init_resource::<systems::PendingTileUpdates>()

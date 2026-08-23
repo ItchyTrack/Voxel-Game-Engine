@@ -3,8 +3,7 @@ use std::time::Duration;
 use bevy::math::{IVec3, UVec3};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use voxel_data::{
-	grid_tree::{reduce_grid_trees, GridReducer, NonZeroVoxelRegion, SourceOverlaps, SourceTree},
-	voxel_grid_tree::{PackedCell, PackedGridTree},
+	grid_tree::{reduce_grid_trees, GridReducer, NonZeroVoxelRegion, SourceOverlaps, SourceTree, U16Cell},
 };
 
 const SOURCE_SIZE: u32 = 16;
@@ -13,15 +12,15 @@ const OUTPUT_SIZE: u32 = 16;
 #[derive(Clone, Copy)]
 struct SumReducer;
 
-impl GridReducer<PackedCell> for SumReducer {
+impl GridReducer<U16Cell> for SumReducer {
 	type Output = u16;
 
-	fn output_grid_type(&self) -> PackedCell { PackedCell }
+	fn output_grid_type(&self) -> U16Cell { U16Cell }
 
 	fn reduce<'overlaps, 'a>(
 		&mut self,
 		_region: NonZeroVoxelRegion,
-		overlaps: SourceOverlaps<'overlaps, 'a, PackedCell>,
+		overlaps: SourceOverlaps<'overlaps, 'a, U16Cell>,
 	) -> Option<Self::Output> {
 		let mut seen = false;
 		let mut sum = 0u16;
@@ -33,7 +32,7 @@ impl GridReducer<PackedCell> for SumReducer {
 	}
 }
 
-fn dense_source() -> PackedGridTree {
+fn dense_source() -> GridTree<U16Cell> {
 	let mut voxels = Vec::with_capacity(SOURCE_SIZE as usize * SOURCE_SIZE as usize * SOURCE_SIZE as usize);
 	for z in 0..SOURCE_SIZE {
 		for y in 0..SOURCE_SIZE {
@@ -43,12 +42,12 @@ fn dense_source() -> PackedGridTree {
 			}
 		}
 	}
-	let mut tree = PackedGridTree::new();
+	let mut tree = GridTree<U16Cell>::new();
 	tree.add_single_voxels(&voxels);
 	tree
 }
 
-fn sparse_source() -> PackedGridTree {
+fn sparse_source() -> GridTree<U16Cell> {
 	let mut voxels = Vec::new();
 	for z in 0..SOURCE_SIZE {
 		for y in 0..SOURCE_SIZE {
@@ -62,12 +61,12 @@ fn sparse_source() -> PackedGridTree {
 			}
 		}
 	}
-	let mut tree = PackedGridTree::new();
+	let mut tree = GridTree<U16Cell>::new();
 	tree.add_single_voxels(&voxels);
 	tree
 }
 
-fn bench_case(group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>, name: &str, trees: &[PackedGridTree]) {
+fn bench_case(group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>, name: &str, trees: &[GridTree<U16Cell>]) {
 	let sources: Vec<_> = trees
 		.iter()
 		.enumerate()

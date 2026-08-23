@@ -114,7 +114,7 @@ impl GenerationVoxelReader for StreamingVoxelReader {
 					VoxelLoadEvent::Loaded => self.outstanding -= 1,
 					VoxelLoadEvent::Result { result, generation } => {
 						self.metadata.lock().unwrap().dependencies.insert(TileDependency {
-							area: result.area,
+							region: result.area,
 							generation,
 						});
 						return Some(result);

@@ -488,24 +488,24 @@ fn set_axis(v: &mut IVec3, axis: usize, value: i32) {
 
 #[cfg(test)]
 mod tests {
-	use crate::voxel_grid_tree::PackedCell;
+	use crate::voxel_grid_tree::U16Cell;
 
 	use super::*;
 
 	#[derive(Clone, Copy, Debug)]
 	struct SumReducer;
 
-	impl GridReducer<PackedCell> for SumReducer {
+	impl GridReducer<U16Cell> for SumReducer {
 		type Output = u16;
 
-		fn output_grid_type(&self) -> PackedCell {
-			PackedCell
+		fn output_grid_type(&self) -> U16Cell {
+			U16Cell
 		}
 
 		fn reduce<'overlaps, 'a>(
 			&mut self,
 			_region: NonZeroVoxelRegion,
-			overlaps: SourceOverlaps<'overlaps, 'a, PackedCell>,
+			overlaps: SourceOverlaps<'overlaps, 'a, U16Cell>,
 		) -> Option<Self::Output> {
 			let mut seen = false;
 			let mut sum = 0u16;
@@ -519,7 +519,7 @@ mod tests {
 
 	#[test]
 	fn reduce_unit_region_sees_all_downsampled_cells_from_one_source() {
-		let mut source = GridTree::<PackedCell>::new();
+		let mut source = GridTree::<U16Cell>::new();
 		source.insert(&UVec3::new(0, 0, 0), 10);
 		source.insert(&UVec3::new(1, 0, 0), 20);
 
@@ -532,9 +532,9 @@ mod tests {
 
 	#[test]
 	fn reduce_unit_region_sees_all_active_sources() {
-		let mut first = GridTree::<PackedCell>::new();
+		let mut first = GridTree::<U16Cell>::new();
 		first.insert(&UVec3::new(0, 0, 0), 11);
-		let mut second = GridTree::<PackedCell>::new();
+		let mut second = GridTree::<U16Cell>::new();
 		second.insert(&UVec3::new(1, 0, 0), 22);
 
 		let sources = [
@@ -549,7 +549,7 @@ mod tests {
 
 	#[test]
 	fn reduce_preserves_leaf_boundaries_across_a_larger_region() {
-		let mut source = GridTree::<PackedCell>::new();
+		let mut source = GridTree::<U16Cell>::new();
 		source.add_area(&UVec3::ZERO, UVec3::new(4, 8, 8), 7);
 		source.add_area(&UVec3::new(4, 0, 0), UVec3::new(4, 8, 8), 9);
 
@@ -564,15 +564,15 @@ mod tests {
 	#[derive(Clone, Copy, Debug)]
 	struct SourceVolumeReducer;
 
-	impl GridReducer<PackedCell> for SourceVolumeReducer {
+	impl GridReducer<U16Cell> for SourceVolumeReducer {
 		type Output = u16;
 
-		fn output_grid_type(&self) -> PackedCell { PackedCell }
+		fn output_grid_type(&self) -> U16Cell { U16Cell }
 
 		fn reduce<'overlaps, 'a>(
 			&mut self,
 			_region: NonZeroVoxelRegion,
-			overlaps: SourceOverlaps<'overlaps, 'a, PackedCell>,
+			overlaps: SourceOverlaps<'overlaps, 'a, U16Cell>,
 		) -> Option<Self::Output>
 		{
 			let mut volume = 0u16;
@@ -586,7 +586,7 @@ mod tests {
 
 	#[test]
 	fn reduce_keeps_source_region_clipping_when_reusing_overlaps() {
-		let mut source = GridTree::<PackedCell>::new();
+		let mut source = GridTree::<U16Cell>::new();
 		source.add_area(&UVec3::ZERO, UVec3::splat(8), 1);
 
 		let sources = [SourceTree { tree: &source, scale_down: 1, output_offset: IVec3::ZERO }];

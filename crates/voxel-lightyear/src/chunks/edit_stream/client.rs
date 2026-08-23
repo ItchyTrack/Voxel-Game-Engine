@@ -4,7 +4,7 @@ use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 use lightyear::prelude::{Client, EventSender, RemoteEvent};
 use voxel_data::grid::GridId;
-use voxel_streaming::{AuthoritativeGridCommand, ChunkEditInterestChanged};
+use voxel_streaming::ChunkEditInterestChanged;
 
 use super::{EditInterest, EditStreamStart, RemoteGridEdit};
 use crate::chunks::ClientToServerChannel;
@@ -51,7 +51,6 @@ pub(super) fn receive_start(
 pub(super) fn receive_edit(
 	trigger: On<RemoteEvent<RemoteGridEdit>>,
 	mut streams: ResMut<ClientEditStreams>,
-	mut commands: MessageWriter<AuthoritativeGridCommand>,
 ) {
 	let event = trigger.event().trigger.clone();
 	let stream = streams.grids.entry(event.grid).or_default();
