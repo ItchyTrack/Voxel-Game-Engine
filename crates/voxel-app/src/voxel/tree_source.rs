@@ -13,10 +13,10 @@ use voxel_data::{
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{chunk_of, chunk_origin};
-use voxel_streaming::{ForgottenChunks, GridStreaming};
+use voxel_streaming::GridStreaming;
 
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
 const LEAF_COLORS: [[u8; 4]; 4] = [[42, 112, 48, 255], [52, 132, 55, 255], [65, 148, 61, 255], [79, 158, 68, 255]];

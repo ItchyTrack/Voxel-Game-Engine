@@ -3,7 +3,6 @@ use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use tile_data::{ChunkRegion, NonZeroChunkRegion};
 
-mod forgotten_chunks;
 mod tile_dependency_index;
 mod presence;
 mod streaming;
@@ -11,7 +10,6 @@ mod tile_updates;
 mod generation;
 pub mod systems;
 
-pub use forgotten_chunks::ForgottenChunks;
 pub use tile_data::{
 	DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData,
 	TileGenerationParameters, TileGenerationSession, TileGenerator, TileGeneratorRegistry, TileKey,

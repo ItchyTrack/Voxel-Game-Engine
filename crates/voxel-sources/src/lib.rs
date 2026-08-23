@@ -2,6 +2,8 @@ mod request;
 mod source_manager;
 pub mod edit;
 mod source;
+mod forgotten_chunks;
+pub use forgotten_chunks::ForgottenChunks;
 
 use bevy::prelude::*;
 

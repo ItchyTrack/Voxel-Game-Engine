@@ -196,7 +196,7 @@ pub fn receive_tile_results(world: &mut World) {
 		let accepted = {
 			let Some(mut streaming) = world.get_mut::<GridStreaming>(result.grid) else { continue };
 			let stale_source = result.dependencies.iter().any(|dependency| {
-				streaming.region_generation(dependency.area) > dependency.generation
+				streaming.region_generation(dependency.region) > dependency.generation
 			});
 			let Some(state) = streaming.tiles.get_mut(&key) else { continue };
 			let status = std::mem::replace(&mut state.status, TileStatus::Requested);

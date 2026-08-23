@@ -6,7 +6,7 @@ use crate::TileKey;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TileDependency {
-	pub(crate) area: NonZeroChunkRegion,
+	pub(crate) region: NonZeroChunkRegion,
 	pub(crate) generation: u64,
 }
 
@@ -17,7 +17,7 @@ struct IndexedTileDependency {
 }
 
 impl TileIndexKey for IndexedTileDependency {
-	fn region(self) -> NonZeroChunkRegion { self.dependency.area }
+	fn region(self) -> NonZeroChunkRegion { self.dependency.region }
 }
 
 #[derive(Debug, Default)]

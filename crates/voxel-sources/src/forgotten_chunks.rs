@@ -5,6 +5,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use voxel_data::grid::GridId;
 use tile_data::ChunkRegion;
 
+// Just a tmp helper for voxel source impls to use. Will remove proabaly
 
 #[derive(Default)]
 pub struct ForgottenChunks {

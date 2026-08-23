@@ -5,8 +5,7 @@ use bevy::prelude::*;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle};
-use voxel_streaming::ForgottenChunks;
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle};
 use voxel_tasks::CancellationToken;
 
 use super::presence::ClientPresenceRegistry;

@@ -10,10 +10,10 @@ use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_data::grid::GridId;
-use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
-use voxel_streaming::{ForgottenChunks, GridStreaming};
+use voxel_streaming::GridStreaming;
 use basic_voxel::{BasicVoxel, LodVoxel};
 
 const RADIUS: i32 = 2_000;

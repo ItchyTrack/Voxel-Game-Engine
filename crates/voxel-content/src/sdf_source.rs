@@ -7,9 +7,8 @@ use bevy::math::{IVec2, IVec3, Vec3};
 use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
-use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_of, chunk_origin};
-use voxel_streaming::ForgottenChunks;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
 /// Procedural SDF contract used by [`SdfSource`].

@@ -3,10 +3,7 @@ use bevy::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use voxel_sources::RequestId;
 
-use voxel_data::{
-	grid_tree::NonZeroVoxelRegion,
-	voxels::Voxels,
-};
+use voxel_data::grid_tree::NonZeroVoxelRegion;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use crate::generation::TileGenerationCancellation;

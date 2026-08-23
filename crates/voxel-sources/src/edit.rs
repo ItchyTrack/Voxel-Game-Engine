@@ -69,7 +69,7 @@ impl GridEditIdManager {
 		self.current
 	}
 
-	pub fn bump_id(&mut self) -> GridEditId {
+	pub fn bump_id(&mut self, grid_edit: impl GridEdit) -> GridEditId {
 		self.current = self.current.get_next();
 		self.current
 	}
