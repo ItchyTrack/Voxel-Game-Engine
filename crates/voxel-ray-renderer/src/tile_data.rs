@@ -66,7 +66,7 @@ pub struct VoxelRayTileBuilder {
 
 #[tile_data::async_trait]
 impl TileBuilder for VoxelRayTileBuilder {
-	async fn generate(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
+	async fn build(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
 		let region = session.key.region;
 		let voxel_lod = session.key.lod.saturating_sub(self.lod_levels);
 		session.request_voxels(region, voxel_lod, self.voxel_type);
@@ -78,7 +78,7 @@ impl TileBuilder for VoxelRayTileBuilder {
 		let source_voxel_type = voxels.voxel_type_id();
 		assert!(
 			self.readers.contains(source_voxel_type),
-			"ray tile generator cannot generate voxel type {source_voxel_type:?}",
+			"ray tile builder cannot generate voxel type {source_voxel_type:?}",
 		);
 		let (bounds_min, bounds_max) = voxels.bounding_box()?;
 		let placement = RayTilePlacement {

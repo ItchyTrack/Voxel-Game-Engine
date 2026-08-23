@@ -1,6 +1,6 @@
 use basic_voxel::MarchingVoxel;
 use bevy::prelude::*;
-use tile_data::TileGenerationParameters;
+use tile_data::TileBuildingParameters;
 use voxel_data::{grid::Grid, voxels::VoxelType};
 use voxel_gpu::RenderingContext;
 use voxel_marching_renderer::MarchingRenderingType;
@@ -30,7 +30,7 @@ fn apply_grid_rendering_contexts(
 	ray: Res<RayRenderingType>,
 	raster: Res<RasterRenderingType>,
 	marching: Res<MarchingRenderingType>,
-	grids: Query<(Entity, &Grid, Option<&TileGenerationParameters>)>,
+	grids: Query<(Entity, &Grid, Option<&TileBuildingParameters>)>,
 ) {
 	let selected = match *mode {
 		VoxelRenderMode::Ray => ray.0,
@@ -46,7 +46,7 @@ fn apply_grid_rendering_contexts(
 			.and_then(|parameters| parameters.downcast_ref::<RenderingContext>())
 			.is_some_and(|context| context.rendering_type == rendering_type);
 		if !matches {
-			commands.entity(entity).insert(TileGenerationParameters::new(RenderingContext { rendering_type }));
+			commands.entity(entity).insert(TileBuildingParameters::new(RenderingContext { rendering_type }));
 		}
 	}
 }

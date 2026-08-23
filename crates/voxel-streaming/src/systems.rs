@@ -12,16 +12,16 @@ use tracy_client::span;
 use voxel_data::grid::{Grid, GridId};
 use tile_data::{NonZeroChunkRegion};
 use tile_data::CHUNK_SIZE;
-use crate::generation::{
-	TileGenerationChannel, TileGenerationMetadata, TileGenerationResult,
+use crate::tile_building::{
+	TileBuildingChannel, TileBuildingMetadata, TileBuildingResult,
 	session as generation_session,
 };
 use crate::streaming::TileStatus;
-use crate::{
-	DynamicTileData, LoadedTile, TileGenerationParameters,
-	TileGeneratorRegistry, TileLoadStatus, TileLoadUpdate,
+use tile_data::{
+	DynamicTileData, LoadedTile, TileBuildingParameters,
+	TileBuilderRegistry,
 };
-use crate::{GridStreaming, InflightChunkPresence, RequestChunkPresence};
+use crate::{GridStreaming, InflightChunkPresence, RequestChunkPresence, TileLoadStatus, TileLoadUpdate};
 use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkEditInterestChanged};
 
 pub fn apply_source_presence(
@@ -176,10 +176,10 @@ fn cleanup_tile_entity(world: &mut World, entity: Entity) {
 }
 
 pub fn receive_tile_results(world: &mut World) {
-	let results: Vec<_> = world.resource::<TileGenerationChannel>().drain().collect();
+	let results: Vec<_> = world.resource::<TileBuildingChannel>().drain().collect();
 	for result in results {
 		let Some(key) = world.get_mut::<GridStreaming>(result.grid).and_then(|mut streaming| streaming.inflight_tiles_by_tag.remove(&result.tag)) else { continue };
-		let context_matches = world.get::<TileGenerationParameters>(result.grid) == Some(&result.context);
+		let context_matches = world.get::<TileBuildingParameters>(result.grid) == Some(&result.context);
 		let accepted = {
 			let Some(mut streaming) = world.get_mut::<GridStreaming>(result.grid) else { continue };
 			let stale_source = result.dependencies.iter().any(|dependency| {
@@ -253,16 +253,16 @@ pub fn cleanup_released_tiles(world: &mut World) {
 }
 
 pub fn invalidate_changed_generation_contexts(
-	mut grids: Query<&mut GridStreaming, Changed<TileGenerationParameters>>,
+	mut grids: Query<&mut GridStreaming, Changed<TileBuilderRegistry>>,
 ) {
 	for mut streaming in &mut grids { streaming.invalidate_generation_context(); }
 }
 
 pub(crate) fn request_tiles(
-	bridge: Res<crate::generation::TileVoxelSourceBridge>,
-	generators: Res<TileGeneratorRegistry>,
-	results: Res<TileGenerationChannel>,
-	mut grids: Query<(GridId, Option<&TileGenerationParameters>, &mut GridStreaming)>,
+	bridge: Res<crate::tile_building::TileVoxelSourceBridge>,
+	builders: Res<TileBuilderRegistry>,
+	results: Res<TileBuildingChannel>,
+	mut grids: Query<(GridId, Option<&TileBuildingParameters>, &mut GridStreaming)>,
 ) {
 	let requests = bridge.sender();
 	for (grid, context, mut streaming) in grids.iter_mut() {
@@ -278,9 +278,9 @@ pub(crate) fn request_tiles(
 			streaming.next_tile_tag = streaming.next_tile_tag.wrapping_add(1).max(1);
 			let tag = streaming.next_tile_tag;
 			let context = context.clone();
-			let generator = generators.generator(key.class);
+			let builder = builders.builder(key.class);
 			let cancellation = CancellationToken::new();
-			let metadata = Arc::new(Mutex::new(TileGenerationMetadata::default()));
+			let metadata = Arc::new(Mutex::new(TileBuildingMetadata::default()));
 			let (session, generation_cancellation) = generation_session(
 				grid,
 				key,
@@ -292,12 +292,12 @@ pub(crate) fn request_tiles(
 			let result_tx = results.sender();
 			let task_cancellation = cancellation.clone();
 			AsyncComputeTaskPool::get().spawn(async move {
-				let data = generator.generate(session).await;
+				let data = builder.build(session).await;
 				if task_cancellation.is_cancelled() { return; }
 				let mut metadata = metadata.lock().unwrap();
 				let dependencies = std::mem::take(&mut metadata.dependencies);
 				drop(metadata);
-				let _ = result_tx.send(TileGenerationResult {
+				let _ = result_tx.send(TileBuildingResult {
 					grid,
 					tag,
 					context,

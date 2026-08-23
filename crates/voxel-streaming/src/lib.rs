@@ -7,12 +7,10 @@ mod tile_dependency_index;
 mod presence;
 mod streaming;
 mod tile_updates;
-mod generation;
+mod tile_building;
 pub mod systems;
 
-use tile_data::{
-	DynamicTileData, LoadedTile, TileKey,
-};
+use tile_data::{LoadedTile, TileKey};
 pub use tile_updates::{TileLoadStatus, TileLoadUpdate};
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
 pub use systems::request_presence_for_new_grids;
@@ -82,8 +80,8 @@ impl Plugin for VoxelStreamingPlugin {
 		app.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkEditInterestChanged>()
 			.init_resource::<systems::PendingTileUpdates>()
-			.init_resource::<generation::TileGenerationChannel>()
-			.init_resource::<generation::TileVoxelSourceBridge>()
+			.init_resource::<tile_building::TileBuildingChannel>()
+			.init_resource::<tile_building::TileVoxelSourceBridge>()
 			.add_systems(
 				StreamingSchedule,
 				(
@@ -114,13 +112,13 @@ impl Plugin for VoxelStreamingPlugin {
 						systems::request_presence_for_new_grids,
 						systems::request_tiles,
 						systems::publish_edit_interest_changes,
-						generation::submit_tile_voxel_requests,
+						tile_building::submit_tile_voxel_requests,
 					)
 						.chain()
 						.in_set(StreamingPhase::Request),
 					(
 						systems::receive_results,
-						generation::route_tile_source_results,
+						tile_building::route_tile_source_results,
 						(
 							systems::receive_tile_results,
 						).chain(),

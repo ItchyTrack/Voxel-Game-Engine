@@ -49,7 +49,7 @@ impl RasterTileCapability for RasterTileData {
 	}
 }
 
-pub struct VoxelRasterTileGenerator {
+pub struct VoxelRasterTileBuilder {
 	pub voxel_type: VoxelTypeId,
 	pub lod_levels: u8,
 	pub gpu: RasterWorldGpuData,
@@ -58,8 +58,8 @@ pub struct VoxelRasterTileGenerator {
 }
 
 #[tile_data::async_trait]
-impl TileBuilder for VoxelRasterTileGenerator {
-	async fn generate(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
+impl TileBuilder for VoxelRasterTileBuilder {
+	async fn build(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
 		let area = session.key.region;
 		let voxel_lod = session.key.lod.saturating_sub(self.lod_levels);
 		session.request_voxels(area, voxel_lod, self.voxel_type);
@@ -71,7 +71,7 @@ impl TileBuilder for VoxelRasterTileGenerator {
 		let source_voxel_type = voxels.voxel_type_id();
 		assert!(
 			self.readers.contains(source_voxel_type),
-			"raster tile generator cannot generate voxel type {source_voxel_type:?}",
+			"raster tile builder cannot generate voxel type {source_voxel_type:?}",
 		);
 		let (bounds_min, bounds_max) = voxels.bounding_box()?;
 		let voxel_type = voxels.voxel_type_info();

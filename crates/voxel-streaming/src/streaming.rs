@@ -6,7 +6,7 @@ use voxel_sources::RequestId;
 use voxel_data::grid_tree::NonZeroVoxelRegion;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use crate::generation::TileGenerationCancellation;
+use crate::tile_building::TileBuildingCancellation;
 use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
 use crate::{ChunkRegion, TileKey, TileLoadStatus, TileLoadUpdate};
@@ -23,7 +23,7 @@ pub(crate) struct TileState {
 #[derive(Debug)]
 pub(crate) enum TileStatus {
 	Requested,
-	InFlight { tag: u64, cancellation: TileGenerationCancellation },
+	InFlight { tag: u64, cancellation: TileBuildingCancellation },
 	Loaded,
 	Dirty,
 	Empty,

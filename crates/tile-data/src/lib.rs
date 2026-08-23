@@ -37,7 +37,7 @@ impl Plugin for TileDataPlugin {
 
 pub trait TileAppExt {
 	fn register_tile_class(&mut self) -> TileClassId;
-	fn register_tile_builder<G: TileBuilder>(&mut self, tile_class_id: TileClassId, generator: G) -> &mut Self;
+	fn register_tile_builder<G: TileBuilder>(&mut self, tile_class_id: TileClassId, builder: G) -> &mut Self;
 	fn register_tile_voxel_reducer<R: TileVoxelReducer>(&mut self, reducer: R) -> &mut Self;
 }
 
@@ -47,9 +47,9 @@ impl TileAppExt for App {
 		self.world_mut().resource_mut::<TileClassRegistry>().register()
 	}
 
-	fn register_tile_builder<G: TileBuilder>(&mut self, tile_class_id: TileClassId, generator: G) -> &mut Self {
+	fn register_tile_builder<G: TileBuilder>(&mut self, tile_class_id: TileClassId, builder: G) -> &mut Self {
 		self.init_resource::<TileBuilderRegistry>();
-		self.world_mut().resource_mut::<TileBuilderRegistry>().insert(tile_class_id, generator);
+		self.world_mut().resource_mut::<TileBuilderRegistry>().insert(tile_class_id, builder);
 		self
 	}
 

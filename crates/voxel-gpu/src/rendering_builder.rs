@@ -54,9 +54,9 @@ impl RenderingTileBuilder {
 
 #[tile_data::async_trait]
 impl TileBuilder for RenderingTileBuilder {
-	async fn generate(&self, session: TileBuildingSession) -> Option<Box<dyn tile_data::TileData>> {
+	async fn build(&self, session: TileBuildingSession) -> Option<Box<dyn tile_data::TileData>> {
 		let rendering_type = session.context::<RenderingContext>().rendering_type;
-		self.builders.builder(rendering_type).generate(session).await
+		self.builders.builder(rendering_type).build(session).await
 	}
 }
 

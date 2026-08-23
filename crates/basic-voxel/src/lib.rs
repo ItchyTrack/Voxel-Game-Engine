@@ -34,7 +34,7 @@ impl Plugin for BasicVoxelPlugin {
 			app.register_voxel_ray_builder(voxel_type, 0);
 		}
 		if app.is_plugin_added::<VoxelRasterRendererPlugin>() {
-			app.register_voxel_raster_generator(voxel_type, 0);
+			app.register_voxel_raster_builder(voxel_type, 0);
 		}
 	}
 }

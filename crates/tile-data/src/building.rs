@@ -13,7 +13,7 @@ pub use async_trait::async_trait;
 
 #[async_trait]
 pub trait TileBuilder: Send + Sync + 'static {
-	async fn generate(&self, session: TileBuildingSession) -> Option<Box<dyn TileData>>;
+	async fn build(&self, session: TileBuildingSession) -> Option<Box<dyn TileData>>;
 }
 
 #[derive(Resource, Default)]
@@ -27,7 +27,7 @@ impl TileBuilderRegistry {
 	}
 
 	pub fn builder(&self, class: TileClassId) -> Arc<dyn TileBuilder> {
-		self.builders.get(&class).cloned().unwrap_or_else(|| panic!("no tile generator registered for {class:?}"))
+		self.builders.get(&class).cloned().unwrap_or_else(|| panic!("no tile builder registered for {class:?}"))
 	}
 }
 
@@ -70,7 +70,7 @@ impl TileBuildingSession {
 	}
 
 	pub fn context<T: TileBuildingData + 'static>(&self) -> &T {
-		self.context.downcast_ref().unwrap_or_else(|| panic!("tile generator received building context of the wrong type"))
+		self.context.downcast_ref().unwrap_or_else(|| panic!("tile builder received building context of the wrong type"))
 	}
 
 	pub fn request_voxels(

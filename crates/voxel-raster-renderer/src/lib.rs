@@ -45,7 +45,7 @@ impl RasterTileCapabilityRegistry {
 
 pub trait VoxelRasterTileAppExt {
 	fn register_raster_tile_data<T: tile_data::RasterTileCapability>(&mut self) -> &mut Self;
-	fn register_voxel_raster_generator(
+	fn register_voxel_raster_builder(
 		&mut self,
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
@@ -59,20 +59,20 @@ impl VoxelRasterTileAppExt for App {
 		self
 	}
 
-	fn register_voxel_raster_generator(
+	fn register_voxel_raster_builder(
 		&mut self,
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
 	) -> RenderingType {
 		self.init_resource::<TileVoxelReducerRegistry>();
-		let generator = tile_data::VoxelRasterTileGenerator {
+		let builder = tile_data::VoxelRasterTileBuilder {
 			voxel_type,
 			lod_levels,
 			gpu: self.world().resource::<gpu_data::RasterWorldGpuData>().clone(),
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
 			reducers: self.world().resource::<TileVoxelReducerRegistry>().clone(),
 		};
-		let rendering_type = self.register_rendering_builder(generator);
+		let rendering_type = self.register_rendering_builder(builder);
 		self.insert_resource(RasterRenderingType(rendering_type));
 		rendering_type
 	}

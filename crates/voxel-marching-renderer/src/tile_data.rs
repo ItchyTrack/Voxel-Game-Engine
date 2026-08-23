@@ -48,14 +48,14 @@ impl MarchingTileCapability for MarchingTileData {
 	}
 }
 
-pub struct MarchingTileGenerator {
+pub struct MarchingTileBuilder {
 	pub gpu: MarchingWorldGpuData,
 	pub reducers: TileVoxelReducerRegistry,
 }
 
 #[tile_data::async_trait]
-impl TileBuilder for MarchingTileGenerator {
-	async fn generate(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
+impl TileBuilder for MarchingTileBuilder {
+	async fn build(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
 		let area = session.key.region;
 		let padded_area = NonZeroChunkRegion::new(area.min() - IVec3::ONE, area.size() + UVec3::splat(2)).unwrap();
 		let voxel_lod = session.key.lod;

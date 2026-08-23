@@ -14,7 +14,7 @@ use voxel_tasks::CancellationToken;
 use crate::tile_dependency_index::TileDependency;
 
 #[derive(Default)]
-pub(crate) struct TileGenerationMetadata {
+pub(crate) struct TileBuildingMetadata {
 	pub(crate) dependencies: HashSet<TileDependency>,
 }
 
@@ -61,7 +61,7 @@ pub(crate) struct StreamingVoxelReader {
 	events_rx: UnboundedReceiver<VoxelLoadEvent>,
 	outstanding: usize,
 	cancellation: CancellationToken,
-	metadata: Arc<Mutex<TileGenerationMetadata>>,
+	metadata: Arc<Mutex<TileBuildingMetadata>>,
 }
 
 impl StreamingVoxelReader {
@@ -69,7 +69,7 @@ impl StreamingVoxelReader {
 		grid: GridId,
 		requests: Sender<PendingVoxelRequest>,
 		cancellation: CancellationToken,
-		metadata: Arc<Mutex<TileGenerationMetadata>>,
+		metadata: Arc<Mutex<TileBuildingMetadata>>,
 	) -> (Self, UnboundedSender<VoxelLoadEvent>) {
 		let (events_tx, events_rx) = async_unbounded();
 		(
@@ -127,12 +127,12 @@ impl TileBuildingVoxelReader for StreamingVoxelReader {
 }
 
 #[derive(Debug)]
-pub(crate) struct TileGenerationCancellation {
+pub(crate) struct TileBuildingCancellation {
 	token: CancellationToken,
 	wake: UnboundedSender<VoxelLoadEvent>,
 }
 
-impl TileGenerationCancellation {
+impl TileBuildingCancellation {
 	fn new(token: CancellationToken, wake: UnboundedSender<VoxelLoadEvent>) -> Self {
 		Self { token, wake }
 	}
@@ -143,7 +143,7 @@ impl TileGenerationCancellation {
 	}
 }
 
-pub(crate) struct TileGenerationResult {
+pub(crate) struct TileBuildingResult {
 	pub(crate) grid: GridId,
 	pub(crate) tag: u64,
 	pub(crate) context: TileBuildingParameters,
@@ -152,21 +152,21 @@ pub(crate) struct TileGenerationResult {
 }
 
 #[derive(Resource)]
-pub(crate) struct TileGenerationChannel {
-	tx: Sender<TileGenerationResult>,
-	rx: Receiver<TileGenerationResult>,
+pub(crate) struct TileBuildingChannel {
+	tx: Sender<TileBuildingResult>,
+	rx: Receiver<TileBuildingResult>,
 }
 
-impl Default for TileGenerationChannel {
+impl Default for TileBuildingChannel {
 	fn default() -> Self {
 		let (tx, rx) = unbounded();
 		Self { tx, rx }
 	}
 }
 
-impl TileGenerationChannel {
-	pub(crate) fn sender(&self) -> Sender<TileGenerationResult> { self.tx.clone() }
-	pub(crate) fn drain(&self) -> impl Iterator<Item = TileGenerationResult> + '_ { self.rx.try_iter() }
+impl TileBuildingChannel {
+	pub(crate) fn sender(&self) -> Sender<TileBuildingResult> { self.tx.clone() }
+	pub(crate) fn drain(&self) -> impl Iterator<Item = TileBuildingResult> + '_ { self.rx.try_iter() }
 }
 
 pub(crate) fn session(
@@ -175,12 +175,12 @@ pub(crate) fn session(
 	context: TileBuildingParameters,
 	requests: Sender<PendingVoxelRequest>,
 	cancellation: CancellationToken,
-	metadata: Arc<Mutex<TileGenerationMetadata>>,
-) -> (TileBuildingSession, TileGenerationCancellation) {
+	metadata: Arc<Mutex<TileBuildingMetadata>>,
+) -> (TileBuildingSession, TileBuildingCancellation) {
 	let (reader, wake) = StreamingVoxelReader::new(grid, requests, cancellation.clone(), metadata);
 	(
 		TileBuildingSession::new(grid, key, context, Box::new(reader)),
-		TileGenerationCancellation::new(cancellation, wake),
+		TileBuildingCancellation::new(cancellation, wake),
 	)
 }
 
