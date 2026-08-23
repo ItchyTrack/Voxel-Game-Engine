@@ -27,7 +27,7 @@ use bevy::render::render_resource::TextureUsages;
 use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
 use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
 use voxel_gpu::{
-	GpuVoxelDataPlugin, RenderingGeneratorAppExt, RenderingType, SlangShader,
+	GpuVoxelDataPlugin, RenderingBuilderAppExt, RenderingType, SlangShader,
 	VoxelGpuDataReaders,
 };
 
@@ -53,7 +53,7 @@ impl RayTileCapabilityRegistry {
 
 pub trait VoxelRayTileAppExt {
 	fn register_ray_tile_data<T: tile_data::RayTileCapability>(&mut self) -> &mut Self;
-	fn register_voxel_ray_generator(
+	fn register_voxel_ray_builder(
 		&mut self,
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
@@ -67,20 +67,20 @@ impl VoxelRayTileAppExt for App {
 		self
 	}
 
-	fn register_voxel_ray_generator(
+	fn register_voxel_ray_builder(
 		&mut self,
 		voxel_type: VoxelTypeId,
 		lod_levels: u8,
 	) -> RenderingType {
 		self.init_resource::<TileVoxelReducerRegistry>();
-		let generator = tile_data::VoxelRayTileGenerator {
+		let builder = tile_data::VoxelRayTileBuilder {
 			voxel_type,
 			lod_levels,
 			gpu: self.world().resource::<gpu_data::RayWorldGpuData>().clone(),
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
 			reducers: self.world().resource::<TileVoxelReducerRegistry>().clone(),
 		};
-		let rendering_type = self.register_rendering_generator(generator);
+		let rendering_type = self.register_rendering_builder(builder);
 		self.insert_resource(RayRenderingType(rendering_type));
 		rendering_type
 	}

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use futures::{StreamExt, channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded as async_unbounded}};
 use tile_data::{
-	GenerationVoxelReader, TileData, TileGenerationParameters, TileGenerationSession, TileKey,
+	TileBuildingVoxelReader, TileData, TileBuildingParameters, TileBuildingSession, TileKey,
 	VoxelRegionRequest, VoxelRegionResult,
 };
 use voxel_data::grid::GridId;
@@ -87,7 +87,7 @@ impl StreamingVoxelReader {
 	}
 }
 
-impl GenerationVoxelReader for StreamingVoxelReader {
+impl TileBuildingVoxelReader for StreamingVoxelReader {
 	fn request_voxels(&mut self, request: VoxelRegionRequest) {
 		if self.cancellation.is_cancelled() { return; }
 		self.outstanding = self.outstanding.checked_add(1).expect("tile voxel request count overflow");
@@ -146,7 +146,7 @@ impl TileGenerationCancellation {
 pub(crate) struct TileGenerationResult {
 	pub(crate) grid: GridId,
 	pub(crate) tag: u64,
-	pub(crate) context: TileGenerationParameters,
+	pub(crate) context: TileBuildingParameters,
 	pub(crate) dependencies: HashSet<TileDependency>,
 	pub(crate) data: Option<Box<dyn TileData>>,
 }
@@ -172,14 +172,14 @@ impl TileGenerationChannel {
 pub(crate) fn session(
 	grid: GridId,
 	key: TileKey,
-	context: TileGenerationParameters,
+	context: TileBuildingParameters,
 	requests: Sender<PendingVoxelRequest>,
 	cancellation: CancellationToken,
 	metadata: Arc<Mutex<TileGenerationMetadata>>,
-) -> (TileGenerationSession, TileGenerationCancellation) {
+) -> (TileBuildingSession, TileGenerationCancellation) {
 	let (reader, wake) = StreamingVoxelReader::new(grid, requests, cancellation.clone(), metadata);
 	(
-		TileGenerationSession::new(grid, key, context, Box::new(reader)),
+		TileBuildingSession::new(grid, key, context, Box::new(reader)),
 		TileGenerationCancellation::new(cancellation, wake),
 	)
 }
@@ -215,16 +215,12 @@ pub(crate) fn submit_tile_voxel_requests(
 pub(crate) fn route_tile_source_results(
 	mut bridge: ResMut<TileVoxelSourceBridge>,
 	mut results: MessageReader<SourceResult>,
-	mut grids: Query<&mut crate::GridStreaming>,
 ) {
 	for result in results.read() {
 		let Some(route) = bridge.routes.get(&result.request_id) else { continue };
 		if route.cancellation.is_cancelled() { continue; }
 		match &result.data {
-			SourceResultData::Voxels { grid, region, lod, generation, voxels } => {
-				if let Ok(mut streaming) = grids.get_mut(*grid) {
-					streaming.note_source_generation(*region, *generation);
-				}
+			SourceResultData::Voxels { grid: _, region, lod, generation, voxels } => {
 				let _ = route.events.unbounded_send(VoxelLoadEvent::Result {
 					result: VoxelRegionResult { area: *region, lod: *lod, voxels: voxels.clone() },
 					generation: *generation,

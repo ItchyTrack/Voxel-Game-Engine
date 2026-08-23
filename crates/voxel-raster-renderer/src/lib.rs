@@ -22,7 +22,7 @@ use bevy::render::{
 use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
 use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
 use voxel_gpu::{
-	GpuVoxelDataPlugin, RenderingGeneratorAppExt, RenderingType, SlangShader,
+	GpuVoxelDataPlugin, RenderingBuilderAppExt, RenderingType, SlangShader,
 	SlangShaderSettings, VoxelGpuDataReaders,
 };
 
@@ -72,7 +72,7 @@ impl VoxelRasterTileAppExt for App {
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
 			reducers: self.world().resource::<TileVoxelReducerRegistry>().clone(),
 		};
-		let rendering_type = self.register_rendering_generator(generator);
+		let rendering_type = self.register_rendering_builder(generator);
 		self.insert_resource(RasterRenderingType(rendering_type));
 		rendering_type
 	}

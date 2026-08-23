@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use bevy::math::UVec3;
-use tile_data::{TileData, TileGenerationSession, TileGenerator, TileVoxelReducerRegistry};
+use tile_data::{TileData, TileBuildingSession, TileBuilder, TileVoxelReducerRegistry};
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo};
 use voxel_gpu::{AllocationId, PackedBufferAllocation, VoxelGpuDataReaders};
 
@@ -56,7 +56,7 @@ impl RayTileCapability for RayTileData {
 	}
 }
 
-pub struct VoxelRayTileGenerator {
+pub struct VoxelRayTileBuilder {
 	pub voxel_type: VoxelTypeId,
 	pub lod_levels: u8,
 	pub gpu: RayWorldGpuData,
@@ -65,8 +65,8 @@ pub struct VoxelRayTileGenerator {
 }
 
 #[tile_data::async_trait]
-impl TileGenerator for VoxelRayTileGenerator {
-	async fn generate(&self, mut session: TileGenerationSession) -> Option<Box<dyn TileData>> {
+impl TileBuilder for VoxelRayTileBuilder {
+	async fn generate(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
 		let region = session.key.region;
 		let voxel_lod = session.key.lod.saturating_sub(self.lod_levels);
 		session.request_voxels(region, voxel_lod, self.voxel_type);

@@ -18,12 +18,12 @@ impl TileClassRegistry {
 	}
 }
 
-pub trait TileGenerationData: Any + Send + Sync {
+pub trait TileBuildingData: Any + Send + Sync {
 	fn as_any(&self) -> &dyn Any;
-	fn eq(&self, other: &dyn TileGenerationData) -> bool;
+	fn eq(&self, other: &dyn TileBuildingData) -> bool;
 }
 
-impl<T> TileGenerationData for T
+impl<T> TileBuildingData for T
 where
 	T: Any + Send + Sync + PartialEq,
 {
@@ -31,7 +31,7 @@ where
 		self
 	}
 
-	fn eq(&self, other: &dyn TileGenerationData) -> bool {
+	fn eq(&self, other: &dyn TileBuildingData) -> bool {
 		other
 			.as_any()
 			.downcast_ref::<T>()
@@ -40,26 +40,26 @@ where
 }
 
 #[derive(Component, Clone)]
-pub struct TileGenerationParameters {
-	data: Arc<dyn TileGenerationData>,
+pub struct TileBuildingParameters {
+	data: Arc<dyn TileBuildingData>,
 }
 
-impl PartialEq for TileGenerationParameters {
+impl PartialEq for TileBuildingParameters {
 	fn eq(&self, other: &Self) -> bool {
 		self.data.eq(&*other.data)
 	}
 }
 
-impl Eq for TileGenerationParameters {}
+impl Eq for TileBuildingParameters {}
 
-impl TileGenerationParameters {
-	pub fn new<T: TileGenerationData>(data: T) -> Self {
+impl TileBuildingParameters {
+	pub fn new<T: TileBuildingData>(data: T) -> Self {
 		Self {
 			data: Arc::new(data),
 		}
 	}
 
-	pub fn downcast_ref<T: TileGenerationData>(&self) -> Option<&T> {
+	pub fn downcast_ref<T: TileBuildingData>(&self) -> Option<&T> {
 		self.data.as_any().downcast_ref()
 	}
 }

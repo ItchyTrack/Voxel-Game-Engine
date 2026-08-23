@@ -10,9 +10,8 @@ mod tile_updates;
 mod generation;
 pub mod systems;
 
-pub use tile_data::{
-	DynamicTileData, LoadedTile, TileClassId, TileClassRegistry, TileData,
-	TileGenerationParameters, TileGenerationSession, TileGenerator, TileGeneratorRegistry, TileKey,
+use tile_data::{
+	DynamicTileData, LoadedTile, TileKey,
 };
 pub use tile_updates::{TileLoadStatus, TileLoadUpdate};
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
@@ -77,10 +76,11 @@ impl Plugin for VoxelStreamingPlugin {
 		if !app.is_plugin_added::<voxel_sources::VoxelSourcesPlugin>() {
 			app.add_plugins(voxel_sources::VoxelSourcesPlugin);
 		}
+		if !app.is_plugin_added::<tile_data::TileDataPlugin>() {
+			app.add_plugins(tile_data::TileDataPlugin);
+		}
 		app.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkEditInterestChanged>()
-			.init_resource::<TileClassRegistry>()
-			.init_resource::<TileGeneratorRegistry>()
 			.init_resource::<systems::PendingTileUpdates>()
 			.init_resource::<generation::TileGenerationChannel>()
 			.init_resource::<generation::TileVoxelSourceBridge>()
@@ -129,7 +129,7 @@ impl Plugin for VoxelStreamingPlugin {
 				),
 			)
 			.add_systems(StreamingMaintenance, systems::cleanup_released_tiles)
-			.add_systems(PreUpdate, (systems::materialize_authoritative_commands, run_streaming, run_streaming_maintenance).chain())
+			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain())
 			.add_systems(
 				PostUpdate,
 				bevy::transform::systems::propagate_transforms_for::<Added<LoadedTile>>

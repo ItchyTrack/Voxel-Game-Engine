@@ -7,27 +7,27 @@ use voxel_data::{
 	voxels::{VoxelTypeId, Voxels},
 };
 
-use crate::{NonZeroChunkRegion, TileClassId, TileData, TileGenerationParameters, TileKey, class::TileGenerationData};
+use crate::{NonZeroChunkRegion, TileClassId, TileData, TileBuildingParameters, TileKey, class::TileBuildingData};
 
 pub use async_trait::async_trait;
 
 #[async_trait]
-pub trait TileGenerator: Send + Sync + 'static {
-	async fn generate(&self, session: TileGenerationSession) -> Option<Box<dyn TileData>>;
+pub trait TileBuilder: Send + Sync + 'static {
+	async fn generate(&self, session: TileBuildingSession) -> Option<Box<dyn TileData>>;
 }
 
 #[derive(Resource, Default)]
-pub struct TileGeneratorRegistry {
-	generators: FxHashMap<TileClassId, Arc<dyn TileGenerator>>,
+pub struct TileBuilderRegistry {
+	builders: FxHashMap<TileClassId, Arc<dyn TileBuilder>>,
 }
 
-impl TileGeneratorRegistry {
-	pub fn insert<G: TileGenerator>(&mut self, tile_class_id: TileClassId, generator: G) {
-		self.generators.insert(tile_class_id, Arc::new(generator));
+impl TileBuilderRegistry {
+	pub fn insert<G: TileBuilder>(&mut self, tile_class_id: TileClassId, builder: G) {
+		self.builders.insert(tile_class_id, Arc::new(builder));
 	}
 
-	pub fn generator(&self, class: TileClassId) -> Arc<dyn TileGenerator> {
-		self.generators.get(&class).cloned().unwrap_or_else(|| panic!("no tile generator registered for {class:?}"))
+	pub fn builder(&self, class: TileClassId) -> Arc<dyn TileBuilder> {
+		self.builders.get(&class).cloned().unwrap_or_else(|| panic!("no tile generator registered for {class:?}"))
 	}
 }
 
@@ -47,30 +47,30 @@ pub struct VoxelRegionResult {
 
 pub type ReceiveVoxelsFuture<'a> = std::pin::Pin<Box<dyn Future<Output = Option<VoxelRegionResult>> + Send + 'a>>;
 
-pub trait GenerationVoxelReader: Send + 'static {
+pub trait TileBuildingVoxelReader: Send + 'static {
 	fn request_voxels(&mut self, request: VoxelRegionRequest);
 	fn receive_voxels(&mut self) -> ReceiveVoxelsFuture<'_>;
 }
 
-pub struct TileGenerationSession {
+pub struct TileBuildingSession {
 	pub grid: GridId,
 	pub key: TileKey,
-	context: TileGenerationParameters,
-	reader: Box<dyn GenerationVoxelReader>,
+	context: TileBuildingParameters,
+	reader: Box<dyn TileBuildingVoxelReader>,
 }
 
-impl TileGenerationSession {
+impl TileBuildingSession {
 	pub fn new(
 		grid: GridId,
 		key: TileKey,
-		context: TileGenerationParameters,
-		reader: Box<dyn GenerationVoxelReader>,
+		context: TileBuildingParameters,
+		reader: Box<dyn TileBuildingVoxelReader>,
 	) -> Self {
 		Self { grid, key, context, reader }
 	}
 
-	pub fn context<T: TileGenerationData + 'static>(&self) -> &T {
-		self.context.downcast_ref().unwrap_or_else(|| panic!("tile generator received generation context of the wrong type"))
+	pub fn context<T: TileBuildingData + 'static>(&self) -> &T {
+		self.context.downcast_ref().unwrap_or_else(|| panic!("tile generator received building context of the wrong type"))
 	}
 
 	pub fn request_voxels(

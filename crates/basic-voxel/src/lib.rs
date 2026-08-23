@@ -1,8 +1,8 @@
-mod generator;
+mod builder;
 mod voxel;
 
-pub use generator::downsample_region;
-use generator::{BasicToLodVoxelReducer, BasicToMarchingVoxelReducer, LodToLodVoxelReducer, MarchingToMarchingVoxelReducer};
+pub use builder::downsample_region;
+use builder::{BasicToLodVoxelReducer, BasicToMarchingVoxelReducer, LodToLodVoxelReducer, MarchingToMarchingVoxelReducer};
 pub use voxel::{BasicVoxel, LodVoxel, MarchingVoxel};
 
 use bevy::prelude::*;
@@ -31,7 +31,7 @@ impl Plugin for BasicVoxelPlugin {
 
 		let voxel_type = LodVoxel::TYPE_INFO.id;
 		if app.is_plugin_added::<VoxelRayRendererPlugin>() {
-			app.register_voxel_ray_generator(voxel_type, 0);
+			app.register_voxel_ray_builder(voxel_type, 0);
 		}
 		if app.is_plugin_added::<VoxelRasterRendererPlugin>() {
 			app.register_voxel_raster_generator(voxel_type, 0);

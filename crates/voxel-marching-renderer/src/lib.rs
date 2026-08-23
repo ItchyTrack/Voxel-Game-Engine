@@ -57,7 +57,7 @@ impl Plugin for VoxelMarchingRendererPlugin {
 
 		let gpu = app.world().resource::<gpu_data::MarchingWorldGpuData>().clone();
 		let reducers = app.world().resource::<TileVoxelReducerRegistry>().clone();
-		let rendering_type = app.register_rendering_generator(tile_data::MarchingTileGenerator { gpu, reducers });
+		let rendering_type = app.register_rendering_builder(tile_data::MarchingTileGenerator { gpu, reducers });
 		app.insert_resource(MarchingRenderingType(rendering_type));
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };

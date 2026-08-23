@@ -177,7 +177,7 @@ mod tests {
 	use tile_data::NonZeroChunkRegion;
 
 use super::*;
-	use crate::TileClassId;
+	use tile_data::TileClassId;
 
 	fn tile(size: IVec3, lod: u8) -> Option<TileKey> {
 		Some(TileKey::new(NonZeroChunkRegion::new(IVec3::ZERO, size.as_uvec3())?, lod, TileClassId(0)))
