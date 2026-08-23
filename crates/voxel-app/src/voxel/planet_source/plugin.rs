@@ -138,7 +138,7 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 	for tile in planet_tiles() {
 		let mut streaming = GridStreaming::default();
 		for &chunk in &tile.present_chunks {
-			streaming.mark_present(chunk);
+			streaming.mark_present_area(NonZeroChunkRegion::from_single(chunk));
 		}
 
 		let rotation = Quat::from_mat3(&Mat3::from_cols(tile.axis_x, tile.axis_y, tile.normal));

@@ -87,7 +87,7 @@ fn move_camera(app: &mut App, camera: Entity, center: IVec3) {
 }
 
 fn mark_present(app: &mut App, grid: Entity, chunk: IVec3) {
-	app.world_mut().entity_mut(grid).get_mut::<GridStreaming>().unwrap().mark_present(chunk);
+	app.world_mut().entity_mut(grid).get_mut::<GridStreaming>().unwrap().mark_present_area(NonZeroChunkRegion::from_single(chunk));
 	app.world_mut().resource_mut::<Messages<ChunkAvailabilityChanged>>().write(ChunkAvailabilityChanged {
 		grid,
 		region: NonZeroChunkRegion::from_single(chunk),
@@ -245,7 +245,7 @@ impl StressRng {
 fn newly_present_fine_tile_keeps_coarse_coverage_until_it_loads() {
 	let mut app = test_app();
 	let mut streaming = GridStreaming::default();
-	streaming.mark_present(IVec3::ZERO);
+	streaming.mark_present_area(NonZeroChunkRegion::from_single(IVec3::ZERO));
 	let grid = spawn_grid(&mut app, streaming);
 	let settings = CameraVoxelLoaderSettings { max_lod: 1, near_radius_chunks: 0, rings_per_lod: 1 };
 	let camera = spawn_camera(&mut app, settings, IVec3::new(2, 0, 0));
@@ -371,7 +371,7 @@ fn availability_addition_requests_the_newly_present_tile() {
 fn unwanted_in_flight_tile_is_dropped_before_its_late_empty_result() {
 	let mut app = test_app();
 	let mut streaming = GridStreaming::default();
-	streaming.mark_present(IVec3::ZERO);
+	streaming.mark_present_area(NonZeroChunkRegion::from_single(IVec3::ZERO));
 	let grid = spawn_grid(&mut app, streaming);
 	let settings = CameraVoxelLoaderSettings { max_lod: 1, near_radius_chunks: 0, rings_per_lod: 1 };
 	let camera = spawn_camera(&mut app, settings, IVec3::ZERO);
@@ -396,7 +396,7 @@ fn unwanted_in_flight_tile_is_dropped_before_its_late_empty_result() {
 fn shared_tile_ownership_is_tracked_per_camera() {
 	let mut app = test_app();
 	let mut streaming = GridStreaming::default();
-	streaming.mark_present(IVec3::ZERO);
+	streaming.mark_present_area(NonZeroChunkRegion::from_single(IVec3::ZERO));
 	let grid = spawn_grid(&mut app, streaming);
 	let settings = CameraVoxelLoaderSettings { max_lod: 1, near_radius_chunks: 0, rings_per_lod: 1 };
 	let first = spawn_camera(&mut app, settings.clone(), IVec3::ZERO);
@@ -480,7 +480,7 @@ fn camera_policy_requests_classed_tiles_at_every_lod() {
 	let mut app = test_app();
 	let grid = spawn_grid(&mut app, GridStreaming::default());
 	let camera = spawn_camera(&mut app, CameraVoxelLoaderSettings::default(), IVec3::ZERO);
-	app.world_mut().entity_mut(grid).get_mut::<GridStreaming>().unwrap().mark_present(IVec3::ZERO);
+	app.world_mut().entity_mut(grid).get_mut::<GridStreaming>().unwrap().mark_present_area(NonZeroChunkRegion::from_single(IVec3::ZERO));
 
 	app.world_mut().run_schedule(RequestSchedule);
 

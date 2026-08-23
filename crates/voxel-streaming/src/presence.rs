@@ -27,10 +27,6 @@ impl ChunkPresence {
 		self.tree.is_empty()
 	}
 
-	pub fn mark_present(&mut self, chunk: IVec3) {
-		self.mark_present_area(NonZeroChunkRegion::from_single(chunk));
-	}
-
 	pub fn mark_present_area(&mut self, region: NonZeroChunkRegion) {
 		self.tree.add_area(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), 0u16);
 	}

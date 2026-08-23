@@ -16,10 +16,6 @@ pub struct ReplicateVoxelsRestriction {
 }
 
 impl ReplicateVoxelsRestriction {
-	pub fn set_readable_chunk(&mut self, peer: PeerId, chunk: IVec3) {
-		self.readable_by_client.entry(peer).or_default().mark_present(chunk);
-	}
-
 	pub fn set_readable_area(&mut self, peer: PeerId, region: NonZeroChunkRegion) {
 		self.readable_by_client.entry(peer).or_default().mark_present_area(region);
 	}

@@ -32,9 +32,7 @@ pub(crate) enum TileStatus {
 #[derive(Component, Default)]
 pub struct GridStreaming {
 	pub(crate) presence: ChunkPresence,
-	// pub(crate) inflight_chunk_cancellations: FxHashMap<IVec3, RequestId>,
 	pub(crate) tiles: FxHashMap<TileKey, TileState>,
-	pub(crate) pending_tile_requests: FxHashSet<TileKey>,
 	pub(crate) tile_dependencies: TileDependencyIndex,
 	pub(crate) inflight_tiles_by_tag: FxHashMap<u64, TileKey>,
 	pub(crate) next_tile_tag: u64,
@@ -51,58 +49,16 @@ pub struct RequestChunkPresence;
 pub struct InflightChunkPresence(pub(crate) RequestId);
 
 impl GridStreaming {
+	/* ----------- Presence ----------- */
+
 	pub fn presence(&self) -> &ChunkPresence { &self.presence }
 	#[doc(hidden)]
 	pub fn presence_mut(&mut self) -> &mut ChunkPresence { &mut self.presence }
 
-	pub fn mark_present(&mut self, chunk: IVec3) { self.presence.mark_present(chunk); }
 	pub fn mark_present_area(&mut self, region: NonZeroChunkRegion) { self.presence.mark_present_area(region); }
+	pub(crate) fn mark_empty(&mut self, region: NonZeroChunkRegion) { self.presence.clear_present_area(region); }
 
-	pub fn fetch_tile(&mut self, requester: Entity, key: TileKey, priority: f32) -> bool {
-		if !valid_tile_key(key) { return false; }
-		let (new_requester, first_requester, status, should_request) = {
-			let state = self.tiles.entry(key).or_insert_with(|| TileState {
-				requesters: FxHashMap::default(),
-				status: TileStatus::Requested,
-				active: None,
-			});
-			let new_requester = state.requesters.insert(requester, priority).is_none();
-			let status = match (&state.status, state.active) {
-				(TileStatus::Loaded, Some(entity)) => Some(TileLoadStatus::Ready(entity)),
-				(TileStatus::Empty, _) => Some(TileLoadStatus::Empty),
-				_ => None,
-			};
-			(new_requester, new_requester && state.requesters.len() == 1, status, matches!(&state.status, TileStatus::Requested | TileStatus::Dirty))
-		};
-		if first_requester { self.retain_edit_interest_region(key.region.into()); }
-		if new_requester && let Some(status) = status {
-			self.queued_tile_updates.push(TileLoadUpdate { grid: Entity::PLACEHOLDER, requester, key, status });
-		}
-		if should_request { self.pending_tile_requests.insert(key); }
-		true
-	}
-
-	pub fn release_tile(&mut self, requester: Entity, key: TileKey) {
-		let status = {
-			let Some(state) = self.tiles.get_mut(&key) else { return; };
-			state.requesters.remove(&requester);
-			if !state.requesters.is_empty() { return; }
-			std::mem::replace(&mut state.status, TileStatus::Requested)
-		};
-		self.release_edit_interest_region(key.region.into());
-		self.pending_tile_requests.remove(&key);
-		match status {
-			TileStatus::InFlight { tag, cancellation } => {
-				self.inflight_tiles_by_tag.remove(&tag);
-				cancellation.cancel();
-			}
-			other => self.tiles.get_mut(&key).unwrap().status = other,
-		}
-	}
-
-	pub(crate) fn mark_empty(&mut self, region: NonZeroChunkRegion) {
-		self.presence.clear_present_area(region);
-	}
+	/* ----------- Interest ----------- */
 
 	pub fn retain_edit_interest(&mut self, chunk: IVec3) {
 		let count = self.edit_interest_counts.entry(chunk).or_default();
@@ -139,12 +95,54 @@ impl GridStreaming {
 		}
 	}
 
+	/* ----------- Tiles ----------- */
+
+	pub(crate) fn fetch_tile(&mut self, requester: Entity, key: TileKey, priority: f32) -> bool {
+		if !valid_tile_key(key) { return false; }
+		let (new_requester, first_requester, status) = {
+			let state = self.tiles.entry(key).or_insert_with(|| TileState {
+				requesters: FxHashMap::default(),
+				status: TileStatus::Requested,
+				active: None,
+			});
+			let new_requester = state.requesters.insert(requester, priority).is_none();
+			let status = match (&state.status, state.active) {
+				(TileStatus::Loaded, Some(entity)) => Some(TileLoadStatus::Ready(entity)),
+				(TileStatus::Empty, _) => Some(TileLoadStatus::Empty),
+				_ => None,
+			};
+			(new_requester, new_requester && state.requesters.len() == 1, status)
+		};
+		if first_requester { self.retain_edit_interest_region(key.region.into()); }
+		if new_requester && let Some(status) = status {
+			self.queued_tile_updates.push(TileLoadUpdate { grid: Entity::PLACEHOLDER, requester, key, status });
+		}
+		true
+	}
+
+	pub(crate) fn release_tile(&mut self, requester: Entity, key: TileKey) {
+		let status = {
+			let Some(state) = self.tiles.get_mut(&key) else { return; };
+			state.requesters.remove(&requester);
+			if !state.requesters.is_empty() { return; }
+			std::mem::replace(&mut state.status, TileStatus::Requested)
+		};
+		self.release_edit_interest_region(key.region.into());
+		match status {
+			TileStatus::InFlight { tag, cancellation } => {
+				self.inflight_tiles_by_tag.remove(&tag);
+				cancellation.cancel();
+			}
+			other => self.tiles.get_mut(&key).unwrap().status = other,
+		}
+	}
+
 	pub(crate) fn dirty_stale_tiles(&mut self, region: NonZeroChunkRegion, generation: u64) {
 		let keys: FxHashSet<_> = self.tile_dependencies.stale_tiles(region, generation).collect();
 		for key in keys { self.dirty_tile(key); }
 	}
 
-	pub(crate) fn invalidate_generation_context(&mut self) {
+	pub(crate) fn invalidate_building_context(&mut self) {
 		let keys: Vec<_> = self.tiles.keys().copied().collect();
 		for key in keys { self.dirty_tile(key); }
 	}
@@ -158,7 +156,6 @@ impl GridStreaming {
 			cancellation.cancel();
 		}
 		state.status = TileStatus::Dirty;
-		self.pending_tile_requests.insert(key);
 	}
 }
 
@@ -166,7 +163,7 @@ fn chunk_tree_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
 	NonZeroVoxelRegion::new(region.min(), region.size()).unwrap()
 }
 
-fn valid_tile_key(key: TileKey) -> bool {
+pub(crate) fn valid_tile_key(key: TileKey) -> bool {
 	let factor = 1u32 << key.lod;
 	let coarse_extent = (key.size() * CHUNK_SIZE as u32) / factor;
 	!coarse_extent.cmplt(UVec3::ONE).any() && !coarse_extent.cmpgt(UVec3::splat(CHUNK_SIZE as u32)).any()

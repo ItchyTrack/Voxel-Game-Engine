@@ -39,14 +39,16 @@ where
 	}
 }
 
-#[derive(Component, Clone)]
+#[derive(Default, Component, Clone)]
 pub struct TileBuildingParameters {
-	data: Arc<dyn TileBuildingData>,
+	data: Option<Arc<dyn TileBuildingData>>,
 }
 
 impl PartialEq for TileBuildingParameters {
 	fn eq(&self, other: &Self) -> bool {
-		self.data.eq(&*other.data)
+		let Some(self_data) = &self.data else { return other.data.is_none(); };
+		let Some(other_data) = &other.data else { return false; };
+		self_data.eq(&**other_data)
 	}
 }
 
@@ -55,11 +57,11 @@ impl Eq for TileBuildingParameters {}
 impl TileBuildingParameters {
 	pub fn new<T: TileBuildingData>(data: T) -> Self {
 		Self {
-			data: Arc::new(data),
+			data: Some(Arc::new(data)),
 		}
 	}
 
 	pub fn downcast_ref<T: TileBuildingData>(&self) -> Option<&T> {
-		self.data.as_any().downcast_ref()
+		self.data.as_ref()?.as_any().downcast_ref()
 	}
 }

@@ -24,7 +24,7 @@ enum VoxelLoadEvent {
 	Cancelled,
 }
 
-pub(crate) struct PendingVoxelRequest {
+pub(crate) struct TileBuildingVoxelRequest {
 	request: VoxelRegionRequest,
 	grid: GridId,
 	events: UnboundedSender<VoxelLoadEvent>,
@@ -38,8 +38,8 @@ struct VoxelRequestRoute {
 
 #[derive(Resource)]
 pub(crate) struct TileVoxelSourceBridge {
-	request_tx: Sender<PendingVoxelRequest>,
-	request_rx: Receiver<PendingVoxelRequest>,
+	request_tx: Sender<TileBuildingVoxelRequest>,
+	request_rx: Receiver<TileBuildingVoxelRequest>,
 	routes: HashMap<RequestId, VoxelRequestRoute>,
 }
 
@@ -51,12 +51,12 @@ impl Default for TileVoxelSourceBridge {
 }
 
 impl TileVoxelSourceBridge {
-	pub(crate) fn sender(&self) -> Sender<PendingVoxelRequest> { self.request_tx.clone() }
+	pub(crate) fn sender(&self) -> Sender<TileBuildingVoxelRequest> { self.request_tx.clone() }
 }
 
 pub(crate) struct StreamingVoxelReader {
 	grid: GridId,
-	requests: Sender<PendingVoxelRequest>,
+	requests: Sender<TileBuildingVoxelRequest>,
 	events_tx: UnboundedSender<VoxelLoadEvent>,
 	events_rx: UnboundedReceiver<VoxelLoadEvent>,
 	outstanding: usize,
@@ -67,7 +67,7 @@ pub(crate) struct StreamingVoxelReader {
 impl StreamingVoxelReader {
 	fn new(
 		grid: GridId,
-		requests: Sender<PendingVoxelRequest>,
+		requests: Sender<TileBuildingVoxelRequest>,
 		cancellation: CancellationToken,
 		metadata: Arc<Mutex<TileBuildingMetadata>>,
 	) -> (Self, UnboundedSender<VoxelLoadEvent>) {
@@ -91,13 +91,12 @@ impl TileBuildingVoxelReader for StreamingVoxelReader {
 	fn request_voxels(&mut self, request: VoxelRegionRequest) {
 		if self.cancellation.is_cancelled() { return; }
 		self.outstanding = self.outstanding.checked_add(1).expect("tile voxel request count overflow");
-		let pending = PendingVoxelRequest {
+		if self.requests.send(TileBuildingVoxelRequest {
 			request,
 			grid: self.grid,
 			events: self.events_tx.clone(),
 			cancellation: self.cancellation.clone(),
-		};
-		if self.requests.send(pending).is_err() {
+		}).is_err() {
 			self.outstanding -= 1;
 		}
 	}
@@ -173,7 +172,7 @@ pub(crate) fn session(
 	grid: GridId,
 	key: TileKey,
 	context: TileBuildingParameters,
-	requests: Sender<PendingVoxelRequest>,
+	requests: Sender<TileBuildingVoxelRequest>,
 	cancellation: CancellationToken,
 	metadata: Arc<Mutex<TileBuildingMetadata>>,
 ) -> (TileBuildingSession, TileBuildingCancellation) {
@@ -188,8 +187,7 @@ pub(crate) fn submit_tile_voxel_requests(
 	mut bridge: ResMut<TileVoxelSourceBridge>,
 	mut sources: ResMut<SourceManager>,
 ) {
-	let pending: Vec<_> = bridge.request_rx.try_iter().collect();
-	for request in pending {
+	for request in bridge.request_rx.try_iter().collect::<Vec<_>>() {
 		if request.cancellation.is_cancelled() { continue; }
 		let request_id = sources.request_voxels(
 			request.grid,

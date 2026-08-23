@@ -29,7 +29,7 @@ fn chunk_request_releases_cleanly_after_load_when_no_longer_needed() {
 	let mut streaming = GridStreaming::default();
 	let mut consumer = TestConsumer::default();
 
-	streaming.mark_present(chunk);
+	streaming.mark_present_area(NonZeroChunkRegion::from_single(chunk));
 	streaming.fetch_needed(&mut sources, grid, &mut consumer, chunk);
 
 	assert_eq!(streaming.state(chunk), Some(voxel_streaming::ChunkState::InFlight));
@@ -51,7 +51,7 @@ fn releasing_the_last_inflight_request_restores_available_state() {
 	let mut streaming = GridStreaming::default();
 	let mut consumer = TestConsumer::default();
 
-	streaming.mark_present(chunk);
+	streaming.mark_present_area(NonZeroChunkRegion::from_single(chunk));
 	streaming.fetch_needed(&mut sources, grid, &mut consumer, chunk);
 	streaming.release_needed(&mut sources, grid, &mut consumer, chunk);
 
@@ -67,7 +67,7 @@ fn fetch_needed_for_already_loaded_chunk_does_not_enqueue_another_source_request
 	let mut streaming = GridStreaming::default();
 	let mut consumer = TestConsumer::default();
 
-	streaming.mark_present(chunk);
+	streaming.mark_present_area(NonZeroChunkRegion::from_single(chunk));
 	streaming.presence_mut().set_state(chunk, voxel_streaming::ChunkState::Loaded);
 	streaming.fetch_needed(&mut sources, grid, &mut consumer, chunk);
 

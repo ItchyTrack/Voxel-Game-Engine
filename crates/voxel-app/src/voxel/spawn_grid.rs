@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use basic_voxel::BasicVoxel;
+use tile_data::NonZeroChunkRegion;
 use voxel_content::{StreamingVoxels, VoxelStoreSource};
 use voxel_data::grid::Grid;
 use voxel_lightyear::ReplicateVoxels;
@@ -21,7 +22,7 @@ pub fn spawn_grid(
 
 	let mut streaming = GridStreaming::default();
 	for chunk in voxels.chunk_positions() {
-		streaming.mark_present(chunk);
+		streaming.mark_present_area(NonZeroChunkRegion::from_single(chunk));
 	}
 	store.insert_chunk_data(child, voxels.into_chunk_data());
 	commands.entity(child).insert(streaming);
