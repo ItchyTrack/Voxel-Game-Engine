@@ -488,7 +488,7 @@ fn set_axis(v: &mut IVec3, axis: usize, value: i32) {
 
 #[cfg(test)]
 mod tests {
-	use crate::voxel_grid_tree::U16Cell;
+	use crate::grid_tree::U16Cell;
 
 	use super::*;
 
