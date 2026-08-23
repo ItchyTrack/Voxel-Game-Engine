@@ -51,7 +51,7 @@ impl GridEdit for RemoveArea {
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GridEditId(u64);
 
 impl GridEditId {
