@@ -11,10 +11,10 @@ use voxel_data::grid::GridId;
 use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridGeneration};
 use voxel_tasks::CancellationToken;
 
-use crate::{GridStreaming, streaming::TileAttemptId, tile_dependency_index::TileDependency};
+use crate::{GridStreaming, tile_dependency_index::TileDependency};
 
 enum VoxelLoadEvent {
-	Result { result: VoxelRegionResult, generation: GridGeneration },
+	Result { result: VoxelRegionResult },
 	Loaded,
 	Cancelled,
 }
@@ -110,7 +110,7 @@ impl TileBuildingVoxelReader for StreamingVoxelReader {
 						return None;
 					}
 					VoxelLoadEvent::Loaded => self.outstanding -= 1,
-					VoxelLoadEvent::Result { result, generation: _ } => return Some(result),
+					VoxelLoadEvent::Result { result } => return Some(result),
 				}
 			}
 			None
@@ -219,10 +219,9 @@ pub(crate) fn route_tile_source_results(
 		let Some(route) = bridge.routes.get(&result.request_id) else { continue };
 		if route.cancellation.is_cancelled() { continue; }
 		match &result.data {
-			SourceResultData::Voxels { grid: _, region, lod, generation, voxels } => {
+			SourceResultData::Voxels { grid: _, region, lod, generation: _, voxels } => {
 				let _ = route.events.unbounded_send(VoxelLoadEvent::Result {
 					result: VoxelRegionResult { area: *region, lod: *lod, voxels: voxels.clone() },
-					generation: *generation,
 				});
 			}
 			SourceResultData::VoxelsLoaded { .. } => {
