@@ -21,17 +21,14 @@ pub struct TileLoadUpdate {
 	pub status: TileLoadStatus,
 }
 
-#[derive(Resource, Default)]
-pub(crate) struct PendingTileDespawns(pub(crate) Vec<Entity>);
-
 #[derive(SystemParam)]
 pub struct TileRequester<'w, 's> {
 	bridge: Res<'w, TileVoxelSourceBridge>,
 	builders: Res<'w, TileBuilderRegistry>,
 	results: Res<'w, TileBuildingChannel>,
 	updates: ResMut<'w, PendingTileUpdates>,
-	despawns: ResMut<'w, PendingTileDespawns>,
 	grids: Query<'w, 's, (&'static mut GridStreaming, &'static GridEditIdManager)>,
+	commands: Commands<'w, 's>,
 }
 
 fn valid_tile_key(key: TileKey) -> bool {
@@ -80,9 +77,8 @@ impl<'w, 's> TileRequester<'w, 's> {
 		streaming.tile_dependencies.remove(tile_key);
 		streaming.release_edit_interest_region(tile_key.region.into());
 		if let TileStatus::InFlight { cancellation, .. } = &state.status { cancellation.cancel(); }
-		if let Some(entity) = state.entity { self.despawns.0.push(entity); }
+		if let Some(entity) = state.entity { self.commands.entity(entity).despawn(); }
 	}
-
 	pub(crate) fn dirty_stale_tiles(
 		&mut self,
 		grid: GridId,

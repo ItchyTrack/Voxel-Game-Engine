@@ -25,10 +25,6 @@ pub use voxel_data::grid::GridId as __GridId;
 #[derive(ScheduleLabel, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StreamingSchedule;
 
-/// Frame-counted upkeep. Run exactly once a frame via [`run_streaming_maintenance`].
-#[derive(ScheduleLabel, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct StreamingMaintenance;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChunkAvailabilityChangeKind {
 	BecamePresent,
@@ -62,10 +58,6 @@ pub fn run_streaming(world: &mut World) {
 	world.run_schedule(StreamingSchedule);
 }
 
-pub fn run_streaming_maintenance(world: &mut World) {
-	world.run_schedule(StreamingMaintenance);
-}
-
 #[derive(Default)]
 pub struct VoxelStreamingPlugin;
 
@@ -81,7 +73,6 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_message::<ChunkEditInterestChanged>()
 			.add_message::<TileLoadUpdate>()
 			.init_resource::<systems::PendingTileUpdates>()
-			.init_resource::<tile_requester::PendingTileDespawns>()
 			.init_resource::<tile_building::TileBuildingChannel>()
 			.init_resource::<tile_building::TileVoxelSourceBridge>()
 			.add_systems(
@@ -97,7 +88,6 @@ impl Plugin for VoxelStreamingPlugin {
 				),
 			)
 			.init_schedule(StreamingSchedule)
-			.init_schedule(StreamingMaintenance)
 			.configure_sets(
 				StreamingSchedule,
 				(
@@ -128,8 +118,7 @@ impl Plugin for VoxelStreamingPlugin {
 						.in_set(StreamingPhase::Receive),
 				),
 			)
-			.add_systems(StreamingMaintenance, systems::cleanup_released_tiles)
-			.add_systems(PreUpdate, (run_streaming, run_streaming_maintenance).chain())
+			.add_systems(PreUpdate, run_streaming)
 			.add_systems(
 				PostUpdate,
 				bevy::transform::systems::propagate_transforms_for::<Added<LoadedTile>>
