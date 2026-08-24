@@ -6,10 +6,11 @@ use bevy::prelude::*;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
+use voxel_sources::edit::{GridEdit, GridGeneration};
 use voxel_sources::{ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
-use crate::GridStore;
+use super::GridStore;
 
 #[derive(Default)]
 struct VoxelStoreSourceInner {
@@ -23,6 +24,7 @@ pub struct VoxelStoreSource {
 }
 
 impl VoxelStoreSource {
+	// this is not for chunk edits. only when the chunk is unchanged and just being loaded into the store (either on first load or ownership transfer).
 	pub fn insert_chunk_data(&self, grid: GridId, chunk_data: HashMap<IVec3, Voxels>) {
 		let mut grids = self.inner.grids.write().unwrap();
 		let store = grids.entry(grid).or_default();
@@ -33,6 +35,10 @@ impl VoxelStoreSource {
 
 	fn grid_available_area(&self, grid: GridId) -> Option<tile_data::NonZeroChunkRegion> {
 		self.inner.grids.read().unwrap().get(&grid)?.available_area()
+	}
+
+	fn apply_edit(&mut self, grid_id: GridId, grid_generation: GridGeneration, edit: &dyn GridEdit) {
+		// TODO: apply edit
 	}
 }
 
@@ -82,6 +88,7 @@ impl ChunkSource for VoxelStoreSource {
 			let _span = bevy::log::info_span!("VoxelStoreSource build").entered();
 			let grids = source.inner.grids.read().unwrap();
 			if let Some(store) = grids.get(&grid) {
+				let grid_generation = store.current_grid_generation();
 				'chunks: for z in region.min().z..region.end().z {
 					for y in region.min().y..region.end().y {
 						for x in region.min().x..region.end().x {
@@ -95,7 +102,7 @@ impl ChunkSource for VoxelStoreSource {
 									grid,
 									NonZeroChunkRegion::from_single(chunk),
 									0,
-									store.chunk_generation(chunk),
+									grid_generation,
 									voxels,
 								);
 							}

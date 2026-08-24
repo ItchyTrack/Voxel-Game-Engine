@@ -3,7 +3,7 @@ use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
 use voxel_data::grid::GridId;
 use tile_data::ChunkRegion;
-use voxel_sources::edit::{GridChunkGeneration, GridEditId};
+use voxel_sources::edit::{GridGeneration, GridEditId};
 
 #[derive(Event, Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) struct EditInterest {
@@ -31,7 +31,7 @@ impl MapEntities for EditStreamStart {
 pub(super) struct RemoteGridEdit {
 	pub grid: GridId,
 	pub grid_edit_id: GridEditId,
-	pub generation: GridChunkGeneration,
+	pub generation: GridGeneration,
 	pub edit: Box<[u8]>,
 }
 

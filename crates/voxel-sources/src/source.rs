@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use crossbeam_channel::Sender;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
@@ -5,6 +7,7 @@ use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_tasks::CancellationToken;
 
 use crate::SourceResult;
+use crate::edit::GridGeneration;
 use crate::request::{RequestId, SourceResultData};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -25,7 +28,7 @@ impl SourceHandle {
 		grid: GridId,
 		region: NonZeroChunkRegion,
 		lod: u8,
-		generation: u64,
+		generation: GridGeneration,
 		voxels: Voxels,
 	) {
 		let _ = self.messages.send(SourceResult {
@@ -72,7 +75,7 @@ pub enum SourceCoverage {
 	All,
 }
 
-pub trait ChunkSource: Send + Sync {
+pub trait ChunkSource: Send + Sync + SourceToAny {
 	fn init(&self, handle: SourceHandle);
 
 	fn request_voxels(
@@ -97,4 +100,14 @@ pub trait ChunkSource: Send + Sync {
 		grid: GridId,
 		region: NonZeroChunkRegion
 	);
+}
+
+pub trait SourceToAny: 'static {
+	fn as_any(&self) -> &dyn Any;
+	fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: 'static> SourceToAny for T {
+	fn as_any(&self) -> &dyn Any { self }
+	fn as_any_mut (&mut self) -> &mut dyn Any { self }
 }

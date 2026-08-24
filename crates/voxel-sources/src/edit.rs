@@ -52,7 +52,7 @@ impl GridEdit for RemoveArea {
 pub struct GridEditId(u64);
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct GridChunkGeneration(u64);
+pub struct GridGeneration(u64);
 
 impl GridEditId {
 	pub const fn get_next(self) -> GridEditId { GridEditId(self.0 + 1) }
@@ -63,8 +63,8 @@ impl GridEditId {
 #[derive(Default, Debug, Component)]
 pub struct GridEditIdManager {
 	current_edit_id: GridEditId,
-	current_chunk_generation: GridChunkGeneration,
-	// chunk_generations: SignedGridTree<U64Cell> // 95% sure I dont need this as generation invaidation
+	current_grid_generation: GridGeneration,
+	// grid_generations: SignedGridTree<U64Cell> // 95% sure I dont need this as generation invaidation
 												  // should happen when the generation of a region changes
 												  // due to a edit. Not by querying the region.
 }
@@ -74,47 +74,53 @@ impl GridEditIdManager {
 		self.current_edit_id
 	}
 
-	pub fn latest_generation(&self) -> GridChunkGeneration {
-		self.current_chunk_generation
+	pub fn latest_generation(&self) -> GridGeneration {
+		self.current_grid_generation
 	}
 
-	// pub fn latest_region_generation(&self, region: NonZeroChunkRegion) -> GridChunkGeneration {
+	// pub fn latest_region_generation(&self, region: NonZeroChunkRegion) -> GridGeneration {
 	// 	let mut max_gen: u64 = 0;
-	// 	self.chunk_generations.for_each_in_region(
+	// 	self.grid_generations.for_each_in_region(
 	// 		NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(),
 	// 		|_, _, chunk_gen| max_gen = max_gen.max(chunk_gen)
 	// 	);
-	// 	GridChunkGeneration(max_gen)
+	// 	GridGeneration(max_gen)
 	// }
 
 	// this function is called to update the generation of the region and to get the new GridEditId and ChunkGeneration
-	pub fn apply_edit(&mut self/*, grid_edit: &(impl GridEdit + ?Sized)*/) -> (GridEditId, GridChunkGeneration) {
+	pub fn apply_edit(&mut self/*, grid_edit: &(impl GridEdit + ?Sized)*/) -> (GridEditId, GridGeneration) {
 		// let region = chunks_covering_nonzero_voxel_region(grid_edit.affected_region());
-		self.current_chunk_generation.0 += 1;
-		// self.chunk_generations.add_area(NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(), self.current_chunk_generation.0);
+		self.current_grid_generation.0 += 1;
+		// self.grid_generations.add_area(NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(), self.current_grid_generation.0);
 		self.current_edit_id = self.current_edit_id.get_next();
-		(self.current_edit_id, self.current_chunk_generation)
+		(self.current_edit_id, self.current_grid_generation)
 	}
 }
 
 #[derive(Debug, Message)]
 pub struct GridEditMessage {
 	grid_id: GridId,
+	grid_generation: GridGeneration,
 	edit_id: GridEditId,
 	edit: Box<dyn GridEdit>,
 }
 
 impl GridEditMessage {
-	pub fn new<T: GridEdit>(grid_id: GridId, grid_edit_id: GridEditId, grid_edit: T) -> Self {
+	pub fn new<T: GridEdit>(grid_id: GridId, grid_generation: GridGeneration, grid_edit_id: GridEditId, grid_edit: T) -> Self {
 		Self {
 			grid_id,
 			edit_id: grid_edit_id,
+			grid_generation: grid_generation,
 			edit: Box::new(grid_edit),
 		}
 	}
 
 	pub fn grid_id(&self) -> GridId {
 		self.grid_id
+	}
+
+	pub fn grid_generation(&self) -> GridGeneration {
+		self.grid_generation
 	}
 
 	pub fn edit_id(&self) -> GridEditId {

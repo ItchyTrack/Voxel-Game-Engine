@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 use voxel_sources::RequestId;
 
 use tile_data::NonZeroChunkRegion;
-use voxel_sources::edit::GridChunkGeneration;
+use voxel_sources::edit::GridGeneration;
 use crate::tile_building::TileBuildingCancellationToken;
 use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
@@ -19,7 +19,7 @@ pub(crate) struct TileState {
 
 #[derive(Debug)]
 pub(crate) enum TileStatus {
-	InFlight { generation: GridChunkGeneration, cancellation: TileBuildingCancellationToken },
+	InFlight { generation: GridGeneration, cancellation: TileBuildingCancellationToken },
 	Loaded,
 	// Dirty, // for now when a tile is dirty we just rerequest it.
 }

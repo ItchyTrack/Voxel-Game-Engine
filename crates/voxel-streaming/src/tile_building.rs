@@ -8,13 +8,13 @@ use tile_data::{
 	VoxelRegionRequest, VoxelRegionResult,
 };
 use voxel_data::grid::GridId;
-use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridChunkGeneration};
+use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridGeneration};
 use voxel_tasks::CancellationToken;
 
 use crate::{GridStreaming, tile_dependency_index::TileDependency};
 
 enum VoxelLoadEvent {
-	Result { result: VoxelRegionResult, generation: u64 },
+	Result { result: VoxelRegionResult, generation: GridGeneration },
 	Loaded,
 	Cancelled,
 }
@@ -133,7 +133,7 @@ impl TileBuildingCancellationToken {
 pub(crate) struct TileBuildingResult {
 	pub(crate) grid: GridId,
 	pub(crate) tile_key: TileKey,
-	pub(crate) generation: GridChunkGeneration, // The lowest read result generation
+	pub(crate) generation: GridGeneration, // The lowest read result generation
 	pub(crate) context: TileBuildingParameters,
 	pub(crate) data: Option<Box<dyn TileData>>,
 }

@@ -3,7 +3,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileBuilderRegistry, TileBuildingParameters, TileKey};
 use voxel_data::grid::GridId;
 use bevy::ecs::system::SystemParam;
-use voxel_sources::edit::{GridChunkGeneration, GridEditIdManager};
+use voxel_sources::edit::{GridGeneration, GridEditIdManager};
 use voxel_tasks::CancellationToken;
 
 use crate::{GridStreaming, streaming::{TileState, TileStatus}, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingResult, TileVoxelSourceBridge, session}};
@@ -145,7 +145,7 @@ impl<'w, 's> TileRequester<'w, 's> {
 		results: &TileBuildingChannel,
 		grid: GridId,
 		tile_key: TileKey,
-		generation: GridChunkGeneration,
+		generation: GridGeneration,
 		context: Option<&TileBuildingParameters>,
 	) -> TileBuildingCancellationToken {
 		let context = context.map_or_default(|context| context.clone());

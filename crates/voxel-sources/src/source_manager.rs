@@ -107,8 +107,27 @@ impl SourceManager {
 	}
 
 	pub(crate) fn add_source<S: ChunkSource + 'static>(&mut self, source: S) {
+		assert!(self.get_source::<S>().is_none()); // only allow one of each source type. 2 of the same type should just both use the same source...
 		source.init(SourceHandle { id: SourceId(self.sources.len()), messages: self.source_result_sender.clone() });
 		self.sources.push(Box::new(source));
+	}
+
+	pub fn get_source<S: ChunkSource + 'static>(&self) -> Option<&S> {
+		for source in &self.sources {
+			if let Some(source) = source.as_any().downcast_ref::<S>() {
+				return Some(source);
+			}
+		};
+		None
+	}
+
+	pub fn get_source_mut<S: ChunkSource + 'static>(&mut self) -> Option<&mut S> {
+		for source in &mut self.sources {
+			if let Some(source) = source.as_any_mut().downcast_mut::<S>() {
+				return Some(source);
+			}
+		};
+		None
 	}
 }
 
