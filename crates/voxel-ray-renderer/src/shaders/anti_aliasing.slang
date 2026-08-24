@@ -280,7 +280,13 @@ float4 anti_aliased_voxel_color(uint2 texture_pos, uint2 texture_size) {
 		}
 	}
 	if (ray_hit_count != 0u) {
-		return float4(accumulated_color / float(ray_hit_count), 1.0);
+		float alpha_value;
+		if (top_left_corner_valid && top_right_corner_valid && bottom_left_corner_valid && bottom_right_corner_valid) {
+			alpha_value = 1.0;
+		} else {
+			alpha_value = float(ray_hit_count) / 16.0;
+		}
+		return float4(accumulated_color / float(ray_hit_count), alpha_value);
 	}
 
 	float3 fallback_color = float3(0.0);
@@ -301,5 +307,8 @@ float4 anti_aliased_voxel_color(uint2 texture_pos, uint2 texture_size) {
 		fallback_color += color_voxel_surface(bottom_right, bottom_right.surface_pos, voxel_contribution_world_normal(bottom_right));
 		valid_corner_count++;
 	}
-	return float4(fallback_color / float(valid_corner_count), 1.0);
+	if (valid_corner_count != 4) {
+		return float4(0.0);
+	}
+	return float4(fallback_color / 4.0, 1.0);
 }
