@@ -153,7 +153,7 @@ pub fn receive_tile_results(world: &mut World) {
 			.and_then(|streaming| streaming.tiles.get(&key))
 			.is_some_and(|tile_state| matches!(
 				&tile_state.status,
-				TileStatus::InFlight { attempt_id, .. } if *attempt_id == result.attempt_id
+				TileStatus::InFlight { generation, .. } if *generation <= result.generation
 			));
 		if !accepted { continue; }
 

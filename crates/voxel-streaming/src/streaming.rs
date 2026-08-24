@@ -17,12 +17,9 @@ pub(crate) struct TileState {
 	pub(crate) entity: Option<Entity>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TileAttemptId(pub(crate) u64);
-
 #[derive(Debug)]
 pub(crate) enum TileStatus {
-	InFlight { attempt_id: TileAttemptId, generation: GridGeneration, cancellation: TileBuildingCancellationToken },
+	InFlight { generation: GridGeneration, cancellation: TileBuildingCancellationToken },
 	Loaded,
 	// Dirty, // for now when a tile is dirty we just rerequest it.
 }

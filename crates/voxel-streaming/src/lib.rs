@@ -82,7 +82,6 @@ impl Plugin for VoxelStreamingPlugin {
 			.add_message::<TileLoadUpdate>()
 			.init_resource::<systems::PendingTileUpdates>()
 			.init_resource::<tile_requester::PendingTileDespawns>()
-			.init_resource::<tile_requester::TileAttemptIds>()
 			.init_resource::<tile_building::TileBuildingChannel>()
 			.init_resource::<tile_building::TileVoxelSourceBridge>()
 			.add_systems(

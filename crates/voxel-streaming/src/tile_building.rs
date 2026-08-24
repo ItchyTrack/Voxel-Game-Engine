@@ -138,7 +138,6 @@ impl TileBuildingCancellationToken {
 pub(crate) struct TileBuildingResult {
 	pub(crate) grid: GridId,
 	pub(crate) tile_key: TileKey,
-	pub(crate) attempt_id: TileAttemptId,
 	pub(crate) generation: GridGeneration,
 	pub(crate) context: TileBuildingParameters,
 	pub(crate) data: Option<Box<dyn TileData>>,

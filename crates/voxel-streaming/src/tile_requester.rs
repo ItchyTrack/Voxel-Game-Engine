@@ -5,7 +5,7 @@ use voxel_data::grid::GridId;
 use voxel_sources::edit::{GridEditIdManager, GridGeneration};
 use voxel_tasks::CancellationToken;
 
-use crate::{GridStreaming, streaming::{TileAttemptId, TileState, TileStatus}, systems::PendingTileUpdates, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingResult, TileVoxelSourceBridge, session}};
+use crate::{GridStreaming, streaming::{TileState, TileStatus}, systems::PendingTileUpdates, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingResult, TileVoxelSourceBridge, session}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TileLoadStatus {
@@ -22,17 +22,6 @@ pub struct TileLoadUpdate {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct TileAttemptIds(u64);
-
-impl TileAttemptIds {
-	fn next(&mut self) -> TileAttemptId {
-		let attempt = TileAttemptId(self.0);
-		self.0 = self.0.checked_add(1).expect("tile attempt ID space exhausted");
-		attempt
-	}
-}
-
-#[derive(Resource, Default)]
 pub(crate) struct PendingTileDespawns(pub(crate) Vec<Entity>);
 
 #[derive(SystemParam)]
@@ -40,7 +29,6 @@ pub struct TileRequester<'w, 's> {
 	bridge: Res<'w, TileVoxelSourceBridge>,
 	builders: Res<'w, TileBuilderRegistry>,
 	results: Res<'w, TileBuildingChannel>,
-	attempt_ids: ResMut<'w, TileAttemptIds>,
 	updates: ResMut<'w, PendingTileUpdates>,
 	despawns: ResMut<'w, PendingTileDespawns>,
 	grids: Query<'w, 's, (&'static mut GridStreaming, &'static GridEditIdManager)>,
@@ -73,12 +61,11 @@ impl<'w, 's> TileRequester<'w, 's> {
 		}
 
 		let generation = edit_id_manager.latest_generation();
-		let attempt_id = self.attempt_ids.next();
-		let cancellation = Self::spawn(&self.bridge, &self.builders, &self.results, grid, tile_key, attempt_id, generation, context);
+		let cancellation = Self::spawn(&self.bridge, &self.builders, &self.results, grid, tile_key, generation, context);
 		streaming.retain_edit_interest_region(tile_key.region.into());
 		streaming.tiles.insert(tile_key, TileState {
 			requesters: FxHashMap::from_iter([(requester, priority)]),
-			status: TileStatus::InFlight { attempt_id, generation, cancellation },
+			status: TileStatus::InFlight { generation, cancellation },
 			entity: None,
 		});
 		true
@@ -106,7 +93,6 @@ impl<'w, 's> TileRequester<'w, 's> {
 		let tile_keys: FxHashSet<TileKey> = regions.into_iter().flat_map(|region| streaming.tile_dependencies.tiles_using_region(region)).collect();
 		for tile_key in tile_keys {
 			let Some(state) = streaming.tiles.get_mut(&tile_key) else { continue };
-			let attempt_id = self.attempt_ids.next();
 			Self::dirty_tile_inner(
 				&self.bridge,
 				&self.builders,
@@ -115,7 +101,6 @@ impl<'w, 's> TileRequester<'w, 's> {
 				edit_id_manager,
 				grid,
 				tile_key,
-				attempt_id,
 				context,
 			);
 		}
@@ -126,7 +111,6 @@ impl<'w, 's> TileRequester<'w, 's> {
 		let streaming = &mut *streaming;
 		for (tile_key, state) in &mut streaming.tiles {
 			streaming.tile_dependencies.remove(*tile_key);
-			let attempt_id = self.attempt_ids.next();
 			Self::dirty_tile_inner(
 				&self.bridge,
 				&self.builders,
@@ -135,7 +119,6 @@ impl<'w, 's> TileRequester<'w, 's> {
 				edit_id_manager,
 				grid,
 				*tile_key,
-				attempt_id,
 				context,
 			);
 		}
@@ -149,15 +132,13 @@ impl<'w, 's> TileRequester<'w, 's> {
 		edit_id_manager: &GridEditIdManager,
 		grid: GridId,
 		tile_key: TileKey,
-		attempt_id: TileAttemptId,
 		context: Option<&TileBuildingParameters>,
 	) {
 		assert!(!state.requesters.is_empty());
 		let generation = edit_id_manager.latest_generation();
 		let old_status = std::mem::replace(&mut state.status, TileStatus::InFlight {
-			attempt_id,
 			generation,
-			cancellation: Self::spawn(bridge, builders, results, grid, tile_key, attempt_id, generation, context),
+			cancellation: Self::spawn(bridge, builders, results, grid, tile_key, generation, context),
 		});
 		if let TileStatus::InFlight { cancellation, .. } = old_status { cancellation.cancel(); }
 	}
@@ -168,7 +149,6 @@ impl<'w, 's> TileRequester<'w, 's> {
 		results: &TileBuildingChannel,
 		grid: GridId,
 		tile_key: TileKey,
-		attempt_id: TileAttemptId,
 		generation: GridGeneration,
 		context: Option<&TileBuildingParameters>,
 	) -> TileBuildingCancellationToken {
@@ -181,7 +161,7 @@ impl<'w, 's> TileRequester<'w, 's> {
 		AsyncComputeTaskPool::get().spawn(async move {
 			let data = builder.build(session).await;
 			if task_cancellation.is_cancelled() { return; }
-			let _ = result_tx.send(TileBuildingResult { grid, tile_key, attempt_id, generation, context, data });
+			let _ = result_tx.send(TileBuildingResult { grid, tile_key, generation, context, data });
 		}.instrument(bevy::log::info_span!("build tile"))).detach();
 		cancellation_token
 	}
