@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bevy::log::warn;
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerId, PeerMetadata, RemoteEvent};
@@ -8,7 +7,7 @@ use voxel_data::grid::GridId;
 use tile_data::{ChunkRegion, chunks_covering_nonzero_voxel_region};
 use voxel_sources::edit::GridEditMessage;
 
-use super::{EditInterest, EditStreamStart, RemoteGridEdit, WireGridEdit};
+use super::{EditInterest, EditStreamStart, RemoteGridEdit};
 use crate::chunks::ServerToClientChannel;
 
 type Area = ChunkRegion;
@@ -70,10 +69,6 @@ pub(super) fn flush_edits(
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
 	for event in edits.read() {
-		let Some(edit) = WireGridEdit::from_edit(&event.edit()) else {
-			warn!(grid=?&event.grid_id(), generation=event.generation, "cannot replicate non-serializable voxel edit");
-			continue;
-		};
 		let affected_region = chunks_covering_nonzero_voxel_region(event.edit().affected_region());
 		for (&peer, grids) in &mut subscriptions.clients {
 			let Some(subscription) = grids.get_mut(&event.grid_id()) else { continue };
@@ -82,11 +77,10 @@ pub(super) fn flush_edits(
 			let Some(&entity) = peer_metadata.mapping.get(&peer) else { continue };
 			let Ok(mut sender) = senders.get_mut(entity) else { continue };
 			sender.trigger::<ServerToClientChannel>(RemoteGridEdit {
-				grid: event.grid,
-				region: event.region,
+				grid: event.grid_id(),
 				stream_sequence: subscription.next_stream_sequence,
 				generation: event.generation,
-				edit: edit.clone(),
+				edit: postcard::to_vec(event.edit()).expect("This should work...").as_slice().into(),
 			});
 		}
 	}

@@ -5,7 +5,7 @@ mod client;
 mod messages;
 mod server;
 
-use messages::{EditInterest, EditStreamStart, RemoteGridEdit, WireGridEdit};
+use messages::{EditInterest, EditStreamStart, RemoteGridEdit};
 pub(crate) use server::EditSubscriptions;
 
 pub(super) struct EditStreamPlugin {

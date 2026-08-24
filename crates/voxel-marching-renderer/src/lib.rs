@@ -18,7 +18,7 @@ use bevy::render::{
 	render_phase::AddRenderCommand,
 };
 use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
-use voxel_gpu::{RenderingBuilderBuilderAppExt, RenderingType, SlangShader, SlangShaderSettings};
+use voxel_gpu::{RenderingBuilderAppExt, RenderingType, SlangShader, SlangShaderSettings};
 
 #[derive(Component)]
 pub struct MarchingShader;

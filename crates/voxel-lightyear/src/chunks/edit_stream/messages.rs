@@ -2,31 +2,8 @@ use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
 use voxel_data::grid::GridId;
-use voxel_data::region::NonZeroVoxelRegion;
-use voxel_data::voxels::Voxel;
-use tile_data::{ChunkRegion, NonZeroChunkRegion};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) enum WireGridEdit {
-	AddArea { region: NonZeroVoxelRegion, voxel: Voxel },
-	RemoveArea { region: NonZeroVoxelRegion },
-}
-
-impl WireGridEdit {
-	pub(super) fn from_edit(edit: &ResolvedGridEdit) -> Option<Self> {
-		match edit {
-			ResolvedGridEdit::AddArea { region, voxel } => Some(Self::AddArea { region: *region, voxel: voxel.clone() }),
-			ResolvedGridEdit::RemoveArea { region } => Some(Self::RemoveArea { region: *region }),
-		}
-	}
-
-	pub(super) fn into_edit(self) -> ResolvedGridEdit {
-		match self {
-			Self::AddArea { region, voxel } => ResolvedGridEdit::AddArea { region, voxel },
-			Self::RemoveArea { region } => ResolvedGridEdit::RemoveArea { region },
-		}
-	}
-}
+use tile_data::ChunkRegion;
+use voxel_sources::edit::{GridChunkGeneration, GridEditId};
 
 #[derive(Event, Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) struct EditInterest {
@@ -53,10 +30,9 @@ impl MapEntities for EditStreamStart {
 #[derive(Event, Clone, Debug, Serialize, Deserialize)]
 pub(super) struct RemoteGridEdit {
 	pub grid: GridId,
-	pub region: NonZeroChunkRegion,
-	pub stream_sequence: u64,
-	pub generation: u64,
-	pub edit: WireGridEdit,
+	pub grid_edit_id: GridEditId,
+	pub generation: GridChunkGeneration,
+	pub edit: Box<[u8]>,
 }
 
 impl MapEntities for RemoteGridEdit {

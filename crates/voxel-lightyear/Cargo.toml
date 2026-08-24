@@ -9,9 +9,10 @@ tracy = ["tracy-client/enable"]
 
 [dependencies]
 bevy = { workspace = true }
-lightyear = "0.28.0"
 serde = { version = "1", features = ["derive"] }
 tracy-client = { workspace = true }
+lightyear = "0.28.0"
+postcard = "1.1"
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-sources = { version = "0.1.0", path = "../voxel-sources" }

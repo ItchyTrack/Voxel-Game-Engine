@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
 
-use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 use lightyear::prelude::{Client, EventSender, RemoteEvent};
 use voxel_data::grid::GridId;
