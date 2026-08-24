@@ -5,9 +5,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use tile_data::{NonZeroChunkRegion, TileBuilderRegistry, TileBuildingParameters, TileKey};
 use voxel_data::grid::GridId;
 use bevy::ecs::system::SystemParam;
+use voxel_sources::edit::{GridChunkGeneration, GridEditIdManager};
 use voxel_tasks::CancellationToken;
 
-use crate::{GridStreaming, streaming::{TileState, TileStatus}, tile_building::{TileBuildingChannel, TileBuildingMetadata, TileBuildingResult, TileVoxelSourceBridge, session}};
+use crate::{GridStreaming, streaming::{TileState, TileStatus}, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingMetadata, TileBuildingResult, TileVoxelSourceBridge, session}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TileLoadStatus {
@@ -28,7 +29,7 @@ pub(crate) struct TileRequester<'w, 's> {
 	bridge: Res<'w, TileVoxelSourceBridge>,
 	builders: Res<'w, TileBuilderRegistry>,
 	results: Res<'w, TileBuildingChannel>,
-	grids: Query<'w, 's, &'static mut GridStreaming>,
+	grids: Query<'w, 's, (&'static mut GridStreaming, &'static GridEditIdManager)>,
 }
 
 impl<'w, 's> TileRequester<'w, 's> {
@@ -41,85 +42,107 @@ impl<'w, 's> TileRequester<'w, 's> {
 		context: Option<&TileBuildingParameters>,
 	) -> bool {
 		if !crate::streaming::valid_tile_key(key) { return false; }
-		let Ok(mut streaming) = self.grids.get_mut(grid) else { return false; };
-		let state = streaming.tiles.entry(key).or_insert_with(|| {
+		let Ok((mut streaming, edit_id_manager)) = self.grids.get_mut(grid) else { return false; };
+		let mut tiles = std::mem::take(&mut streaming.tiles);
+		let state = tiles.entry(key).or_insert_with(|| {
 			streaming.retain_edit_interest_region(key.region.into());
 			TileState {
 				requesters: FxHashMap::default(),
-				status: Self::spawn(&self.bridge, &self.builders, &self.results, &mut streaming, grid, key, context),
-				active: None,
+				status: TileStatus::InFlight {
+					generation: edit_id_manager.latest_generation(),
+					cancellation: Self::spawn(&self.bridge, &self.builders, &self.results, grid, key, edit_id_manager.latest_generation(), context),
+				},
+				entity: None,
 			}
 		});
 		state.requesters.insert(requester, priority);
+		streaming.tiles = tiles;
 		true
 	}
 
-	pub(crate) fn dirty_stale_tiles(&mut self, grid: GridId, region: NonZeroChunkRegion, generation: u64, context: Option<&TileBuildingParameters>) {
-		let Ok(mut streaming) = self.grids.get_mut(grid) else { return };
-		let keys: FxHashSet<_> = streaming.tile_dependencies.stale_tiles(region, generation).collect();
-		for key in keys {
+	pub(crate) fn dirty_stale_tiles(&mut self, grid: GridId, regions: impl IntoIterator<Item = NonZeroChunkRegion>, context: Option<&TileBuildingParameters>) {
+		let Ok((mut streaming, edit_id_manager)) = self.grids.get_mut(grid) else { return };
+		let tile_keys: FxHashSet<TileKey> = regions.into_iter().map(|region| streaming.tile_dependencies.tiles_using_region(region)).flatten().collect();
+		for tile_key in tile_keys {
+			let Some(state) = streaming.tiles.get_mut(&tile_key) else { return };
 			Self::dirty_tile_inner(
 				&self.bridge,
 				&self.builders,
 				&self.results,
-				&mut streaming,
+				state,
+				&edit_id_manager,
 				grid,
-				key,
+				tile_key,
 				context
 			);
 		}
 	}
 
 	pub(crate) fn invalidate_building_context(&mut self, grid: GridId, context: Option<&TileBuildingParameters>) {
-		let Ok(mut streaming) = self.grids.get_mut(grid) else { return };
-		let keys: Vec<_> = streaming.tiles.keys().copied().collect();
-		for key in keys {
+		let Ok((mut streaming, edit_id_manager)) = self.grids.get_mut(grid) else { return };
+		for (tile_key, state) in &mut streaming.tiles {
 			Self::dirty_tile_inner(
 				&self.bridge,
 				&self.builders,
 				&self.results,
-				&mut streaming,
+				state,
+				&edit_id_manager,
 				grid,
-				key,
+				*tile_key,
 				context
 			);
 		}
+	}
+
+	pub(crate) fn dirty_tile(&mut self, grid: GridId, context: Option<&TileBuildingParameters>, tile_key: TileKey) {
+		let Ok((mut streaming, edit_id_manager)) = self.grids.get_mut(grid) else { return };
+		let Some(state) = streaming.tiles.get_mut(&tile_key) else { return };
+		Self::dirty_tile_inner(
+			&self.bridge,
+			&self.builders,
+			&self.results,
+			state,
+			&edit_id_manager,
+			grid,
+			tile_key,
+			context
+		);
 	}
 
 	fn dirty_tile_inner(
 		bridge: &TileVoxelSourceBridge,
 		builders: &TileBuilderRegistry,
 		results: &TileBuildingChannel,
-		streaming: &mut GridStreaming,
+		state: &mut TileState,
+		edit_id_manager: &GridEditIdManager,
 		grid: GridId,
-		key: TileKey,
+		tile_key: TileKey,
 		context: Option<&TileBuildingParameters>
 	) {
-		let Some(state) = streaming.tiles.get_mut(&key) else { return };
-		if state.requesters.is_empty() { return; }
-		if let TileStatus::InFlight { tag, cancellation } = std::mem::replace(&mut state.status, TileStatus::Dirty) {
-			streaming.inflight_tiles_by_tag.remove(&tag);
+		assert!(!state.requesters.is_empty());
+		let old_status = std::mem::replace(&mut state.status, TileStatus::InFlight {
+			generation: edit_id_manager.latest_generation(),
+			cancellation: Self::spawn(bridge, builders, results, grid, tile_key, edit_id_manager.latest_generation(), context)
+		});
+		if let TileStatus::InFlight { generation: _, cancellation } = old_status {
 			cancellation.cancel();
 		}
-		Self::spawn(bridge, builders, results, streaming, grid, key, context);
 	}
 
 	fn spawn(
 		bridge: &TileVoxelSourceBridge,
 		builders: &TileBuilderRegistry,
 		results: &TileBuildingChannel,
-		streaming: &mut GridStreaming,
 		grid: GridId,
-		key: TileKey,
+		tile_key: TileKey,
+		generation: GridChunkGeneration,
 		context: Option<&TileBuildingParameters>,
-	) -> TileStatus {
-		streaming.next_tile_tag += 1;
-		let tag = streaming.next_tile_tag;
+	) -> TileBuildingCancellationToken {
 		let context = context.map_or_default(|context| context.clone());
-		let builder = builders.builder(key.class);
+		let builder = builders.builder(tile_key.class);
 		let cancellation = CancellationToken::new();
 		let metadata = Arc::new(Mutex::new(TileBuildingMetadata::default()));
-		let (session, generation_cancellation) = session(grid, key, context.clone(), bridge.sender(), cancellation.clone(), metadata.clone());
+		let (session, cancellation_token) = session(grid, tile_key, context.clone(), bridge.sender(), cancellation.clone(), metadata.clone());
 		let result_tx = results.sender();
 		let task_cancellation = cancellation.clone();
 		AsyncComputeTaskPool::get().spawn(async move {
@@ -128,9 +151,8 @@ impl<'w, 's> TileRequester<'w, 's> {
 			let mut metadata = metadata.lock().unwrap();
 			let dependencies = std::mem::take(&mut metadata.dependencies);
 			drop(metadata);
-			let _ = result_tx.send(TileBuildingResult { grid, tag, context, dependencies, data });
+			let _ = result_tx.send(TileBuildingResult { grid, tile_key, generation, context, dependencies, data });
 		}.instrument(bevy::log::info_span!("build tile"))).detach();
-		streaming.inflight_tiles_by_tag.insert(tag, key);
-		TileStatus::InFlight { tag, cancellation: generation_cancellation }
+		cancellation_token
 	}
 }

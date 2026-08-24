@@ -6,7 +6,8 @@ use voxel_sources::RequestId;
 use voxel_data::grid_tree::NonZeroVoxelRegion;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use crate::tile_building::TileBuildingCancellation;
+use voxel_sources::edit::GridChunkGeneration;
+use crate::tile_building::TileBuildingCancellationToken;
 use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
 use crate::{ChunkRegion, TileKey};
@@ -17,15 +18,14 @@ const CLEAR_DELAY_FRAMES: u8 = 20;
 pub(crate) struct TileState {
 	pub(crate) requesters: FxHashMap<Entity, f32>,
 	pub(crate) status: TileStatus,
-	pub(crate) active: Option<Entity>,
+	pub(crate) entity: Option<Entity>,
 }
 
 #[derive(Debug)]
 pub(crate) enum TileStatus {
-	InFlight { tag: u64, cancellation: TileBuildingCancellation },
+	InFlight { generation: GridChunkGeneration, cancellation: TileBuildingCancellationToken },
 	Loaded,
-	Dirty,
-	Empty,
+	// Dirty, // for now when a tile is dirty we just rerequest it.
 }
 
 #[derive(Component, Default)]
@@ -33,8 +33,6 @@ pub struct GridStreaming {
 	presence: ChunkPresence,
 	pub(crate) tiles: FxHashMap<TileKey, TileState>,
 	pub(crate) tile_dependencies: TileDependencyIndex,
-	pub(crate) inflight_tiles_by_tag: FxHashMap<u64, TileKey>,
-	pub(crate) next_tile_tag: u64,
 	edit_interest_counts: FxHashMap<IVec3, u32>,
 	edit_interest_version: u64,
 	queued_edit_interest: FxHashMap<IVec3, (u64, bool)>,

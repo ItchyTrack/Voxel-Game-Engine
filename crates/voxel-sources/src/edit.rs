@@ -1,9 +1,6 @@
 use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
-use tile_data::{NonZeroChunkRegion, chunks_covering_nonzero_voxel_region};
-use voxel_data::{
-	grid::GridId, region::NonZeroVoxelRegion, signed_grid_tree::SignedGridTree, grid_tree::U64Cell, voxels::{Voxel, Voxels},
-};
+use voxel_data::{grid::GridId, region::NonZeroVoxelRegion, voxels::{Voxel, Voxels}};
 
 #[typetag::serde(tag = "type")]
 pub trait GridEdit: std::fmt::Debug + Send + Sync + 'static {
@@ -67,7 +64,9 @@ impl GridEditId {
 pub struct GridEditIdManager {
 	current_edit_id: GridEditId,
 	current_chunk_generation: GridChunkGeneration,
-	chunk_generations: SignedGridTree<U64Cell>
+	// chunk_generations: SignedGridTree<U64Cell> // 95% sure I dont need this as generation invaidation
+												  // should happen when the generation of a region changes
+												  // due to a edit. Not by querying the region.
 }
 
 impl GridEditIdManager {
@@ -75,20 +74,24 @@ impl GridEditIdManager {
 		self.current_edit_id
 	}
 
-	pub fn latest_region_generation(&self, region: NonZeroChunkRegion) -> GridChunkGeneration {
-		let mut max_gen: u64 = 0;
-		self.chunk_generations.for_each_in_region(
-			NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(),
-			|_, _, chunk_gen| max_gen = max_gen.max(chunk_gen)
-		);
-		GridChunkGeneration(max_gen)
+	pub fn latest_generation(&self) -> GridChunkGeneration {
+		self.current_chunk_generation
 	}
 
+	// pub fn latest_region_generation(&self, region: NonZeroChunkRegion) -> GridChunkGeneration {
+	// 	let mut max_gen: u64 = 0;
+	// 	self.chunk_generations.for_each_in_region(
+	// 		NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(),
+	// 		|_, _, chunk_gen| max_gen = max_gen.max(chunk_gen)
+	// 	);
+	// 	GridChunkGeneration(max_gen)
+	// }
+
 	// this function is called to update the generation of the region and to get the new GridEditId and ChunkGeneration
-	pub fn apply_edit(&mut self, grid_edit: &(impl GridEdit + ?Sized)) -> (GridEditId, GridChunkGeneration) {
-		let region = chunks_covering_nonzero_voxel_region(grid_edit.affected_region());
+	pub fn apply_edit(&mut self/*, grid_edit: &(impl GridEdit + ?Sized)*/) -> (GridEditId, GridChunkGeneration) {
+		// let region = chunks_covering_nonzero_voxel_region(grid_edit.affected_region());
 		self.current_chunk_generation.0 += 1;
-		self.chunk_generations.add_area(NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(), self.current_chunk_generation.0);
+		// self.chunk_generations.add_area(NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(), self.current_chunk_generation.0);
 		self.current_edit_id = self.current_edit_id.get_next();
 		(self.current_edit_id, self.current_chunk_generation)
 	}

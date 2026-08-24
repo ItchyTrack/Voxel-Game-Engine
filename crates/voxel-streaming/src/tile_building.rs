@@ -8,7 +8,7 @@ use tile_data::{
 	VoxelRegionRequest, VoxelRegionResult,
 };
 use voxel_data::grid::GridId;
-use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData};
+use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridChunkGeneration};
 use voxel_tasks::CancellationToken;
 
 use crate::tile_dependency_index::TileDependency;
@@ -111,11 +111,11 @@ impl TileBuildingVoxelReader for StreamingVoxelReader {
 						return None;
 					}
 					VoxelLoadEvent::Loaded => self.outstanding -= 1,
-					VoxelLoadEvent::Result { result, generation } => {
-						self.metadata.lock().unwrap().dependencies.insert(TileDependency {
-							region: result.area,
-							generation,
-						});
+					VoxelLoadEvent::Result { result, generation: _ } => {
+						// self.metadata.lock().unwrap().dependencies.insert(TileDependency {
+						// 	region: result.area,
+						// 	generation,
+						// });
 						return Some(result);
 					}
 				}
@@ -126,12 +126,12 @@ impl TileBuildingVoxelReader for StreamingVoxelReader {
 }
 
 #[derive(Debug)]
-pub(crate) struct TileBuildingCancellation {
+pub(crate) struct TileBuildingCancellationToken {
 	token: CancellationToken,
 	wake: UnboundedSender<VoxelLoadEvent>,
 }
 
-impl TileBuildingCancellation {
+impl TileBuildingCancellationToken {
 	fn new(token: CancellationToken, wake: UnboundedSender<VoxelLoadEvent>) -> Self {
 		Self { token, wake }
 	}
@@ -144,7 +144,8 @@ impl TileBuildingCancellation {
 
 pub(crate) struct TileBuildingResult {
 	pub(crate) grid: GridId,
-	pub(crate) tag: u64,
+	pub(crate) tile_key: TileKey,
+	pub(crate) generation: GridChunkGeneration, // The lowest read result generation
 	pub(crate) context: TileBuildingParameters,
 	pub(crate) dependencies: HashSet<TileDependency>,
 	pub(crate) data: Option<Box<dyn TileData>>,
@@ -175,11 +176,11 @@ pub(crate) fn session(
 	requests: Sender<TileBuildingVoxelRequest>,
 	cancellation: CancellationToken,
 	metadata: Arc<Mutex<TileBuildingMetadata>>,
-) -> (TileBuildingSession, TileBuildingCancellation) {
+) -> (TileBuildingSession, TileBuildingCancellationToken) {
 	let (reader, wake) = StreamingVoxelReader::new(grid, requests, cancellation.clone(), metadata);
 	(
 		TileBuildingSession::new(grid, key, context, Box::new(reader)),
-		TileBuildingCancellation::new(cancellation, wake),
+		TileBuildingCancellationToken::new(cancellation, wake),
 	)
 }
 

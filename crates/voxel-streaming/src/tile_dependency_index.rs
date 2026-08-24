@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use rustc_hash::FxHashSet;
 use tile_data::{NonZeroChunkRegion, TileIndex, TileIndexKey};
 
 use crate::TileKey;
@@ -27,7 +28,7 @@ pub(crate) struct TileDependencyIndex {
 }
 
 impl TileDependencyIndex {
-	pub(crate) fn replace(&mut self, key: TileKey, dependencies: HashSet<TileDependency>) {
+	pub(crate) fn set(&mut self, key: TileKey, dependencies: HashSet<TileDependency>) {
 		self.remove(key);
 		let dependencies: Vec<_> = dependencies.into_iter().collect();
 		for dependency in &dependencies {
@@ -43,11 +44,9 @@ impl TileDependencyIndex {
 		}
 	}
 
-	pub(crate) fn stale_tiles(&self, region: NonZeroChunkRegion, generation: u64) -> impl Iterator<Item = TileKey> {
-		let mut stale = Vec::new();
-		self.index.for_each_overlapping(region, |dependency| {
-			if dependency.dependency.generation < generation { stale.push(dependency.tile); }
-		});
+	pub(crate) fn tiles_using_region(&self, region: NonZeroChunkRegion) -> impl Iterator<Item = TileKey> {
+		let mut stale = FxHashSet::default();
+		self.index.for_each_overlapping(region, |dependency| { stale.insert(dependency.tile); });
 		stale.into_iter()
 	}
 }
