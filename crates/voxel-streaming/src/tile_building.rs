@@ -84,7 +84,6 @@ impl TileBuildingVoxelReader for StreamingVoxelReader {
 	fn request_voxels(&mut self, tile_key: TileKey, request: VoxelRegionRequest) {
 		if self.cancellation.is_cancelled() { return; }
 		self.outstanding = self.outstanding.checked_add(1).expect("tile voxel request count overflow");
-		// self.dependencies.insert(TileDependency { region: request.area });
 		if self.requests.send(TileBuildingVoxelRequest {
 			request,
 			grid: self.grid,
