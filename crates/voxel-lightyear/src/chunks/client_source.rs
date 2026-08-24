@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
 use voxel_tasks::CancellationToken;
 
 use super::presence::ClientPresenceRegistry;
@@ -39,19 +39,24 @@ impl ChunkSource for ClientChunkSource {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.state.remote_grids.lock().unwrap().contains(&grid) {
 			return SourceCoverage::None;
 		}
-		let mut owned = 0_u32;
+		let mut accepted_chunks = HashSet::new();
 		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {
 				for x in region.min().x..region.end().x {
-					owned += (!self.state.forgotten.contains(grid, IVec3::new(x, y, z))) as u32;
+					let chunk = IVec3::new(x, y, z);
+					if !self.state.forgotten.contains(grid, chunk) {
+						accepted_chunks.insert(chunk);
+					}
 				}
 			}
 		}
-		if owned == 0 { return SourceCoverage::None; }
+		if accepted_chunks.is_empty() { return SourceCoverage::None; }
+		let coverage = if accepted_chunks.len() == region.area() as usize { SourceCoverage::All } else { SourceCoverage::Some };
 		self.state.loads.lock().unwrap().request_voxels(
 			request_id,
 			cancellation,
@@ -59,8 +64,10 @@ impl ChunkSource for ClientChunkSource {
 			region,
 			lod,
 			voxel_type,
+			generation,
+			accepted_chunks,
 		);
-		if owned == region.area() { SourceCoverage::All } else { SourceCoverage::Some }
+		coverage
 	}
 
 	fn request_presence(
@@ -77,14 +84,12 @@ impl ChunkSource for ClientChunkSource {
 		}
 	}
 
-	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					self.state.forgotten.forget(grid, IVec3::new(x, y, z));
-				}
-			}
-		}
+	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		self.state.forgotten.remember_area(grid, region);
+	}
+
+	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		self.state.forgotten.forget_area(grid, region);
 	}
 }
 

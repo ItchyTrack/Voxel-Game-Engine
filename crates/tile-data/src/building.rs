@@ -35,7 +35,7 @@ impl TileBuilderRegistry {
 pub struct VoxelRegionRequest {
 	pub area: NonZeroChunkRegion,
 	pub lod: u8,
-	pub voxel_type: VoxelTypeId,
+	pub voxel_type: Option<VoxelTypeId>,
 }
 
 #[derive(Debug)]
@@ -77,7 +77,7 @@ impl TileBuildingSession {
 		&mut self,
 		area: NonZeroChunkRegion,
 		lod: u8,
-		voxel_type: VoxelTypeId,
+		voxel_type: Option<VoxelTypeId>,
 	) {
 		self.reader.request_voxels(
 			self.key,

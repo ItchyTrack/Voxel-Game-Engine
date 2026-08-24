@@ -10,7 +10,7 @@ use voxel_physics::{IsStatic, RigidBody};
 use voxel_physics::components::VoxelCollider;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_data::grid::GridId;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::GridGeneration};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
 use voxel_streaming::GridStreaming;
@@ -205,6 +205,7 @@ impl ChunkSource for SphereSource {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.is_mine(grid) {
 			return SourceCoverage::None;
@@ -233,9 +234,9 @@ impl ChunkSource for SphereSource {
 			let _span = bevy::log::info_span!("SphereSource build").entered();
 			let voxels = build_region(region, &owned_chunks, lod, use_raw, &cancellation);
 			if !cancellation.is_cancelled() && let Some(voxels) = voxels {
-				handle.voxels(request_id, grid, region, lod, 0, voxels);
+				handle.voxels(request_id, grid, region, lod, generation, voxels);
 			}
-			handle.voxels_loaded(request_id);
+			handle.voxels_loaded(request_id, generation);
 		});
 		coverage
 	}
@@ -248,12 +249,14 @@ impl ChunkSource for SphereSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
 		if !self.is_mine(grid) { return; }
-		self.forgotten.forget_area_where(grid, region.into(), |chunk| {
-			let origin = chunk_origin(chunk).as_vec3();
-			region_intersects(origin, origin + Vec3::splat(CHUNK_SIZE as f32))
-		});
+		self.forgotten.remember_area(grid, region);
+	}
+
+	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		if !self.is_mine(grid) { return; }
+		self.forgotten.forget_area(grid, region);
 	}
 }
 

@@ -12,7 +12,7 @@ use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::GraphicsS
 use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
 use tile_data::CHUNK_SIZE;
-use voxel_streaming::{ChunkState, GridStreaming};
+use voxel_streaming::GridStreaming;
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
@@ -248,25 +248,17 @@ fn draw_box_edges<C: GizmoConfigGroup>(gizmos: &mut Gizmos<C>, gt: &GlobalTransf
 	}
 }
 
-fn chunk_state_color(state: ChunkState) -> Color {
-	match state {
-		ChunkState::Available => Color::srgb(0.2, 0.2, 0.2),
-		ChunkState::InFlight => Color::srgb(0.9, 0.9, 0.1),
-		ChunkState::Loaded => Color::srgb(0.1, 0.8, 0.1),
-		ChunkState::InternalDirty => Color::srgb(0.9, 0.9, 0.9),
-	}
-}
-
 fn draw_chunk_presence(
 	mut gizmos: Gizmos<ChunkGizmos>,
 	grids: Query<(&GlobalTransform, &GridStreaming)>,
 ) {
 	const INSET: f32 = 0.75;
+	let color = Color::srgb(0.1, 0.8, 0.1);
 	for (gt, streaming) in grids.iter() {
-		for (origin, size, state) in streaming.presence().iter_states() {
+		for (origin, size) in streaming.presence().iter_present() {
 			let lo = (origin * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
 			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
-			draw_box_edges(&mut gizmos, gt, lo, hi, chunk_state_color(state));
+			draw_box_edges(&mut gizmos, gt, lo, hi, color);
 		}
 	}
 }
@@ -283,9 +275,9 @@ fn draw_coverage(
 			let lo = (tile.region.min() * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
 			let hi = (tile.region.end() * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
 			let color = match tile.state {
-				CoverageDebugState::Pending => chunk_state_color(ChunkState::InFlight),
-				CoverageDebugState::Loaded => chunk_state_color(ChunkState::Loaded),
-				CoverageDebugState::Empty => chunk_state_color(ChunkState::Available),
+				CoverageDebugState::Pending => Color::srgb(0.9, 0.9, 0.1),
+				CoverageDebugState::Loaded => Color::srgb(0.1, 0.8, 0.1),
+				CoverageDebugState::Empty => Color::srgb(0.2, 0.2, 0.2),
 				CoverageDebugState::Waiting => Color::srgb(0.9, 0.1, 0.1),
 			};
 			draw_box_edges(&mut gizmos, gt, lo, hi, color);

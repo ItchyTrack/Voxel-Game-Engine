@@ -16,6 +16,7 @@ voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
 
 [dev-dependencies]
 dot_vox = "5.2.0"
+voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
 
 [lints]
 workspace = true

@@ -6,7 +6,7 @@ use lightyear::prelude::PeerId;
 use tile_data::NonZeroChunkRegion;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
-use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData};
+use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridGeneration};
 
 use super::super::{VoxelLoadComplete, VoxelLoadPayload, VoxelLoadRequest, VoxelRequestKey};
 use crate::chunks::request_id::NetworkRequestId;
@@ -17,12 +17,17 @@ struct VoxelLoadOwner {
 	id: NetworkRequestId,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct SourceVoxelRequestKey {
+	remote: VoxelRequestKey,
+	server_generation: GridGeneration,
+}
+
 #[derive(Clone)]
 struct VoxelPayload {
 	grid: GridId,
 	region: NonZeroChunkRegion,
 	lod: u8,
-	generation: u64,
 	voxels: CompressedVoxels,
 }
 
@@ -54,9 +59,9 @@ impl OutgoingVoxelMessage {
 
 #[derive(Resource, Default)]
 pub(crate) struct PendingVoxelLoads {
-	loads: HashMap<VoxelRequestKey, PendingVoxelLoad>,
-	keys_by_source_request: HashMap<RequestId, VoxelRequestKey>,
-	keys_by_owner: HashMap<VoxelLoadOwner, VoxelRequestKey>,
+	loads: HashMap<SourceVoxelRequestKey, PendingVoxelLoad>,
+	keys_by_source_request: HashMap<RequestId, SourceVoxelRequestKey>,
+	keys_by_owner: HashMap<VoxelLoadOwner, SourceVoxelRequestKey>,
 	cancelled: HashSet<VoxelLoadOwner>,
 	outgoing: VecDeque<OutgoingVoxelMessage>,
 }
@@ -66,20 +71,27 @@ impl PendingVoxelLoads {
 		&mut self,
 		peer: PeerId,
 		request: VoxelLoadRequest,
+		server_generation: GridGeneration,
 		sources: &mut SourceManager,
 	) {
 		let owner = VoxelLoadOwner { peer, id: request.id };
 		if self.cancelled.remove(&owner) { return; }
 		self.remove_owner(owner, sources);
 
-		let key = request.key;
+		let key = SourceVoxelRequestKey { remote: request.key, server_generation };
 		self.keys_by_owner.insert(owner, key);
 		if let Some(load) = self.loads.get_mut(&key) {
 			load.owners.insert(owner);
 			return;
 		}
 
-		let request_id = sources.request_voxels(key.grid, key.region, key.lod, key.voxel_type);
+		let request_id = sources.request_voxels(
+			key.remote.grid,
+			key.remote.region,
+			key.remote.lod,
+			key.remote.voxel_type,
+			key.server_generation,
+		);
 		self.keys_by_source_request.insert(request_id, key);
 		self.loads.insert(key, PendingVoxelLoad {
 			request_id,
@@ -103,7 +115,7 @@ impl PendingVoxelLoads {
 	pub(super) fn receive_source_result(&mut self, result: &SourceResult) {
 		let Some(&key) = self.keys_by_source_request.get(&result.request_id) else { return };
 		match &result.data {
-			SourceResultData::Voxels { grid, region, lod, generation, voxels } => {
+			SourceResultData::Voxels { grid, region, lod, voxels, .. } => {
 				let compressed = match CompressedVoxels::with_max_compression(voxels) {
 					Ok(compressed) => compressed,
 					Err(err) => {
@@ -116,11 +128,10 @@ impl PendingVoxelLoads {
 					grid: *grid,
 					region: *region,
 					lod: *lod,
-					generation: *generation,
 					voxels: compressed,
 				});
 			}
-			SourceResultData::VoxelsLoaded => self.complete(key),
+			SourceResultData::VoxelsLoaded { .. } => self.complete(key),
 			SourceResultData::Presence { .. } | SourceResultData::PresenceLoaded => {}
 		}
 	}
@@ -151,7 +162,7 @@ impl PendingVoxelLoads {
 		self.outgoing.push_back(message);
 	}
 
-	fn complete(&mut self, key: VoxelRequestKey) {
+	fn complete(&mut self, key: SourceVoxelRequestKey) {
 		let Some(load) = self.loads.remove(&key) else { return };
 		self.keys_by_source_request.remove(&load.request_id);
 		let Ok(sent_payload_count) = u32::try_from(load.payloads.len()) else {
@@ -171,7 +182,7 @@ impl PendingVoxelLoads {
 						grid: payload.grid,
 						region: payload.region,
 						lod: payload.lod,
-						generation: payload.generation,
+						generation: key.remote.generation,
 						voxels: payload.voxels.clone(),
 					},
 				});

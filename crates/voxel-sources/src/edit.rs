@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
 use voxel_data::{grid::GridId, region::NonZeroVoxelRegion, voxels::{Voxel, Voxels}};
@@ -15,9 +17,17 @@ pub struct AddArea {
 	voxel: Voxel,
 }
 
+impl AddArea {
+	pub fn new(region: NonZeroVoxelRegion, voxel: Voxel) -> Self { Self { region, voxel } }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RemoveArea {
 	region: NonZeroVoxelRegion,
+}
+
+impl RemoveArea {
+	pub fn new(region: NonZeroVoxelRegion) -> Self { Self { region } }
 }
 
 #[typetag::serde]
@@ -48,10 +58,10 @@ impl GridEdit for RemoveArea {
 	}
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GridEditId(u64);
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct GridGeneration(u64);
 
 impl GridEditId {
@@ -64,34 +74,15 @@ impl GridEditId {
 pub struct GridEditIdManager {
 	current_edit_id: GridEditId,
 	current_grid_generation: GridGeneration,
-	// grid_generations: SignedGridTree<U64Cell> // 95% sure I dont need this as generation invaidation
-												  // should happen when the generation of a region changes
-												  // due to a edit. Not by querying the region.
 }
 
 impl GridEditIdManager {
-	pub fn current_id(&self) -> GridEditId {
-		self.current_edit_id
-	}
+	pub fn current_id(&self) -> GridEditId { self.current_edit_id }
 
-	pub fn latest_generation(&self) -> GridGeneration {
-		self.current_grid_generation
-	}
+	pub fn latest_generation(&self) -> GridGeneration { self.current_grid_generation }
 
-	// pub fn latest_region_generation(&self, region: NonZeroChunkRegion) -> GridGeneration {
-	// 	let mut max_gen: u64 = 0;
-	// 	self.grid_generations.for_each_in_region(
-	// 		NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(),
-	// 		|_, _, chunk_gen| max_gen = max_gen.max(chunk_gen)
-	// 	);
-	// 	GridGeneration(max_gen)
-	// }
-
-	// this function is called to update the generation of the region and to get the new GridEditId and ChunkGeneration
-	pub fn apply_edit(&mut self/*, grid_edit: &(impl GridEdit + ?Sized)*/) -> (GridEditId, GridGeneration) {
-		// let region = chunks_covering_nonzero_voxel_region(grid_edit.affected_region());
+	pub fn apply_edit(&mut self) -> (GridEditId, GridGeneration) {
 		self.current_grid_generation.0 += 1;
-		// self.grid_generations.add_area(NonZeroVoxelRegion::from_min_size(region.min(), region.size()).unwrap(), self.current_grid_generation.0);
 		self.current_edit_id = self.current_edit_id.get_next();
 		(self.current_edit_id, self.current_grid_generation)
 	}
@@ -102,32 +93,28 @@ pub struct GridEditMessage {
 	grid_id: GridId,
 	grid_generation: GridGeneration,
 	edit_id: GridEditId,
-	edit: Box<dyn GridEdit>,
+	edit: Arc<dyn GridEdit>,
 }
 
 impl GridEditMessage {
 	pub fn new<T: GridEdit>(grid_id: GridId, grid_generation: GridGeneration, grid_edit_id: GridEditId, grid_edit: T) -> Self {
-		Self {
-			grid_id,
-			edit_id: grid_edit_id,
-			grid_generation: grid_generation,
-			edit: Box::new(grid_edit),
-		}
+		Self::from_shared(grid_id, grid_generation, grid_edit_id, Arc::new(grid_edit))
 	}
 
-	pub fn grid_id(&self) -> GridId {
-		self.grid_id
+	pub fn from_shared(
+		grid_id: GridId,
+		grid_generation: GridGeneration,
+		grid_edit_id: GridEditId,
+		grid_edit: Arc<dyn GridEdit>,
+	) -> Self {
+		Self { grid_id, grid_generation, edit_id: grid_edit_id, edit: grid_edit }
 	}
 
-	pub fn grid_generation(&self) -> GridGeneration {
-		self.grid_generation
-	}
+	pub fn grid_id(&self) -> GridId { self.grid_id }
 
-	pub fn edit_id(&self) -> GridEditId {
-		self.edit_id
-	}
+	pub fn grid_generation(&self) -> GridGeneration { self.grid_generation }
 
-	pub fn edit(&self) -> &dyn GridEdit {
-		self.edit.as_ref()
-	}
+	pub fn edit_id(&self) -> GridEditId { self.edit_id }
+
+	pub fn edit(&self) -> &dyn GridEdit { self.edit.as_ref() }
 }

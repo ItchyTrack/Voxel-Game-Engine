@@ -4,7 +4,7 @@ use voxel_data::{grid::GridId, voxels::Voxels};
 
 use crate::edit::GridGeneration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RequestId(pub(crate) u64);
 
 // #[cfg(test)] // TODO: figure out why this was not working
@@ -28,7 +28,9 @@ pub enum SourceResultData {
 		generation: GridGeneration,
 		voxels: Voxels,
 	},
-	VoxelsLoaded,
+	VoxelsLoaded {
+		generation: GridGeneration,
+	},
 }
 
 #[derive(Debug, Message)]

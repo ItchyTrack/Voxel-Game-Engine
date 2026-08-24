@@ -59,7 +59,7 @@ impl TileBuilder for MarchingTileBuilder {
 		let area = session.key.region;
 		let padded_area = NonZeroChunkRegion::new(area.min() - IVec3::ONE, area.size() + UVec3::splat(2)).unwrap();
 		let voxel_lod = session.key.lod;
-		session.request_voxels(padded_area, voxel_lod, MarchingVoxel::TYPE_INFO.id);
+		session.request_voxels(padded_area, voxel_lod, Some(MarchingVoxel::TYPE_INFO.id));
 		let mut inputs = Vec::new();
 		while let Some(input) = session.receive_voxels().await {
 			inputs.push(input);

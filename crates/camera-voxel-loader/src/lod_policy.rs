@@ -48,7 +48,7 @@ pub(crate) fn update_desired_sources_delta(
 }
 
 pub(crate) fn tile_has_present_source(streaming: &GridStreaming, key: GridTileKey) -> bool {
-	streaming.presence().any_present_in_region(key.region)
+	streaming.presence().any_present_in_region(key.tile_key.region)
 }
 
 fn desired_lod_bands(center: IVec3, settings: &CameraVoxelLoaderSettings) -> Vec<LodBand> {

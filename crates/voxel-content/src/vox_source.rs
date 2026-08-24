@@ -9,7 +9,7 @@ use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::grid_tree::NonZeroVoxelRegion;
 use voxel_data::voxels::{VoxelType, VoxelTypeId, Voxels};
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
 use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of};
 use tile_data::CHUNK_SIZE;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
@@ -253,23 +253,24 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		region: NonZeroChunkRegion,
 		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
 	) -> SourceCoverage {
 		let Some(binding) = self.binding(grid) else { return SourceCoverage::None; };
 
-		let mut owned_chunk_count: u32 = 0;
+		let mut owned_chunks = Vec::new();
 		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {
 				for x in region.min().x..region.end().x {
 					let chunk = IVec3::new(x, y, z);
 					if !self.inner.forgotten.contains(grid, chunk) {
-						owned_chunk_count += 1;
+						owned_chunks.push(chunk);
 					}
 				}
 			}
 		}
-		let coverage = if owned_chunk_count == 0 {
+		let coverage = if owned_chunks.is_empty() {
 			return SourceCoverage::None;
-		} else if owned_chunk_count == region.area() {
+		} else if owned_chunks.len() == region.area() as usize {
 			SourceCoverage::All
 		} else {
 			SourceCoverage::Some
@@ -280,21 +281,13 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let _span = bevy::log::info_span!("VoxSource build").entered();
-			for z in region.min().z..region.end().z {
-				for y in region.min().y..region.end().y {
-					for x in region.min().x..region.end().x {
-						let chunk = IVec3::new(x, y, z);
-						if !source.inner.forgotten.contains(grid, chunk) {
-							if cancellation.is_cancelled() { return; }
-							if let Some(voxels) = source.translated_chunk(&binding, chunk) {
-								handle.voxels(request_id, grid, NonZeroChunkRegion::from_single(chunk), 0, /* todo. get grid generation */, voxels);
-							}
-						}
-					}
+			for chunk in owned_chunks {
+				if cancellation.is_cancelled() { break; }
+				if let Some(voxels) = source.translated_chunk(&binding, chunk) {
+					handle.voxels(request_id, grid, NonZeroChunkRegion::from_single(chunk), 0, generation, voxels);
 				}
 			}
-			if cancellation.is_cancelled() { return; }
-			handle.voxels_loaded(request_id);
+			handle.voxels_loaded(request_id, generation);
 		});
 		coverage
 	}
@@ -313,15 +306,14 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		handle.presence_loaded(request_id);
 	}
 
-	fn take_ownership(
-		&self,
-		grid: GridId,
-		region: NonZeroChunkRegion
-	) {
-		let Some(binding) = self.binding(grid) else { return };
-		self.inner.forgotten.forget_area_where(grid, region.into(), |chunk| {
-			self.translated_chunk(&binding, chunk).is_some()
-		});
+	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		if self.binding(grid).is_none() { return; }
+		self.inner.forgotten.remember_area(grid, region);
+	}
+
+	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		if self.binding(grid).is_none() { return; }
+		self.inner.forgotten.forget_area(grid, region);
 	}
 }
 

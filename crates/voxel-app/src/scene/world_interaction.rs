@@ -1,16 +1,16 @@
 use bevy::ecs::message::MessageWriter;
 use bevy::input::ButtonInput;
-use bevy::math::{Vec2, Vec3};
+use bevy::math::Vec3;
 use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
 use bevy_egui::input::EguiWantsInput;
 
-use std::sync::Arc;
-
+use voxel_content::VoxelEditCommands;
 use voxel_data::grid::Grid;
+use voxel_data::region::NonZeroVoxelRegion;
 use voxel_data::voxels::{Voxel, VoxelType};
-use voxel_data::world_query::VoxelWorldQueryParam;
-use voxel_sources::GridEditIdManager;
+use voxel_query::VoxelWorldQueryParam;
+use voxel_sources::edit::{AddArea, RemoveArea};
 use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, Velocity, VoxelPhysicsAppExt};
 
 use crate::audio::plugin::PlaySfx;
@@ -23,7 +23,6 @@ impl Plugin for WorldInteractionPlugin {
 		app.init_resource::<HeldBody>()
 			.add_systems(Update, (
 				voxel_place_break_system,
-				sdf_place_system,
 				pickup_toggle_system,
 				push_system.run_if(|freeze: Res<FreezePhysics>| !freeze.0),
 			))
@@ -59,7 +58,8 @@ fn voxel_place_break_system(
 	egui_wants: Option<Res<EguiWantsInput>>,
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	voxel_world: VoxelWorldQueryParam,
-	mut grids: Query<(&GlobalTransform, &Grid, &mut GridEditIdManager)>,
+	grids: Query<(&GlobalTransform, &Grid)>,
+	mut edits: VoxelEditCommands,
 	mut sfx: Option<MessageWriter<PlaySfx>>,
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
@@ -70,17 +70,17 @@ fn voxel_place_break_system(
 	let Some((origin, dir)) = camera_ray(&cameras) else { return };
 	let Some(hit) = voxel_world.raycast(origin, dir, None) else { return };
 
-	let Ok((grid_global_transform, grid, mut edits)) = grids.get_mut(hit.grid) else { return };
+	let Ok((grid_global_transform, grid)) = grids.get(hit.grid) else { return };
 
 	if place {
 		let Some(voxel) = edit_voxel_for_grid(grid, PLACE_VOXEL) else { return };
 		let pos = hit.voxel_pos + hit.normal;
-		edits.add_voxel(pos, voxel);
+		edits.apply(hit.grid, AddArea::new(NonZeroVoxelRegion::from_single(pos), voxel));
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 		}
 	} else {
-		edits.remove_voxel(hit.voxel_pos);
+		edits.apply(hit.grid, RemoveArea::new(NonZeroVoxelRegion::from_single(hit.voxel_pos)));
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
 		}

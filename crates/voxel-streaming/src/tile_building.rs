@@ -11,7 +11,7 @@ use voxel_data::grid::GridId;
 use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridGeneration};
 use voxel_tasks::CancellationToken;
 
-use crate::{GridStreaming, tile_dependency_index::TileDependency};
+use crate::{GridStreaming, streaming::TileAttemptId, tile_dependency_index::TileDependency};
 
 enum VoxelLoadEvent {
 	Result { result: VoxelRegionResult, generation: GridGeneration },
@@ -23,6 +23,7 @@ pub(crate) struct TileBuildingVoxelRequest {
 	request: VoxelRegionRequest,
 	grid: GridId,
 	tile_key: TileKey,
+	generation: GridGeneration,
 	events: UnboundedSender<VoxelLoadEvent>,
 	cancellation: CancellationToken,
 }
@@ -52,6 +53,7 @@ impl TileVoxelSourceBridge {
 
 pub(crate) struct StreamingVoxelReader {
 	grid: GridId,
+	generation: GridGeneration,
 	requests: Sender<TileBuildingVoxelRequest>,
 	events_tx: UnboundedSender<VoxelLoadEvent>,
 	events_rx: UnboundedReceiver<VoxelLoadEvent>,
@@ -62,6 +64,7 @@ pub(crate) struct StreamingVoxelReader {
 impl StreamingVoxelReader {
 	fn new(
 		grid: GridId,
+		generation: GridGeneration,
 		requests: Sender<TileBuildingVoxelRequest>,
 		cancellation: CancellationToken,
 	) -> (Self, UnboundedSender<VoxelLoadEvent>) {
@@ -69,6 +72,7 @@ impl StreamingVoxelReader {
 		(
 			Self {
 				grid,
+				generation,
 				requests,
 				events_tx: events_tx.clone(),
 				events_rx,
@@ -88,6 +92,7 @@ impl TileBuildingVoxelReader for StreamingVoxelReader {
 			request,
 			grid: self.grid,
 			tile_key,
+			generation: self.generation,
 			events: self.events_tx.clone(),
 			cancellation: self.cancellation.clone(),
 		}).is_err() {
@@ -124,7 +129,7 @@ impl TileBuildingCancellationToken {
 		Self { token, wake }
 	}
 
-	pub(crate) fn cancel(self) {
+	pub(crate) fn cancel(&self) {
 		self.token.cancel();
 		let _ = self.wake.unbounded_send(VoxelLoadEvent::Cancelled);
 	}
@@ -133,7 +138,8 @@ impl TileBuildingCancellationToken {
 pub(crate) struct TileBuildingResult {
 	pub(crate) grid: GridId,
 	pub(crate) tile_key: TileKey,
-	pub(crate) generation: GridGeneration, // The lowest read result generation
+	pub(crate) attempt_id: TileAttemptId,
+	pub(crate) generation: GridGeneration,
 	pub(crate) context: TileBuildingParameters,
 	pub(crate) data: Option<Box<dyn TileData>>,
 }
@@ -159,11 +165,12 @@ impl TileBuildingChannel {
 pub(crate) fn session(
 	grid: GridId,
 	key: TileKey,
+	generation: GridGeneration,
 	context: TileBuildingParameters,
 	requests: Sender<TileBuildingVoxelRequest>,
 	cancellation: CancellationToken,
 ) -> (TileBuildingSession, TileBuildingCancellationToken) {
-	let (reader, wake) = StreamingVoxelReader::new(grid, requests, cancellation.clone());
+	let (reader, wake) = StreamingVoxelReader::new(grid, generation, requests, cancellation.clone());
 	(
 		TileBuildingSession::new(grid, key, context, Box::new(reader)),
 		TileBuildingCancellationToken::new(cancellation, wake),
@@ -177,13 +184,18 @@ pub(crate) fn submit_tile_voxel_requests(
 ) {
 	for request in bridge.request_rx.try_iter().collect::<Vec<_>>() {
 		if request.cancellation.is_cancelled() { continue; }
-		let Ok(mut streaming) = grids.get_mut(request.grid) else { return; };
+		let Ok(mut streaming) = grids.get_mut(request.grid) else {
+			request.cancellation.cancel();
+			let _ = request.events.unbounded_send(VoxelLoadEvent::Cancelled);
+			continue;
+		};
 		streaming.tile_dependencies.add(request.tile_key, TileDependency { region: request.request.area });
 		let request_id = sources.request_voxels(
 			request.grid,
 			request.request.area,
 			request.request.lod,
-			Some(request.request.voxel_type),
+			request.request.voxel_type,
+			request.generation,
 		);
 		bridge.routes.insert(request_id, VoxelRequestRoute {
 			events: request.events,
@@ -214,7 +226,7 @@ pub(crate) fn route_tile_source_results(
 					generation: *generation,
 				});
 			}
-			SourceResultData::VoxelsLoaded => {
+			SourceResultData::VoxelsLoaded { .. } => {
 				let route = bridge.routes.remove(&result.request_id).unwrap();
 				let _ = route.events.unbounded_send(VoxelLoadEvent::Loaded);
 			}

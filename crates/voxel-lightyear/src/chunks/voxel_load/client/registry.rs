@@ -1,10 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use bevy::log::warn;
-use tile_data::NonZeroChunkRegion;
-use voxel_data::grid::GridId;
-use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{RequestId, SourceHandle};
+use bevy::{log::warn, math::IVec3};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
+use voxel_data::{grid::GridId, region::NonZeroVoxelRegion, voxels::{VoxelTypeId, Voxels}};
+use voxel_sources::{RequestId, SourceHandle, edit::GridGeneration};
 use voxel_tasks::CancellationToken;
 
 use super::super::{VoxelLoadCancel, VoxelLoadComplete, VoxelLoadPayload, VoxelLoadRequest, VoxelRequestKey};
@@ -16,6 +15,7 @@ struct PendingVoxels {
 	key: VoxelRequestKey,
 	cancellation: CancellationToken,
 	received_payload_count: u32,
+	accepted_chunks: HashSet<IVec3>,
 }
 
 #[derive(Default)]
@@ -24,6 +24,23 @@ pub(crate) struct ClientLoadRegistry {
 	pending: HashMap<NetworkRequestId, PendingVoxels>,
 	requests: VecDeque<VoxelLoadRequest>,
 	cancellations: VecDeque<VoxelLoadCancel>,
+}
+
+fn filter_accepted_chunks(
+	accepted_chunks: &HashSet<IVec3>,
+	region: NonZeroChunkRegion,
+	lod: u8,
+	voxels: Voxels,
+) -> Option<Voxels> {
+	let chunk_extent = (CHUNK_SIZE >> lod) as i32;
+	let mut filtered = Voxels::new_with_type(voxels.voxel_type_info());
+	for &chunk in accepted_chunks {
+		if !region.contains(chunk) { continue; }
+		let local_min = (chunk - region.min()) * chunk_extent;
+		let local_region = NonZeroVoxelRegion::from_min_size(local_min, bevy::math::UVec3::splat(chunk_extent as u32)).unwrap();
+		filtered.merge_region_from(&voxels, Some(local_region), IVec3::ZERO);
+	}
+	(!filtered.is_empty()).then_some(filtered)
 }
 
 impl ClientLoadRegistry {
@@ -35,14 +52,17 @@ impl ClientLoadRegistry {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
+		accepted_chunks: HashSet<IVec3>,
 	) {
 		let id = self.ids.allocate();
-		let key = VoxelRequestKey { grid, region, lod, voxel_type };
+		let key = VoxelRequestKey { grid, region, lod, voxel_type, generation };
 		self.pending.insert(id, PendingVoxels {
 			request_id,
 			key,
 			cancellation: cancellation.clone(),
 			received_payload_count: 0,
+			accepted_chunks,
 		});
 		self.requests.push_back(VoxelLoadRequest { id, key });
 	}
@@ -69,8 +89,10 @@ impl ClientLoadRegistry {
 		}
 		if pending.key.grid != payload.grid
 			|| !pending.key.region.contains_region(payload.region)
+			|| pending.key.lod != payload.lod
+			|| pending.key.generation != payload.generation
 		{
-			warn!(id=?payload.id, grid=?payload.grid, region=?payload.region, lod=payload.lod, ?from, "ignoring mismatched remote voxel payload");
+			warn!(id=?payload.id, grid=?payload.grid, region=?payload.region, lod=payload.lod, generation=?payload.generation, ?from, "ignoring mismatched remote voxel payload");
 			return;
 		}
 		let voxels = match payload.voxels.decompress() {
@@ -85,14 +107,16 @@ impl ClientLoadRegistry {
 			return;
 		};
 		pending.received_payload_count = received_payload_count;
-		handle.voxels(
-			pending.request_id,
-			payload.grid,
-			payload.region,
-			payload.lod,
-			payload.generation,
-			voxels,
-		);
+		if let Some(voxels) = filter_accepted_chunks(&pending.accepted_chunks, payload.region, payload.lod, voxels) {
+			handle.voxels(
+				pending.request_id,
+				payload.grid,
+				payload.region,
+				payload.lod,
+				pending.key.generation,
+				voxels,
+			);
+		}
 	}
 
 	pub(crate) fn receive_complete(
@@ -111,8 +135,9 @@ impl ClientLoadRegistry {
 			return;
 		}
 		let request_id = pending.request_id;
+		let generation = pending.key.generation;
 		self.pending.remove(&complete.id);
-		handle.voxels_loaded(request_id);
+		handle.voxels_loaded(request_id, generation);
 	}
 
 	pub(crate) fn pop_request(&mut self) -> Option<VoxelLoadRequest> { self.requests.pop_front() }

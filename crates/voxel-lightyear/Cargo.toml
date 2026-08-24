@@ -12,7 +12,8 @@ bevy = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 tracy-client = { workspace = true }
 lightyear = "0.28.0"
-postcard = "1.1"
+postcard = { version = "1.1", features = ["use-std"] }
+voxel-content = { version = "0.1.0", path = "../voxel-content" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 voxel-sources = { version = "0.1.0", path = "../voxel-sources" }

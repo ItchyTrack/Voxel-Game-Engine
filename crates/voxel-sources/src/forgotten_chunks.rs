@@ -1,54 +1,56 @@
 use std::sync::RwLock;
 
 use bevy::math::IVec3;
-use rustc_hash::{FxHashMap, FxHashSet};
-use voxel_data::grid::GridId;
-use tile_data::ChunkRegion;
+use rustc_hash::FxHashMap;
+use tile_data::NonZeroChunkRegion;
+use voxel_data::{
+	grid::GridId,
+	grid_tree::U16Cell,
+	region::NonZeroVoxelRegion,
+	signed_grid_tree::SignedGridTree,
+};
 
 // Just a tmp helper for voxel source impls to use. Will remove proabaly
 
+type ForgottenChunkTree = SignedGridTree<U16Cell>;
+
 #[derive(Default)]
 pub struct ForgottenChunks {
-	grids: RwLock<FxHashMap<GridId, FxHashSet<IVec3>>>,
+	grids: RwLock<FxHashMap<GridId, ForgottenChunkTree>>,
 }
 
 impl ForgottenChunks {
 	pub fn forget(&self, grid: GridId, chunk: IVec3) {
-		self.grids.write().unwrap().entry(grid).or_default().insert(chunk);
+		self.grids.write().unwrap().entry(grid).or_default().insert(chunk, 0u16);
 	}
 
-	pub fn forget_area_where(
-		&self,
-		grid: GridId,
-		region: ChunkRegion,
-		mut owns: impl FnMut(IVec3) -> bool,
-	) -> Vec<IVec3> {
-		let mut grids = self.grids.write().unwrap();
-		let forgotten = grids.entry(grid).or_default();
-		let mut taken = Vec::new();
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					let chunk = IVec3::new(x, y, z);
-					if !forgotten.contains(&chunk) && owns(chunk) {
-						forgotten.insert(chunk);
-						taken.push(chunk);
-					}
-				}
-			}
+	pub fn remember(&self, grid: GridId, chunk: IVec3) {
+		if let Some(chunks) = self.grids.write().unwrap().get_mut(&grid) {
+			chunks.remove(chunk);
 		}
-		taken
+	}
+
+	pub fn remember_area(&self, grid: GridId, region: NonZeroChunkRegion) {
+		if let Some(forgotten) = self.grids.write().unwrap().get_mut(&grid) {
+			forgotten.remove_area(chunk_region(region));
+		}
+	}
+
+	pub fn forget_area(&self, grid: GridId, region: NonZeroChunkRegion) {
+		self.grids.write().unwrap().entry(grid).or_default().add_area(chunk_region(region), 0u16);
 	}
 
 	pub fn contains(&self, grid: GridId, chunk: IVec3) -> bool {
-		self.grids.read().unwrap().get(&grid).is_some_and(|chunks| chunks.contains(&chunk))
+		self.grids.read().unwrap().get(&grid).is_some_and(|chunks| chunks.get(chunk).is_some())
 	}
 
-	pub fn any_remembered_in(&self, grid: GridId, min: IVec3, size: IVec3) -> bool {
+	pub fn any_remembered_in(&self, grid: GridId, region: NonZeroChunkRegion) -> bool {
 		let grids = self.grids.read().unwrap();
 		let Some(chunks) = grids.get(&grid) else { return true };
-		(0..size.z).any(|z| {
-			(0..size.y).any(|y| (0..size.x).any(|x| !chunks.contains(&(min + IVec3::new(x, y, z)))))
-		})
+		!chunks.is_area_filled(chunk_region(region))
 	}
+}
+
+fn chunk_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
+	NonZeroVoxelRegion::new(region.min(), region.size()).unwrap()
 }

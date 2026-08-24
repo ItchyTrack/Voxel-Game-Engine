@@ -7,7 +7,7 @@ use bevy::math::{IVec2, IVec3, Vec3};
 use voxel_data::grid::GridId;
 use voxel_data::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_of, chunk_origin};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
@@ -122,6 +122,7 @@ impl ChunkSource for SdfSource {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() {
 			return SourceCoverage::None;
@@ -189,9 +190,9 @@ impl ChunkSource for SdfSource {
 				}
 			}
 			if !cancellation.is_cancelled() && let Some(voxels) = merged {
-				handle.voxels(request_id, grid, region, lod, /* todo. get grid generation */, voxels);
+				handle.voxels(request_id, grid, region, lod, generation, voxels);
 			}
-			handle.voxels_loaded(request_id);
+			handle.voxels_loaded(request_id, generation);
 		});
 
 		coverage
@@ -213,9 +214,14 @@ impl ChunkSource for SdfSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
-		let Some(binding) = self.binding(grid) else { return };
-		self.inner.forgotten.forget_area_where(grid, region.into(), |chunk| Self::might_intersect_region(&binding, NonZeroChunkRegion::from_single(chunk)));
+	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		if self.binding(grid).is_none() { return; }
+		self.inner.forgotten.remember_area(grid, region);
+	}
+
+	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		if self.binding(grid).is_none() { return; }
+		self.inner.forgotten.forget_area(grid, region);
 	}
 }
 

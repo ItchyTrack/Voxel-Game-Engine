@@ -69,7 +69,7 @@ impl TileBuilder for VoxelRayTileBuilder {
 	async fn build(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
 		let region = session.key.region;
 		let voxel_lod = session.key.lod.saturating_sub(self.lod_levels);
-		session.request_voxels(region, voxel_lod, self.voxel_type);
+		session.request_voxels(region, voxel_lod, Some(self.voxel_type));
 		let mut inputs = Vec::new();
 		while let Some(input) = session.receive_voxels().await {
 			inputs.push(input);

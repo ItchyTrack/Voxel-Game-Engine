@@ -5,6 +5,7 @@ use tile_data::NonZeroChunkRegion;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
+use voxel_sources::edit::GridGeneration;
 
 use crate::chunks::request_id::NetworkRequestId;
 
@@ -14,6 +15,7 @@ pub(crate) struct VoxelRequestKey {
 	pub region: NonZeroChunkRegion,
 	pub lod: u8,
 	pub voxel_type: Option<VoxelTypeId>,
+	pub generation: GridGeneration,
 }
 
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +41,7 @@ pub(crate) struct VoxelLoadPayload {
 	pub grid: GridId,
 	pub region: NonZeroChunkRegion,
 	pub lod: u8,
-	pub generation: u64,
+	pub generation: GridGeneration,
 	pub voxels: CompressedVoxels,
 }
 

@@ -5,7 +5,7 @@ use tile_data::NonZeroChunkRegion;
 use voxel_data::{grid::GridId, voxels::VoxelTypeId};
 use voxel_tasks::CancellationToken;
 
-use crate::{request::{RequestId, SourceResult}, source::{ChunkSource, SourceCoverage, SourceHandle, SourceId}};
+use crate::{edit::GridGeneration, request::{RequestId, SourceResult}, source::{ChunkSource, SourceCoverage, SourceHandle, SourceId}};
 
 #[derive(Resource)]
 pub struct SourceManager {
@@ -42,12 +42,13 @@ impl SourceManager {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
 	) -> RequestId {
 		let request_id = self.new_request_id();
 		let cancellation_token = CancellationToken::new();
 		let mut source_request_count = 0;
 		for source in &self.sources {
-			match source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type) {
+			match source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type, generation) {
 				SourceCoverage::None => {},
 				SourceCoverage::Some => { source_request_count += 1; },
 				SourceCoverage::All => { source_request_count += 1; break; },
@@ -57,7 +58,7 @@ impl SourceManager {
 		if source_request_count == 0 {
 			let _ = self.source_result_sender.send(SourceResult {
 				request_id,
-				data: crate::request::SourceResultData::VoxelsLoaded,
+				data: crate::request::SourceResultData::VoxelsLoaded { generation },
 			});
 		}
 		request_id
@@ -96,12 +97,15 @@ impl SourceManager {
 		}
 	}
 
-	// forces every source but new_owner to forget that region. Does not call anything on new_owner so setting ownership on it is the responsibility of the user
-	pub fn transfer_onwership(&mut self, new_owner: SourceId, grid: GridId, region: NonZeroChunkRegion) {
-		if new_owner.0 >= self.sources.len() { println!("transfer_onwership failed! Invalid new_owner {new_owner:?}"); return; }
+	pub fn transfer_ownership(&mut self, new_owner: SourceId, grid: GridId, region: NonZeroChunkRegion) {
+		let Some(new_owner_source) = self.sources.get(new_owner.0) else {
+			println!("transfer_ownership failed! Invalid new_owner {new_owner:?}");
+			return;
+		};
+		new_owner_source.acquire_ownership(grid, region);
 		for (source_id, source) in self.sources.iter().enumerate() {
 			if source_id != new_owner.0 {
-				source.take_ownership(grid, region);
+				source.relinquish_ownership(grid, region);
 			}
 		}
 	}
@@ -138,7 +142,7 @@ pub(crate) fn publish_source_results_messages(
 	result_writter.write_batch(source_manager.source_result_receiver.clone().try_iter().filter_map(|result| {
 		let (_, source_request_count) = source_manager.pending_requests.get_mut(&result.request_id)?;
 		match result.data {
-			crate::request::SourceResultData::PresenceLoaded | crate::request::SourceResultData::VoxelsLoaded => {
+			crate::request::SourceResultData::PresenceLoaded | crate::request::SourceResultData::VoxelsLoaded { .. } => {
 				if *source_request_count > 1 {
 					*source_request_count -= 1;
 					return None;

@@ -143,7 +143,7 @@ pub(super) fn flush_source_results(
 					loaded: PresenceLoaded { id: request.owner.id },
 				});
 			}
-			SourceResultData::Voxels { .. } | SourceResultData::VoxelsLoaded => {}
+			SourceResultData::Voxels { .. } | SourceResultData::VoxelsLoaded { .. } => {}
 		}
 	}
 }

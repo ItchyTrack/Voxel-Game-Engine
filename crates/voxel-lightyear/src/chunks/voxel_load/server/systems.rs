@@ -5,14 +5,21 @@ use voxel_sources::{SourceManager, SourceResult};
 
 use super::registry::{OutgoingVoxelMessage, PendingVoxelLoads};
 use super::super::{VoxelLoadCancel, VoxelLoadComplete, VoxelLoadPayload, VoxelLoadRequest};
+use crate::chunks::edit_stream::EditSubscriptions;
 
 pub(crate) fn receive_voxel_load_request(
 	trigger: On<RemoteEvent<VoxelLoadRequest>>,
 	mut sources: ResMut<SourceManager>,
 	mut pending: ResMut<PendingVoxelLoads>,
+	edits: Res<EditSubscriptions>,
 ) {
 	let event = trigger.event();
-	pending.request(event.from, event.trigger, &mut sources);
+	let server_generation = edits.server_generation(
+		event.from,
+		event.trigger.key.grid,
+		event.trigger.key.generation,
+	);
+	pending.request(event.from, event.trigger, server_generation, &mut sources);
 }
 
 pub(crate) fn receive_voxel_load_cancel(

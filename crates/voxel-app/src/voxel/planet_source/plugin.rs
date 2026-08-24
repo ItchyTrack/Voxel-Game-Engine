@@ -8,7 +8,7 @@ use voxel_data::voxels::VoxelType;
 use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
 use voxel_streaming::GridStreaming;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
@@ -59,6 +59,7 @@ impl ChunkSource for ProceduralPlanetSource {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() { return SourceCoverage::None; }
 		let Some(tile_index) = self.tile_index(grid) else { return SourceCoverage::None };
@@ -99,9 +100,9 @@ impl ChunkSource for ProceduralPlanetSource {
 				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_lod_voxel_unchecked)
 			};
 			if !cancellation.is_cancelled() && let Some(voxels) = voxels {
-				handle.voxels(request_id, grid, region, lod, 0, voxels);
+				handle.voxels(request_id, grid, region, lod, generation, voxels);
 			}
-			handle.voxels_loaded(request_id);
+			handle.voxels_loaded(request_id, generation);
 		});
 		coverage
 	}
@@ -117,10 +118,16 @@ impl ChunkSource for ProceduralPlanetSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
 		let Some(tile_index) = self.tile_index(grid) else { return };
-		let Some(tile) = planet_tiles().get(tile_index) else { return };
-		self.forgotten.forget_area_where(grid, region.into(), |chunk| tile_has_chunk(tile, chunk));
+		if planet_tiles().get(tile_index).is_none() { return; }
+		self.forgotten.remember_area(grid, region);
+	}
+
+	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		let Some(tile_index) = self.tile_index(grid) else { return };
+		if planet_tiles().get(tile_index).is_none() { return; }
+		self.forgotten.forget_area(grid, region);
 	}
 }
 
@@ -153,7 +160,7 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 				transform,
 				Grid::new::<BasicVoxel>(),
 				VoxelCollider,
-				GridEditIdManager,
+				GridEditIdManager::default(),
 				ReplicateVoxels,
 				streaming,
 			))

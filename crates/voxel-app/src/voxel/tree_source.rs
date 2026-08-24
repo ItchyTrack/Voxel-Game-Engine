@@ -13,7 +13,7 @@ use voxel_data::{
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{chunk_of, chunk_origin};
 use voxel_streaming::GridStreaming;
@@ -117,6 +117,7 @@ impl ChunkSource for TreeSource {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.is_mine(grid) { return SourceCoverage::None; }
 
@@ -170,9 +171,9 @@ impl ChunkSource for TreeSource {
 			};
 			if !cancellation.is_cancelled()
 				&& let Some(voxels) = voxels.filter(|voxels| !voxels.is_empty()) {
-				handle.voxels(request_id, grid, region, lod, 0, voxels);
+				handle.voxels(request_id, grid, region, lod, generation, voxels);
 			}
-			handle.voxels_loaded(request_id);
+			handle.voxels_loaded(request_id, generation);
 		});
 		coverage
 	}
@@ -185,9 +186,14 @@ impl ChunkSource for TreeSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn take_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
 		if !self.is_mine(grid) { return; }
-		self.forgotten.forget_area_where(grid, region.into(), |chunk| self.bounds.contains(chunk));
+		self.forgotten.remember_area(grid, region);
+	}
+
+	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+		if !self.is_mine(grid) { return; }
+		self.forgotten.forget_area(grid, region);
 	}
 }
 
@@ -554,7 +560,7 @@ mod tests {
 		};
 
 		assert!(source.model.get().is_none());
-		assert_eq!(source.request_voxels(RequestId::from_raw(1), &CancellationToken::new(), GridId::PLACEHOLDER, NonZeroChunkRegion::from_single(IVec3::ZERO), 1, None), SourceCoverage::All);
+		assert_eq!(source.request_voxels(RequestId::from_raw(1), &CancellationToken::new(), GridId::PLACEHOLDER, NonZeroChunkRegion::from_single(IVec3::ZERO), 1, None, GridGeneration::default()), SourceCoverage::All);
 		assert!(source.model.get().is_some());
 	}
 

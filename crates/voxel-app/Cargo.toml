@@ -39,6 +39,7 @@ voxel-ray-renderer = { version = "0.1.0", path = "../voxel-ray-renderer", featur
 voxel-raster-renderer = { version = "0.1.0", path = "../voxel-raster-renderer", features = ["shader_hot_reload"] }
 voxel-marching-renderer = { version = "0.1.0", path = "../voxel-marching-renderer" }
 voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-query = { version = "0.1.0", path = "../voxel-query" }
 tile-data = { version = "0.1.0", path = "../tile-data" }
 basic-voxel = { version = "0.1.0", path = "../basic-voxel" }
 voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }

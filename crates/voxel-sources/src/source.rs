@@ -43,10 +43,10 @@ impl SourceHandle {
 		});
 	}
 
-	pub fn voxels_loaded(&self, request_id: RequestId) {
+	pub fn voxels_loaded(&self, request_id: RequestId, generation: GridGeneration) {
 		let _ = self.messages.send(SourceResult {
 			request_id,
-			data: SourceResultData::VoxelsLoaded,
+			data: SourceResultData::VoxelsLoaded { generation },
 		});
 	}
 
@@ -86,6 +86,7 @@ pub trait ChunkSource: Send + Sync + SourceToAny {
 		region: NonZeroChunkRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
 	) -> SourceCoverage;
 
 	fn request_presence(
@@ -95,11 +96,9 @@ pub trait ChunkSource: Send + Sync + SourceToAny {
 		grid: GridId,
 	);
 
-	fn take_ownership(
-		&self,
-		grid: GridId,
-		region: NonZeroChunkRegion
-	);
+	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion);
+
+	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion);
 }
 
 pub trait SourceToAny: 'static {

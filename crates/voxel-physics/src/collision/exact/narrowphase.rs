@@ -3,14 +3,14 @@ use bevy::math::{Quat, UVec3, U8Vec3, Vec3};
 use bevy::transform::components::Transform;
 use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, GridType, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
 use voxel_data::transform_ext::TransformExt;
-use voxel_data::voxels;
+use voxel_query::OccupancyTree;
 
-use crate::collision::CubeFeature;
+use crate::CubeFeature;
 
 /// ((min_a, max_a), (min_b, max_b), axis, index)
 type SeparatingAxes = Vec<((f32, f32), (f32, f32), Vec3, u8)>;
 
-type SubgridContact = (Vec3, CubeFeature, Vec3, CubeFeature, UVec3, UVec3);
+pub(crate) type TileContact = (Vec3, CubeFeature, Vec3, CubeFeature, UVec3, UVec3);
 
 fn get_bit(num: u8, bit: u8) -> u8 {
 	((num & (1 << bit)) != 0) as u8
@@ -29,16 +29,16 @@ enum BoxSrc {
 	Solid,
 }
 
-pub(super) fn get_collisions_between_subgrids(
-	voxels_1: &voxels::Voxels,
-	voxels_2: &voxels::Voxels,
+pub(crate) fn get_collisions_between_tiles(
+	tree_1: &OccupancyTree,
+	tree_2: &OccupancyTree,
 	transform_of_1_in_2: &Transform,
-) -> Vec<SubgridContact> {
+) -> Vec<TileContact> {
 	let mut collisions = vec![];
-	if voxels_1.grid_tree().is_empty() || voxels_2.grid_tree().is_empty() { return collisions; }
+	if tree_1.is_empty() || tree_2.is_empty() { return collisions; }
 	let separating_axes = compute_1x1x1_cube_separating_axes(transform_of_1_in_2.rotation);
-	let view_1 = voxels_1.grid_tree().view();
-	let view_2 = voxels_2.grid_tree().view();
+	let view_1 = tree_1.view();
+	let view_2 = tree_2.view();
 	let root_1 = view_1.root();
 	let root_2 = view_2.root();
 	let box_1 = DescendBox { origin: root_1.origin, size: voxel_data::grid_tree::size(root_1.depth), src: BoxSrc::Node(root_1) };
@@ -48,7 +48,7 @@ pub(super) fn get_collisions_between_subgrids(
 }
 
 fn descend<G1: GridType, G2: GridType>(
-	collisions: &mut Vec<SubgridContact>,
+	collisions: &mut Vec<TileContact>,
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,
 	view_1: GridTreeView<'_, G1>,
@@ -125,7 +125,7 @@ fn get_collision_1x1x1_voxel_pair(
 	transform_of_1_in_2: &Transform,
 	pos_1: UVec3,
 	pos_2: UVec3,
-) -> Vec<SubgridContact> {
+) -> Vec<TileContact> {
 	let shift = Transform { translation: pos_2.as_vec3() + Vec3::splat(0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE };
 	let local = shift.inverse() * *transform_of_1_in_2 * Transform::from_translation(pos_1.as_vec3() + Vec3::splat(0.5));
 	get_collision_1x1x1_voxel(&local, separating_axes)

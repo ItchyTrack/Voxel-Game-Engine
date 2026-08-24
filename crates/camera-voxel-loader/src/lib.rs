@@ -48,7 +48,6 @@ impl Plugin for CameraVoxelLoaderPlugin {
 			.add_systems(
 				Update,
 				systems::update_camera_voxel_loader_requests
-					.run_if(|freeze: Res<FreezeCameraVoxelLoader>| !freeze.0)
 					.in_set(StreamingPhase::Request)
 					.before(CameraVoxelLoaderSet::RefreshVisibility),
 			)
