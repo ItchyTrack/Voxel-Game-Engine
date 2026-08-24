@@ -1,6 +1,6 @@
 use bevy::math::IVec3;
 use bevy::prelude::*;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use voxel_sources::RequestId;
 
 use voxel_data::grid_tree::NonZeroVoxelRegion;
@@ -9,7 +9,7 @@ use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use crate::tile_building::TileBuildingCancellation;
 use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
-use crate::{ChunkRegion, TileKey, TileLoadStatus, TileLoadUpdate};
+use crate::{ChunkRegion, TileKey};
 
 const CLEAR_DELAY_FRAMES: u8 = 20;
 
@@ -22,7 +22,6 @@ pub(crate) struct TileState {
 
 #[derive(Debug)]
 pub(crate) enum TileStatus {
-	Requested,
 	InFlight { tag: u64, cancellation: TileBuildingCancellation },
 	Loaded,
 	Dirty,
@@ -31,15 +30,14 @@ pub(crate) enum TileStatus {
 
 #[derive(Component, Default)]
 pub struct GridStreaming {
-	pub(crate) presence: ChunkPresence,
+	presence: ChunkPresence,
 	pub(crate) tiles: FxHashMap<TileKey, TileState>,
 	pub(crate) tile_dependencies: TileDependencyIndex,
 	pub(crate) inflight_tiles_by_tag: FxHashMap<u64, TileKey>,
 	pub(crate) next_tile_tag: u64,
-	pub(crate) queued_tile_updates: Vec<TileLoadUpdate>,
-	pub(crate) edit_interest_counts: FxHashMap<IVec3, u32>,
-	pub(crate) edit_interest_version: u64,
-	pub(crate) queued_edit_interest: FxHashMap<IVec3, (u64, bool)>,
+	edit_interest_counts: FxHashMap<IVec3, u32>,
+	edit_interest_version: u64,
+	queued_edit_interest: FxHashMap<IVec3, (u64, bool)>,
 }
 
 #[derive(Component, Debug, Default)]
@@ -94,69 +92,6 @@ impl GridStreaming {
 			}
 		}
 	}
-
-	/* ----------- Tiles ----------- */
-
-	pub(crate) fn fetch_tile(&mut self, requester: Entity, key: TileKey, priority: f32) -> bool {
-		if !valid_tile_key(key) { return false; }
-		let (new_requester, first_requester, status) = {
-			let state = self.tiles.entry(key).or_insert_with(|| TileState {
-				requesters: FxHashMap::default(),
-				status: TileStatus::Requested,
-				active: None,
-			});
-			let new_requester = state.requesters.insert(requester, priority).is_none();
-			let status = match (&state.status, state.active) {
-				(TileStatus::Loaded, Some(entity)) => Some(TileLoadStatus::Ready(entity)),
-				(TileStatus::Empty, _) => Some(TileLoadStatus::Empty),
-				_ => None,
-			};
-			(new_requester, new_requester && state.requesters.len() == 1, status)
-		};
-		if first_requester { self.retain_edit_interest_region(key.region.into()); }
-		if new_requester && let Some(status) = status {
-			self.queued_tile_updates.push(TileLoadUpdate { grid: Entity::PLACEHOLDER, requester, key, status });
-		}
-		true
-	}
-
-	pub(crate) fn release_tile(&mut self, requester: Entity, key: TileKey) {
-		let status = {
-			let Some(state) = self.tiles.get_mut(&key) else { return; };
-			state.requesters.remove(&requester);
-			if !state.requesters.is_empty() { return; }
-			std::mem::replace(&mut state.status, TileStatus::Requested)
-		};
-		self.release_edit_interest_region(key.region.into());
-		match status {
-			TileStatus::InFlight { tag, cancellation } => {
-				self.inflight_tiles_by_tag.remove(&tag);
-				cancellation.cancel();
-			}
-			other => self.tiles.get_mut(&key).unwrap().status = other,
-		}
-	}
-
-	pub(crate) fn dirty_stale_tiles(&mut self, region: NonZeroChunkRegion, generation: u64) {
-		let keys: FxHashSet<_> = self.tile_dependencies.stale_tiles(region, generation).collect();
-		for key in keys { self.dirty_tile(key); }
-	}
-
-	pub(crate) fn invalidate_building_context(&mut self) {
-		let keys: Vec<_> = self.tiles.keys().copied().collect();
-		for key in keys { self.dirty_tile(key); }
-	}
-
-	fn dirty_tile(&mut self, key: TileKey) {
-		let Some(state) = self.tiles.get_mut(&key) else { return };
-		if state.requesters.is_empty() { return; }
-		let status = std::mem::replace(&mut state.status, TileStatus::Dirty);
-		if let TileStatus::InFlight { tag, cancellation } = status {
-			self.inflight_tiles_by_tag.remove(&tag);
-			cancellation.cancel();
-		}
-		state.status = TileStatus::Dirty;
-	}
 }
 
 fn chunk_tree_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
@@ -185,16 +120,5 @@ use super::*;
 		assert!(valid_tile_key(tile(IVec3::ONE, 0).unwrap()));
 		assert!(!valid_tile_key(tile(IVec3::splat(2), 0).unwrap()));
 		assert!(valid_tile_key(tile(IVec3::splat(2), 1).unwrap()));
-	}
-
-	#[test]
-	fn tile_class_is_part_of_shared_store_identity() {
-		let requester = Entity::from_bits(1);
-		let mut streaming = GridStreaming::default();
-		let first = tile(IVec3::ONE, 0).unwrap();
-		let second = TileKey { class: TileClassId(1), ..first };
-		assert!(streaming.fetch_tile(requester, first, 0.0));
-		assert!(streaming.fetch_tile(requester, second, 0.0));
-		assert_eq!(streaming.tiles.len(), 2);
 	}
 }
