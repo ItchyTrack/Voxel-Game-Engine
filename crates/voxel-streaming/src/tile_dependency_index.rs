@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use rustc_hash::FxHashSet;
 use tile_data::{NonZeroChunkRegion, TileIndex, TileIndexKey};
@@ -8,7 +8,6 @@ use crate::TileKey;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TileDependency {
 	pub(crate) region: NonZeroChunkRegion,
-	pub(crate) generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -28,13 +27,9 @@ pub(crate) struct TileDependencyIndex {
 }
 
 impl TileDependencyIndex {
-	pub(crate) fn set(&mut self, key: TileKey, dependencies: HashSet<TileDependency>) {
-		self.remove(key);
-		let dependencies: Vec<_> = dependencies.into_iter().collect();
-		for dependency in &dependencies {
-			self.index.insert(IndexedTileDependency { tile: key, dependency: *dependency });
-		}
-		self.by_tile.insert(key, dependencies);
+	pub(crate) fn add(&mut self, key: TileKey, dependency: TileDependency) {
+		self.index.insert(IndexedTileDependency { tile: key, dependency });
+		self.by_tile.entry(key).or_default().push(dependency);
 	}
 
 	pub(crate) fn remove(&mut self, key: TileKey) {

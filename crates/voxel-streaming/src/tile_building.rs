@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}};
+use std::collections::HashMap;
 
 use bevy::prelude::*;
 use crossbeam_channel::{Receiver, Sender, unbounded};
@@ -11,12 +11,7 @@ use voxel_data::grid::GridId;
 use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridChunkGeneration};
 use voxel_tasks::CancellationToken;
 
-use crate::tile_dependency_index::TileDependency;
-
-#[derive(Default)]
-pub(crate) struct TileBuildingMetadata {
-	pub(crate) dependencies: HashSet<TileDependency>,
-}
+use crate::{GridStreaming, tile_dependency_index::TileDependency};
 
 enum VoxelLoadEvent {
 	Result { result: VoxelRegionResult, generation: u64 },
@@ -27,6 +22,7 @@ enum VoxelLoadEvent {
 pub(crate) struct TileBuildingVoxelRequest {
 	request: VoxelRegionRequest,
 	grid: GridId,
+	tile_key: TileKey,
 	events: UnboundedSender<VoxelLoadEvent>,
 	cancellation: CancellationToken,
 }
@@ -61,7 +57,6 @@ pub(crate) struct StreamingVoxelReader {
 	events_rx: UnboundedReceiver<VoxelLoadEvent>,
 	outstanding: usize,
 	cancellation: CancellationToken,
-	metadata: Arc<Mutex<TileBuildingMetadata>>,
 }
 
 impl StreamingVoxelReader {
@@ -69,7 +64,6 @@ impl StreamingVoxelReader {
 		grid: GridId,
 		requests: Sender<TileBuildingVoxelRequest>,
 		cancellation: CancellationToken,
-		metadata: Arc<Mutex<TileBuildingMetadata>>,
 	) -> (Self, UnboundedSender<VoxelLoadEvent>) {
 		let (events_tx, events_rx) = async_unbounded();
 		(
@@ -80,7 +74,6 @@ impl StreamingVoxelReader {
 				events_rx,
 				outstanding: 0,
 				cancellation,
-				metadata,
 			},
 			events_tx,
 		)
@@ -88,12 +81,14 @@ impl StreamingVoxelReader {
 }
 
 impl TileBuildingVoxelReader for StreamingVoxelReader {
-	fn request_voxels(&mut self, request: VoxelRegionRequest) {
+	fn request_voxels(&mut self, tile_key: TileKey, request: VoxelRegionRequest) {
 		if self.cancellation.is_cancelled() { return; }
 		self.outstanding = self.outstanding.checked_add(1).expect("tile voxel request count overflow");
+		// self.dependencies.insert(TileDependency { region: request.area });
 		if self.requests.send(TileBuildingVoxelRequest {
 			request,
 			grid: self.grid,
+			tile_key,
 			events: self.events_tx.clone(),
 			cancellation: self.cancellation.clone(),
 		}).is_err() {
@@ -111,13 +106,7 @@ impl TileBuildingVoxelReader for StreamingVoxelReader {
 						return None;
 					}
 					VoxelLoadEvent::Loaded => self.outstanding -= 1,
-					VoxelLoadEvent::Result { result, generation: _ } => {
-						// self.metadata.lock().unwrap().dependencies.insert(TileDependency {
-						// 	region: result.area,
-						// 	generation,
-						// });
-						return Some(result);
-					}
+					VoxelLoadEvent::Result { result, generation: _ } => return Some(result),
 				}
 			}
 			None
@@ -147,7 +136,6 @@ pub(crate) struct TileBuildingResult {
 	pub(crate) tile_key: TileKey,
 	pub(crate) generation: GridChunkGeneration, // The lowest read result generation
 	pub(crate) context: TileBuildingParameters,
-	pub(crate) dependencies: HashSet<TileDependency>,
 	pub(crate) data: Option<Box<dyn TileData>>,
 }
 
@@ -175,9 +163,8 @@ pub(crate) fn session(
 	context: TileBuildingParameters,
 	requests: Sender<TileBuildingVoxelRequest>,
 	cancellation: CancellationToken,
-	metadata: Arc<Mutex<TileBuildingMetadata>>,
 ) -> (TileBuildingSession, TileBuildingCancellationToken) {
-	let (reader, wake) = StreamingVoxelReader::new(grid, requests, cancellation.clone(), metadata);
+	let (reader, wake) = StreamingVoxelReader::new(grid, requests, cancellation.clone());
 	(
 		TileBuildingSession::new(grid, key, context, Box::new(reader)),
 		TileBuildingCancellationToken::new(cancellation, wake),
@@ -187,9 +174,12 @@ pub(crate) fn session(
 pub(crate) fn submit_tile_voxel_requests(
 	mut bridge: ResMut<TileVoxelSourceBridge>,
 	mut sources: ResMut<SourceManager>,
+	mut grids: Query<&mut GridStreaming>,
 ) {
 	for request in bridge.request_rx.try_iter().collect::<Vec<_>>() {
 		if request.cancellation.is_cancelled() { continue; }
+		let Ok(mut streaming) = grids.get_mut(request.grid) else { return; };
+		streaming.tile_dependencies.add(request.tile_key, TileDependency { region: request.request.area });
 		let request_id = sources.request_voxels(
 			request.grid,
 			request.request.area,

@@ -48,7 +48,7 @@ pub struct VoxelRegionResult {
 pub type ReceiveVoxelsFuture<'a> = std::pin::Pin<Box<dyn Future<Output = Option<VoxelRegionResult>> + Send + 'a>>;
 
 pub trait TileBuildingVoxelReader: Send + 'static {
-	fn request_voxels(&mut self, request: VoxelRegionRequest);
+	fn request_voxels(&mut self, tile_key: TileKey, request: VoxelRegionRequest);
 	fn receive_voxels(&mut self) -> ReceiveVoxelsFuture<'_>;
 }
 
@@ -79,11 +79,14 @@ impl TileBuildingSession {
 		lod: u8,
 		voxel_type: VoxelTypeId,
 	) {
-		self.reader.request_voxels(VoxelRegionRequest {
-			area,
-			lod,
-			voxel_type,
-		});
+		self.reader.request_voxels(
+			self.key,
+			VoxelRegionRequest {
+				area,
+				lod,
+				voxel_type,
+			}
+		);
 	}
 
 	pub fn receive_voxels(&mut self) -> ReceiveVoxelsFuture<'_> {
