@@ -78,7 +78,7 @@ impl CameraVoxelLoader {
 		}
 		let mut tiles: Vec<_> = states
 			.into_iter()
-			.map(|(key, state)| CoverageDebugTile { grid: key.grid, region: key.region.into(), lod: key.lod, state })
+			.map(|(key, state)| CoverageDebugTile { grid: key.grid, region: key.tile_key.region.into(), lod: key.tile_key.lod, state })
 			.collect();
 		tiles.sort_by_key(|tile| {
 			let min = tile.region.min();

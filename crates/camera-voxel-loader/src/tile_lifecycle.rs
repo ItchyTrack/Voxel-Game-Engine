@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use tile_data::{NonZeroChunkRegion, TileIndex};
 use voxel_data::grid::GridId;
 
-use crate::{coverage::Coverage, types::TileKey};
+use crate::{coverage::Coverage, types::GridTileKey};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TileResolution {
@@ -32,9 +32,9 @@ pub(crate) struct TileEntry {
 
 #[derive(Debug, Default)]
 pub(crate) struct TileLifecycle {
-	desired: HashSet<TileKey>,
-	desired_index: HashMap<GridId, TileIndex<TileKey>>,
-	entries: HashMap<TileKey, TileEntry>,
+	desired: HashSet<GridTileKey>,
+	desired_index: HashMap<GridId, TileIndex<GridTileKey>>,
+	entries: HashMap<GridTileKey, TileEntry>,
 	coverage: Coverage,
 }
 
@@ -43,7 +43,7 @@ impl TileLifecycle {
 	/// finalized only after every added key is registered, so an early addition cannot release a
 	/// key added later in the same batch.
 	pub(crate) fn apply_delta(
-		&mut self, added: &[TileKey], removed: &[TileKey], acquire: &mut Vec<TileKey>, release: &mut Vec<TileKey>,
+		&mut self, added: &[GridTileKey], removed: &[GridTileKey], acquire: &mut Vec<GridTileKey>, release: &mut Vec<GridTileKey>,
 	) {
 		acquire.clear();
 		release.clear();
@@ -91,7 +91,7 @@ impl TileLifecycle {
 	}
 
 	#[must_use = "released tiles must be removed from streaming state"]
-	pub(crate) fn resolve(&mut self, key: TileKey, resolved: ResolvedTile) -> Vec<TileKey> {
+	pub(crate) fn resolve(&mut self, key: GridTileKey, resolved: ResolvedTile) -> Vec<GridTileKey> {
 		if !self.entries.contains_key(&key) {
 			return Vec::new();
 		}
@@ -109,17 +109,17 @@ impl TileLifecycle {
 		release
 	}
 
-	pub(crate) fn contains_desired(&self, key: TileKey) -> bool { self.desired.contains(&key) }
-	pub(crate) fn contains_source(&self, key: TileKey) -> bool { self.entries.contains_key(&key) }
+	pub(crate) fn contains_desired(&self, key: GridTileKey) -> bool { self.desired.contains(&key) }
+	pub(crate) fn contains_source(&self, key: GridTileKey) -> bool { self.entries.contains_key(&key) }
 	#[cfg(test)]
-	pub(crate) fn entry(&self, key: TileKey) -> Option<&TileEntry> { self.entries.get(&key) }
-	pub(crate) fn entries(&self) -> impl Iterator<Item = (TileKey, &TileEntry)> { self.entries.iter().map(|(&key, entry)| (key, entry)) }
+	pub(crate) fn entry(&self, key: GridTileKey) -> Option<&TileEntry> { self.entries.get(&key) }
+	pub(crate) fn entries(&self) -> impl Iterator<Item = (GridTileKey, &TileEntry)> { self.entries.iter().map(|(&key, entry)| (key, entry)) }
 	#[cfg(test)]
-	pub(crate) fn desired(&self) -> impl Iterator<Item = TileKey> + '_ { self.desired.iter().copied() }
+	pub(crate) fn desired(&self) -> impl Iterator<Item = GridTileKey> + '_ { self.desired.iter().copied() }
 	#[cfg(test)]
-	pub(crate) fn desired_set(&self) -> &HashSet<TileKey> { &self.desired }
+	pub(crate) fn desired_set(&self) -> &HashSet<GridTileKey> { &self.desired }
 
-	pub(crate) fn desired_in_area(&self, grid: GridId, region: NonZeroChunkRegion, out: &mut Vec<TileKey>) {
+	pub(crate) fn desired_in_area(&self, grid: GridId, region: NonZeroChunkRegion, out: &mut Vec<GridTileKey>) {
 		out.clear();
 		if let Some(index) = self.desired_index.get(&grid) {
 			index.for_each_overlapping(region, |key| out.push(key));
@@ -132,16 +132,16 @@ impl TileLifecycle {
 			TileResolution::Requested | TileResolution::Empty => None,
 		})
 	}
-	pub(crate) fn coverage_debug_tiles(&self) -> Vec<(TileKey, bool, bool)> { self.coverage.debug_tiles() }
+	pub(crate) fn coverage_debug_tiles(&self) -> Vec<(GridTileKey, bool, bool)> { self.coverage.debug_tiles() }
 
-	fn replace_resolution(&mut self, key: TileKey, next: TileResolution) {
+	fn replace_resolution(&mut self, key: GridTileKey, next: TileResolution) {
 		self.entries.get_mut(&key).unwrap().resolution = next;
 	}
 
-	fn remove_releasable(&mut self, keys: &mut Vec<TileKey>) {
+	fn remove_releasable(&mut self, keys: &mut Vec<GridTileKey>) {
 		keys.sort_by_key(|key| {
-			let min = key.region.min();
-			(key.grid.to_bits(), key.lod, min.x, min.y, min.z)
+			let min = key.tile_key.region.min();
+			(key.grid.to_bits(), key.tile_key.lod, min.x, min.y, min.z)
 		});
 		keys.dedup();
 		keys.retain(|key| {
@@ -155,11 +155,13 @@ impl TileLifecycle {
 
 #[cfg(test)]
 mod tests {
+	use tile_data::TileClassId;
+
 	use super::*;
 
 	fn grid() -> Entity { Entity::from_bits(1) }
-	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey::new(grid(), voxel_streaming::TileClassId(0), lod, min) }
-	fn apply(lifecycle: &mut TileLifecycle, added: &[TileKey], removed: &[TileKey]) -> (Vec<TileKey>, Vec<TileKey>) {
+	fn tile(lod: u8, min: IVec3) -> GridTileKey { GridTileKey::new(grid(), TileClassId(0), lod, min) }
+	fn apply(lifecycle: &mut TileLifecycle, added: &[GridTileKey], removed: &[GridTileKey]) -> (Vec<GridTileKey>, Vec<GridTileKey>) {
 		let mut acquire = Vec::new();
 		let mut release = Vec::new();
 		lifecycle.apply_delta(added, removed, &mut acquire, &mut release);

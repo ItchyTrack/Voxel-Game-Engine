@@ -13,23 +13,23 @@ use crate::{
 	lod_bands::for_each_tile_in_bands,
 	lod_policy::{nearest_chunk_center, tile_has_present_source, update_desired_sources_delta},
 	tile_lifecycle::ResolvedTile,
-	types::TileKey,
+	types::GridTileKey,
 };
 
 fn acquire_tile(
 	lifecycle: &mut crate::tile_lifecycle::TileLifecycle,
 	requester: Entity,
-	key: TileKey,
+	key: GridTileKey,
 	priority: f32,
 	streaming: &mut GridStreaming,
 ) {
-	if !streaming.fetch_tile(requester, key.streaming_key(), priority) {
+	if !streaming.fetch_tile(requester, key.tile_key, priority) {
 		let _ = lifecycle.resolve(key, ResolvedTile::Empty);
 	}
 }
 
-fn release_tiles(streaming: &mut GridStreaming, requester: Entity, keys: impl IntoIterator<Item = TileKey>) {
-	for key in keys { streaming.release_tile(requester, key.streaming_key()); }
+fn release_tiles(streaming: &mut GridStreaming, requester: Entity, keys: impl IntoIterator<Item = GridTileKey>) {
+	for key in keys { streaming.release_tile(requester, key.tile_key); }
 }
 
 pub(crate) fn update_camera_voxel_loader_requests(
@@ -58,7 +58,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			release_tiles(streaming, camera_entity, release.drain(..));
 
 			for &key in &acquire {
-				let center_local = ((key.region.min() + key.region.size().as_ivec3() / 2) * CHUNK_SIZE as i32).as_vec3();
+				let center_local = ((key.tile_key.region.min() + key.tile_key.region.size().as_ivec3() / 2) * CHUNK_SIZE as i32).as_vec3();
 				let priority = -camera_world.distance(grid_global.transform_point(center_local));
 				acquire_tile(&mut loader.tiles, camera_entity, key, priority, streaming);
 			}
@@ -74,7 +74,7 @@ pub(crate) fn receive_camera_voxel_loader_results(
 	for mut consumer in &mut consumers {
 		for result in consumer.drain_tiles() {
 			let Ok(mut loader) = loaders.get_mut(result.requester) else { continue };
-			let key = TileKey::new(result.grid, result.key.class, result.key.lod, result.key.min());
+			let key = GridTileKey::new(result.grid, result.key.class, result.key.lod, result.key.min());
 			if !loader.tiles.contains_source(key) { continue; }
 			let Ok(streaming) = grids.get_mut(result.grid) else { continue };
 			let streaming = streaming.into_inner();
@@ -107,7 +107,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 					let streaming = streaming.into_inner();
 					changed.clear();
 					for_each_tile_in_bands(bands, event.region, |lod, min| {
-						let key = TileKey::new(event.grid, class, lod, min);
+						let key = GridTileKey::new(event.grid, class, lod, min);
 						if !loader.tiles.contains_desired(key) && tile_has_present_source(streaming, key) { changed.push(key); }
 					});
 					loader.tiles.apply_delta(&changed, &[], &mut acquire, &mut release);

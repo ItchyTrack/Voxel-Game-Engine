@@ -8,7 +8,7 @@ use std::{
 };
 
 use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_of};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileClassId, chunk_of};
 use voxel_data::{
 	grid::Grid,
 	voxels::{VoxelTypeId, VoxelTypeInfo},
@@ -16,9 +16,7 @@ use voxel_data::{
 use voxel_streaming::{
 	ChunkAvailabilityChangeKind,
 	ChunkAvailabilityChanged,
-	ChunkConsumer,
 	GridStreaming,
-	TileClassId,
 	TileLoadStatus,
 	TileLoadUpdate,
 	VoxelStreamingPlugin,
@@ -34,7 +32,7 @@ use crate::{
 		update_camera_voxel_loader_requests,
 	},
 	tile_lifecycle::{ResolvedTile, TileEntry, TileResolution},
-	types::TileKey,
+	types::GridTileKey,
 };
 
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
@@ -95,17 +93,17 @@ fn mark_present(app: &mut App, grid: Entity, chunk: IVec3) {
 	});
 }
 
-fn deliver(app: &mut App, grid: Entity, camera: Entity, key: TileKey, status: TileLoadStatus) {
+fn deliver(app: &mut App, grid: Entity, camera: Entity, key: GridTileKey, status: TileLoadStatus) {
 	app.world_mut()
 		.entity_mut(camera)
 		.get_mut::<CameraVoxelLoaderConsumer>()
 		.unwrap()
-		.push_tile(TileLoadUpdate { grid, requester: camera, key: key.streaming_key(), status });
+		.push_tile(TileLoadUpdate { grid, requester: camera, key: key.tile_key, status });
 }
 
 fn camera_loader(app: &App, camera: Entity) -> &CameraVoxelLoader { app.world().entity(camera).get::<CameraVoxelLoader>().unwrap() }
 
-fn apply_delta(loader: &mut CameraVoxelLoader, added: &[TileKey], removed: &[TileKey]) -> (Vec<TileKey>, Vec<TileKey>) {
+fn apply_delta(loader: &mut CameraVoxelLoader, added: &[GridTileKey], removed: &[GridTileKey]) -> (Vec<GridTileKey>, Vec<GridTileKey>) {
 	let mut acquire = Vec::new();
 	let mut release = Vec::new();
 	loader.tiles.apply_delta(added, removed, &mut acquire, &mut release);
@@ -113,7 +111,7 @@ fn apply_delta(loader: &mut CameraVoxelLoader, added: &[TileKey], removed: &[Til
 }
 
 /// Every tile the loader still wants but has not resolved, in request order-independent form.
-fn unresolved_desired(loader: &CameraVoxelLoader) -> Vec<TileKey> {
+fn unresolved_desired(loader: &CameraVoxelLoader) -> Vec<GridTileKey> {
 	loader
 		.tiles
 		.entries()
@@ -138,7 +136,7 @@ fn run_randomized_coverage_stress(seed: u64) {
 	let mut motion_rng = StressRng(seed ^ 0xa076_1d64_78bd_642f);
 	let mut center = IVec3::ZERO;
 	let mut known_chunks = HashSet::new();
-	let mut pending: HashMap<TileKey, u8> = HashMap::new();
+	let mut pending: HashMap<GridTileKey, u8> = HashMap::new();
 
 	let mut run_frame = |frame: usize, center: IVec3, add_availability: bool, rng: &mut StressRng| {
 		move_camera(&mut app, camera, center);
@@ -218,7 +216,7 @@ fn assert_coverage_internal_consistency(loader: &CameraVoxelLoader, seed: u64, f
 	}
 }
 
-fn tick_pending(pending: &mut HashMap<TileKey, u8>) -> Vec<TileKey> {
+fn tick_pending(pending: &mut HashMap<GridTileKey, u8>) -> Vec<GridTileKey> {
 	let mut completed = Vec::new();
 	for (&key, delay) in pending.iter_mut() {
 		if *delay == 0 { completed.push(key); } else { *delay -= 1; }
@@ -251,7 +249,7 @@ fn newly_present_fine_tile_keeps_coarse_coverage_until_it_loads() {
 	let camera = spawn_camera(&mut app, settings, IVec3::new(2, 0, 0));
 	app.world_mut().run_schedule(RequestSchedule);
 
-	let coarse = TileKey::new(grid, TEST_CLASS, 1, IVec3::ZERO);
+	let coarse = GridTileKey::new(grid, TEST_CLASS, 1, IVec3::ZERO);
 	let coarse_entity = app.world_mut().spawn_empty().id();
 	deliver(&mut app, grid, camera, coarse, TileLoadStatus::Ready(coarse_entity));
 	app.world_mut().run_schedule(ReceiveSchedule);
@@ -265,10 +263,10 @@ fn newly_present_fine_tile_keeps_coarse_coverage_until_it_loads() {
 	let newly_present = IVec3::new(1, 0, 0);
 	mark_present(&mut app, grid, newly_present);
 	app.world_mut().run_schedule(RefreshSchedule);
-	let new_fine = TileKey::new(grid, TEST_CLASS, 0, newly_present);
+	let new_fine = GridTileKey::new(grid, TEST_CLASS, 0, newly_present);
 	assert_eq!(camera_loader(&app, camera).tiles.entry(new_fine), Some(&TileEntry { resolution: TileResolution::Requested }));
 
-	let origin_fine = TileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
+	let origin_fine = GridTileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
 	let origin_entity = app.world_mut().spawn_empty().id();
 	deliver(&mut app, grid, camera, origin_fine, TileLoadStatus::Ready(origin_entity));
 	app.world_mut().run_schedule(ReceiveSchedule);
@@ -301,8 +299,8 @@ fn church_flyover_never_opens_a_hole_or_strands_a_request() {
 	let settings = CameraVoxelLoaderSettings { max_lod: 3, near_radius_chunks: 1, rings_per_lod: 1 };
 	let camera = spawn_camera(&mut app, settings, IVec3::ZERO);
 
-	let mut loading: HashMap<TileKey, u8> = HashMap::new();
-	let mut result_entities: HashMap<TileKey, Entity> = HashMap::new();
+	let mut loading: HashMap<GridTileKey, u8> = HashMap::new();
+	let mut result_entities: HashMap<GridTileKey, Entity> = HashMap::new();
 	let mut shown_chunks = HashSet::new();
 	let mut covers_church_cache = HashMap::new();
 
@@ -356,7 +354,7 @@ fn availability_addition_requests_the_newly_present_tile() {
 	let camera = spawn_camera(&mut app, settings, IVec3::ZERO);
 	app.world_mut().run_schedule(RequestSchedule);
 
-	let key = TileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
+	let key = GridTileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
 	assert!(!camera_loader(&app, camera).tiles.contains_source(key), "an absent chunk must not be requested");
 
 	mark_present(&mut app, grid, IVec3::ZERO);
@@ -377,7 +375,7 @@ fn unwanted_in_flight_tile_is_dropped_before_its_late_empty_result() {
 	let camera = spawn_camera(&mut app, settings, IVec3::ZERO);
 	app.world_mut().run_schedule(RequestSchedule);
 
-	let key = TileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
+	let key = GridTileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
 	assert_eq!(camera_loader(&app, camera).tiles.entry(key), Some(&TileEntry { resolution: TileResolution::Requested }));
 
 	move_camera(&mut app, camera, IVec3::splat(100));
@@ -403,7 +401,7 @@ fn shared_tile_ownership_is_tracked_per_camera() {
 	let second = spawn_camera(&mut app, settings, IVec3::ZERO);
 	app.world_mut().run_schedule(RequestSchedule);
 
-	let key = TileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
+	let key = GridTileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
 	assert!(camera_loader(&app, first).tiles.contains_source(key));
 	assert!(camera_loader(&app, second).tiles.contains_source(key));
 
@@ -429,7 +427,7 @@ fn shared_tile_ownership_is_tracked_per_camera() {
 fn empty_tile_result_is_kept_while_desired_and_retired_after_departure() {
 	let mut app = test_app();
 	let grid = spawn_grid(&mut app, GridStreaming::default());
-	let key = TileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
+	let key = GridTileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
 	let mut loader = CameraVoxelLoader::default();
 	apply_delta(&mut loader, &[key], &[]);
 	let camera = app.world_mut().spawn((loader, CameraVoxelLoaderConsumer::default())).id();
@@ -454,7 +452,7 @@ fn empty_tile_result_is_kept_while_desired_and_retired_after_departure() {
 fn availability_removal_retires_the_visible_tile_and_its_render_entity() {
 	let mut app = test_app();
 	let grid = spawn_grid(&mut app, GridStreaming::default());
-	let key = TileKey::new(grid, TEST_CLASS, 1, IVec3::ZERO);
+	let key = GridTileKey::new(grid, TEST_CLASS, 1, IVec3::ZERO);
 	let render_entity = app.world_mut().spawn_empty().id();
 	let mut loader = CameraVoxelLoader::default();
 	apply_delta(&mut loader, &[key], &[]);
@@ -463,13 +461,13 @@ fn availability_removal_retires_the_visible_tile_and_its_render_entity() {
 
 	app.world_mut().resource_mut::<Messages<ChunkAvailabilityChanged>>().write(ChunkAvailabilityChanged {
 		grid,
-		region: key.region.into(),
+		region: key.tile_key.region.into(),
 		kind: ChunkAvailabilityChangeKind::BecameEmpty,
 	});
 	app.world_mut().run_schedule(RefreshSchedule);
 
 	let loader = app.world().entity(camera).get::<CameraVoxelLoader>().unwrap();
-	assert!(!app.world().entity(grid).get::<GridStreaming>().unwrap().presence().is_present(key.region.min()));
+	assert!(!app.world().entity(grid).get::<GridStreaming>().unwrap().presence().is_present(key.tile_key.region.min()));
 	assert!(!loader.tiles.contains_desired(key));
 	assert!(!loader.tiles.contains_source(key));
 	assert!(!loader.tiles_to_render().any(|candidate| candidate == render_entity));
@@ -485,8 +483,8 @@ fn camera_policy_requests_classed_tiles_at_every_lod() {
 	app.world_mut().run_schedule(RequestSchedule);
 
 	let loader = camera_loader(&app, camera);
-	assert!(loader.tiles.entries().any(|(key, _)| key.lod == 0));
-	assert!(loader.tiles.entries().all(|(key, _)| key.class == TEST_CLASS));
+	assert!(loader.tiles.entries().any(|(key, _)| key.tile_key.lod == 0));
+	assert!(loader.tiles.entries().all(|(key, _)| key.tile_key.class == TEST_CLASS));
 }
 
 #[test]
@@ -494,8 +492,8 @@ fn camera_accepts_one_tile_entity_for_every_lod() {
 	let mut app = test_app();
 	let grid = spawn_grid(&mut app, GridStreaming::default());
 	let camera = spawn_camera(&mut app, CameraVoxelLoaderSettings::default(), IVec3::ZERO);
-	let low = TileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
-	let high = TileKey::new(grid, TEST_CLASS, 3, IVec3::new(8, 0, 0));
+	let low = GridTileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
+	let high = GridTileKey::new(grid, TEST_CLASS, 3, IVec3::new(8, 0, 0));
 	let low_entity = app.world_mut().spawn_empty().id();
 	let high_entity = app.world_mut().spawn_empty().id();
 
@@ -520,10 +518,10 @@ fn finer_tile_coverage_retains_a_coarse_tile_until_every_replacement_arrives() {
 	let mut app = test_app();
 	let grid = spawn_grid(&mut app, GridStreaming::default());
 	let camera = spawn_camera(&mut app, CameraVoxelLoaderSettings::default(), IVec3::ZERO);
-	let coarse = TileKey::new(grid, TEST_CLASS, 1, IVec3::ZERO);
+	let coarse = GridTileKey::new(grid, TEST_CLASS, 1, IVec3::ZERO);
 	let coarse_entity = app.world_mut().spawn_empty().id();
 	let fine: Vec<_> = (0..2)
-		.flat_map(|x| (0..2).flat_map(move |y| (0..2).map(move |z| TileKey::new(grid, TEST_CLASS, 0, IVec3::new(x, y, z)))))
+		.flat_map(|x| (0..2).flat_map(move |y| (0..2).map(move |z| GridTileKey::new(grid, TEST_CLASS, 0, IVec3::new(x, y, z)))))
 		.collect();
 
 	{
@@ -553,7 +551,7 @@ fn replacement_update_swaps_the_rendered_tile_entity() {
 	let mut app = test_app();
 	let grid = spawn_grid(&mut app, GridStreaming::default());
 	let camera = spawn_camera(&mut app, CameraVoxelLoaderSettings::default(), IVec3::ZERO);
-	let key = TileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
+	let key = GridTileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
 	let first = app.world_mut().spawn_empty().id();
 	let second = app.world_mut().spawn_empty().id();
 
@@ -567,8 +565,8 @@ fn replacement_update_swaps_the_rendered_tile_entity() {
 	assert!(loader.tiles_to_render().any(|entity| entity == second));
 }
 
-fn region_contains(key: TileKey, chunk: IVec3) -> bool {
-	key.region.contains(chunk)
+fn region_contains(key: GridTileKey, chunk: IVec3) -> bool {
+	key.tile_key.region.contains(chunk)
 }
 
 fn chunk_has_displayable_coverage(loader: &CameraVoxelLoader, grid: Entity, chunk: IVec3) -> bool {
@@ -579,7 +577,7 @@ fn chunk_is_desired(loader: &CameraVoxelLoader, grid: Entity, chunk: IVec3) -> b
 	loader.tiles.desired().any(|key| key.grid == grid && region_contains(key, chunk))
 }
 
-fn tile_covers_church(tile: TileKey, chunks: &HashSet<IVec3>, cache: &mut HashMap<TileKey, bool>) -> bool {
+fn tile_covers_church(tile: GridTileKey, chunks: &HashSet<IVec3>, cache: &mut HashMap<GridTileKey, bool>) -> bool {
 	*cache.entry(tile).or_insert_with(|| chunks.iter().any(|&chunk| region_contains(tile, chunk)))
 }
 

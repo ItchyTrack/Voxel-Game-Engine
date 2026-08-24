@@ -1,16 +1,16 @@
 use bevy::prelude::*;
 use tracy_client::span;
 use voxel_data::grid::GridId;
-use tile_data::{ChunkRegion, CHUNK_SIZE};
-use voxel_streaming::{GridStreaming, TileClassId};
+use tile_data::{CHUNK_SIZE, ChunkRegion, TileClassId};
+use voxel_streaming::GridStreaming;
 
 use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings};
 use crate::lod_bands::{run_over_diff, LodBand};
-use crate::types::TileKey;
+use crate::types::GridTileKey;
 
 pub(crate) struct DesiredSourceDelta {
-	pub(crate) added: Vec<TileKey>,
-	pub(crate) removed: Vec<TileKey>,
+	pub(crate) added: Vec<GridTileKey>,
+	pub(crate) removed: Vec<GridTileKey>,
 }
 
 pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
@@ -34,20 +34,20 @@ pub(crate) fn update_desired_sources_delta(
 	let mut removed = Vec::new();
 	if old_class.is_none_or(|old| old == class) {
 		run_over_diff(&old_bands, &new_bands, streaming, |lod, min, is_added| {
-			let key = TileKey::new(grid, class, lod, min);
+			let key = GridTileKey::new(grid, class, lod, min);
 			if is_added { added.push(key); } else { removed.push(key); }
 		});
 	} else {
 		let old_class = old_class.unwrap();
-		run_over_diff(&old_bands, &[], streaming, |lod, min, _| removed.push(TileKey::new(grid, old_class, lod, min)));
-		run_over_diff(&[], &new_bands, streaming, |lod, min, _| added.push(TileKey::new(grid, class, lod, min)));
+		run_over_diff(&old_bands, &[], streaming, |lod, min, _| removed.push(GridTileKey::new(grid, old_class, lod, min)));
+		run_over_diff(&[], &new_bands, streaming, |lod, min, _| added.push(GridTileKey::new(grid, class, lod, min)));
 	}
 
 	loader.bands.insert(grid, new_bands);
 	DesiredSourceDelta { added, removed }
 }
 
-pub(crate) fn tile_has_present_source(streaming: &GridStreaming, key: TileKey) -> bool {
+pub(crate) fn tile_has_present_source(streaming: &GridStreaming, key: GridTileKey) -> bool {
 	streaming.presence().any_present_in_region(key.region)
 }
 
@@ -127,7 +127,7 @@ mod tests {
 
 	// The desired set computed from scratch at `center`: a fresh loader has empty bands, so a
 	// single delta emits the whole set.
-	fn desired_at(settings: &CameraVoxelLoaderSettings, grid: GridId, streaming: &GridStreaming, center: IVec3) -> std::collections::HashSet<TileKey> {
+	fn desired_at(settings: &CameraVoxelLoaderSettings, grid: GridId, streaming: &GridStreaming, center: IVec3) -> std::collections::HashSet<GridTileKey> {
 		let mut loader = CameraVoxelLoader::default();
 		loader.settings = settings.clone();
 		let delta = update_desired_sources_delta(&mut loader, grid, TileClassId(0), center, settings, streaming);
@@ -180,8 +180,8 @@ mod tests {
 		let desired = desired_at(&settings, grid, &streaming, IVec3::new(3, -2, 5));
 		assert!(!desired.is_empty(), "control setup produced no desired tiles");
 		for tile in &desired {
-			let min = tile.region.min();
-			let max = tile.region.end();
+			let min = tile.tile_key.region.min();
+			let max = tile.tile_key.region.end();
 			let mut covers_present = false;
 			'scan: for x in min.x..max.x {
 				for y in min.y..max.y {
@@ -210,8 +210,8 @@ mod tests {
 			let desired = desired_at(&settings, grid, &streaming, center);
 			let mut owners: std::collections::HashMap<IVec3, u32> = std::collections::HashMap::new();
 			for tile in &desired {
-				let min = tile.region.min();
-				let max = tile.region.end();
+				let min = tile.tile_key.region.min();
+				let max = tile.tile_key.region.end();
 				for x in min.x..max.x {
 					for y in min.y..max.y {
 						for z in min.z..max.z {

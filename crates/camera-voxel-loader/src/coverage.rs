@@ -2,19 +2,19 @@ use std::collections::{HashMap, HashSet};
 
 use voxel_data::grid_tree::NonZeroVoxelRegion;
 
-use crate::{types::TileKey, unresolved_tile_index::UnresolvedTileIndex};
+use crate::{types::GridTileKey, unresolved_tile_index::UnresolvedTileIndex};
 
 /// Tracks pending coverage and the loaded tiles retained until that coverage resolves.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Coverage {
 	pending: UnresolvedTileIndex,
-	replacements_by_source: HashMap<TileKey, HashSet<TileKey>>,
-	sources_by_replacement: HashMap<TileKey, HashSet<TileKey>>,
+	replacements_by_source: HashMap<GridTileKey, HashSet<GridTileKey>>,
+	sources_by_replacement: HashMap<GridTileKey, HashSet<GridTileKey>>,
 }
 
 impl Coverage {
-	pub(crate) fn debug_tiles(&self) -> Vec<(TileKey, bool, bool)> {
-		let mut roles: HashMap<TileKey, (bool, bool)> = HashMap::new();
+	pub(crate) fn debug_tiles(&self) -> Vec<(GridTileKey, bool, bool)> {
+		let mut roles: HashMap<GridTileKey, (bool, bool)> = HashMap::new();
 		for key in self.pending.keys() {
 			roles.entry(key).or_default().0 = true;
 		}
@@ -23,15 +23,15 @@ impl Coverage {
 		}
 		let mut tiles: Vec<_> = roles.into_iter().map(|(key, (pending, retained))| (key, pending, retained)).collect();
 		tiles.sort_by_key(|(key, _, _)| {
-			let min = key.region.min();
-			(key.grid.to_bits(), key.lod, min.x, min.y, min.z)
+			let min = key.tile_key.region.min();
+			(key.grid.to_bits(), key.tile_key.lod, min.x, min.y, min.z)
 		});
 		tiles
 	}
 
 	/// Registers coverage that is now wanted. If the tile was previously being retained, reverse
 	/// that handoff so its former replacements can be removed once this tile is available again.
-	pub(crate) fn set_wanted(&mut self, key: TileKey) {
+	pub(crate) fn set_wanted(&mut self, key: GridTileKey) {
 		if self.pending.contains(key) {
 			return;
 		}
@@ -55,7 +55,7 @@ impl Coverage {
 
 	/// Marks wanted coverage as resolved (visible or empty) and returns retained tiles that it now safely replaces.
 	#[must_use = "tiles returned by Coverage must be removed from loader, render, and streaming state"]
-	pub(crate) fn set_resolved(&mut self, key: TileKey) -> Vec<TileKey> {
+	pub(crate) fn set_resolved(&mut self, key: GridTileKey) -> Vec<GridTileKey> {
 		self.pending.remove(key);
 		self.apply_satisfied(key)
 	}
@@ -63,7 +63,7 @@ impl Coverage {
 	/// Removes a tile from the wanted set and returns tiles whose requests or coverage can now be
 	/// removed without opening a hole.
 	#[must_use = "tiles returned by Coverage must be removed from loader, render, and streaming state"]
-	pub(crate) fn set_unwanted(&mut self, key: TileKey) -> Vec<TileKey> {
+	pub(crate) fn set_unwanted(&mut self, key: GridTileKey) -> Vec<GridTileKey> {
 		if self.pending.remove(key) {
 			let mut removable = self.apply_satisfied(key);
 			if !self.replacements_by_source.contains_key(&key) {
@@ -77,8 +77,8 @@ impl Coverage {
 		}
 
 		let mut replacements = HashSet::new();
-		if let Some(region) = NonZeroVoxelRegion::new(key.region.min(), key.region.size()) {
-			self.pending.for_each_in_region(key.grid, key.class, region, u8::MAX, Some(key.lod), |candidate| {
+		if let Some(region) = NonZeroVoxelRegion::new(key.tile_key.region.min(), key.tile_key.region.size()) {
+			self.pending.for_each_in_region(key.grid, key.tile_key.class, region, u8::MAX, Some(key.tile_key.lod), |candidate| {
 				replacements.insert(candidate);
 			});
 		}
@@ -92,7 +92,7 @@ impl Coverage {
 		}
 	}
 
-	fn add_dependency(&mut self, source: TileKey, replacement: TileKey) {
+	fn add_dependency(&mut self, source: GridTileKey, replacement: GridTileKey) {
 		if source == replacement {
 			return;
 		}
@@ -101,7 +101,7 @@ impl Coverage {
 		}
 	}
 
-	fn apply_satisfied(&mut self, key: TileKey) -> Vec<TileKey> {
+	fn apply_satisfied(&mut self, key: GridTileKey) -> Vec<GridTileKey> {
 		let mut satisfied = HashSet::from([key]);
 		let mut pending = vec![key];
 		let mut removable = Vec::new();
@@ -135,7 +135,7 @@ impl Coverage {
 		self.only_unwanted(removable)
 	}
 
-	fn detach_source(&mut self, source: TileKey) -> Option<HashSet<TileKey>> {
+	fn detach_source(&mut self, source: GridTileKey) -> Option<HashSet<GridTileKey>> {
 		let replacements = self.replacements_by_source.remove(&source)?;
 		for replacement in &replacements {
 			let Some(sources) = self.sources_by_replacement.get_mut(replacement) else { continue };
@@ -147,16 +147,16 @@ impl Coverage {
 		Some(replacements)
 	}
 
-	fn only_unwanted(&self, tiles: Vec<TileKey>) -> Vec<TileKey> {
+	fn only_unwanted(&self, tiles: Vec<GridTileKey>) -> Vec<GridTileKey> {
 		let mut seen = HashSet::new();
 		tiles.into_iter().filter(|key| !self.pending.contains(*key) && seen.insert(*key)).collect()
 	}
 }
 
-fn tiles_overlap(a: TileKey, b: TileKey) -> bool {
+fn tiles_overlap(a: GridTileKey, b: GridTileKey) -> bool {
 	a.grid == b.grid
-		&& a.region.min().cmplt(b.region.min() + b.region.size().as_ivec3()).all()
-		&& b.region.min().cmplt(a.region.min() + a.region.size().as_ivec3()).all()
+		&& a.tile_key.region.min().cmplt(b.tile_key.region.min() + b.tile_key.region.size().as_ivec3()).all()
+		&& b.tile_key.region.min().cmplt(a.tile_key.region.min() + a.tile_key.region.size().as_ivec3()).all()
 }
 
 #[cfg(test)]
@@ -167,18 +167,18 @@ mod tests {
 use tile_data::TileClassId;
 
 	use super::Coverage;
-	use crate::types::TileKey;
+	use crate::types::GridTileKey;
 
 	fn grid() -> Entity { Entity::from_bits(1) }
-	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey::new(grid(), TileClassId(0), lod, min) }
-	fn children(parent: TileKey) -> Vec<TileKey> {
-		let child_lod = parent.lod - 1;
+	fn tile(lod: u8, min: IVec3) -> GridTileKey { GridTileKey::new(grid(), TileClassId(0), lod, min) }
+	fn children(parent: GridTileKey) -> Vec<GridTileKey> {
+		let child_lod = parent.tile_key.lod - 1;
 		let child_size = 1 << child_lod;
 		let mut children = Vec::new();
 		for x in 0..2 {
 			for y in 0..2 {
 				for z in 0..2 {
-					children.push(tile(child_lod, parent.region.min() + IVec3::new(x, y, z) * child_size));
+					children.push(tile(child_lod, parent.tile_key.region.min() + IVec3::new(x, y, z) * child_size));
 				}
 			}
 		}

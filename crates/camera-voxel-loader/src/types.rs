@@ -1,27 +1,28 @@
 use bevy::math::IVec3;
-use tile_data::{NonZeroChunkRegion, TileIndexKey};
+use tile_data::{NonZeroChunkRegion, TileIndexKey, TileKey};
 use voxel_data::grid::GridId;
-use voxel_streaming::TileClassId;
+use tile_data::TileClassId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TileKey {
+pub(crate) struct GridTileKey {
 	pub(crate) grid: GridId,
-	pub(crate) class: TileClassId,
-	pub(crate) lod: u8,
-	pub(crate) region: NonZeroChunkRegion,
+	pub(crate) tile_key: TileKey,
 }
 
-impl TileKey {
+impl GridTileKey {
 	pub(crate) fn new(grid: GridId, class: TileClassId, lod: u8, min: IVec3) -> Self {
 		let size = 1u32 << lod;
-		Self { grid, class, lod, region: NonZeroChunkRegion::new(min, bevy::math::UVec3::splat(size)).unwrap() }
-	}
-
-	pub(crate) fn streaming_key(self) -> voxel_streaming::TileKey {
-		voxel_streaming::TileKey { region: self.region, lod: self.lod, class: self.class }
+		Self {
+			grid,
+			tile_key: TileKey {
+				class,
+				lod,
+				region: NonZeroChunkRegion::new(min, bevy::math::UVec3::splat(size)).unwrap()
+			}
+		}
 	}
 }
 
-impl TileIndexKey for TileKey {
-	fn region(self) -> NonZeroChunkRegion { self.region }
+impl TileIndexKey for GridTileKey {
+	fn region(self) -> NonZeroChunkRegion { self.tile_key.region }
 }
