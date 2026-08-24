@@ -189,7 +189,7 @@ impl ChunkSource for SdfSource {
 				}
 			}
 			if !cancellation.is_cancelled() && let Some(voxels) = merged {
-				handle.voxels(request_id, grid, region, lod, 0, voxels);
+				handle.voxels(request_id, grid, region, lod, /* todo. get grid generation */, voxels);
 			}
 			handle.voxels_loaded(request_id);
 		});

@@ -287,7 +287,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 						if !source.inner.forgotten.contains(grid, chunk) {
 							if cancellation.is_cancelled() { return; }
 							if let Some(voxels) = source.translated_chunk(&binding, chunk) {
-								handle.voxels(request_id, grid, NonZeroChunkRegion::from_single(chunk), 0, 0, voxels);
+								handle.voxels(request_id, grid, NonZeroChunkRegion::from_single(chunk), 0, /* todo. get grid generation */, voxels);
 							}
 						}
 					}
