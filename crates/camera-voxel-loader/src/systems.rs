@@ -4,13 +4,11 @@ use voxel_data::grid::GridId;
 use voxel_streaming::{
 	ChunkAvailabilityChangeKind,
 	ChunkAvailabilityChanged,
-	ChunkConsumer,
 	GridStreaming,
 	TileLoadStatus,
 };
 
 use crate::{
-	CameraVoxelLoaderConsumer,
 	camera_voxel_loader::{CameraVoxelLoader, CameraVoxelTileClass},
 	lod_bands::for_each_tile_in_bands,
 	lod_policy::{nearest_chunk_center, tile_has_present_source, update_desired_sources_delta},

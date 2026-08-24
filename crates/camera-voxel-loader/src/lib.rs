@@ -11,11 +11,9 @@ mod unresolved_tile_index;
 mod system_invariants;
 
 use bevy::prelude::*;
-use voxel_streaming::{StreamingPhase, StreamingSchedule, VoxelStreamingAppExt};
+use voxel_streaming::{StreamingPhase, StreamingSchedule};
 
 pub use crate::camera_voxel_loader::{CameraVoxelLoader, CameraVoxelLoaderSettings, CameraVoxelTileClass, CoverageDebugState, CoverageDebugTile};
-
-voxel_streaming::chunk_consumer!(pub CameraVoxelLoaderConsumer);
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct FreezeCameraVoxelLoader(pub bool);
@@ -26,12 +24,11 @@ pub struct CameraVoxelLoaderDefaultSettings(pub CameraVoxelLoaderSettings);
 fn ensure_camera_voxel_loader_components(
 	mut commands: Commands,
 	default_settings: Res<CameraVoxelLoaderDefaultSettings>,
-	cameras: Query<(Entity, Option<&CameraVoxelLoader>, Option<&CameraVoxelLoaderConsumer>), With<Camera3d>>,
+	cameras: Query<(Entity, Option<&CameraVoxelLoader>), With<Camera3d>>,
 ) {
-	for (entity, loader, consumer) in &cameras {
+	for (entity, loader) in &cameras {
 		let mut entity_commands = commands.entity(entity);
 		if loader.is_none() { entity_commands.insert(CameraVoxelLoader::with_settings(default_settings.0.clone())); }
-		if consumer.is_none() { entity_commands.insert(CameraVoxelLoaderConsumer::default()); }
 	}
 }
 
@@ -47,7 +44,6 @@ impl Plugin for CameraVoxelLoaderPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<FreezeCameraVoxelLoader>()
 			.init_resource::<CameraVoxelLoaderDefaultSettings>()
-			.register_chunk_consumer::<CameraVoxelLoaderConsumer>()
 			.add_systems(Update, ensure_camera_voxel_loader_components)
 			.add_systems(
 				Update,

@@ -12,8 +12,6 @@ use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
 use crate::{ChunkRegion, TileKey};
 
-const CLEAR_DELAY_FRAMES: u8 = 20;
-
 #[derive(Debug)]
 pub(crate) struct TileState {
 	pub(crate) requesters: FxHashMap<Entity, f32>,
@@ -35,7 +33,7 @@ pub struct GridStreaming {
 	pub(crate) tile_dependencies: TileDependencyIndex,
 	edit_interest_counts: FxHashMap<IVec3, u32>,
 	edit_interest_version: u64,
-	queued_edit_interest: FxHashMap<IVec3, (u64, bool)>,
+	pub(crate) queued_edit_interest: FxHashMap<IVec3, (u64, bool)>,
 }
 
 #[derive(Component, Debug, Default)]
@@ -90,10 +88,6 @@ impl GridStreaming {
 			}
 		}
 	}
-}
-
-fn chunk_tree_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
-	NonZeroVoxelRegion::new(region.min(), region.size()).unwrap()
 }
 
 pub(crate) fn valid_tile_key(key: TileKey) -> bool {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bevy::ecs::{component::Component, entity::Entity};
 use tile_data::ChunkRegion;
 use voxel_data::grid::GridId;
-use voxel_streaming::TileClassId;
+use tile_data::TileClassId;
 
 use crate::lod_bands::LodBand;
 use crate::tile_lifecycle::{TileLifecycle, TileResolution};

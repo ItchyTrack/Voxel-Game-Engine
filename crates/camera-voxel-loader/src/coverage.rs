@@ -164,12 +164,13 @@ mod tests {
 	use std::collections::HashSet;
 
 	use bevy::prelude::*;
+use tile_data::TileClassId;
 
 	use super::Coverage;
 	use crate::types::TileKey;
 
 	fn grid() -> Entity { Entity::from_bits(1) }
-	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey::new(grid(), voxel_streaming::TileClassId(0), lod, min) }
+	fn tile(lod: u8, min: IVec3) -> TileKey { TileKey::new(grid(), TileClassId(0), lod, min) }
 	fn children(parent: TileKey) -> Vec<TileKey> {
 		let child_lod = parent.lod - 1;
 		let child_size = 1 << child_lod;

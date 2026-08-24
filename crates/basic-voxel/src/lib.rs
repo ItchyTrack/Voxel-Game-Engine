@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use tile_data::TileAppExt;
 use voxel_data::voxels::VoxelType;
 use voxel_gpu::VoxelGpuAppExt;
-use voxel_physics::VoxelPhysicsAppExt;
+// use voxel_physics::VoxelPhysicsAppExt;
 use voxel_raster_renderer::{VoxelRasterRendererPlugin, VoxelRasterTileAppExt};
 use voxel_ray_renderer::{VoxelRayRendererPlugin, VoxelRayTileAppExt};
 
@@ -24,8 +24,8 @@ impl Plugin for BasicVoxelPlugin {
 			.register_tile_voxel_reducer(LodToLodVoxelReducer)
 			.register_tile_voxel_reducer(BasicToMarchingVoxelReducer)
 			.register_tile_voxel_reducer(MarchingToMarchingVoxelReducer)
-			.register_voxel_mass::<BasicVoxel>()
-			.register_voxel_mass::<MarchingVoxel>()
+			// .register_voxel_mass::<BasicVoxel>()
+			// .register_voxel_mass::<MarchingVoxel>()
 			.register_voxel_gpu_data::<BasicVoxel>()
 			.register_voxel_gpu_data::<LodVoxel>();
 

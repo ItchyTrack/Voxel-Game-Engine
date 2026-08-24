@@ -1,7 +1,6 @@
 use bevy::{ecs::message::{MessageReader, MessageWriter}};
 use bevy::math::IVec3;
 use bevy::prelude::*;
-use bevy_ecs::system::SystemState;
 use voxel_sources::{SourceManager, SourceResult, SourceResultData};
 
 use voxel_data::grid::GridId;
@@ -9,10 +8,7 @@ use tile_data::NonZeroChunkRegion;
 use tile_data::CHUNK_SIZE;
 use crate::{tile_building::TileBuildingChannel, tile_requester::TileRequester};
 use crate::streaming::TileStatus;
-use tile_data::{
-	DynamicTileData, LoadedTile, TileBuildingParameters,
-	TileBuilderRegistry,
-};
+use tile_data::{DynamicTileData, LoadedTile, TileBuildingParameters};
 use crate::{GridStreaming, InflightChunkPresence, RequestChunkPresence, TileLoadStatus, TileLoadUpdate};
 use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkEditInterestChanged};
 
@@ -103,62 +99,38 @@ pub fn cleanup_released_tiles(world: &mut World) {
 		for key in released {
 			streaming.tile_dependencies.remove(key);
 			if let Some(state) = streaming.tiles.remove(&key) {
-				if let Some(entity) = state.active { released_entities.push(entity); }
+				if let Some(entity) = state.entity { released_entities.push(entity); }
 			}
 		}
 	}
 	for entity in released_entities { cleanup_tile_entity(world, entity); }
 }
 
-pub fn invalidate_changed_generation_contexts(
+pub(crate) fn invalidate_changed_generation_contexts(
 	mut tile_builder: TileRequester,
-	grids: Query<(GridId, Option<&TileBuildingParameters>), Changed<TileBuilderRegistry>>,
+	grids: Query<(GridId, Option<&TileBuildingParameters>), Changed<TileBuildingParameters>>,
 ) {
 	for (grid, context) in &grids {
 		tile_builder.invalidate_building_context(grid, context);
 	}
 }
 
-pub fn receive_tile_results(
-	world: &mut World,
-	state: &mut SystemState<TileRequester>,
-) {
+pub fn receive_tile_results(world: &mut World) {
 	let results: Vec<_> = world.resource::<TileBuildingChannel>().drain().collect();
 	for result in results {
-		let Some(key) = world.get_mut::<GridStreaming>(result.grid).and_then(|mut streaming| streaming.inflight_tiles_by_tag.remove(&result.tag)) else { continue };
-		let context = world.get::<TileBuildingParameters>(result.grid).cloned();
-		let context_matches = context.map_or(false, |context| context == result.context);
-
-		let accepted = {
-			let Some(mut streaming) = world.get_mut::<GridStreaming>(result.grid) else { continue };
-			let stale_source = result.dependencies.iter().any(|dependency| {
-				streaming.region_generation(dependency.region) > dependency.generation
-			});
-			let Some(tile_state) = streaming.tiles.get_mut(&key) else { continue };
-			let status = std::mem::replace(&mut tile_state.status, TileStatus::Requested);
-			let matching_task = matches!(&status, TileStatus::InFlight { tag, .. } if *tag == result.tag);
-			if !matching_task {
-				tile_state.status = status;
-				false
-			} else {
-				!context_matches || stale_source
-			}
-		};
-
-		if !context_matches_and_fresh(context_matches, &result, world) {
-			// stale: drop the streaming borrow, then re-request via TileBuilder
-			let mut tile_builder = state.get_mut(world);
-			tile_builder.dirty_tile(result.grid, key, context.as_ref());
-			state.apply(world);
-			continue;
-		}
+		let key = result.tile_key;
+		let accepted = world.get::<GridStreaming>(result.grid)
+			.and_then(|streaming| streaming.tiles.get(&key))
+			.is_some_and(|tile_state| matches!(
+				tile_state.status,
+				TileStatus::InFlight { generation, .. } if generation == result.generation
+			));
 		if !accepted { continue; }
 
 		let (requesters, old) = {
-			let mut streaming = world.get_mut::<GridStreaming>(result.grid).unwrap();
-			streaming.tile_dependencies.replace(key, result.dependencies);
+			let streaming = world.get::<GridStreaming>(result.grid).unwrap();
 			let tile_state = streaming.tiles.get(&key).unwrap();
-			(tile_state.requesters.keys().copied().collect::<Vec<_>>(), tile_state.active)
+			(tile_state.requesters.keys().copied().collect::<Vec<_>>(), tile_state.entity)
 		};
 		match result.data {
 			Some(data) => {
@@ -170,7 +142,7 @@ pub fn receive_tile_results(
 				)).id();
 				let mut streaming = world.get_mut::<GridStreaming>(result.grid).unwrap();
 				let tile_state = streaming.tiles.get_mut(&key).unwrap();
-				tile_state.active = Some(entity);
+				tile_state.entity = Some(entity);
 				tile_state.status = TileStatus::Loaded;
 				for requester in requesters {
 					world.resource_mut::<PendingTileUpdates>().0.push(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Ready(entity) });
@@ -180,8 +152,8 @@ pub fn receive_tile_results(
 			None => {
 				let mut streaming = world.get_mut::<GridStreaming>(result.grid).unwrap();
 				let tile_state = streaming.tiles.get_mut(&key).unwrap();
-				tile_state.active = None;
-				tile_state.status = TileStatus::Empty;
+				tile_state.entity = None;
+				tile_state.status = TileStatus::Loaded;
 				for requester in requesters {
 					world.resource_mut::<PendingTileUpdates>().0.push(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Empty });
 				}
