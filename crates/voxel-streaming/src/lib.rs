@@ -6,7 +6,7 @@ use tile_data::{ChunkRegion, NonZeroChunkRegion};
 mod tile_dependency_index;
 mod presence;
 mod streaming;
-mod tile_requester;
+pub mod tile_requester;
 mod tile_building;
 pub mod systems;
 
@@ -15,7 +15,6 @@ pub use tile_requester::{TileLoadStatus, TileLoadUpdate};
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
 pub use systems::request_presence_for_new_grids;
 
-// Re-exports used by the `chunk_consumer!` macro.
 #[doc(hidden)]
 pub use bevy as __bevy;
 #[doc(hidden)]

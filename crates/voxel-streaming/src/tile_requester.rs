@@ -1,6 +1,6 @@
 use bevy::{log::tracing::Instrument, prelude::*, tasks::AsyncComputeTaskPool};
 use rustc_hash::{FxHashMap, FxHashSet};
-use tile_data::{NonZeroChunkRegion, TileBuilderRegistry, TileBuildingParameters, TileKey};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileBuilderRegistry, TileBuildingParameters, TileKey};
 use voxel_data::grid::GridId;
 use bevy::ecs::system::SystemParam;
 use voxel_sources::edit::{GridChunkGeneration, GridEditIdManager};
@@ -23,11 +23,17 @@ pub struct TileLoadUpdate {
 }
 
 #[derive(SystemParam)]
-pub(crate) struct TileRequester<'w, 's> {
+pub struct TileRequester<'w, 's> {
 	bridge: Res<'w, TileVoxelSourceBridge>,
 	builders: Res<'w, TileBuilderRegistry>,
 	results: Res<'w, TileBuildingChannel>,
 	grids: Query<'w, 's, (&'static mut GridStreaming, &'static GridEditIdManager)>,
+}
+
+fn valid_tile_key(key: TileKey) -> bool {
+	let factor = 1u32 << key.lod;
+	let coarse_extent = (key.size() * CHUNK_SIZE as u32) / factor;
+	!coarse_extent.cmplt(UVec3::ONE).any() && !coarse_extent.cmpgt(UVec3::splat(CHUNK_SIZE as u32)).any()
 }
 
 impl<'w, 's> TileRequester<'w, 's> {
@@ -39,7 +45,7 @@ impl<'w, 's> TileRequester<'w, 's> {
 		priority: f32,
 		context: Option<&TileBuildingParameters>,
 	) -> bool {
-		if !crate::streaming::valid_tile_key(tile_key) { return false; }
+		if !valid_tile_key(tile_key) { return false; }
 		let Ok((mut streaming, edit_id_manager)) = self.grids.get_mut(grid) else { return false; };
 		let streaming = &mut *streaming;
 		streaming.tile_dependencies.remove(tile_key);

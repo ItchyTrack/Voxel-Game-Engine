@@ -3,9 +3,7 @@ use bevy::prelude::*;
 use rustc_hash::FxHashMap;
 use voxel_sources::RequestId;
 
-use voxel_data::grid_tree::NonZeroVoxelRegion;
-
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
+use tile_data::NonZeroChunkRegion;
 use voxel_sources::edit::GridChunkGeneration;
 use crate::tile_building::TileBuildingCancellationToken;
 use crate::presence::ChunkPresence;
@@ -87,30 +85,5 @@ impl GridStreaming {
 				for x in region.min().x..region.end().x { self.release_edit_interest(IVec3::new(x, y, z)); }
 			}
 		}
-	}
-}
-
-pub(crate) fn valid_tile_key(key: TileKey) -> bool {
-	let factor = 1u32 << key.lod;
-	let coarse_extent = (key.size() * CHUNK_SIZE as u32) / factor;
-	!coarse_extent.cmplt(UVec3::ONE).any() && !coarse_extent.cmpgt(UVec3::splat(CHUNK_SIZE as u32)).any()
-}
-
-#[cfg(test)]
-mod tests {
-	use tile_data::NonZeroChunkRegion;
-
-use super::*;
-	use tile_data::TileClassId;
-
-	fn tile(size: IVec3, lod: u8) -> Option<TileKey> {
-		Some(TileKey::new(NonZeroChunkRegion::new(IVec3::ZERO, size.as_uvec3())?, lod, TileClassId(0)))
-	}
-
-	#[test]
-	fn tile_validity_keeps_size_and_lod_independent_with_one_chunk_output_limit() {
-		assert!(valid_tile_key(tile(IVec3::ONE, 0).unwrap()));
-		assert!(!valid_tile_key(tile(IVec3::splat(2), 0).unwrap()));
-		assert!(valid_tile_key(tile(IVec3::splat(2), 1).unwrap()));
 	}
 }

@@ -2,9 +2,7 @@ use std::time::Duration;
 
 use bevy::math::{IVec3, UVec3};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use voxel_data::{
-	grid_tree::{reduce_grid_trees, GridReducer, NonZeroVoxelRegion, SourceOverlaps, SourceTree, U16Cell},
-};
+use voxel_data::grid_tree::{GridReducer, GridTree, NonZeroVoxelRegion, SourceOverlaps, SourceTree, U16Cell, reduce_grid_trees};
 
 const SOURCE_SIZE: u32 = 16;
 const OUTPUT_SIZE: u32 = 16;
@@ -42,7 +40,7 @@ fn dense_source() -> GridTree<U16Cell> {
 			}
 		}
 	}
-	let mut tree = GridTree<U16Cell>::new();
+	let mut tree = GridTree::new();
 	tree.add_single_voxels(&voxels);
 	tree
 }
@@ -61,7 +59,7 @@ fn sparse_source() -> GridTree<U16Cell> {
 			}
 		}
 	}
-	let mut tree = GridTree<U16Cell>::new();
+	let mut tree = GridTree::new();
 	tree.add_single_voxels(&voxels);
 	tree
 }
