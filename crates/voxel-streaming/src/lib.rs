@@ -88,6 +88,7 @@ impl Plugin for VoxelStreamingPlugin {
 					(
 						systems::receive_chunk_presence_loaded,
 						systems::apply_source_presence,
+						systems::make_edited_chunks_present,
 						systems::dirty_edited_tiles,
 					)
 						.chain()

@@ -11,9 +11,10 @@ use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileAppExt, TileBuilder, TileBuildingSession, TileClassId, TileData, chunk_of};
 use voxel_data::{
 	grid::Grid,
+	region::NonZeroVoxelRegion,
 	voxels::{VoxelTypeId, VoxelTypeInfo},
 };
-use voxel_sources::edit::GridEditIdManager;
+use voxel_sources::edit::{GridEditId, GridEditIdManager, GridEditMessage, GridGeneration, RemoveArea};
 use voxel_streaming::{
 	ChunkAvailabilityChangeKind,
 	ChunkAvailabilityChanged,
@@ -365,6 +366,32 @@ fn availability_addition_requests_the_newly_present_tile() {
 	mark_present(&mut app, grid, IVec3::ZERO);
 	app.world_mut().run_schedule(RefreshSchedule);
 
+	let loader = camera_loader(&app, camera);
+	assert!(loader.tiles.contains_desired(key));
+	assert_eq!(loader.tiles.entry(key), Some(&TileEntry { resolution: TileResolution::Requested }));
+}
+
+#[test]
+fn edit_in_new_chunk_makes_it_present_and_requests_tile() {
+	let mut app = test_app();
+	let grid = spawn_grid(&mut app, GridStreaming::default());
+	let settings = CameraVoxelLoaderSettings { max_lod: 1, near_radius_chunks: 0, rings_per_lod: 1 };
+	let camera = spawn_camera(&mut app, settings, IVec3::ZERO);
+	app.world_mut().run_schedule(RequestSchedule);
+
+	let key = GridTileKey::new(grid, TEST_CLASS, 0, IVec3::ZERO);
+	assert!(!camera_loader(&app, camera).tiles.contains_source(key), "an absent chunk must not be requested");
+
+	app.world_mut().resource_mut::<Messages<GridEditMessage>>().write(GridEditMessage::new(
+		grid,
+		GridGeneration::default(),
+		GridEditId::default(),
+		RemoveArea::new(NonZeroVoxelRegion::from_single(IVec3::ZERO)),
+	));
+	app.update();
+	app.world_mut().run_schedule(RefreshSchedule);
+
+	assert!(app.world().entity(grid).get::<GridStreaming>().unwrap().presence().is_present(IVec3::ZERO));
 	let loader = camera_loader(&app, camera);
 	assert!(loader.tiles.contains_desired(key));
 	assert_eq!(loader.tiles.entry(key), Some(&TileEntry { resolution: TileResolution::Requested }));

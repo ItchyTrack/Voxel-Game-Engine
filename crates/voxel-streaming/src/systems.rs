@@ -83,6 +83,24 @@ pub(crate) fn receive_chunk_presence_loaded(
 	}
 }
 
+pub(crate) fn make_edited_chunks_present(
+	mut edits: MessageReader<GridEditMessage>,
+	mut grids: Query<&mut GridStreaming>,
+	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
+) {
+	for edit in edits.read() {
+		let region = chunks_covering_nonzero_voxel_region(edit.edit().affected_region());
+		let Ok(mut streaming) = grids.get_mut(edit.grid_id()) else { continue };
+		if streaming.presence().all_present_in_region(region) { continue; }
+		streaming.mark_present_area(region);
+		availability_events.write(ChunkAvailabilityChanged {
+			grid: edit.grid_id(),
+			region,
+			kind: ChunkAvailabilityChangeKind::BecamePresent,
+		});
+	}
+}
+
 pub(crate) fn dirty_edited_tiles(
 	mut edits: MessageReader<GridEditMessage>,
 	mut tile_builder: TileRequester,
