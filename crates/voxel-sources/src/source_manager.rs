@@ -47,7 +47,7 @@ impl SourceManager {
 		let request_id = self.new_request_id();
 		let cancellation_token = CancellationToken::new();
 		let mut source_request_count = 0;
-		for source in &self.sources {
+		for source in &mut self.sources {
 			match source.request_voxels(request_id, &cancellation_token, grid, region, lod, voxel_type, generation) {
 				SourceCoverage::None => {},
 				SourceCoverage::Some => { source_request_count += 1; },
@@ -77,7 +77,7 @@ impl SourceManager {
 		let request_id = self.new_request_id();
 		let cancellation_token = CancellationToken::new();
 		let mut source_request_count = 0;
-		for source in &self.sources {
+		for source in &mut self.sources {
 			source_request_count += 1;
 			source.request_presence(request_id, cancellation_token.clone(), grid);
 		}
@@ -98,19 +98,20 @@ impl SourceManager {
 	}
 
 	pub fn transfer_ownership(&mut self, new_owner: SourceId, grid: GridId, region: NonZeroChunkRegion) {
-		let Some(new_owner_source) = self.sources.get(new_owner.0) else {
+		if new_owner.0 >= self.sources.len() {
 			println!("transfer_ownership failed! Invalid new_owner {new_owner:?}");
 			return;
-		};
-		new_owner_source.acquire_ownership(grid, region);
-		for (source_id, source) in self.sources.iter().enumerate() {
-			if source_id != new_owner.0 {
+		}
+		for (source_id, source) in self.sources.iter_mut().enumerate() {
+			if source_id == new_owner.0 {
+				source.acquire_ownership(grid, region);
+			} else {
 				source.relinquish_ownership(grid, region);
 			}
 		}
 	}
 
-	pub(crate) fn add_source<S: ChunkSource + 'static>(&mut self, source: S) {
+	pub(crate) fn add_source<S: ChunkSource + 'static>(&mut self, mut source: S) {
 		assert!(self.get_source::<S>().is_none()); // only allow one of each source type. 2 of the same type should just both use the same source...
 		source.init(SourceHandle { id: SourceId(self.sources.len()), messages: self.source_result_sender.clone() });
 		self.sources.push(Box::new(source));

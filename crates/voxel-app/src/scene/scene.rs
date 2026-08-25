@@ -14,7 +14,7 @@ use voxel_lightyear::ReplicateVoxels;
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, RotationalInertia, VoxelPhysicsAppExt
 };
-use voxel_sources::VoxelSourcesAppExt;
+use voxel_sources::{SourceManager, VoxelSourcesAppExt};
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
 use crate::voxel::spawn_grid::spawn_grid;
@@ -73,11 +73,12 @@ fn drive_orientation(
 
 fn setup_scene(
 	mut commands: Commands,
-	store: Res<VoxelStoreSource>,
+	source_manager: ResMut<SourceManager>,
 	vox_source: Res<SceneVoxFileSource>,
 	marching_vox_source: Res<MarchingVoxFileSource>,
 	_sdf_source: Res<SdfSource>,
 ) {
+	let store = source_manager.get_source_mut::<VoxelStoreSource>().unwrap();
 	spawn_church(&mut commands, &vox_source);
 	spawn_sponza(&mut commands, &marching_vox_source);
 	// spawn_ball_cluster(&mut commands, &mut store);

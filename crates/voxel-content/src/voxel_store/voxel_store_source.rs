@@ -1,26 +1,16 @@
-use std::{
-	collections::HashMap,
-	sync::{Arc, OnceLock, RwLock},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use bevy::prelude::*;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunks_covering_nonzero_voxel_region};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use voxel_data::{grid::GridId, voxels::{VoxelTypeId, VoxelTypeInfo, Voxels}};
 use voxel_sources::{
-	ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceId, SourceManager,
+	ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceId,
 	SourceResult, SourceResultData, VoxelSourcesAppExt,
 	edit::{GridEdit, GridGeneration},
 };
-use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
+use voxel_tasks::AsyncPriorityTaskPool;
 
-use super::grid_store::{ChunkOwnership, ChunkVersion, GridStore};
-
-#[derive(Default)]
-struct StoreState {
-	grids: HashMap<GridId, GridStore>,
-	acquisitions: HashMap<RequestId, Acquisition>,
-	waiting_requests: Vec<ServingRequest>,
-}
+use super::grid_store::{ChunkOwnership, GridStore, ServingRequest};
 
 struct Acquisition {
 	grid: GridId,
@@ -31,144 +21,110 @@ struct Acquisition {
 	queued_edits: Vec<(GridGeneration, Arc<dyn GridEdit>)>,
 }
 
-struct ServingRequest {
-	request_id: RequestId,
-	cancellation: CancellationToken,
-	grid: GridId,
-	generation: GridGeneration,
-	chunks: Vec<(IVec3, Option<Arc<ChunkVersion>>)>,
-}
-
 #[derive(Default)]
-struct VoxelStoreSourceInner {
-	state: RwLock<StoreState>,
-	handle: OnceLock<SourceHandle>,
-}
-
-#[derive(Resource, Clone, Default)]
 pub struct VoxelStoreSource {
-	inner: Arc<VoxelStoreSourceInner>,
+	handle: Option<SourceHandle>,
+	grids: HashMap<GridId, GridStore>,
+	acquisitions: HashMap<RequestId, Acquisition>,
 }
 
 impl VoxelStoreSource {
-	/// Inserts unchanged LOD0 chunk data as generation zero owned by this source.
-	pub fn insert_chunk_data(&self, grid: GridId, chunk_data: HashMap<IVec3, Voxels>) {
-		let mut state = self.inner.state.write().unwrap();
-		let store = state.grids.entry(grid).or_default();
+	pub fn insert_chunk_data(&mut self, grid: GridId, chunk_data: HashMap<IVec3, Voxels>) {
+		let store = self.grids.entry(grid).or_default();
 		for (chunk, voxels) in chunk_data {
 			store.save_chunk(chunk, GridGeneration::default(), &voxels);
 		}
 	}
 
 	pub fn source_id(&self) -> SourceId {
-		self.inner.handle.get().expect("voxel store source was not initialized").id()
+		self.handle.as_ref().expect("voxel store source was not initialized").id()
 	}
 
 	fn grid_available_area(&self, grid: GridId) -> Option<NonZeroChunkRegion> {
-		self.inner.state.read().unwrap().grids.get(&grid)?.available_area()
+		self.grids.get(&grid)?.available_area()
 	}
 
-	pub(crate) fn apply_edit(
-		&self,
-		sources: &mut SourceManager,
+	pub(crate) fn chunk_ownership(&self, grid: GridId, chunk: IVec3) -> ChunkOwnership {
+		self.grids.get(&grid).map_or(ChunkOwnership::Unowned, |store| store.ownership(chunk))
+	}
+
+	pub(crate) fn begin_acquisition(
+		&mut self,
 		grid: GridId,
+		chunk: IVec3,
+		request_id: RequestId,
 		voxel_type: VoxelTypeInfo,
-		previous_generation: GridGeneration,
+		baseline_generation: GridGeneration,
+	) {
+		self.grids.entry(grid).or_default().begin_acquiring(chunk, request_id);
+		self.acquisitions.insert(request_id, Acquisition {
+			grid,
+			chunk,
+			voxel_type,
+			generation: baseline_generation,
+			baseline: None,
+			queued_edits: Vec::new(),
+		});
+	}
+
+	pub(crate) fn apply_edit_or_queue(
+		&mut self,
+		grid: GridId,
+		chunk: IVec3,
+		voxel_type: VoxelTypeInfo,
 		generation: GridGeneration,
 		edit: Arc<dyn GridEdit>,
 	) {
-		let affected_chunks = chunks_covering_nonzero_voxel_region(edit.affected_region());
-		for chunk in chunks(affected_chunks) {
-			let unowned = self.inner.state.read().unwrap().grids
-				.get(&grid)
-				.map_or(true, |store| store.ownership(chunk) == ChunkOwnership::Unowned);
-			if !unowned { continue; }
-
-			let region = NonZeroChunkRegion::from_single(chunk);
-			let request_id = sources.request_voxels(grid, region, 0, Some(voxel_type.id), previous_generation);
-			sources.transfer_ownership(self.source_id(), grid, region);
-
-			let mut state = self.inner.state.write().unwrap();
-			state.grids.entry(grid).or_default().begin_acquiring(chunk, request_id);
-			state.acquisitions.insert(request_id, Acquisition {
-				grid,
-				chunk,
-				voxel_type,
-				generation: previous_generation,
-				baseline: None,
-				queued_edits: Vec::new(),
-			});
-		}
-
-		let mut state = self.inner.state.write().unwrap();
-		for chunk in chunks(affected_chunks) {
-			let ownership = state.grids.entry(grid).or_default().ownership(chunk);
-			match ownership {
-				ChunkOwnership::Owned => state.grids.get_mut(&grid).unwrap().apply_edit(chunk, voxel_type, generation, edit.as_ref()),
-				ChunkOwnership::Acquiring(request_id) => {
-					if let Some(acquisition) = state.acquisitions.get_mut(&request_id) {
-						acquisition.queued_edits.push((generation, edit.clone()));
-					}
-				}
-				ChunkOwnership::Unowned => {}
+		match self.chunk_ownership(grid, chunk) {
+			ChunkOwnership::Owned => {
+				self.grids.entry(grid).or_default().apply_edit(chunk, voxel_type, generation, edit.as_ref());
 			}
+			ChunkOwnership::Acquiring(request_id) => {
+				if let Some(acquisition) = self.acquisitions.get_mut(&request_id) {
+					acquisition.queued_edits.push((generation, edit));
+				}
+			}
+			ChunkOwnership::Unowned => {}
 		}
 	}
 
-	fn receive_acquisition_result(&self, result: &SourceResult) {
-		let mut ready = Vec::new();
-		{
-			let mut state = self.inner.state.write().unwrap();
-			match &result.data {
-				SourceResultData::Voxels { region, lod, voxels, .. } => {
-					let Some(acquisition) = state.acquisitions.get_mut(&result.request_id) else { return };
-					if *lod != 0 || !region.contains(acquisition.chunk) { return; }
-					let offset = (region.min() - acquisition.chunk) * CHUNK_SIZE as i32;
-					acquisition.baseline.get_or_insert_with(|| Voxels::new_with_type(voxels.voxel_type_info()))
-						.merge_from(voxels, offset);
-					return;
-				}
-				SourceResultData::VoxelsLoaded { .. } => {
-					let Some(acquisition) = state.acquisitions.remove(&result.request_id) else { return };
-					state.grids.entry(acquisition.grid).or_default().complete_acquisition(
-						acquisition.chunk,
-						result.request_id,
-						acquisition.generation,
-						acquisition.baseline.as_ref(),
-						acquisition.voxel_type,
-						&acquisition.queued_edits,
-					);
-				}
-				SourceResultData::Presence { .. } | SourceResultData::PresenceLoaded => return,
+	pub(crate) fn receive_acquisition_result(&mut self, result: &SourceResult) {
+		let mut ready: Vec<(GridId, ServingRequest)> = Vec::new();
+		match &result.data {
+			SourceResultData::Voxels { region, lod, voxels, .. } => {
+				let Some(acquisition) = self.acquisitions.get_mut(&result.request_id) else { return };
+				if *lod != 0 || !region.contains(acquisition.chunk) { return; }
+				let offset = (region.min() - acquisition.chunk) * CHUNK_SIZE as i32;
+				acquisition.baseline.get_or_insert_with(|| Voxels::new_with_type(voxels.voxel_type_info()))
+					.merge_from(voxels, offset);
+				return;
 			}
-
-			let mut still_waiting = Vec::new();
-			let waiting_requests = std::mem::take(&mut state.waiting_requests);
-			for mut request in waiting_requests {
-				let mut waiting = false;
-				for (chunk, version) in &mut request.chunks {
-					if version.is_some() { continue; }
-					let Some(store) = state.grids.get(&request.grid) else { waiting = true; continue };
-					if matches!(store.ownership(*chunk), ChunkOwnership::Acquiring(_)) {
-						waiting = true;
-					} else {
-						*version = store.version_for(*chunk, request.generation);
+			SourceResultData::VoxelsLoaded { .. } => {
+				let Some(acquisition) = self.acquisitions.remove(&result.request_id) else { return };
+				self.grids.entry(acquisition.grid).or_default().complete_acquisition(
+					acquisition.chunk,
+					result.request_id,
+					acquisition.generation,
+					acquisition.baseline.as_ref(),
+					acquisition.voxel_type,
+					&acquisition.queued_edits,
+				);
+				for (&grid, store) in self.grids.iter_mut() {
+					store.retain_current_versions();
+					for request in store.poll_waiting_requests() {
+						ready.push((grid, request));
 					}
 				}
-				if waiting { still_waiting.push(request) } else { ready.push(request) }
 			}
-			state.waiting_requests = still_waiting;
-			for store in state.grids.values_mut() {
-				store.retain_current_versions();
-			}
+			SourceResultData::Presence { .. } | SourceResultData::PresenceLoaded => return,
 		}
-		for request in ready {
-			self.dispatch(request);
+		for (grid, request) in ready {
+			self.dispatch(grid, request);
 		}
 	}
 
-	fn dispatch(&self, request: ServingRequest) {
-		let handle = self.inner.handle.get().expect("voxel store source was not initialized").clone();
+	fn dispatch(&self, grid: GridId, request: ServingRequest) {
+		let handle = self.handle.as_ref().expect("voxel store source was not initialized").clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let _span = bevy::log::info_span!("VoxelStoreSource build").entered();
 			for (chunk, version) in request.chunks {
@@ -176,7 +132,7 @@ impl VoxelStoreSource {
 				let Some(voxels) = version.and_then(|version| version.voxels()) else { continue };
 				handle.voxels(
 					request.request_id,
-					request.grid,
+					grid,
 					NonZeroChunkRegion::from_single(chunk),
 					0,
 					request.generation,
@@ -189,14 +145,14 @@ impl VoxelStoreSource {
 }
 
 impl ChunkSource for VoxelStoreSource {
-	fn init(&self, handle: SourceHandle) {
-		let _ = self.inner.handle.set(handle);
+	fn init(&mut self, handle: SourceHandle) {
+		self.handle = Some(handle);
 	}
 
 	fn request_voxels(
-		&self,
+		&mut self,
 		request_id: RequestId,
-		cancellation: &CancellationToken,
+		cancellation: &voxel_tasks::CancellationToken,
 		grid: GridId,
 		region: NonZeroChunkRegion,
 		_lod: u8,
@@ -208,14 +164,12 @@ impl ChunkSource for VoxelStoreSource {
 		let mut request = ServingRequest {
 			request_id,
 			cancellation: cancellation.clone(),
-			grid,
 			generation,
 			chunks: Vec::new(),
 		};
 		let mut waits_for_acquisition = false;
 		{
-			let state = self.inner.state.read().unwrap();
-			let Some(store) = state.grids.get(&grid) else { return SourceCoverage::None };
+			let Some(store) = self.grids.get(&grid) else { return SourceCoverage::None };
 			for chunk in chunks(region) {
 				match store.ownership(chunk) {
 					ChunkOwnership::Unowned => {}
@@ -230,30 +184,29 @@ impl ChunkSource for VoxelStoreSource {
 		if request.chunks.is_empty() { return SourceCoverage::None }
 		let coverage = if request.chunks.len() == region.area() as usize { SourceCoverage::All } else { SourceCoverage::Some };
 		if waits_for_acquisition {
-			self.inner.state.write().unwrap().waiting_requests.push(request);
+			self.grids.entry(grid).or_default().push_waiting_request(request);
 		} else {
-			self.dispatch(request);
+			self.dispatch(grid, request);
 		}
 		coverage
 	}
 
-	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
-		let handle = self.inner.handle.get().expect("voxel store source was not initialized");
+	fn request_presence(&mut self, request_id: RequestId, _cancellation: voxel_tasks::CancellationToken, grid: GridId) {
+		let handle = self.handle.as_ref().expect("voxel store source was not initialized");
 		if let Some(region) = self.grid_available_area(grid) {
 			handle.presence(request_id, grid, region);
 		}
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
-		let mut state = self.inner.state.write().unwrap();
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		for chunk in chunks(region) {
-			let pending = state.acquisitions.iter()
+			let pending = self.acquisitions.iter()
 				.filter_map(|(request_id, acquisition)| {
 					(acquisition.grid == grid && acquisition.chunk == chunk).then_some(*request_id)
 				})
 				.max();
-			let store = state.grids.entry(grid).or_default();
+			let store = self.grids.entry(grid).or_default();
 			if let Some(request_id) = pending {
 				store.begin_acquiring(chunk, request_id);
 			} else {
@@ -262,16 +215,15 @@ impl ChunkSource for VoxelStoreSource {
 		}
 	}
 
-	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
-		let mut state = self.inner.state.write().unwrap();
-		let Some(store) = state.grids.get_mut(&grid) else { return };
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+		let Some(store) = self.grids.get_mut(&grid) else { return };
 		for chunk in chunks(region) {
 			store.relinquish(chunk);
 		}
 	}
 }
 
-fn chunks(region: NonZeroChunkRegion) -> impl Iterator<Item = IVec3> {
+pub(crate) fn chunks(region: NonZeroChunkRegion) -> impl Iterator<Item = IVec3> {
 	(region.min().z..region.end().z).flat_map(move |z| {
 		(region.min().y..region.end().y).flat_map(move |y| {
 			(region.min().x..region.end().x).map(move |x| IVec3::new(x, y, z))
@@ -280,22 +232,12 @@ fn chunks(region: NonZeroChunkRegion) -> impl Iterator<Item = IVec3> {
 }
 
 pub fn complete_voxel_store_acquisitions(
-	store: Res<VoxelStoreSource>,
+	mut sources: ResMut<voxel_sources::SourceManager>,
 	mut results: MessageReader<SourceResult>,
 ) {
 	for result in results.read() {
-		store.receive_acquisition_result(result);
-	}
-}
-
-#[derive(Default)]
-pub struct VoxelStoreSourcePlugin;
-
-impl Plugin for VoxelStoreSourcePlugin {
-	fn build(&self, app: &mut App) {
-		let source = VoxelStoreSource::default();
-		app.insert_resource(source.clone());
-		app.register_voxel_source(source)
-			.add_systems(PreUpdate, complete_voxel_store_acquisitions);
+		if let Some(store) = sources.get_source_mut::<VoxelStoreSource>() {
+			store.receive_acquisition_result(result);
+		}
 	}
 }

@@ -76,10 +76,10 @@ pub enum SourceCoverage {
 }
 
 pub trait ChunkSource: Send + Sync + SourceToAny {
-	fn init(&self, handle: SourceHandle);
+	fn init(&mut self, handle: SourceHandle);
 
 	fn request_voxels(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
@@ -90,15 +90,15 @@ pub trait ChunkSource: Send + Sync + SourceToAny {
 	) -> SourceCoverage;
 
 	fn request_presence(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		cancellation: CancellationToken,
 		grid: GridId,
 	);
 
-	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion);
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion);
 
-	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion);
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion);
 }
 
 pub trait SourceToAny: 'static {

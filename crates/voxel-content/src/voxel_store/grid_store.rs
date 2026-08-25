@@ -8,6 +8,7 @@ use voxel_data::{
 	voxels::{VoxelTypeInfo, Voxels},
 };
 use voxel_sources::{RequestId, edit::{GridEdit, GridGeneration}};
+use voxel_tasks::CancellationToken;
 
 #[derive(Debug)]
 pub(crate) struct ChunkVersion {
@@ -74,9 +75,17 @@ impl StoredChunk {
 	}
 }
 
+pub(crate) struct ServingRequest {
+	pub(crate) request_id: RequestId,
+	pub(crate) cancellation: CancellationToken,
+	pub(crate) generation: GridGeneration,
+	pub(crate) chunks: Vec<(IVec3, Option<Arc<ChunkVersion>>)>,
+}
+
 #[derive(Default)]
 pub struct GridStore {
 	chunks: HashMap<IVec3, StoredChunk>,
+	waiting_requests: Vec<ServingRequest>,
 }
 
 impl GridStore {
@@ -158,6 +167,29 @@ impl GridStore {
 		for chunk in self.chunks.values_mut() {
 			chunk.retain_current_version();
 		}
+	}
+
+	pub(crate) fn push_waiting_request(&mut self, request: ServingRequest) {
+		self.waiting_requests.push(request);
+	}
+
+	pub(crate) fn poll_waiting_requests(&mut self) -> Vec<ServingRequest> {
+		let mut ready = Vec::new();
+		let mut still_waiting = Vec::new();
+		for mut request in std::mem::take(&mut self.waiting_requests) {
+			let mut waiting = false;
+			for (chunk, version) in &mut request.chunks {
+				if version.is_some() { continue; }
+				if matches!(self.ownership(*chunk), ChunkOwnership::Acquiring(_)) {
+					waiting = true;
+				} else {
+					*version = self.version_for(*chunk, request.generation);
+				}
+			}
+			if waiting { still_waiting.push(request) } else { ready.push(request) }
+		}
+		self.waiting_requests = still_waiting;
+		ready
 	}
 }
 
