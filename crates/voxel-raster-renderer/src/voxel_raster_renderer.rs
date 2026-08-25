@@ -22,7 +22,7 @@ impl VoxelRasterRendererResource {
 			layout: vec![
 				self.view_bind_group_layout.clone(),
 				self.model_bind_group_layout.clone(),
-				self.face_bind_group_layout.clone(),
+				self.data_bind_group_layout.clone(),
 			],
 			vertex: VertexState {
 				shader: shader.clone(),

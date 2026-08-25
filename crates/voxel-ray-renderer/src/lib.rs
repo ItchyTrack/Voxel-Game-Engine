@@ -115,7 +115,6 @@ impl Plugin for VoxelRayRendererPlugin {
 		bevy::asset::embedded_asset!(app, "shaders/shared/helpers/aabb.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/helpers/quat.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/voxel_reader.slang");
-		bevy::asset::embedded_asset!(app, "shaders/shared/voxel_sampler_api.slang");
 		if !app.is_plugin_added::<VoxelDataPlugin>() {
 			app.add_plugins(VoxelDataPlugin);
 		}

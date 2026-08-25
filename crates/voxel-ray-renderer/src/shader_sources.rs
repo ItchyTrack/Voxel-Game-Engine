@@ -27,7 +27,6 @@ const SHARED_FILES: &[&str] = &[
 	"helpers/aabb.slang",
 	"helpers/quat.slang",
 	"voxel_reader.slang",
-	"voxel_sampler_api.slang",
 ];
 
 #[derive(Clone, PartialEq)]
@@ -59,6 +58,10 @@ pub fn asset_settings(shader_types: &VoxelGpuShaderTypes) -> SlangShaderSettings
 		.chain(SHARED_FILES.iter().map(|path| SlangAssetFile {
 			asset_path: format!("{RAY_SHADER_ROOT}shared/{path}"),
 			compile_path: PathBuf::from("ray/shared").join(path),
+		}))
+		.chain(std::iter::once(SlangAssetFile {
+			asset_path: voxel_gpu::VOXEL_SAMPLER_API_ASSET.into(),
+			compile_path: "ray/shared/voxel_sampler_api.slang".into(),
 		}))
 		.collect::<Vec<_>>();
 	let shader_sources = shader_types.registrations();

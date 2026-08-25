@@ -27,6 +27,8 @@ pub use voxel_color::{
 	VoxelGpuNodeEntry, VoxelGpuShaderTypes, VoxelShaderRegistration,
 };
 
+pub const VOXEL_SAMPLER_API_ASSET: &str = "embedded://voxel_gpu/shaders/voxel_sampler_api.slang";
+
 /// Shared GPU helpers and voxel shader-data registration. Renderer-specific
 /// allocations, tile data, and upload paths live in the renderer crates.
 #[derive(Default)]
@@ -34,6 +36,7 @@ pub struct GpuVoxelDataPlugin;
 
 impl Plugin for GpuVoxelDataPlugin {
 	fn build(&self, app: &mut App) {
+		bevy::asset::embedded_asset!(app, "shaders/voxel_sampler_api.slang");
 		app.init_resource::<VoxelGpuDataReaders>()
 			.init_resource::<VoxelGpuShaderTypes>()
 			.init_asset::<CompiledSlangShader>()

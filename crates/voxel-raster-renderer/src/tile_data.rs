@@ -10,10 +10,11 @@ use crate::{gpu_data::RasterWorldGpuData, gpu_raster_mesh::make_gpu_raster_mesh}
 #[derive(Debug)]
 pub struct RasterTileData {
 	pub faces: PackedBufferGroupAllocation,
-	pub palette: PackedBufferGroupAllocation,
+	pub voxel_data: PackedBufferGroupAllocation,
 	pub face_count: u32,
 	pub bounds_min: UVec3,
 	pub bounds_max: UVec3,
+	pub voxel_type: VoxelTypeId,
 	pub voxel_lod: u8,
 }
 
@@ -24,10 +25,11 @@ impl TileData for RasterTileData {
 #[derive(Clone, Copy, Debug)]
 pub struct RasterTileCapabilityData {
 	pub faces: PackedBufferGroupId,
-	pub palette: PackedBufferGroupId,
+	pub voxel_data: PackedBufferGroupId,
 	pub face_count: u32,
 	pub bounds_min: UVec3,
 	pub bounds_max: UVec3,
+	pub voxel_type: VoxelTypeId,
 	pub voxel_lod: u8,
 }
 
@@ -40,10 +42,11 @@ impl RasterTileCapability for RasterTileData {
 	fn raster_tile_data(&self) -> RasterTileCapabilityData {
 		RasterTileCapabilityData {
 			faces: self.faces.id(),
-			palette: self.palette.id(),
+			voxel_data: self.voxel_data.id(),
 			face_count: self.face_count,
 			bounds_min: self.bounds_min,
 			bounds_max: self.bounds_max,
+			voxel_type: self.voxel_type,
 			voxel_lod: self.voxel_lod,
 		}
 	}
@@ -75,17 +78,18 @@ impl TileBuilder for VoxelRasterTileBuilder {
 		);
 		let (bounds_min, bounds_max) = voxels.bounding_box()?;
 		let voxel_type = voxels.voxel_type_info();
-		let (faces, palette, face_count) = make_gpu_raster_mesh(voxels.grid_tree(), voxel_type, &self.readers);
+		let (faces, voxel_data, face_count) = make_gpu_raster_mesh(voxels.grid_tree(), voxel_type, &self.readers);
 		if face_count == 0 { return None; }
 		let mut gpu = self.gpu.lock();
 		let faces = gpu.faces.add_buffer(faces).expect("failed to allocate raster tile face data");
-		let palette = gpu.palettes.add_buffer(palette).expect("failed to allocate raster tile palette data");
+		let voxel_data = gpu.voxel_data.add_buffer(voxel_data).expect("failed to allocate raster tile voxel data");
 		Some(Box::new(RasterTileData {
 			faces,
-			palette,
+			voxel_data,
 			face_count,
 			bounds_min,
 			bounds_max,
+			voxel_type: voxel_type.id,
 			voxel_lod,
 		}))
 	}

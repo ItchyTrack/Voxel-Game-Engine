@@ -23,7 +23,7 @@ use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
 use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
 use voxel_gpu::{
 	GpuVoxelDataPlugin, RenderingBuilderAppExt, RenderingType, SlangShader,
-	SlangShaderSettings, VoxelGpuDataReaders,
+	VoxelGpuDataReaders, VoxelGpuShaderTypes,
 };
 
 #[derive(Component)]
@@ -90,18 +90,15 @@ impl Plugin for VoxelRasterRendererPlugin {
 		if !app.is_plugin_added::<GpuVoxelDataPlugin>() {
 			app.add_plugins(GpuVoxelDataPlugin);
 		}
-		let settings = shader_sources::asset_settings();
-		let shader = app.world().resource::<bevy::asset::AssetServer>()
-			.load_builder()
-			.with_settings(move |current: &mut SlangShaderSettings| *current = settings.clone())
-			.load(shader_sources::ROOT_SHADER_ASSET);
 		app.init_resource::<gpu_data::RasterWorldGpuData>()
 			.init_resource::<RasterTileCapabilityRegistry>();
 		app.register_raster_tile_data::<tile_data::RasterTileData>();
-		app.add_systems(bevy::prelude::Update, gpu_data::collect_raster_gpu_garbage);
+		app.add_systems(bevy::prelude::Update, (
+			gpu_data::collect_raster_gpu_garbage,
+			shader_sources::reload_shader_on_type_change,
+		));
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return; };
-		render_app.world_mut().spawn((VoxelRasterShader, SlangShader::new(shader)));
 		render_app
 			.add_render_command::<Opaque3d, render_node::DrawVoxelRasterCommands>()
 			.add_systems(ExtractSchedule, extract::extract_raster_scene)
@@ -117,7 +114,12 @@ impl Plugin for VoxelRasterRendererPlugin {
 	fn finish(&self, app: &mut App) {
 		let gpu = app.world().resource::<gpu_data::RasterWorldGpuData>().clone();
 		gpu.initialize(app.world().resource(), app.world().resource());
+		let shader = shader_sources::load_shader(
+			app.world().resource(),
+			app.world().resource::<VoxelGpuShaderTypes>(),
+		);
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return; };
+		render_app.world_mut().spawn((VoxelRasterShader, SlangShader::new(shader)));
 		render_app.init_resource::<voxel_raster_renderer_resource::VoxelRasterRendererResource>();
 	}
 }

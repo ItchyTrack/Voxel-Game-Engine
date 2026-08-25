@@ -10,6 +10,7 @@ use bevy::render::Extract;
 use bevy::render::sync_world::RenderEntity;
 use bevy::transform::components::{GlobalTransform, Transform};
 use tile_data::DynamicTileData;
+use voxel_data::voxels::VoxelTypeId;
 use voxel_gpu::packed_buffer_group::{PackedBufferGroupId, PackedBufferGroupBuffer};
 
 use crate::gpu_data::RasterWorldGpuData;
@@ -18,8 +19,9 @@ use crate::{RasterTileCapabilityRegistry, voxel_camera::VoxelRasterCamera};
 #[derive(Clone, Debug)]
 pub struct ExtractedRasterItem {
 	pub face_offset: u32,
-	pub palette_offset: u32,
+	pub voxel_data_offset: u32,
 	pub face_count: u32,
+	pub voxel_type: VoxelTypeId,
 	pub transform: Transform,
 }
 
@@ -27,7 +29,7 @@ pub struct ExtractedRasterItem {
 pub struct ExtractedRasterBatch {
 	pub item_range: Range<usize>,
 	pub face_buffer: PackedBufferGroupBuffer,
-	pub palette_buffer: PackedBufferGroupBuffer,
+	pub voxel_data_buffer: PackedBufferGroupBuffer,
 }
 
 #[derive(Component)]
@@ -39,8 +41,9 @@ pub struct ExtractedRasterScene {
 struct RenderItem {
 	entity: Entity,
 	faces: PackedBufferGroupId,
-	palette: PackedBufferGroupId,
+	voxel_data: PackedBufferGroupId,
 	face_count: u32,
+	voxel_type: VoxelTypeId,
 	transform: Transform,
 }
 
@@ -63,7 +66,6 @@ pub fn extract_raster_scene(
 
 	let world_gpu = world_gpu.lock();
 	let face_stride = std::mem::size_of::<crate::gpu_raster_mesh::MeshFace>() as u32;
-	let palette_stride = std::mem::size_of::<u32>() as u32;
 	for (render_entity, raster_camera, camera, frustum) in &cameras {
 		if !camera.is_active { continue; }
 		let mut candidates = Vec::new();
@@ -76,20 +78,21 @@ pub fn extract_raster_scene(
 			candidates.push(RenderItem {
 				entity: *entity,
 				faces: tile.faces,
-				palette: tile.palette,
+				voxel_data: tile.voxel_data,
 				face_count: tile.face_count,
+				voxel_type: tile.voxel_type,
 				transform,
 			});
 		}
 
-		candidates.sort_unstable_by_key(|item| (item.faces.buffer_index(), item.palette.buffer_index(), item.entity.to_bits()));
+		candidates.sort_unstable_by_key(|item| (item.faces.buffer_index(), item.voxel_data.buffer_index(), item.entity.to_bits()));
 		let mut items = Vec::with_capacity(candidates.len());
 		let mut batches: Vec<ExtractedRasterBatch> = Vec::new();
 		let mut batch_key = None;
 		for candidate in candidates {
 			let Some(faces) = world_gpu.faces.slice(candidate.faces) else { continue };
-			let Some(palette) = world_gpu.palettes.slice(candidate.palette) else { continue };
-			let key = (faces.buffer_index, palette.buffer_index);
+			let Some(voxel_data) = world_gpu.voxel_data.slice(candidate.voxel_data) else { continue };
+			let key = (faces.buffer_index, voxel_data.buffer_index);
 			if batch_key != Some(key) {
 				if let Some(batch) = batches.last_mut() {
 					batch.item_range.end = items.len();
@@ -97,14 +100,15 @@ pub fn extract_raster_scene(
 				batches.push(ExtractedRasterBatch {
 					item_range: items.len()..items.len(),
 					face_buffer: faces.buffer.clone(),
-					palette_buffer: palette.buffer.clone(),
+					voxel_data_buffer: voxel_data.buffer.clone(),
 				});
 				batch_key = Some(key);
 			}
 			items.push(ExtractedRasterItem {
 				face_offset: faces.offset / face_stride,
-				palette_offset: palette.offset / palette_stride,
+				voxel_data_offset: voxel_data.offset,
 				face_count: candidate.face_count,
+				voxel_type: candidate.voxel_type,
 				transform: candidate.transform,
 			});
 		}

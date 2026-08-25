@@ -47,8 +47,8 @@ impl RenderCommand<Opaque3d> for DrawVoxelRaster {
 
 		pass.set_bind_group(0, view_bind_group, &[prepared.view_uniform_offset]);
 		pass.set_bind_group(1, &prepared.model_bind_group, &[]);
-		for (batch, face_bind_group) in extracted.batches.iter().zip(&prepared.face_bind_groups) {
-			pass.set_bind_group(2, face_bind_group, &[]);
+		for (batch, data_bind_group) in extracted.batches.iter().zip(&prepared.data_bind_groups) {
+			pass.set_bind_group(2, data_bind_group, &[]);
 			for index in batch.item_range.clone() {
 				let item = &extracted.items[index];
 				let instance = index as u32;
@@ -152,13 +152,13 @@ fn prepare_view(
 	let models = extracted.items.iter()
 		.map(|item| {
 			let model = Mat4::from_scale_rotation_translation(item.transform.scale, item.transform.rotation, item.transform.translation);
-			ModelUniform::from_mat4(model, item.palette_offset)
+			ModelUniform::new(model, item.voxel_type, item.voxel_data_offset)
 		})
 		.collect();
 	prepared.write_models(models, render_device, render_queue, pipeline_cache, shared);
-	prepared.face_bind_groups = make_face_bind_groups(
+	prepared.data_bind_groups = make_data_bind_groups(
 		&extracted.batches.iter().map(|batch| batch.face_buffer.clone()).collect::<Vec<_>>(),
-		&extracted.batches.iter().map(|batch| batch.palette_buffer.clone()).collect::<Vec<_>>(),
+		&extracted.batches.iter().map(|batch| batch.voxel_data_buffer.clone()).collect::<Vec<_>>(),
 		render_device,
 		pipeline_cache,
 		shared,
@@ -166,21 +166,21 @@ fn prepare_view(
 	prepared.pipeline = Some(pipeline);
 }
 
-fn make_face_bind_groups(
+fn make_data_bind_groups(
 	face_buffers: &[PackedBufferGroupBuffer],
-	palette_buffers: &[PackedBufferGroupBuffer],
+	voxel_data_buffers: &[PackedBufferGroupBuffer],
 	render_device: &RenderDevice,
 	pipeline_cache: &PipelineCache,
 	shared: &VoxelRasterRendererResource,
 ) -> Vec<bevy::render::render_resource::BindGroup> {
-	let layout = pipeline_cache.get_bind_group_layout(&shared.face_bind_group_layout);
-	face_buffers.iter().zip(palette_buffers).map(|(face_buffer, palette_buffer)| {
+	let layout = pipeline_cache.get_bind_group_layout(&shared.data_bind_group_layout);
+	face_buffers.iter().zip(voxel_data_buffers).map(|(face_buffer, voxel_data_buffer)| {
 		render_device.create_bind_group(
-			"raster_face_bind_group",
+			"raster_data_bind_group",
 			&layout,
 			&BindGroupEntries::sequential((
 				wgpu::BufferBinding { buffer: face_buffer, offset: 0, size: None },
-				wgpu::BufferBinding { buffer: palette_buffer, offset: 0, size: None },
+				wgpu::BufferBinding { buffer: voxel_data_buffer, offset: 0, size: None },
 			)),
 		)
 	}).collect()

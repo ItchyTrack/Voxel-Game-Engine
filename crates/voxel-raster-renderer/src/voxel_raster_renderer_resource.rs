@@ -18,7 +18,7 @@ use crate::model::ModelUniform;
 pub struct VoxelRasterRendererResource {
 	pub view_bind_group_layout: BindGroupLayoutDescriptor,
 	pub model_bind_group_layout: BindGroupLayoutDescriptor,
-	pub face_bind_group_layout: BindGroupLayoutDescriptor,
+	pub data_bind_group_layout: BindGroupLayoutDescriptor,
 	pub view_bind_group: Option<BindGroup>,
 	pub pipelines: HashMap<wgpu::TextureFormat, CachedRenderPipelineId>,
 }
@@ -29,7 +29,7 @@ pub struct RasterViewResources {
 	pub view_uniform_offset: u32,
 	pub model_buffer: StorageBuffer<Vec<ModelUniform>>,
 	pub model_bind_group: BindGroup,
-	pub face_bind_groups: Vec<BindGroup>,
+	pub data_bind_groups: Vec<BindGroup>,
 }
 
 impl FromWorld for VoxelRasterRendererResource {
@@ -48,10 +48,10 @@ impl FromWorld for VoxelRasterRendererResource {
 				storage_buffer_read_only::<Vec<ModelUniform>>(false),
 			),
 		);
-		let face_bind_group_layout = BindGroupLayoutDescriptor::new(
-			"raster_face_bind_group_layout",
+		let data_bind_group_layout = BindGroupLayoutDescriptor::new(
+			"raster_data_bind_group_layout",
 			&BindGroupLayoutEntries::sequential(
-				ShaderStages::VERTEX,
+				ShaderStages::VERTEX_FRAGMENT,
 				(
 					storage_buffer_read_only_sized(false, None),
 					storage_buffer_read_only_sized(false, None),
@@ -61,7 +61,7 @@ impl FromWorld for VoxelRasterRendererResource {
 		Self {
 			view_bind_group_layout,
 			model_bind_group_layout,
-			face_bind_group_layout,
+			data_bind_group_layout,
 			view_bind_group: None,
 			pipelines: HashMap::new(),
 		}
@@ -91,7 +91,7 @@ impl RasterViewResources {
 			view_uniform_offset: 0,
 			model_buffer,
 			model_bind_group,
-			face_bind_groups: Vec::new(),
+			data_bind_groups: Vec::new(),
 		}
 	}
 

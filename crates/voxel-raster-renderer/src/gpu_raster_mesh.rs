@@ -1,14 +1,15 @@
-use std::collections::HashMap;
-
 use voxel_data::voxel_grid_tree::VoxelGridTree;
 use voxel_data::voxels::VoxelTypeInfo;
 
-use voxel_gpu::voxel_color::VoxelGpuDataReaders;
+use voxel_gpu::voxel_color::{VoxelGpuDataReaders, VoxelGpuNodeEntry};
 
-#[repr(transparent)]
+use crate::gpu_data::VOXEL_DATA_ALIGNMENT;
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MeshFace {
 	pub packed: u32,
+	pub voxel_data_index: u32,
 }
 
 const TILE_EXTENT: usize = 64;
@@ -90,11 +91,11 @@ impl TileOccupancy {
 struct RasterLeaf {
 	position: [u32; 3],
 	size: u32,
-	palette_index: u8,
+	voxel_data_index: u32,
 }
 
 impl MeshFace {
-	fn new(position: [u32; 3], size: u32, palette_index: u8, orientation: u8) -> Self {
+	fn new(position: [u32; 3], size: u32, orientation: u8, voxel_data_index: u32) -> Self {
 		debug_assert!(position.iter().all(|&coord| coord < 64), "mesh face position out of 6-bit range: {position:?}");
 		debug_assert!(orientation < 8, "mesh face orientation out of range: {orientation}");
 
@@ -109,85 +110,54 @@ impl MeshFace {
 				| ((position[1] & 0x3F) << 6)
 				| ((position[2] & 0x3F) << 12)
 				| (u32::from(orientation & 0x7) << 18)
-				| ((size_log4 & 0x3) << 21)
-				| (u32::from(palette_index) << 23),
+				| ((size_log4 & 0x3) << 21),
+			voxel_data_index,
 		}
 	}
 }
 
-fn nearest_palette_index(color: [u8; 4], palette: &[[u8; 4]]) -> u8 {
-	palette
-		.iter()
-		.map(|candidate| {
-			let dr = i32::from(color[0]) - i32::from(candidate[0]);
-			let dg = i32::from(color[1]) - i32::from(candidate[1]);
-			let db = i32::from(color[2]) - i32::from(candidate[2]);
-			let da = i32::from(color[3]) - i32::from(candidate[3]);
-			(dr * dr + dg * dg + db * db + da * da) as u32
-		})
-		.enumerate()
-		.min_by_key(|(_, distance)| *distance)
-		.map(|(index, _)| index as u8)
-		.unwrap_or(0)
+fn align_voxel_data(data: &mut Vec<u8>) {
+	let alignment = VOXEL_DATA_ALIGNMENT as usize;
+	data.resize(data.len().max(1).next_multiple_of(alignment), 0);
 }
 
-fn palette_index_for_color(
-	color: [u8; 4],
-	palette_map: &mut HashMap<[u8; 4], u8>,
-	palette_vec: &mut Vec<[u8; 4]>,
-	palette_overflowed: &mut bool,
-) -> u8 {
-	if let Some(index) = palette_map.get(&color).copied() {
-		return index;
-	}
+pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, gpu_data_readers: &VoxelGpuDataReaders) -> (Vec<u8>, Vec<u8>, u32) {
+	let voxel_refs = grid_tree.iter().map(|(_, _, voxel)| voxel).collect::<Vec<_>>();
+	let mut voxel_data = Vec::new();
+	let encoder = gpu_data_readers
+		.create_encoder(voxel_type.id, &voxel_refs, &mut voxel_data)
+		.expect("raster mesh voxel type must have registered GPU data");
+	align_voxel_data(&mut voxel_data);
 
-	if palette_vec.len() < usize::from(u8::MAX) + 1 {
-		let index = palette_vec.len() as u8;
-		palette_vec.push(color);
-		palette_map.insert(color, index);
-		return index;
-	}
-
-	if !*palette_overflowed {
-		log::warn!("raster mesh palette exceeded 256 colors; approximating extra colors with nearest palette entry");
-		*palette_overflowed = true;
-	}
-	nearest_palette_index(color, palette_vec)
-}
-
-pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, _voxel_type: VoxelTypeInfo, _gpu_data_readers: &VoxelGpuDataReaders) -> (Vec<u8>, Vec<u8>, u32) {
 	let mut faces = Vec::new();
-	let mut palette_vec: Vec<[u8; 4]> = Vec::new();
-	let mut palette_map: HashMap<[u8; 4], u8> = HashMap::new();
-	let mut palette_overflowed = false;
 	let mut occupancy = TileOccupancy::new();
 	let mut leaves = Vec::new();
 
-	// Stage occupancy in one tree traversal. Face generation can then use cache-friendly
-	// bit tests instead of recursively searching the grid tree six times per leaf.
-	for (pos, size, _voxel_ref) in grid_tree.iter() {
-		let color = [255, 255, 255, 255];
+	// Stage occupancy and one encoded GPU-data node per leaf in one tree traversal.
+	// Face generation can then use cache-friendly bit tests instead of recursively
+	// searching the grid tree six times per leaf.
+	for (pos, size, voxel_ref) in grid_tree.iter() {
+		let voxel_data_index = u32::try_from(voxel_data.len() / VOXEL_DATA_ALIGNMENT as usize)
+			.expect("raster voxel data offset exceeds u32");
+		encoder.write_node(&[VoxelGpuNodeEntry::Data(voxel_ref)], &mut voxel_data);
+		align_voxel_data(&mut voxel_data);
+
 		let position = [pos.x as u32, pos.y as u32, pos.z as u32];
 		let size = size as u32;
-		let palette_index = palette_index_for_color(color, &mut palette_map, &mut palette_vec, &mut palette_overflowed);
 		occupancy.fill(position, size);
-		leaves.push(RasterLeaf { position, size, palette_index });
+		leaves.push(RasterLeaf { position, size, voxel_data_index });
 	}
 
 	for leaf in leaves {
 		for orientation in 0..6 {
 			if !occupancy.face_is_filled(leaf.position, leaf.size, orientation) {
-				faces.push(MeshFace::new(leaf.position, leaf.size, leaf.palette_index, orientation));
+				faces.push(MeshFace::new(leaf.position, leaf.size, orientation, leaf.voxel_data_index));
 			}
 		}
 	}
 
 	let face_count = faces.len() as u32;
-	(
-		bytemuck::cast_slice(&faces).to_vec(),
-		bytemuck::cast_slice(&palette_vec).to_vec(),
-		face_count,
-	)
+	(bytemuck::cast_slice(&faces).to_vec(), voxel_data, face_count)
 }
 
 #[cfg(test)]
@@ -195,13 +165,13 @@ mod tests {
 	use super::MeshFace;
 
 	#[test]
-	fn mesh_face_packs_fields_into_one_u32() {
-		let face = MeshFace::new([63, 17, 5], 16, 200, 6);
+	fn mesh_face_packs_geometry_and_voxel_data_index() {
+		let face = MeshFace::new([63, 17, 5], 16, 6, 200);
 		assert_eq!(face.packed & 0x3F, 63);
 		assert_eq!((face.packed >> 6) & 0x3F, 17);
 		assert_eq!((face.packed >> 12) & 0x3F, 5);
 		assert_eq!((face.packed >> 18) & 0x7, 6);
 		assert_eq!((face.packed >> 21) & 0x3, 2);
-		assert_eq!((face.packed >> 23) & 0xFF, 200);
+		assert_eq!(face.voxel_data_index, 200);
 	}
 }
