@@ -59,10 +59,14 @@ impl std::fmt::Debug for PackedBufferAllocation {
 impl PackedBufferAllocation {
 	pub fn id(&self) -> AllocationId { self.owner.id }
 
-	fn into_unique_id(self) -> Result<AllocationId, &'static str> {
-		let mut owner = Arc::try_unwrap(self.owner).map_err(|_| "Buffer allocation is still in use.")?;
-		owner.cleanup_on_drop = false;
-		Ok(owner.id)
+	fn try_into_unique_id(self) -> Result<AllocationId, Self> {
+		match Arc::try_unwrap(self.owner) {
+			Ok(mut owner) => {
+				owner.cleanup_on_drop = false;
+				Ok(owner.id)
+			}
+			Err(owner) => Err(Self { owner }),
+		}
 	}
 }
 
@@ -197,16 +201,23 @@ impl PackedDynamicBuffer {
 		})
 	}
 
-	/// Fails while another owner is using the allocation.
 	pub fn remove_buffer(&mut self, allocation: PackedBufferAllocation) -> Result<(), &'static str> {
+		drop(allocation);
 		self.collect_garbage();
-		self.remove_buffer_raw(allocation.into_unique_id()?.0)
+		Ok(())
 	}
 
-	/// Fails while another owner is using the allocation.
+	/// If the new buffer does not fit, the old buffer will still be removed.
 	pub fn replace_buffer(&mut self, allocation: PackedBufferAllocation, buffer: Vec<u8>) -> Result<PackedBufferAllocation, &'static str> {
 		self.collect_garbage();
-		let id = self.replace_buffer_raw(allocation.into_unique_id()?.0, buffer)?;
+		let id = match allocation.try_into_unique_id() {
+			Ok(id) => self.replace_buffer_raw(id.0, buffer)?,
+			Err(allocation) => {
+				let replacement = self.add_buffer(buffer)?;
+				drop(allocation);
+				return Ok(replacement);
+			}
+		};
 		Ok(PackedBufferAllocation {
 			owner: Arc::new(PackedBufferAllocationOwner {
 				id: AllocationId(id),
@@ -332,7 +343,7 @@ mod tests {
 			}),
 		};
 
-		assert_eq!(allocation.into_unique_id(), Ok(AllocationId(7)));
+		assert_eq!(allocation.try_into_unique_id().map_err(|_| ()), Ok(AllocationId(7)));
 		assert!(cleaned.try_recv().is_err());
 	}
 }
