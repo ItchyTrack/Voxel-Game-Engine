@@ -6,7 +6,7 @@ use tile_data::{NonZeroChunkRegion, TileData, TileBuildingSession, TileBuilder, 
 use voxel_data::voxels::VoxelType;
 use tile_data::CHUNK_SIZE;
 
-use voxel_gpu::packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupId};
+use voxel_gpu::packed_buffer_group::PackedBufferGroupAllocation;
 
 use crate::{gpu_data::MarchingWorldGpuData, marching_cubes::make_marching_cubes_mesh_in_region};
 
@@ -23,9 +23,9 @@ impl TileData for MarchingTileData {
 	fn as_any(&self) -> &dyn Any { self }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct MarchingTileCapabilityData {
-	pub vertices: PackedBufferGroupId,
+	pub vertices: PackedBufferGroupAllocation,
 	pub vertex_count: u32,
 	pub bounds_min: Vec3,
 	pub bounds_max: Vec3,
@@ -39,7 +39,7 @@ pub trait MarchingTileCapability: TileData {
 impl MarchingTileCapability for MarchingTileData {
 	fn marching_tile_data(&self) -> MarchingTileCapabilityData {
 		MarchingTileCapabilityData {
-			vertices: self.vertices.id(),
+			vertices: self.vertices.clone(),
 			vertex_count: self.vertex_count,
 			bounds_min: self.bounds_min,
 			bounds_max: self.bounds_max,

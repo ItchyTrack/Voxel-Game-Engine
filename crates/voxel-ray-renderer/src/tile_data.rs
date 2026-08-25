@@ -3,7 +3,7 @@ use std::any::Any;
 use bevy::math::UVec3;
 use tile_data::{TileData, TileBuildingSession, TileBuilder, TileVoxelReducerRegistry};
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo};
-use voxel_gpu::{AllocationId, PackedBufferAllocation, VoxelGpuDataReaders};
+use voxel_gpu::{PackedBufferAllocation, VoxelGpuDataReaders};
 
 use crate::{gpu_data::RayWorldGpuData, gpu_grid_tree::make_gpu_grid_tree};
 
@@ -28,10 +28,10 @@ impl TileData for RayTileData {
 	fn as_any(&self) -> &dyn Any { self }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct RayTileCapabilityData {
-	pub tree: AllocationId,
-	pub voxels: AllocationId,
+	pub tree: PackedBufferAllocation,
+	pub voxels: PackedBufferAllocation,
 	pub generation: u64,
 	pub placement: RayTilePlacement,
 	pub voxel_type: VoxelTypeInfo,
@@ -46,8 +46,8 @@ pub trait RayTileCapability: TileData {
 impl RayTileCapability for RayTileData {
 	fn ray_tile_data(&self) -> RayTileCapabilityData {
 		RayTileCapabilityData {
-			tree: self.tree.id(),
-			voxels: self.voxels.id(),
+			tree: self.tree.clone(),
+			voxels: self.voxels.clone(),
 			generation: self.generation,
 			placement: self.placement,
 			voxel_type: self.voxel_type,

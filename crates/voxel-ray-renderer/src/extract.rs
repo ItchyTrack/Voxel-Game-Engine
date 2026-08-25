@@ -14,7 +14,7 @@ use voxel_data::voxels::VoxelTypeInfo;
 use voxel_data::bvh::BVH;
 use voxel_data::aabb::aabb_of_transformed_aabb;
 use tile_data::DynamicTileData;
-use voxel_gpu::AllocationId;
+use voxel_gpu::PackedBufferAllocation;
 
 use crate::direction_feedback::DirectionFeedback;
 use crate::incoming_ray_directions::IncomingRayDirections;
@@ -31,6 +31,8 @@ pub struct ExtractedVoxelScene {
 	pub voxel_buffer: GpuBuffer,
 	pub main_tree_buffer: GpuBuffer,
 	pub main_voxel_buffer: GpuBuffer,
+	/// Keeps packed ranges alive until this extracted frame finishes rendering.
+	_allocation_leases: Vec<(PackedBufferAllocation, PackedBufferAllocation)>,
 }
 
 #[derive(Resource, Default)]
@@ -38,8 +40,8 @@ pub struct ExtractedVoxelScenes(pub FxHashMap<Entity, ExtractedVoxelScene>);
 
 struct RenderItem {
 	entity: Entity,
-	tree: AllocationId,
-	voxels: AllocationId,
+	tree: PackedBufferAllocation,
+	voxels: PackedBufferAllocation,
 	generation: u64,
 	voxel_type: VoxelTypeInfo,
 	aabb: (Vec3, Vec3),
@@ -122,8 +124,8 @@ pub fn extract_voxel_scene(
 	for candidate in candidates {
 		if candidate.directions.is_empty() { continue; }
 		let item = candidate.item;
-		let Some(tree_held) = world_gpu.trees.held_buffer(item.tree) else { continue; };
-		let Some(voxel_held) = world_gpu.voxels.held_buffer(item.voxels) else { continue; };
+		let Some(tree_held) = world_gpu.trees.held_buffer(item.tree.id()) else { continue; };
+		let Some(voxel_held) = world_gpu.voxels.held_buffer(item.voxels.id()) else { continue; };
 		let next_tree = tree_total + tree_held.size().next_multiple_of(tree_alignment) as u64;
 		let next_voxel = voxel_total + voxel_held.size().next_multiple_of(voxel_alignment) as u64;
 		if next_tree > limit || next_voxel > limit {
@@ -134,8 +136,8 @@ pub fn extract_voxel_scene(
 		voxel_total = next_voxel;
 		resident.push(ResidentVoxels {
 			entity: item.entity,
-			tree: item.tree,
-			voxels: item.voxels,
+			tree: item.tree.id(),
+			voxels: item.voxels.id(),
 			generation: item.generation,
 			loaded_directions: ResidencyDirections::Unculled,
 		});
@@ -160,14 +162,15 @@ pub fn extract_voxel_scene(
 		let mut bvh_items: Vec<(Entity, (Vec3, Vec3))> = Vec::with_capacity(items.len());
 		let mut bvh_item_data = FxHashMap::default();
 		bvh_item_data.reserve(items.len());
+		let mut allocation_leases = Vec::with_capacity(items.len());
 		for item in items {
 			bvh_items.push((item.entity, item.aabb));
 			let data_source = if let Some(&(tree_offset, voxel_offset)) = offsets.get(&item.entity) {
 				BvhDataSource::Residency { tree_offset, voxel_offset }
 			} else {
 				match (
-					world_gpu.trees.held_buffer(item.tree),
-					world_gpu.voxels.held_buffer(item.voxels),
+					world_gpu.trees.held_buffer(item.tree.id()),
+					world_gpu.voxels.held_buffer(item.voxels.id()),
 				) {
 					(Some(tree_held), Some(voxel_held)) => BvhDataSource::MainBuffer {
 						tree_offset: tree_held.offset(),
@@ -181,6 +184,7 @@ pub fn extract_voxel_scene(
 				transform: item.tree_transform,
 				voxel_type: item.voxel_type,
 			});
+			allocation_leases.push((item.tree, item.voxels));
 		}
 
 		extracted_scenes.0.insert(render_entity, ExtractedVoxelScene {
@@ -190,6 +194,7 @@ pub fn extract_voxel_scene(
 			voxel_buffer: voxel_buffer.clone(),
 			main_tree_buffer: main_tree_buffer.clone(),
 			main_voxel_buffer: main_voxel_buffer.clone(),
+			_allocation_leases: allocation_leases,
 		});
 	}
 }

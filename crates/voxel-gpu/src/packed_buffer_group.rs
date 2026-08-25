@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::mpsc::{self, Receiver, Sender}};
+use std::{collections::HashMap, sync::{Arc, mpsc::{self, Receiver, Sender}}};
 
 use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 use orderly_allocator::{Allocation, Allocator};
@@ -19,22 +19,27 @@ impl PackedBufferGroupId {
 	pub fn buffer_index(self) -> u32 { self.buffer_index }
 }
 
+#[derive(Clone)]
 pub struct PackedBufferGroupAllocation {
+	owner: Arc<PackedBufferGroupAllocationOwner>,
+}
+
+struct PackedBufferGroupAllocationOwner {
 	id: PackedBufferGroupId,
 	cleanup: Sender<PackedBufferGroupId>,
 }
 
 impl std::fmt::Debug for PackedBufferGroupAllocation {
 	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		formatter.debug_struct("PackedBufferGroupAllocation").field("id", &self.id).finish()
+		formatter.debug_struct("PackedBufferGroupAllocation").field("id", &self.owner.id).finish()
 	}
 }
 
 impl PackedBufferGroupAllocation {
-	pub fn id(&self) -> PackedBufferGroupId { self.id }
+	pub fn id(&self) -> PackedBufferGroupId { self.owner.id }
 }
 
-impl Drop for PackedBufferGroupAllocation {
+impl Drop for PackedBufferGroupAllocationOwner {
 	fn drop(&mut self) {
 		let _ = self.cleanup.send(self.id);
 	}
@@ -167,8 +172,10 @@ impl PackedBufferGroup {
 		self.queue.write_buffer(&self.buffers[buffer_index].buffer, u64::from(allocation.offset), &data);
 		self.held_bytes += u64::from(allocation.size());
 		Ok(PackedBufferGroupAllocation {
-			id: PackedBufferGroupId { buffer_index: buffer_index as u32, allocation: allocation_id },
-			cleanup: self.cleanup_tx.clone(),
+			owner: Arc::new(PackedBufferGroupAllocationOwner {
+				id: PackedBufferGroupId { buffer_index: buffer_index as u32, allocation: allocation_id },
+				cleanup: self.cleanup_tx.clone(),
+			}),
 		})
 	}
 
@@ -222,5 +229,25 @@ impl PackedBufferGroup {
 		buffer.allocator.grow_capacity((new_capacity - buffer.capacity) as u32).ok()?;
 		buffer.capacity = new_capacity;
 		buffer.allocate(size, self.alignment, allocation_id).map(|allocation| (index, allocation))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn allocation_cleanup_waits_for_last_lease() {
+		let (cleanup, cleaned) = mpsc::channel();
+		let id = PackedBufferGroupId { buffer_index: 2, allocation: 7 };
+		let allocation = PackedBufferGroupAllocation {
+			owner: Arc::new(PackedBufferGroupAllocationOwner { id, cleanup }),
+		};
+		let render_lease = allocation.clone();
+
+		drop(allocation);
+		assert!(cleaned.try_recv().is_err());
+		drop(render_lease);
+		assert_eq!(cleaned.try_recv(), Ok(id));
 	}
 }

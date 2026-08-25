@@ -4,7 +4,7 @@ use bevy::camera::{Camera, primitives::{Aabb, Frustum}};
 use bevy::prelude::*;
 use bevy::render::{Extract, sync_world::RenderEntity};
 use tile_data::DynamicTileData;
-use voxel_gpu::packed_buffer_group::{PackedBufferGroupId, PackedBufferGroupBuffer};
+use voxel_gpu::packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupBuffer};
 
 use crate::{
 	MarchingTileCapabilityRegistry,
@@ -29,11 +29,13 @@ pub struct ExtractedMarchingBatch {
 pub struct ExtractedMarchingScene {
 	pub items: Vec<ExtractedMarchingItem>,
 	pub batches: Vec<ExtractedMarchingBatch>,
+	/// Keeps packed ranges alive until this extracted frame finishes rendering.
+	_allocation_leases: Vec<PackedBufferGroupAllocation>,
 }
 
 struct RenderItem {
 	entity: Entity,
-	vertices: PackedBufferGroupId,
+	vertices: PackedBufferGroupAllocation,
 	vertex_count: u32,
 	transform: Transform,
 }
@@ -67,12 +69,13 @@ pub fn extract_marching_scene(
 			});
 		}
 
-		candidates.sort_unstable_by_key(|item| (item.vertices.buffer_index(), item.entity.to_bits()));
+		candidates.sort_unstable_by_key(|item| (item.vertices.id().buffer_index(), item.entity.to_bits()));
 		let mut items = Vec::with_capacity(candidates.len());
 		let mut batches: Vec<ExtractedMarchingBatch> = Vec::new();
+		let mut allocation_leases = Vec::with_capacity(candidates.len());
 		let mut batch_buffer_index = None;
 		for candidate in candidates {
-			let Some(vertices) = world_gpu.slice(candidate.vertices) else { continue };
+			let Some(vertices) = world_gpu.slice(candidate.vertices.id()) else { continue };
 			if batch_buffer_index != Some(vertices.buffer_index) {
 				if let Some(batch) = batches.last_mut() {
 					batch.item_range.end = items.len();
@@ -88,10 +91,11 @@ pub fn extract_marching_scene(
 				vertex_count: candidate.vertex_count,
 				transform: candidate.transform,
 			});
+			allocation_leases.push(candidate.vertices);
 		}
 		if let Some(batch) = batches.last_mut() {
 			batch.item_range.end = items.len();
 		}
-		commands.entity(render_entity).insert(ExtractedMarchingScene { items, batches });
+		commands.entity(render_entity).insert(ExtractedMarchingScene { items, batches, _allocation_leases: allocation_leases });
 	}
 }

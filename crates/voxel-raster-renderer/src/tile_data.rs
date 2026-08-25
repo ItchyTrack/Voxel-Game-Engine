@@ -3,7 +3,7 @@ use std::any::Any;
 use bevy::math::UVec3;
 use tile_data::{TileData, TileBuildingSession, TileBuilder, TileVoxelReducerRegistry};
 use voxel_data::voxels::VoxelTypeId;
-use voxel_gpu::{VoxelGpuDataReaders, packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupId}};
+use voxel_gpu::{VoxelGpuDataReaders, packed_buffer_group::PackedBufferGroupAllocation};
 
 use crate::{gpu_data::RasterWorldGpuData, gpu_raster_mesh::make_gpu_raster_mesh};
 
@@ -22,10 +22,10 @@ impl TileData for RasterTileData {
 	fn as_any(&self) -> &dyn Any { self }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct RasterTileCapabilityData {
-	pub faces: PackedBufferGroupId,
-	pub voxel_data: PackedBufferGroupId,
+	pub faces: PackedBufferGroupAllocation,
+	pub voxel_data: PackedBufferGroupAllocation,
 	pub face_count: u32,
 	pub bounds_min: UVec3,
 	pub bounds_max: UVec3,
@@ -41,8 +41,8 @@ pub trait RasterTileCapability: TileData {
 impl RasterTileCapability for RasterTileData {
 	fn raster_tile_data(&self) -> RasterTileCapabilityData {
 		RasterTileCapabilityData {
-			faces: self.faces.id(),
-			voxel_data: self.voxel_data.id(),
+			faces: self.faces.clone(),
+			voxel_data: self.voxel_data.clone(),
 			face_count: self.face_count,
 			bounds_min: self.bounds_min,
 			bounds_max: self.bounds_max,

@@ -5,7 +5,7 @@ use std::{
 	sync::{
 		atomic::{AtomicUsize, Ordering},
 		mpsc::{self, Receiver, Sender},
-		Mutex,
+		Arc, Mutex,
 	},
 };
 
@@ -39,33 +39,38 @@ impl HeldBuffer {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AllocationId(u32);
 
+#[derive(Clone)]
 pub struct PackedBufferAllocation {
+	owner: Arc<PackedBufferAllocationOwner>,
+}
+
+struct PackedBufferAllocationOwner {
 	id: AllocationId,
 	cleanup: Sender<u32>,
+	cleanup_on_drop: bool,
 }
 
 impl std::fmt::Debug for PackedBufferAllocation {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("PackedBufferAllocation").field("id", &self.id).finish()
+		f.debug_struct("PackedBufferAllocation").field("id", &self.owner.id).finish()
 	}
 }
 
 impl PackedBufferAllocation {
-	pub fn id(&self) -> AllocationId { self.id }
+	pub fn id(&self) -> AllocationId { self.owner.id }
 
-	fn into_id(self) -> AllocationId {
-		let allocation = std::mem::ManuallyDrop::new(self);
-		let id = allocation.id;
-		unsafe {
-			drop(std::ptr::read(std::ptr::addr_of!(allocation.cleanup)));
-		}
-		id
+	fn into_unique_id(self) -> Result<AllocationId, &'static str> {
+		let mut owner = Arc::try_unwrap(self.owner).map_err(|_| "Buffer allocation is still in use.")?;
+		owner.cleanup_on_drop = false;
+		Ok(owner.id)
 	}
 }
 
-impl Drop for PackedBufferAllocation {
+impl Drop for PackedBufferAllocationOwner {
 	fn drop(&mut self) {
-		let _ = self.cleanup.send(self.id.0);
+		if self.cleanup_on_drop {
+			let _ = self.cleanup.send(self.id.0);
+		}
 	}
 }
 
@@ -183,19 +188,32 @@ impl PackedDynamicBuffer {
 	pub fn add_buffer(&mut self, data_buffer: Vec<u8>) -> Result<PackedBufferAllocation, &'static str> {
 		self.collect_garbage();
 		let id = self.add_buffer_raw(data_buffer)?;
-		Ok(PackedBufferAllocation { id: AllocationId(id), cleanup: self.cleanup_tx.clone() })
+		Ok(PackedBufferAllocation {
+			owner: Arc::new(PackedBufferAllocationOwner {
+				id: AllocationId(id),
+				cleanup: self.cleanup_tx.clone(),
+				cleanup_on_drop: true,
+			}),
+		})
 	}
 
+	/// Fails while another owner is using the allocation.
 	pub fn remove_buffer(&mut self, allocation: PackedBufferAllocation) -> Result<(), &'static str> {
 		self.collect_garbage();
-		self.remove_buffer_raw(allocation.into_id().0)
+		self.remove_buffer_raw(allocation.into_unique_id()?.0)
 	}
 
-	/// If the new buffer does not fit the old buffer will still be removed.
+	/// Fails while another owner is using the allocation.
 	pub fn replace_buffer(&mut self, allocation: PackedBufferAllocation, buffer: Vec<u8>) -> Result<PackedBufferAllocation, &'static str> {
 		self.collect_garbage();
-		let id = self.replace_buffer_raw(allocation.into_id().0, buffer)?;
-		Ok(PackedBufferAllocation { id: AllocationId(id), cleanup: self.cleanup_tx.clone() })
+		let id = self.replace_buffer_raw(allocation.into_unique_id()?.0, buffer)?;
+		Ok(PackedBufferAllocation {
+			owner: Arc::new(PackedBufferAllocationOwner {
+				id: AllocationId(id),
+				cleanup: self.cleanup_tx.clone(),
+				cleanup_on_drop: true,
+			}),
+		})
 	}
 
 	pub fn collect_garbage(&mut self) {
@@ -227,7 +245,6 @@ impl PackedDynamicBuffer {
 
 	fn replace_buffer_raw(&mut self, id: u32, buffer: Vec<u8>) -> Result<u32, &'static str> {
 		let _zone = span!("PackedDynamicBuffer replace_buffer");
-		// tracy_client::plot!("packed dynamic upload bytes", buffer.len() as f64);
 		let Some(held_buffer) = self.held_buffers.get_mut(&id) else {
 			return Err("Could not find id.");
 		};
@@ -279,5 +296,43 @@ impl PackedDynamicBuffer {
 	pub fn buffer(&self) -> &GpuBuffer {
 		self.complete_uploads();
 		&self.buffer
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn allocation_cleanup_waits_for_last_lease() {
+		let (cleanup, cleaned) = mpsc::channel();
+		let allocation = PackedBufferAllocation {
+			owner: Arc::new(PackedBufferAllocationOwner {
+				id: AllocationId(7),
+				cleanup,
+				cleanup_on_drop: true,
+			}),
+		};
+		let render_lease = allocation.clone();
+
+		drop(allocation);
+		assert!(cleaned.try_recv().is_err());
+		drop(render_lease);
+		assert_eq!(cleaned.try_recv(), Ok(7));
+	}
+
+	#[test]
+	fn consuming_unique_allocation_does_not_queue_cleanup() {
+		let (cleanup, cleaned) = mpsc::channel();
+		let allocation = PackedBufferAllocation {
+			owner: Arc::new(PackedBufferAllocationOwner {
+				id: AllocationId(7),
+				cleanup,
+				cleanup_on_drop: true,
+			}),
+		};
+
+		assert_eq!(allocation.into_unique_id(), Ok(AllocationId(7)));
+		assert!(cleaned.try_recv().is_err());
 	}
 }

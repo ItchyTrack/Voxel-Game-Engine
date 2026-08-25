@@ -11,7 +11,7 @@ use bevy::render::sync_world::RenderEntity;
 use bevy::transform::components::{GlobalTransform, Transform};
 use tile_data::DynamicTileData;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_gpu::packed_buffer_group::{PackedBufferGroupId, PackedBufferGroupBuffer};
+use voxel_gpu::packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupBuffer};
 
 use crate::gpu_data::RasterWorldGpuData;
 use crate::{RasterTileCapabilityRegistry, voxel_camera::VoxelRasterCamera};
@@ -36,12 +36,14 @@ pub struct ExtractedRasterBatch {
 pub struct ExtractedRasterScene {
 	pub items: Vec<ExtractedRasterItem>,
 	pub batches: Vec<ExtractedRasterBatch>,
+	/// Keeps packed ranges alive until this extracted frame finishes rendering.
+	_allocation_leases: Vec<(PackedBufferGroupAllocation, PackedBufferGroupAllocation)>,
 }
 
 struct RenderItem {
 	entity: Entity,
-	faces: PackedBufferGroupId,
-	voxel_data: PackedBufferGroupId,
+	faces: PackedBufferGroupAllocation,
+	voxel_data: PackedBufferGroupAllocation,
 	face_count: u32,
 	voxel_type: VoxelTypeId,
 	transform: Transform,
@@ -85,13 +87,14 @@ pub fn extract_raster_scene(
 			});
 		}
 
-		candidates.sort_unstable_by_key(|item| (item.faces.buffer_index(), item.voxel_data.buffer_index(), item.entity.to_bits()));
+		candidates.sort_unstable_by_key(|item| (item.faces.id().buffer_index(), item.voxel_data.id().buffer_index(), item.entity.to_bits()));
 		let mut items = Vec::with_capacity(candidates.len());
 		let mut batches: Vec<ExtractedRasterBatch> = Vec::new();
+		let mut allocation_leases = Vec::with_capacity(candidates.len());
 		let mut batch_key = None;
 		for candidate in candidates {
-			let Some(faces) = world_gpu.faces.slice(candidate.faces) else { continue };
-			let Some(voxel_data) = world_gpu.voxel_data.slice(candidate.voxel_data) else { continue };
+			let Some(faces) = world_gpu.faces.slice(candidate.faces.id()) else { continue };
+			let Some(voxel_data) = world_gpu.voxel_data.slice(candidate.voxel_data.id()) else { continue };
 			let key = (faces.buffer_index, voxel_data.buffer_index);
 			if batch_key != Some(key) {
 				if let Some(batch) = batches.last_mut() {
@@ -111,10 +114,11 @@ pub fn extract_raster_scene(
 				voxel_type: candidate.voxel_type,
 				transform: candidate.transform,
 			});
+			allocation_leases.push((candidate.faces, candidate.voxel_data));
 		}
 		if let Some(batch) = batches.last_mut() {
 			batch.item_range.end = items.len();
 		}
-		commands.entity(render_entity).insert(ExtractedRasterScene { items, batches });
+		commands.entity(render_entity).insert(ExtractedRasterScene { items, batches, _allocation_leases: allocation_leases });
 	}
 }
