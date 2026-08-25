@@ -124,7 +124,7 @@ float4 fs_main(VertexOutput input) : SV_Target {
 
 	let normal = normalize(input.world_normal);
 	let light_dir = normalize(float3(0.5, 1.0, 0.2));
-	let ambient = 0.3;
+	let ambient = 0.25;
 	let diffuse = max(dot(normal, light_dir), 0.0);
 	let lighting = ambient + (1.0 - ambient) * diffuse;
 	return float4(voxel_color.rgb * lighting, voxel_color.a);

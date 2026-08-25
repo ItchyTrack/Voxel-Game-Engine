@@ -125,7 +125,7 @@ impl AsyncPriorityTaskPool {
 			.spawn(async move {
 				task.task_func.await;
 				self.task_finished();
-			}.instrument(bevy::log::info_span!("priority_task")))
+			})//.instrument(bevy::log::info_span!("priority_task")))
 			.detach();
 	}
 
