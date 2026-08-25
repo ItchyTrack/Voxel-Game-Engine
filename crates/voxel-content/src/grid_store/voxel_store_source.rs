@@ -5,8 +5,7 @@ use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use voxel_data::{grid::GridId, voxels::{VoxelTypeId, VoxelTypeInfo, Voxels}};
 use voxel_sources::{
 	ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceId,
-	SourceResult, SourceResultData, VoxelSourcesAppExt,
-	edit::{GridEdit, GridGeneration},
+	SourceResult, SourceResultData, edit::{GridEdit, GridGeneration},
 };
 use voxel_tasks::AsyncPriorityTaskPool;
 
@@ -173,7 +172,7 @@ impl ChunkSource for VoxelStoreSource {
 			for chunk in chunks(region) {
 				match store.ownership(chunk) {
 					ChunkOwnership::Unowned => {}
-					ChunkOwnership::Owned => request.chunks.push((chunk, store.version_for(chunk, generation))),
+					ChunkOwnership::Owned => request.chunks.push((chunk, store.get_chunk(chunk))),
 					ChunkOwnership::Acquiring(_) => {
 						waits_for_acquisition = true;
 						request.chunks.push((chunk, None));

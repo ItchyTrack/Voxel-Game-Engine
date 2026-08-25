@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::Arc;
 
-use bevy::ecs::resource::Resource;
 use bevy::math::{IVec2, IVec3, Vec3};
 
 use voxel_data::grid::GridId;
@@ -39,14 +38,9 @@ impl Default for SdfSourceOptions {
 	}
 }
 
-#[derive(Resource, Clone)]
 pub struct SdfSource {
-	inner: Arc<SdfSourceInner>,
-}
-
-struct SdfSourceInner {
-	handle: OnceLock<SourceHandle>,
-	bindings: RwLock<HashMap<GridId, GridBinding>>,
+	handle: Option<SourceHandle>,
+	bindings: HashMap<GridId, GridBinding>,
 	forgotten: ForgottenChunks,
 }
 
@@ -56,31 +50,28 @@ struct GridBinding {
 	options: SdfSourceOptions,
 }
 
-
 impl SdfSource {
 	pub fn new() -> Self {
 		Self {
-			inner: Arc::new(SdfSourceInner {
-				handle: OnceLock::new(),
-				bindings: RwLock::new(HashMap::new()),
-				forgotten: ForgottenChunks::default(),
-			}),
+			handle: None,
+			bindings: HashMap::new(),
+			forgotten: ForgottenChunks::default(),
 		}
 	}
 
-	pub fn set_grid_sdf<S: VoxelSdf>(&self, grid: GridId, sdf: S) {
+	pub fn set_grid_sdf<S: VoxelSdf>(&mut self, grid: GridId, sdf: S) {
 		self.set_grid_sdf_with_options(grid, sdf, SdfSourceOptions::default());
 	}
 
-	pub fn set_grid_sdf_with_options<S: VoxelSdf>(&self, grid: GridId, sdf: S, options: SdfSourceOptions) {
-		self.inner.bindings.write().unwrap().insert(grid, GridBinding {
+	pub fn set_grid_sdf_with_options<S: VoxelSdf>(&mut self, grid: GridId, sdf: S, options: SdfSourceOptions) {
+		self.bindings.insert(grid, GridBinding {
 			sdf: Arc::new(sdf),
 			options,
 		});
 	}
 
 	fn binding(&self, grid: GridId) -> Option<GridBinding> {
-		self.inner.bindings.read().unwrap().get(&grid).cloned()
+		self.bindings.get(&grid).cloned()
 	}
 
 	fn region_bounds(min: IVec3, size: IVec3) -> (Vec3, Vec3) {
@@ -99,7 +90,7 @@ impl SdfSource {
 	}
 
 	fn chunk_owned(&self, grid: GridId, binding: &GridBinding, chunk: IVec3) -> bool {
-		!self.inner.forgotten.contains(grid, chunk) && Self::might_intersect_region(binding, NonZeroChunkRegion::from_single(chunk))
+		!self.forgotten.contains(grid, chunk) && Self::might_intersect_region(binding, NonZeroChunkRegion::from_single(chunk))
 	}
 }
 
@@ -110,12 +101,12 @@ impl Default for SdfSource {
 }
 
 impl ChunkSource for SdfSource {
-	fn init(&self, handle: SourceHandle) {
-		let _ = self.inner.handle.set(handle);
+	fn init(&mut self, handle: SourceHandle) {
+		self.handle = Some(handle);
 	}
 
 	fn request_voxels(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
@@ -147,7 +138,7 @@ impl ChunkSource for SdfSource {
 			SourceCoverage::Some
 		};
 
-		let handle = self.inner.handle.get().expect("SDF source was not initialized").clone();
+		let handle = self.handle.as_ref().expect("SDF source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let _span = bevy::log::info_span!("SdfSource build").entered();
@@ -198,8 +189,8 @@ impl ChunkSource for SdfSource {
 		coverage
 	}
 
-	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
-		let handle = self.inner.handle.get().expect("SDF source was not initialized");
+	fn request_presence(&mut self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+		let handle = self.handle.as_ref().expect("SDF source was not initialized");
 		if let Some(binding) = self.binding(grid)
 			&& let Some((bounds_min, bounds_max)) = binding.sdf.bounds()
 			&& bounds_min.cmplt(bounds_max).all() {
@@ -214,14 +205,14 @@ impl ChunkSource for SdfSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		if self.binding(grid).is_none() { return; }
-		self.inner.forgotten.remember_area(grid, region);
+		self.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		if self.binding(grid).is_none() { return; }
-		self.inner.forgotten.forget_area(grid, region);
+		self.forgotten.forget_area(grid, region);
 	}
 }
 

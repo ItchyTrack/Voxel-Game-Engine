@@ -1,10 +1,13 @@
-mod edit_commands;
+mod edit_api;
 mod grid_store;
 mod voxel_store_source;
 
-pub use edit_commands::VoxelEditCommands;
+pub use edit_api::GridStoreEditApi;
 pub use grid_store::GridStore;
 pub use voxel_store_source::{VoxelStoreSource, complete_voxel_store_acquisitions};
+
+use bevy::prelude::*;
+use voxel_sources::VoxelSourcesAppExt;
 
 #[derive(Default)]
 pub struct VoxelStoreSourcePlugin;

@@ -47,12 +47,12 @@ impl ProceduralPlanetSource {
 }
 
 impl ChunkSource for ProceduralPlanetSource {
-	fn init(&self, handle: SourceHandle) {
+	fn init(&mut self, handle: SourceHandle) {
 		let _ = self.handle.set(handle);
 	}
 
 	fn request_voxels(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
@@ -107,7 +107,7 @@ impl ChunkSource for ProceduralPlanetSource {
 		coverage
 	}
 
-	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+	fn request_presence(&mut self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
 		let handle = self.handle.get().expect("planet source was not initialized");
 		if let Some(tile_index) = self.tile_index(grid)
 			&& let Some(tile) = planet_tiles().get(tile_index) {
@@ -118,13 +118,13 @@ impl ChunkSource for ProceduralPlanetSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		let Some(tile_index) = self.tile_index(grid) else { return };
 		if planet_tiles().get(tile_index).is_none() { return; }
 		self.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		let Some(tile_index) = self.tile_index(grid) else { return };
 		if planet_tiles().get(tile_index).is_none() { return; }
 		self.forgotten.forget_area(grid, region);

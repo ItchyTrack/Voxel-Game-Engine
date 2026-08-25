@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
 use bevy_egui::input::EguiWantsInput;
 
-use voxel_content::VoxelEditCommands;
+use voxel_content::grid_store::GridStoreEditApi;
 use voxel_data::grid::Grid;
 use voxel_data::region::NonZeroVoxelRegion;
 use voxel_data::voxels::{Voxel, VoxelType};
@@ -59,7 +59,7 @@ fn voxel_place_break_system(
 	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	voxel_world: VoxelWorldQueryParam,
 	grids: Query<(&GlobalTransform, &Grid)>,
-	mut edits: VoxelEditCommands,
+	mut edits: GridStoreEditApi,
 	mut sfx: Option<MessageWriter<PlaySfx>>,
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }

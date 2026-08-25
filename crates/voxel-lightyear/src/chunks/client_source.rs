@@ -27,12 +27,12 @@ pub struct ClientChunkSource {
 }
 
 impl ChunkSource for ClientChunkSource {
-	fn init(&self, handle: SourceHandle) {
+	fn init(&mut self, handle: SourceHandle) {
 		let _ = self.state.handle.set(handle);
 	}
 
 	fn request_voxels(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
@@ -71,7 +71,7 @@ impl ChunkSource for ClientChunkSource {
 	}
 
 	fn request_presence(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		cancellation: CancellationToken,
 		grid: GridId,
@@ -84,11 +84,11 @@ impl ChunkSource for ClientChunkSource {
 		}
 	}
 
-	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		self.state.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		self.state.forgotten.forget_area(grid, region);
 	}
 }

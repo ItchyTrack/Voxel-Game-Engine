@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use bevy::prelude::*;
 use lightyear::prelude::{Client, EventSender, RemoteEvent};
-use voxel_content::VoxelEditCommands;
+use voxel_content::grid_store::GridStoreEditApi;
 use voxel_data::grid::GridId;
 use voxel_sources::edit::{GridEdit, GridEditId};
 use voxel_streaming::ChunkEditInterestChanged;
@@ -64,7 +64,7 @@ pub(super) fn receive_edit(
 
 pub(super) fn apply_pending_edits(
 	mut streams: ResMut<ClientEditStreams>,
-	mut edits: VoxelEditCommands,
+	mut edits: GridStoreEditApi,
 ) {
 	for (&grid, stream) in &mut streams.grids {
 		while let Some(pending) = stream.pending.pop_front() {

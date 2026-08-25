@@ -56,14 +56,7 @@ impl StoredChunk {
 		version
 	}
 
-	fn version_for(&self, requested: GridGeneration) -> Option<Arc<ChunkVersion>> {
-		self.versions.iter()
-			.rev()
-			.find(|version| version.generation <= requested)
-			.cloned()
-	}
-
-	fn current_version(&self) -> Option<Arc<ChunkVersion>> {
+	fn get(&self) -> Option<Arc<ChunkVersion>> {
 		self.versions.last().cloned()
 	}
 
@@ -129,8 +122,8 @@ impl GridStore {
 		}
 	}
 
-	pub(crate) fn version_for(&self, chunk: IVec3, generation: GridGeneration) -> Option<Arc<ChunkVersion>> {
-		self.chunks.get(&chunk)?.version_for(generation)
+	pub(crate) fn get_chunk(&self, chunk: IVec3) -> Option<Arc<ChunkVersion>> {
+		self.chunks.get(&chunk)?.get()
 	}
 
 	pub(crate) fn complete_acquisition(
@@ -158,7 +151,7 @@ impl GridStore {
 
 	pub(crate) fn apply_edit(&mut self, chunk: IVec3, voxel_type: VoxelTypeInfo, generation: GridGeneration, edit: &dyn GridEdit) {
 		let stored = self.chunks.entry(chunk).or_insert_with(|| StoredChunk::new(ChunkOwnership::Owned));
-		let version = edited_version(stored.current_version().as_ref(), chunk, voxel_type, generation, edit);
+		let version = edited_version(stored.get().as_ref(), chunk, voxel_type, generation, edit);
 		stored.push_version(version);
 		stored.retain_current_version();
 	}
@@ -183,7 +176,7 @@ impl GridStore {
 				if matches!(self.ownership(*chunk), ChunkOwnership::Acquiring(_)) {
 					waiting = true;
 				} else {
-					*version = self.version_for(*chunk, request.generation);
+					*version = self.get_chunk(*chunk);
 				}
 			}
 			if waiting { still_waiting.push(request) } else { ready.push(request) }

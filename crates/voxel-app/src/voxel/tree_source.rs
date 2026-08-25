@@ -107,10 +107,10 @@ impl TreeSource {
 }
 
 impl ChunkSource for TreeSource {
-	fn init(&self, handle: SourceHandle) { let _ = self.handle.set(handle); }
+	fn init(&mut self, handle: SourceHandle) { let _ = self.handle.set(handle); }
 
 	fn request_voxels(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
@@ -178,7 +178,7 @@ impl ChunkSource for TreeSource {
 		coverage
 	}
 
-	fn request_presence(&self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+	fn request_presence(&mut self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
 		let handle = self.handle.get().expect("tree source was not initialized");
 		if self.is_mine(grid) {
 			handle.presence(request_id, grid, self.bounds);
@@ -186,12 +186,12 @@ impl ChunkSource for TreeSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		if !self.is_mine(grid) { return; }
 		self.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		if !self.is_mine(grid) { return; }
 		self.forgotten.forget_area(grid, region);
 	}

@@ -26,16 +26,10 @@ pub struct ScenePlugin;
 
 impl Plugin for ScenePlugin {
 	fn build(&self, app: &mut App) {
-		let vox_source = SceneVoxFileSource::new();
-		let marching_vox_source = MarchingVoxFileSource::new();
-		let sdf_source = SdfSource::new();
 		app
-			.insert_resource(vox_source.clone())
-			.insert_resource(marching_vox_source.clone())
-			.insert_resource(sdf_source.clone())
-			.register_voxel_source(vox_source)
-			.register_voxel_source(marching_vox_source)
-			.register_voxel_source(sdf_source)
+			.register_voxel_source(SceneVoxFileSource::new())
+			.register_voxel_source(MarchingVoxFileSource::new())
+			.register_voxel_source(SdfSource::new())
 			.add_systems(Startup, setup_scene)
 			.add_physics_apply_systems(drive_orientation);
 	}
@@ -73,28 +67,33 @@ fn drive_orientation(
 
 fn setup_scene(
 	mut commands: Commands,
-	source_manager: ResMut<SourceManager>,
-	vox_source: Res<SceneVoxFileSource>,
-	marching_vox_source: Res<MarchingVoxFileSource>,
-	_sdf_source: Res<SdfSource>,
+	mut source_manager: ResMut<SourceManager>,
 ) {
-	let store = source_manager.get_source_mut::<VoxelStoreSource>().unwrap();
-	spawn_church(&mut commands, &vox_source);
-	spawn_sponza(&mut commands, &marching_vox_source);
-	// spawn_ball_cluster(&mut commands, &mut store);
-	// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
-	spawn_bb8(&mut commands, &store, Vec3::new(30.0, 120.0, 0.0));
-	spawn_bb8(&mut commands, &store, Vec3::new(-30.0, 120.0, 0.0));
-	// for x in 0..3 {
-	// 	for y in 0..2 {
-	// 		for z in 0..3 {
-	// 			spawn_bb8(&mut commands, &mut store, Vec3::new(30.0 * x as f32, 30.0 * y as f32 + 200.0, 30.0 * z as f32));
-	// 		}
-	// 	}
-	// }
+	{
+		let vox_source = source_manager.get_source_mut::<SceneVoxFileSource>().unwrap();
+		spawn_church(&mut commands, vox_source);
+	}
+	{
+		let marching_vox_source = source_manager.get_source_mut::<MarchingVoxFileSource>().unwrap();
+		spawn_sponza(&mut commands, marching_vox_source);
+	}
+	{
+		// spawn_ball_cluster(&mut commands, &store);
+		// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
+		let store = source_manager.get_source_mut::<VoxelStoreSource>().unwrap();
+		spawn_bb8(&mut commands, store, Vec3::new(30.0, 120.0, 0.0));
+		spawn_bb8(&mut commands, store, Vec3::new(-30.0, 120.0, 0.0));
+		// for x in 0..3 {
+		// 	for y in 0..2 {
+		// 		for z in 0..3 {
+		// 			spawn_bb8(&mut commands, &mut store, Vec3::new(30.0 * x as f32, 30.0 * y as f32 + 200.0, 30.0 * z as f32));
+		// 		}
+		// 	}
+		// }
+	}
 }
 
-fn spawn_sponza(commands: &mut Commands, vox_source: &MarchingVoxFileSource) {
+fn spawn_sponza(commands: &mut Commands, vox_source: &mut MarchingVoxFileSource) {
 	let Some(path) = sponza_vox_path() else { return };
 
 	let parent = commands
@@ -117,7 +116,7 @@ fn spawn_sponza(commands: &mut Commands, vox_source: &MarchingVoxFileSource) {
 	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
 }
 
-fn spawn_church(commands: &mut Commands, vox_source: &SceneVoxFileSource) {
+fn spawn_church(commands: &mut Commands, vox_source: &mut SceneVoxFileSource) {
 	let Some(path) = church_vox_path() else { return };
 
 	let parent = commands
@@ -171,7 +170,7 @@ fn church_vox_path() -> Option<PathBuf> {
 
 fn spawn_ball_cluster(
 	commands: &mut Commands,
-	store: &VoxelStoreSource,
+	store: &mut VoxelStoreSource,
 ) {
 	let r = 5;
 	let base_y = 80.0;
@@ -203,7 +202,7 @@ fn voxel(color: [u8; 4], mass: u32) -> BasicVoxel {
 
 fn spawn_bb8(
 	commands: &mut Commands,
-	store: &VoxelStoreSource,
+	store: &mut VoxelStoreSource,
 	position: Vec3,
 ) {
 	let mut base_grid = StreamingVoxels::new::<BasicVoxel>();
@@ -231,7 +230,7 @@ fn spawn_bb8(
 	));
 }
 
-fn spawn_ball(commands: &mut Commands, store: &VoxelStoreSource, position: Vec3, radius: i32) -> Entity {
+fn spawn_ball(commands: &mut Commands, store: &mut VoxelStoreSource, position: Vec3, radius: i32) -> Entity {
 	let radius_sq = (radius as f32 - 0.5).powi(2);
 
 	let mut top = StreamingVoxels::new::<BasicVoxel>();

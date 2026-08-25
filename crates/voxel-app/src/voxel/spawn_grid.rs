@@ -9,7 +9,7 @@ use voxel_streaming::GridStreaming;
 
 pub fn spawn_grid(
 	commands: &mut Commands,
-	store: &VoxelStoreSource,
+	store: &mut VoxelStoreSource,
 	parent: Option<Entity>,
 	transform: Transform,
 	voxels: StreamingVoxels,

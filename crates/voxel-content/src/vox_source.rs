@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use bevy::ecs::resource::Resource;
 use bevy::math::{IVec3, Quat, UVec3, Vec3};
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
@@ -25,7 +24,6 @@ pub trait VoxMaterialVoxel: VoxelType {
 	fn from_vox_material(material: VoxMaterial) -> Self;
 }
 
-#[derive(Resource, Clone)]
 pub struct VoxFileSource<T: VoxMaterialVoxel> {
 	inner: Arc<VoxFileSourceInner<T>>,
 }
@@ -241,12 +239,12 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 }
 
 impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
-	fn init(&self, handle: SourceHandle) {
+	fn init(&mut self, handle: SourceHandle) {
 		let _ = self.inner.handle.set(handle);
 	}
 
 	fn request_voxels(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
@@ -293,7 +291,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 	}
 
 	fn request_presence(
-		&self,
+		&mut self,
 		request_id: RequestId,
 		_cancellation: CancellationToken,
 		grid: GridId,
@@ -306,12 +304,12 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		if self.binding(grid).is_none() { return; }
 		self.inner.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
 		if self.binding(grid).is_none() { return; }
 		self.inner.forgotten.forget_area(grid, region);
 	}

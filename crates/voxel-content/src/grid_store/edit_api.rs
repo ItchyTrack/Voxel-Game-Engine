@@ -8,16 +8,16 @@ use voxel_sources::{
 	edit::{GridEdit, GridEditId, GridEditIdManager, GridEditMessage, GridGeneration},
 };
 
-use crate::{VoxelStoreSource, grid_store::ChunkOwnership, voxel_store_source::chunks};
+use super::{VoxelStoreSource, grid_store::ChunkOwnership, voxel_store_source::chunks};
 
 #[derive(SystemParam)]
-pub struct VoxelEditCommands<'w, 's> {
+pub struct GridStoreEditApi<'w, 's> {
 	sources: ResMut<'w, SourceManager>,
 	messages: MessageWriter<'w, GridEditMessage>,
 	grids: Query<'w, 's, (&'static Grid, &'static mut GridEditIdManager)>,
 }
 
-impl<'w, 's> VoxelEditCommands<'w, 's> {
+impl<'w, 's> GridStoreEditApi<'w, 's> {
 	pub fn apply<E: GridEdit>(&mut self, grid: GridId, edit: E) -> Option<(GridEditId, GridGeneration)> {
 		self.apply_boxed(grid, Box::new(edit)).ok()
 	}
