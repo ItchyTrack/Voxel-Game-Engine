@@ -1,4 +1,3 @@
-use bevy::math::IVec3;
 use bevy::prelude::*;
 use rustc_hash::FxHashMap;
 use voxel_sources::RequestId;
@@ -8,7 +7,7 @@ use voxel_sources::edit::GridGeneration;
 use crate::tile_building::TileBuildingCancellationToken;
 use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
-use crate::{ChunkRegion, TileKey};
+use crate::{ChunkEditInterest, ChunkRegion, TileKey};
 
 #[derive(Debug)]
 pub(crate) struct TileState {
@@ -29,9 +28,8 @@ pub struct GridStreaming {
 	presence: ChunkPresence,
 	pub(crate) tiles: FxHashMap<TileKey, TileState>,
 	pub(crate) tile_dependencies: TileDependencyIndex,
-	edit_interest_counts: FxHashMap<IVec3, u32>,
-	edit_interest_version: u64,
-	pub(crate) queued_edit_interest: FxHashMap<IVec3, (u64, bool)>,
+	edit_interest: ChunkEditInterest,
+	pub(crate) queued_edit_interest: Vec<(NonZeroChunkRegion, bool)>,
 }
 
 #[derive(Component, Debug, Default)]
@@ -52,38 +50,36 @@ impl GridStreaming {
 
 	/* ----------- Interest ----------- */
 
-	pub fn retain_edit_interest(&mut self, chunk: IVec3) {
-		let count = self.edit_interest_counts.entry(chunk).or_default();
-		*count = count.checked_add(1).expect("chunk edit-interest count overflow");
-		if *count == 1 {
-			self.edit_interest_version = self.edit_interest_version.checked_add(1).expect("edit-interest version space exhausted");
-			self.queued_edit_interest.insert(chunk, (self.edit_interest_version, true));
-		}
-	}
-
-	pub fn release_edit_interest(&mut self, chunk: IVec3) {
-		let Some(count) = self.edit_interest_counts.get_mut(&chunk) else { return };
-		*count = count.saturating_sub(1);
-		if *count == 0 {
-			self.edit_interest_counts.remove(&chunk);
-			self.edit_interest_version = self.edit_interest_version.checked_add(1).expect("edit-interest version space exhausted");
-			self.queued_edit_interest.insert(chunk, (self.edit_interest_version, false));
-		}
-	}
-
 	pub fn retain_edit_interest_region(&mut self, region: ChunkRegion) {
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x { self.retain_edit_interest(IVec3::new(x, y, z)); }
-			}
-		}
+		let Ok(region) = NonZeroChunkRegion::try_from(region) else { return };
+		self.edit_interest.retain(region);
+		self.queued_edit_interest.push((region, true));
 	}
 
 	pub fn release_edit_interest_region(&mut self, region: ChunkRegion) {
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x { self.release_edit_interest(IVec3::new(x, y, z)); }
-			}
+		let Ok(region) = NonZeroChunkRegion::try_from(region) else { return };
+		if self.edit_interest.release(region) {
+			self.queued_edit_interest.push((region, false));
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use bevy::math::{IVec3, UVec3};
+
+	use super::*;
+
+	#[test]
+	fn large_edit_interest_is_queued_as_one_region() {
+		let region = NonZeroChunkRegion::from_min_size(IVec3::splat(-32), UVec3::splat(64)).unwrap();
+		let mut streaming = GridStreaming::default();
+
+		streaming.retain_edit_interest_region(region.into());
+		assert_eq!(streaming.queued_edit_interest, vec![(region, true)]);
+
+		streaming.queued_edit_interest.clear();
+		streaming.release_edit_interest_region(region.into());
+		assert_eq!(streaming.queued_edit_interest, vec![(region, false)]);
 	}
 }

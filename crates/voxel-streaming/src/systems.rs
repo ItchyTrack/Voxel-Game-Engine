@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use voxel_sources::{SourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
 
 use voxel_data::grid::GridId;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunks_covering_nonzero_voxel_region};
+use tile_data::{CHUNK_SIZE, chunks_covering_nonzero_voxel_region};
 use crate::{tile_building::TileBuildingChannel, tile_requester::{TileRequester}};
 use crate::streaming::TileStatus;
 use tile_data::{DynamicTileData, LoadedTile, TileBuildingParameters};
@@ -49,8 +49,8 @@ pub(crate) fn publish_edit_interest_changes(
 	mut grids: Query<(GridId, &mut GridStreaming)>,
 ) {
 	for (grid, mut streaming) in &mut grids {
-		for (chunk, (version, interested)) in std::mem::take(&mut streaming.queued_edit_interest) {
-			events.write(ChunkEditInterestChanged { grid, region: NonZeroChunkRegion::from_single(chunk), version, interested });
+		for (region, interested) in std::mem::take(&mut streaming.queued_edit_interest) {
+			events.write(ChunkEditInterestChanged { grid, region, interested });
 		}
 	}
 }

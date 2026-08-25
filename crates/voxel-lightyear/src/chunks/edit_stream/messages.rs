@@ -1,15 +1,14 @@
 use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
-use tile_data::ChunkRegion;
+use tile_data::NonZeroChunkRegion;
 use voxel_data::grid::GridId;
 use voxel_sources::edit::GridEditId;
 
 #[derive(Event, Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) struct EditInterest {
 	pub grid: GridId,
-	pub region: ChunkRegion,
-	pub version: u64,
+	pub region: NonZeroChunkRegion,
 	pub interested: bool,
 }
 

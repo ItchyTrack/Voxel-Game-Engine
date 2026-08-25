@@ -34,8 +34,7 @@ pub(super) fn flush_interest(
 	for interest in interests.read().copied() {
 		sender.trigger::<ClientToServerChannel>(EditInterest {
 			grid: interest.grid,
-			region: interest.region.into(),
-			version: interest.version,
+			region: interest.region,
 			interested: interest.interested,
 		});
 	}

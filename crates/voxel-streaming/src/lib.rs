@@ -3,6 +3,7 @@ use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use tile_data::{ChunkRegion, NonZeroChunkRegion};
 
+mod edit_interest;
 mod tile_dependency_index;
 mod presence;
 mod streaming;
@@ -11,6 +12,7 @@ mod tile_building;
 pub mod systems;
 
 use tile_data::{LoadedTile, TileKey};
+pub use edit_interest::ChunkEditInterest;
 pub use presence::ChunkPresence;
 pub use tile_requester::{TileLoadStatus, TileLoadUpdate, TileRequester};
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
@@ -41,7 +43,6 @@ pub struct ChunkAvailabilityChanged {
 pub struct ChunkEditInterestChanged {
 	pub grid: voxel_data::grid::GridId,
 	pub region: NonZeroChunkRegion,
-	pub version: u64,
 	pub interested: bool,
 }
 
