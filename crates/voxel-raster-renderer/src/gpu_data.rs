@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use bevy::{ecs::resource::Resource, render::renderer::{RenderDevice, RenderQueue}};
 use voxel_gpu::packed_buffer_group::PackedBufferGroup;
 
-pub const FACE_BUFFER_ALIGNMENT: u32 = 4;
+pub const FACE_BUFFER_ALIGNMENT: u32 = std::mem::size_of::<crate::gpu_raster_mesh::MeshFace>() as u32;
 pub const VOXEL_DATA_ALIGNMENT: u32 = 16;
 
 #[derive(Debug)]
