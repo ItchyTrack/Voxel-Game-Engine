@@ -12,11 +12,9 @@ use voxel_data::{
 
 // Just a tmp helper for voxel source impls to use. Will remove proabaly
 
-type ForgottenChunkTree = SignedGridTree<U16Cell>;
-
 #[derive(Default)]
 pub struct ForgottenChunks {
-	grids: RwLock<FxHashMap<GridId, ForgottenChunkTree>>,
+	grids: RwLock<FxHashMap<GridId, SignedGridTree<U16Cell>>>,
 }
 
 impl ForgottenChunks {
