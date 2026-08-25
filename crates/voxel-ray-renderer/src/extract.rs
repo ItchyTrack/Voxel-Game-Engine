@@ -43,7 +43,7 @@ struct RenderItem {
 	generation: u64,
 	voxel_type: VoxelTypeInfo,
 	aabb: (Vec3, Vec3),
-	dda_transform: Transform,
+	tree_transform: Transform,
 	priority: f32,
 }
 
@@ -71,10 +71,10 @@ pub fn extract_voxel_scene(
 			let Ok((tile_data, tile_global)) = tiles.get(*entity) else { continue };
 			let Some(tile) = tile_capabilities.read(tile_data.data()) else { continue };
 			let scale = (1u32 << tile.voxel_lod) as f32;
-			let area_world = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
+			let transform = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
 			let placement = tile.placement;
-			let aabb = aabb_of_transformed_aabb(&area_world, placement.bounds_min.as_vec3(), placement.bounds_max.as_vec3() + Vec3::ONE);
-			let dda_transform = area_world * Transform::from_translation(placement.tree_root_pos.as_vec3());
+			let aabb = aabb_of_transformed_aabb(&transform, placement.bounds_min.as_vec3(), placement.bounds_max.as_vec3() + Vec3::ONE);
+			let tree_transform = transform * Transform::from_translation(placement.tree_root_pos.as_vec3());
 			items.push(RenderItem {
 				entity: *entity,
 				tree: tile.tree,
@@ -82,7 +82,7 @@ pub fn extract_voxel_scene(
 				generation: tile.generation,
 				voxel_type: tile.voxel_type,
 				aabb,
-				dda_transform,
+				tree_transform,
 				priority: global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0,
 			});
 		}
@@ -178,7 +178,7 @@ pub fn extract_voxel_scene(
 			};
 			bvh_item_data.insert(item.entity, BvhItemData {
 				data_source,
-				transform: item.dda_transform,
+				transform: item.tree_transform,
 				voxel_type: item.voxel_type,
 			});
 		}
