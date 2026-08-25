@@ -11,7 +11,7 @@ use tile_data::{DynamicTileData, LoadedTile, TileBuildingParameters};
 use crate::{GridStreaming, InflightChunkPresence, RequestChunkPresence, TileLoadStatus, TileLoadUpdate};
 use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkEditInterestChanged};
 
-pub fn apply_source_presence(
+pub(crate) fn apply_source_presence(
 	mut source_results: MessageReader<SourceResult>,
 	mut grids: Query<&mut GridStreaming>,
 	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
@@ -55,7 +55,7 @@ pub(crate) fn publish_edit_interest_changes(
 	}
 }
 
-pub fn request_presence_for_new_grids(
+pub(crate) fn request_presence_for_new_grids(
 	mut sources: ResMut<SourceManager>,
 	mut commands: Commands,
 	grids: Query<(Entity, GridId), (With<RequestChunkPresence>, Without<InflightChunkPresence>)>,
@@ -66,7 +66,7 @@ pub fn request_presence_for_new_grids(
 	}
 }
 
-pub fn receive_chunk_presence_loaded(
+pub(crate) fn receive_chunk_presence_loaded(
 	mut commands: Commands,
 	mut results: MessageReader<SourceResult>,
 	grids: Query<(Entity, &InflightChunkPresence)>,
@@ -81,16 +81,6 @@ pub fn receive_chunk_presence_loaded(
 			break;
 		}
 	}
-}
-
-#[derive(Resource, Default)]
-pub struct PendingTileUpdates(pub(crate) Vec<TileLoadUpdate>);
-
-pub fn publish_tile_updates(
-	mut pending: ResMut<PendingTileUpdates>,
-	mut updates: MessageWriter<TileLoadUpdate>,
-) {
-	updates.write_batch(pending.0.drain(..));
 }
 
 pub(crate) fn dirty_edited_tiles(
@@ -112,10 +102,10 @@ pub(crate) fn invalidate_changed_generation_contexts(
 	for (grid, context) in &grids { tile_builder.invalidate_building_context(grid, context); }
 }
 
-pub fn receive_tile_results(
+pub(crate) fn receive_tile_results(
 	mut commands: Commands,
 	channel: Res<TileBuildingChannel>,
-	mut pending_updates: ResMut<PendingTileUpdates>,
+	mut tile_load_updates: MessageWriter<TileLoadUpdate>,
 	mut grids: Query<&mut GridStreaming>,
 ) {
 	let results: Vec<_> = channel.drain().collect();
@@ -147,7 +137,7 @@ pub fn receive_tile_results(
 				tile_state.entity = Some(entity);
 				tile_state.status = TileStatus::Loaded;
 				for requester in requesters {
-					pending_updates.0.push(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Ready(entity) });
+					tile_load_updates.write(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Ready(entity) });
 				}
 				if let Some(old) = old { commands.entity(old).despawn(); }
 			}
@@ -156,7 +146,7 @@ pub fn receive_tile_results(
 				tile_state.entity = None;
 				tile_state.status = TileStatus::Loaded;
 				for requester in requesters {
-					pending_updates.0.push(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Empty });
+					tile_load_updates.write(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Empty });
 				}
 				if let Some(old) = old { commands.entity(old).despawn(); }
 			}

@@ -51,7 +51,7 @@ impl Plugin for CameraVoxelLoaderPlugin {
 					.in_set(StreamingPhase::Request)
 					.before(CameraVoxelLoaderSet::RefreshVisibility),
 			)
-			.add_systems(StreamingSchedule, systems::receive_camera_voxel_loader_results.after(voxel_streaming::systems::publish_tile_updates).in_set(StreamingPhase::Receive))
+			.add_systems(StreamingSchedule, systems::receive_camera_voxel_loader_results.after(StreamingPhase::Receive))
 			.add_systems(
 				Update,
 				systems::refresh_camera_voxel_loader_visibility.in_set(CameraVoxelLoaderSet::RefreshVisibility),

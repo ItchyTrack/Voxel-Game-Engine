@@ -5,7 +5,7 @@ use voxel_data::grid::GridId;
 use voxel_sources::edit::{GridEditIdManager, GridGeneration};
 use voxel_tasks::CancellationToken;
 
-use crate::{GridStreaming, streaming::{TileState, TileStatus}, systems::PendingTileUpdates, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingResult, TileVoxelSourceBridge, session}};
+use crate::{GridStreaming, streaming::{TileState, TileStatus}, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingResult, TileVoxelSourceBridge, session}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TileLoadStatus {
@@ -26,15 +26,9 @@ pub struct TileRequester<'w, 's> {
 	bridge: Res<'w, TileVoxelSourceBridge>,
 	builders: Res<'w, TileBuilderRegistry>,
 	results: Res<'w, TileBuildingChannel>,
-	updates: ResMut<'w, PendingTileUpdates>,
+	tile_load_updates: MessageWriter<'w, TileLoadUpdate>,
 	grids: Query<'w, 's, (&'static mut GridStreaming, &'static GridEditIdManager)>,
 	commands: Commands<'w, 's>,
-}
-
-fn valid_tile_key(key: TileKey) -> bool {
-	let factor = 1u32 << key.lod;
-	let coarse_extent = (key.size() * CHUNK_SIZE as u32) / factor;
-	!coarse_extent.cmplt(UVec3::ONE).any() && !coarse_extent.cmpgt(UVec3::splat(CHUNK_SIZE as u32)).any()
 }
 
 impl<'w, 's> TileRequester<'w, 's> {
@@ -52,7 +46,7 @@ impl<'w, 's> TileRequester<'w, 's> {
 			let joined = state.requesters.insert(requester, priority).is_none();
 			if joined && matches!(&state.status, TileStatus::Loaded) {
 				let status = state.entity.map_or(TileLoadStatus::Empty, TileLoadStatus::Ready);
-				self.updates.0.push(TileLoadUpdate { grid, requester, key: tile_key, status });
+				self.tile_load_updates.write(TileLoadUpdate { grid, requester, key: tile_key, status });
 			}
 			return true;
 		}
@@ -68,17 +62,6 @@ impl<'w, 's> TileRequester<'w, 's> {
 		true
 	}
 
-	pub fn release_tile(&mut self, grid: GridId, requester: Entity, tile_key: TileKey) {
-		let Ok((mut streaming, _)) = self.grids.get_mut(grid) else { return };
-		let Some(state) = streaming.tiles.get_mut(&tile_key) else { return };
-		if state.requesters.remove(&requester).is_none() || !state.requesters.is_empty() { return; }
-
-		let state = streaming.tiles.remove(&tile_key).unwrap();
-		streaming.tile_dependencies.remove(tile_key);
-		streaming.release_edit_interest_region(tile_key.region.into());
-		if let TileStatus::InFlight { cancellation, .. } = &state.status { cancellation.cancel(); }
-		if let Some(entity) = state.entity { self.commands.entity(entity).despawn(); }
-	}
 	pub(crate) fn dirty_stale_tiles(
 		&mut self,
 		grid: GridId,
@@ -161,4 +144,42 @@ impl<'w, 's> TileRequester<'w, 's> {
 		}.instrument(bevy::log::info_span!("build tile"))).detach();
 		cancellation_token
 	}
+
+	pub fn release_tile(&mut self, grid: GridId, requester: Entity, tile_key: TileKey) {
+		let Ok((mut streaming, _)) = self.grids.get_mut(grid) else { return };
+		let Some(state) = streaming.tiles.get_mut(&tile_key) else { return };
+		if state.requesters.remove(&requester).is_none() || !state.requesters.is_empty() { return; }
+
+		let state = streaming.tiles.remove(&tile_key).unwrap();
+		streaming.tile_dependencies.remove(tile_key);
+		streaming.release_edit_interest_region(tile_key.region.into());
+		if let TileStatus::InFlight { cancellation, .. } = &state.status { cancellation.cancel(); }
+		if let Some(entity) = state.entity { self.commands.entity(entity).despawn(); }
+	}
+}
+
+#[derive(SystemParam)]
+pub struct TileReleaser<'w, 's> {
+	grids: Query<'w, 's, (&'static mut GridStreaming, &'static GridEditIdManager)>,
+	commands: Commands<'w, 's>,
+}
+
+impl<'w, 's> TileReleaser<'w, 's> {
+	pub fn release_tile(&mut self, grid: GridId, requester: Entity, tile_key: TileKey) {
+		let Ok((mut streaming, _)) = self.grids.get_mut(grid) else { return };
+		let Some(state) = streaming.tiles.get_mut(&tile_key) else { return };
+		if state.requesters.remove(&requester).is_none() || !state.requesters.is_empty() { return; }
+
+		let state = streaming.tiles.remove(&tile_key).unwrap();
+		streaming.tile_dependencies.remove(tile_key);
+		streaming.release_edit_interest_region(tile_key.region.into());
+		if let TileStatus::InFlight { cancellation, .. } = &state.status { cancellation.cancel(); }
+		if let Some(entity) = state.entity { self.commands.entity(entity).despawn(); }
+	}
+}
+
+fn valid_tile_key(key: TileKey) -> bool {
+	let factor = 1u32 << key.lod;
+	let coarse_extent = (key.size() * CHUNK_SIZE as u32) / factor;
+	!coarse_extent.cmplt(UVec3::ONE).any() && !coarse_extent.cmpgt(UVec3::splat(CHUNK_SIZE as u32)).any()
 }

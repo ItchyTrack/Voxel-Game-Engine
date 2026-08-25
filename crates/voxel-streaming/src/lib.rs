@@ -10,11 +10,10 @@ pub mod tile_requester;
 mod tile_building;
 pub mod systems;
 
-use tile_data::{LoadedTile, TileKey};
+use tile_data::TileKey;
 pub use presence::ChunkPresence;
 pub use tile_requester::{TileLoadStatus, TileLoadUpdate, TileRequester};
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
-pub use systems::request_presence_for_new_grids;
 
 #[doc(hidden)]
 pub use bevy as __bevy;
@@ -50,7 +49,6 @@ pub struct ChunkEditInterestChanged {
 pub enum StreamingPhase {
 	Ingest,
 	Request,
-	Serve,
 	Receive,
 }
 
@@ -72,9 +70,18 @@ impl Plugin for VoxelStreamingPlugin {
 		app.add_message::<ChunkAvailabilityChanged>()
 			.add_message::<ChunkEditInterestChanged>()
 			.add_message::<TileLoadUpdate>()
-			.init_resource::<systems::PendingTileUpdates>()
 			.init_resource::<tile_building::TileBuildingChannel>()
 			.init_resource::<tile_building::TileVoxelSourceBridge>()
+			.init_schedule(StreamingSchedule)
+			.configure_sets(
+				StreamingSchedule,
+				(
+					StreamingPhase::Ingest,
+					StreamingPhase::Request,
+					StreamingPhase::Receive,
+				)
+					.chain(),
+			)
 			.add_systems(
 				StreamingSchedule,
 				(
@@ -85,22 +92,6 @@ impl Plugin for VoxelStreamingPlugin {
 					)
 						.chain()
 						.in_set(StreamingPhase::Ingest),
-				),
-			)
-			.init_schedule(StreamingSchedule)
-			.configure_sets(
-				StreamingSchedule,
-				(
-					StreamingPhase::Ingest,
-					StreamingPhase::Request,
-					StreamingPhase::Serve,
-					StreamingPhase::Receive,
-				)
-					.chain(),
-			)
-			.add_systems(
-				StreamingSchedule,
-				(
 					(
 						systems::invalidate_changed_generation_contexts,
 						systems::request_presence_for_new_grids,
@@ -112,17 +103,11 @@ impl Plugin for VoxelStreamingPlugin {
 					(
 						tile_building::route_tile_source_results,
 						systems::receive_tile_results,
-						systems::publish_tile_updates,
 					)
 						.chain()
 						.in_set(StreamingPhase::Receive),
 				),
 			)
-			.add_systems(PreUpdate, run_streaming)
-			.add_systems(
-				PostUpdate,
-				bevy::transform::systems::propagate_transforms_for::<Added<LoadedTile>>
-					.after(bevy::transform::TransformSystems::Propagate),
-			);
+			.add_systems(PreUpdate, run_streaming);
 	}
 }

@@ -31,7 +31,7 @@ impl Plugin for ChunkSourcePlugin {
 				.register_voxel_source(client_chunk_source)
 				.add_systems(
 					Update,
-					client_source::register_remote_voxel_grids.before(voxel_streaming::request_presence_for_new_grids),
+					client_source::register_remote_voxel_grids.before(voxel_streaming::StreamingPhase::Ingest),
 				);
 		}
 

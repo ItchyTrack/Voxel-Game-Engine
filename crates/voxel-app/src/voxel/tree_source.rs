@@ -550,7 +550,7 @@ mod tests {
 		let settings = TreeSettings { attraction_points: 0, max_iterations: 0, ..default() };
 		let grid = Arc::new(OnceLock::new());
 		let _ = grid.set(GridId::PLACEHOLDER);
-		let source = TreeSource {
+		let mut source = TreeSource {
 			grid,
 			settings,
 			bounds: estimated_chunk_bounds(settings),

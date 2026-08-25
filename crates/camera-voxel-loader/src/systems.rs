@@ -2,12 +2,7 @@ use bevy::{ecs::message::MessageReader, prelude::*};
 use tile_data::{CHUNK_SIZE, TileBuildingParameters};
 use voxel_data::grid::GridId;
 use voxel_streaming::{
-	ChunkAvailabilityChangeKind,
-	ChunkAvailabilityChanged,
-	GridStreaming,
-	TileLoadStatus,
-	TileLoadUpdate,
-	TileRequester,
+	ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, GridStreaming, TileLoadStatus, TileLoadUpdate, TileRequester, tile_requester::TileReleaser,
 };
 
 use crate::{
@@ -19,10 +14,6 @@ use crate::{
 	types::GridTileKey,
 };
 
-fn release_tiles(requester: &mut TileRequester, requester_entity: Entity, keys: impl IntoIterator<Item = GridTileKey>) {
-	for key in keys { requester.release_tile(key.grid, requester_entity, key.tile_key); }
-}
-
 fn acquire_tile(
 	requester: &mut TileRequester,
 	lifecycle: &mut crate::tile_lifecycle::TileLifecycle,
@@ -33,7 +24,7 @@ fn acquire_tile(
 ) {
 	if requester.fetch_tile(key.grid, requester_entity, key.tile_key, priority, context) { return; }
 	let released = lifecycle.resolve(key, ResolvedTile::Empty);
-	release_tiles(requester, requester_entity, released);
+	for key in released { requester.release_tile(key.grid, requester_entity, key.tile_key); }
 }
 
 pub(crate) fn update_camera_voxel_loader_requests(
@@ -51,7 +42,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			loader.classes.clear();
 			loader.tiles = Default::default();
 			let mut requester = streaming.p0();
-			release_tiles(&mut requester, camera_entity, release);
+			for key in release { requester.release_tile(key.grid, camera_entity, key.tile_key); }
 			continue;
 		}
 		if freeze.0 { continue; }
@@ -85,7 +76,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 		}
 
 		let mut requester = streaming.p0();
-		release_tiles(&mut requester, camera_entity, releases);
+		for key in releases { requester.release_tile(key.grid, camera_entity, key.tile_key); }
 		for (key, priority, context) in acquisitions {
 			if !loader.tiles.contains_source(key) { continue; }
 			acquire_tile(&mut requester, &mut loader.tiles, camera_entity, key, priority, context.as_ref());
@@ -96,7 +87,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 pub(crate) fn receive_camera_voxel_loader_results(
 	mut results: MessageReader<TileLoadUpdate>,
 	mut loaders: Query<&mut CameraVoxelLoader>,
-	mut requester: TileRequester,
+	mut releaser: TileReleaser,
 ) {
 	for result in results.read() {
 		let Ok(mut loader) = loaders.get_mut(result.requester) else { continue };
@@ -107,14 +98,14 @@ pub(crate) fn receive_camera_voxel_loader_results(
 			TileLoadStatus::Empty => ResolvedTile::Empty,
 		};
 		let released = loader.tiles.resolve(key, resolution);
-		release_tiles(&mut requester, result.requester, released);
+		for key in released { releaser.release_tile(key.grid, result.requester, key.tile_key); }
 	}
 }
 
 pub(crate) fn refresh_camera_voxel_loader_visibility(
 	mut availability_events: MessageReader<ChunkAvailabilityChanged>,
 	mut cameras: Query<(Entity, &mut CameraVoxelLoader)>,
-	mut streaming: ParamSet<(
+	mut requester_streaming: ParamSet<(
 		TileRequester,
 		Query<(&GridStreaming, Option<&TileBuildingParameters>)>,
 	)>,
@@ -125,7 +116,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 		let mut acquisitions = Vec::new();
 		let mut releases = Vec::new();
 		{
-			let grids = streaming.p1();
+			let grids = requester_streaming.p1();
 			let mut changed = Vec::new();
 			let mut acquire = Vec::new();
 			let mut release = Vec::new();
@@ -155,8 +146,8 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 			}
 		}
 
-		let mut requester = streaming.p0();
-		release_tiles(&mut requester, camera_entity, releases);
+		let mut requester = requester_streaming.p0();
+		for key in releases { requester.release_tile(key.grid, camera_entity, key.tile_key); }
 		for (key, context) in acquisitions {
 			if !loader.tiles.contains_source(key) { continue; }
 			acquire_tile(&mut requester, &mut loader.tiles, camera_entity, key, 0.0, context.as_ref());
