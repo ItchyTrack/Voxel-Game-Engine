@@ -89,7 +89,7 @@ impl ClientLoadRegistry {
 		}
 		if pending.key.grid != payload.grid
 			|| !pending.key.region.contains_region(payload.region)
-			|| pending.key.lod != payload.lod
+			|| payload.lod > pending.key.lod
 			|| pending.key.generation != payload.generation
 		{
 			warn!(id=?payload.id, grid=?payload.grid, region=?payload.region, lod=payload.lod, generation=?payload.generation, ?from, "ignoring mismatched remote voxel payload");
