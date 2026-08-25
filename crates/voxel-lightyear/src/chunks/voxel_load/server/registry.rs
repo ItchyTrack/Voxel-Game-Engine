@@ -3,16 +3,22 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use bevy::log::warn;
 use bevy::prelude::*;
 use lightyear::prelude::PeerId;
-use tile_data::NonZeroChunkRegion;
 use voxel_data::compressed_voxels::CompressedVoxels;
-use voxel_data::grid::GridId;
 use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridGeneration};
 
-use super::super::{VoxelLoadComplete, VoxelLoadPayload, VoxelLoadRequest, VoxelRequestKey};
+use super::super::{
+	VoxelLoadManifest,
+	VoxelLoadPayload,
+	VoxelLoadRequest,
+	VoxelLoadRetry,
+	VoxelPayloadIndex,
+	VoxelPayloadMetadata,
+	VoxelRequestKey,
+};
 use crate::chunks::request_id::NetworkRequestId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct VoxelLoadOwner {
+pub(super) struct VoxelLoadOwner {
 	peer: PeerId,
 	id: NetworkRequestId,
 }
@@ -25,34 +31,31 @@ struct SourceVoxelRequestKey {
 
 #[derive(Clone)]
 struct VoxelPayload {
-	grid: GridId,
-	region: NonZeroChunkRegion,
-	lod: u8,
+	metadata: VoxelPayloadMetadata,
 	voxels: CompressedVoxels,
 }
 
 struct PendingVoxelLoad {
-	request_id: RequestId,
+	source_request: Option<RequestId>,
 	owners: HashSet<VoxelLoadOwner>,
 	payloads: Vec<VoxelPayload>,
 }
 
 pub(super) enum OutgoingVoxelMessage {
-	Payload { peer: PeerId, payload: VoxelLoadPayload },
-	Complete { peer: PeerId, complete: VoxelLoadComplete },
+	Manifest { owner: VoxelLoadOwner, manifest: VoxelLoadManifest },
+	Payload { owner: VoxelLoadOwner, payload: VoxelLoadPayload },
 }
 
 impl OutgoingVoxelMessage {
 	pub(super) fn peer(&self) -> PeerId {
 		match self {
-			Self::Payload { peer, .. } | Self::Complete { peer, .. } => *peer,
+			Self::Manifest { owner, .. } | Self::Payload { owner, .. } => owner.peer,
 		}
 	}
 
 	fn owner(&self) -> VoxelLoadOwner {
 		match self {
-			Self::Payload { peer, payload } => VoxelLoadOwner { peer: *peer, id: payload.id },
-			Self::Complete { peer, complete } => VoxelLoadOwner { peer: *peer, id: complete.id },
+			Self::Manifest { owner, .. } | Self::Payload { owner, .. } => *owner,
 		}
 	}
 }
@@ -82,6 +85,9 @@ impl PendingVoxelLoads {
 		self.keys_by_owner.insert(owner, key);
 		if let Some(load) = self.loads.get_mut(&key) {
 			load.owners.insert(owner);
+			if load.source_request.is_none() {
+				self.queue_transfer(key, owner);
+			}
 			return;
 		}
 
@@ -94,7 +100,7 @@ impl PendingVoxelLoads {
 		);
 		self.keys_by_source_request.insert(request_id, key);
 		self.loads.insert(key, PendingVoxelLoad {
-			request_id,
+			source_request: Some(request_id),
 			owners: HashSet::from([owner]),
 			payloads: Vec::new(),
 		});
@@ -112,10 +118,40 @@ impl PendingVoxelLoads {
 		}
 	}
 
+	pub(super) fn retry(&mut self, peer: PeerId, retry: VoxelLoadRetry) {
+		let owner = VoxelLoadOwner { peer, id: retry.id };
+		let Some(&key) = self.keys_by_owner.get(&owner) else { return };
+		let Some(load) = self.loads.get(&key) else { return };
+		if load.source_request.is_some() || !load.owners.contains(&owner) { return; }
+		let payloads = retry.missing.iter()
+			.filter_map(|index| {
+				let payload = load.payloads.get(usize::try_from(index.0).ok()?)?;
+				Some(Self::payload_message(owner, *index, payload))
+			})
+			.collect::<Vec<_>>();
+		self.outgoing.extend(payloads);
+	}
+
+	pub(super) fn received(
+		&mut self,
+		peer: PeerId,
+		id: NetworkRequestId,
+		sources: &mut SourceManager,
+	) {
+		self.remove_owner(VoxelLoadOwner { peer, id }, sources);
+	}
+
 	pub(super) fn receive_source_result(&mut self, result: &SourceResult) {
 		let Some(&key) = self.keys_by_source_request.get(&result.request_id) else { return };
 		match &result.data {
 			SourceResultData::Voxels { grid, region, lod, voxels, .. } => {
+				if *grid != key.remote.grid
+					|| !key.remote.region.contains_region(*region)
+					|| *lod > key.remote.lod
+				{
+					warn!(request_id=?result.request_id, expected_grid=?key.remote.grid, expected_region=?key.remote.region, expected_lod=key.remote.lod, ?grid, ?region, ?lod, "ignoring mismatched source voxel payload");
+					return;
+				}
 				let compressed = match CompressedVoxels::with_max_compression(voxels) {
 					Ok(compressed) => compressed,
 					Err(err) => {
@@ -125,9 +161,11 @@ impl PendingVoxelLoads {
 				};
 				let Some(load) = self.loads.get_mut(&key) else { return };
 				load.payloads.push(VoxelPayload {
-					grid: *grid,
-					region: *region,
-					lod: *lod,
+					metadata: VoxelPayloadMetadata {
+						region: *region,
+						lod: *lod,
+						compressed_bytes: u64::try_from(compressed.len()).expect("compressed payload length exceeded protocol range"),
+					},
 					voxels: compressed,
 				});
 			}
@@ -163,34 +201,43 @@ impl PendingVoxelLoads {
 	}
 
 	fn complete(&mut self, key: SourceVoxelRequestKey) {
-		let Some(load) = self.loads.remove(&key) else { return };
-		self.keys_by_source_request.remove(&load.request_id);
-		let Ok(sent_payload_count) = u32::try_from(load.payloads.len()) else {
-			warn!(request_id=?load.request_id, "source produced too many voxel payloads for the network protocol");
+		let Some(load) = self.loads.get_mut(&key) else { return };
+		let Some(request_id) = load.source_request.take() else { return };
+		self.keys_by_source_request.remove(&request_id);
+		if load.payloads.len() > u32::MAX as usize {
+			warn!(?request_id, "source produced too many voxel payloads for the network protocol");
+			let load = self.loads.remove(&key).expect("oversized voxel load disappeared");
 			for owner in load.owners {
 				self.keys_by_owner.remove(&owner);
 			}
 			return;
-		};
-		for owner in load.owners {
-			self.keys_by_owner.remove(&owner);
-			for payload in &load.payloads {
-				self.outgoing.push_back(OutgoingVoxelMessage::Payload {
-					peer: owner.peer,
-					payload: VoxelLoadPayload {
-						id: owner.id,
-						grid: payload.grid,
-						region: payload.region,
-						lod: payload.lod,
-						generation: key.remote.generation,
-						voxels: payload.voxels.clone(),
-					},
-				});
-			}
-			self.outgoing.push_back(OutgoingVoxelMessage::Complete {
-				peer: owner.peer,
-				complete: VoxelLoadComplete { id: owner.id, sent_payload_count },
-			});
+		}
+		let owners = load.owners.iter().copied().collect::<Vec<_>>();
+		for owner in owners {
+			self.queue_transfer(key, owner);
+		}
+	}
+
+	fn queue_transfer(&mut self, key: SourceVoxelRequestKey, owner: VoxelLoadOwner) {
+		let Some(load) = self.loads.get(&key) else { return };
+		let metadata = load.payloads.iter().map(|payload| payload.metadata).collect::<Vec<_>>();
+		let payloads = load.payloads.iter().enumerate()
+			.map(|(index, payload)| {
+				let index = VoxelPayloadIndex(u32::try_from(index).expect("voxel payload index exceeded protocol range"));
+				Self::payload_message(owner, index, payload)
+			})
+			.collect::<Vec<_>>();
+		self.outgoing.push_back(OutgoingVoxelMessage::Manifest {
+			owner,
+			manifest: VoxelLoadManifest { id: owner.id, payloads: metadata.into_boxed_slice() },
+		});
+		self.outgoing.extend(payloads);
+	}
+
+	fn payload_message(owner: VoxelLoadOwner, index: VoxelPayloadIndex, payload: &VoxelPayload) -> OutgoingVoxelMessage {
+		OutgoingVoxelMessage::Payload {
+			owner,
+			payload: VoxelLoadPayload { id: owner.id, index, voxels: payload.voxels.clone() },
 		}
 	}
 
@@ -200,14 +247,16 @@ impl PendingVoxelLoads {
 			return false;
 		};
 		self.outgoing.retain(|message| message.owner() != owner);
-		let should_cancel = self.loads.get_mut(&key).is_some_and(|load| {
+		let should_remove = self.loads.get_mut(&key).is_some_and(|load| {
 			load.owners.remove(&owner);
 			load.owners.is_empty()
 		});
-		if should_cancel {
+		if should_remove {
 			let load = self.loads.remove(&key).expect("empty voxel load disappeared");
-			self.keys_by_source_request.remove(&load.request_id);
-			sources.cancel_voxels(load.request_id);
+			if let Some(request_id) = load.source_request {
+				self.keys_by_source_request.remove(&request_id);
+				sources.cancel_voxels(request_id);
+			}
 		}
 		true
 	}

@@ -18,6 +18,16 @@ pub(crate) struct VoxelRequestKey {
 	pub generation: GridGeneration,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct VoxelPayloadIndex(pub(crate) u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VoxelPayloadMetadata {
+	pub region: NonZeroChunkRegion,
+	pub lod: u8,
+	pub compressed_bytes: u64,
+}
+
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct VoxelLoadRequest {
 	pub id: NetworkRequestId,
@@ -35,24 +45,26 @@ pub(crate) struct VoxelLoadCancel {
 	pub id: NetworkRequestId,
 }
 
+#[derive(Event, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct VoxelLoadManifest {
+	pub id: NetworkRequestId,
+	pub payloads: Box<[VoxelPayloadMetadata]>,
+}
+
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub(crate) struct VoxelLoadPayload {
 	pub id: NetworkRequestId,
-	pub grid: GridId,
-	pub region: NonZeroChunkRegion,
-	pub lod: u8,
-	pub generation: GridGeneration,
+	pub index: VoxelPayloadIndex,
 	pub voxels: CompressedVoxels,
 }
 
-impl MapEntities for VoxelLoadPayload {
-	fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-		self.grid = entity_mapper.get_mapped(self.grid);
-	}
+#[derive(Event, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct VoxelLoadRetry {
+	pub id: NetworkRequestId,
+	pub missing: Box<[VoxelPayloadIndex]>,
 }
 
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct VoxelLoadComplete {
+pub(crate) struct VoxelLoadReceived {
 	pub id: NetworkRequestId,
-	pub sent_payload_count: u32,
 }

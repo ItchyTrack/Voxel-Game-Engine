@@ -8,9 +8,13 @@ mod server;
 pub(super) use client::ClientLoadRegistry;
 use messages::{
 	VoxelLoadCancel,
-	VoxelLoadComplete,
+	VoxelLoadManifest,
 	VoxelLoadPayload,
+	VoxelLoadReceived,
 	VoxelLoadRequest,
+	VoxelLoadRetry,
+	VoxelPayloadIndex,
+	VoxelPayloadMetadata,
 	VoxelRequestKey,
 };
 use server::PendingVoxelLoads;
@@ -27,16 +31,21 @@ impl Plugin for VoxelLoadPlugin {
 			.add_direction(NetworkDirection::ClientToServer);
 		app.register_event::<VoxelLoadCancel>()
 			.add_direction(NetworkDirection::ClientToServer);
-		app.register_event::<VoxelLoadPayload>()
-			.add_map_entities()
+		app.register_event::<VoxelLoadRetry>()
+			.add_direction(NetworkDirection::ClientToServer);
+		app.register_event::<VoxelLoadReceived>()
+			.add_direction(NetworkDirection::ClientToServer);
+		app.register_event::<VoxelLoadManifest>()
 			.add_direction(NetworkDirection::ServerToClient);
-		app.register_event::<VoxelLoadComplete>()
+		app.register_event::<VoxelLoadPayload>()
 			.add_direction(NetworkDirection::ServerToClient);
 
 		if self.enable_server {
 			app.init_resource::<PendingVoxelLoads>()
 				.add_observer(server::receive_voxel_load_request)
 				.add_observer(server::receive_voxel_load_cancel)
+				.add_observer(server::receive_voxel_load_retry)
+				.add_observer(server::receive_voxel_load_received)
 				.add_systems(
 					Update,
 					(
@@ -48,7 +57,7 @@ impl Plugin for VoxelLoadPlugin {
 		}
 		if self.enable_client {
 			app.add_observer(client::receive_payload)
-				.add_observer(client::receive_complete)
+				.add_observer(client::receive_manifest)
 				.add_systems(Update, client::flush_messages);
 		}
 	}

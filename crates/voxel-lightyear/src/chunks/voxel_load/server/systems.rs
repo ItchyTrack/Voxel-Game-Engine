@@ -4,7 +4,14 @@ use lightyear::prelude::{EventSender, PeerMetadata, RemoteEvent};
 use voxel_sources::{SourceManager, SourceResult};
 
 use super::registry::{OutgoingVoxelMessage, PendingVoxelLoads};
-use super::super::{VoxelLoadCancel, VoxelLoadComplete, VoxelLoadPayload, VoxelLoadRequest};
+use super::super::{
+	VoxelLoadCancel,
+	VoxelLoadManifest,
+	VoxelLoadPayload,
+	VoxelLoadReceived,
+	VoxelLoadRequest,
+	VoxelLoadRetry,
+};
 use crate::chunks::edit_stream::EditSubscriptions;
 
 pub(crate) fn receive_voxel_load_request(
@@ -31,6 +38,23 @@ pub(crate) fn receive_voxel_load_cancel(
 	pending.cancel(event.from, event.trigger.id, &mut sources);
 }
 
+pub(crate) fn receive_voxel_load_retry(
+	trigger: On<RemoteEvent<VoxelLoadRetry>>,
+	mut pending: ResMut<PendingVoxelLoads>,
+) {
+	let event = trigger.event();
+	pending.retry(event.from, event.trigger.clone());
+}
+
+pub(crate) fn receive_voxel_load_received(
+	trigger: On<RemoteEvent<VoxelLoadReceived>>,
+	mut sources: ResMut<SourceManager>,
+	mut pending: ResMut<PendingVoxelLoads>,
+) {
+	let event = trigger.event();
+	pending.received(event.from, event.trigger.id, &mut sources);
+}
+
 pub(crate) fn flush_source_results(
 	mut results: MessageReader<SourceResult>,
 	mut pending: ResMut<PendingVoxelLoads>,
@@ -42,7 +66,7 @@ pub(crate) fn flush_source_results(
 
 pub(crate) fn send_pending_voxel_load_responses(
 	peer_metadata: Option<Res<PeerMetadata>>,
-	mut senders: Query<(&mut EventSender<VoxelLoadPayload>, &mut EventSender<VoxelLoadComplete>)>,
+	mut senders: Query<(&mut EventSender<VoxelLoadManifest>, &mut EventSender<VoxelLoadPayload>)>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
@@ -52,16 +76,16 @@ pub(crate) fn send_pending_voxel_load_responses(
 			pending.push_outgoing(message);
 			continue;
 		};
-		let Ok((mut payload_sender, mut complete_sender)) = senders.get_mut(entity) else {
+		let Ok((mut manifest_sender, mut payload_sender)) = senders.get_mut(entity) else {
 			pending.push_outgoing(message);
 			continue;
 		};
 		match message {
-			OutgoingVoxelMessage::Payload { payload, .. } => {
-				payload_sender.trigger::<crate::chunks::ServerToClientChannel>(payload);
+			OutgoingVoxelMessage::Manifest { manifest, .. } => {
+				manifest_sender.trigger::<crate::chunks::ServerToClientChannel>(manifest);
 			}
-			OutgoingVoxelMessage::Complete { complete, .. } => {
-				complete_sender.trigger::<crate::chunks::ServerToClientChannel>(complete);
+			OutgoingVoxelMessage::Payload { payload, .. } => {
+				payload_sender.trigger::<crate::chunks::ServerToClientVoxelDataChannel>(payload);
 			}
 		}
 	}

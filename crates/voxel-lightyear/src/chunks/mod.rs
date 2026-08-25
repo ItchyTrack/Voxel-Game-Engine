@@ -16,6 +16,7 @@ use voxel_load::VoxelLoadPlugin;
 
 pub(crate) struct ClientToServerChannel;
 pub(crate) struct ServerToClientChannel;
+pub(crate) struct ServerToClientVoxelDataChannel;
 
 pub struct ChunkSourcePlugin {
 	pub enable_client_chunk_source: bool,
@@ -39,6 +40,8 @@ impl Plugin for ChunkSourcePlugin {
 			.add_direction(NetworkDirection::ClientToServer);
 		app.add_channel::<ServerToClientChannel>(ordered_reliable_channel())
 			.add_direction(NetworkDirection::ServerToClient);
+		app.add_channel::<ServerToClientVoxelDataChannel>(unordered_unreliable_channel())
+			.add_direction(NetworkDirection::ServerToClient);
 
 		app.add_plugins((
 			PresencePlugin {
@@ -61,6 +64,14 @@ fn ordered_reliable_channel() -> ChannelSettings {
 	ChannelSettings {
 		mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
 		send_frequency: Duration::from_millis(100),
+		priority: 1.0,
+	}
+}
+
+fn unordered_unreliable_channel() -> ChannelSettings {
+	ChannelSettings {
+		mode: ChannelMode::UnorderedUnreliable,
+		send_frequency: Duration::default(),
 		priority: 1.0,
 	}
 }
