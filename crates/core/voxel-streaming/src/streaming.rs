@@ -7,7 +7,7 @@ use voxel_sources::edit::GridGeneration;
 use crate::tile_building::TileBuildingCancellationToken;
 use crate::presence::ChunkPresence;
 use crate::tile_dependency_index::TileDependencyIndex;
-use crate::{ChunkEditInterest, ChunkRegion, TileKey};
+use crate::{ChunkEditInterest, TileKey};
 
 #[derive(Debug)]
 pub(crate) struct TileState {
@@ -50,13 +50,11 @@ impl GridStreaming {
 	/* ----------- Interest ----------- */
 
 	pub fn retain_edit_interest_region(&mut self, region: NonZeroChunkRegion) {
-		let Ok(region) = NonZeroChunkRegion::try_from(region) else { return };
 		self.edit_interest.retain(region);
 		self.queued_edit_interest.push((region, true));
 	}
 
 	pub fn release_edit_interest_region(&mut self, region: NonZeroChunkRegion) {
-		let Ok(region) = NonZeroChunkRegion::try_from(region) else { return };
 		if self.edit_interest.release(region) {
 			self.queued_edit_interest.push((region, false));
 		}
