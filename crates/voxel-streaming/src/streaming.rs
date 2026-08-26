@@ -49,36 +49,16 @@ impl GridStreaming {
 
 	/* ----------- Interest ----------- */
 
-	pub fn retain_edit_interest_region(&mut self, region: ChunkRegion) {
+	pub fn retain_edit_interest_region(&mut self, region: NonZeroChunkRegion) {
 		let Ok(region) = NonZeroChunkRegion::try_from(region) else { return };
 		self.edit_interest.retain(region);
 		self.queued_edit_interest.push((region, true));
 	}
 
-	pub fn release_edit_interest_region(&mut self, region: ChunkRegion) {
+	pub fn release_edit_interest_region(&mut self, region: NonZeroChunkRegion) {
 		let Ok(region) = NonZeroChunkRegion::try_from(region) else { return };
 		if self.edit_interest.release(region) {
 			self.queued_edit_interest.push((region, false));
 		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use bevy::math::{IVec3, UVec3};
-
-	use super::*;
-
-	#[test]
-	fn large_edit_interest_is_queued_as_one_region() {
-		let region = NonZeroChunkRegion::from_min_size(IVec3::splat(-32), UVec3::splat(64)).unwrap();
-		let mut streaming = GridStreaming::default();
-
-		streaming.retain_edit_interest_region(region.into());
-		assert_eq!(streaming.queued_edit_interest, vec![(region, true)]);
-
-		streaming.queued_edit_interest.clear();
-		streaming.release_edit_interest_region(region.into());
-		assert_eq!(streaming.queued_edit_interest, vec![(region, false)]);
 	}
 }

@@ -53,7 +53,7 @@ impl<'w, 's> TileRequester<'w, 's> {
 
 		let generation = edit_id_manager.latest_generation();
 		let cancellation = Self::spawn(&self.bridge, &self.builders, &self.results, grid, tile_key, generation, context);
-		streaming.retain_edit_interest_region(tile_key.region.into());
+		streaming.retain_edit_interest_region(tile_key.region);
 		streaming.tiles.insert(tile_key, TileState {
 			requesters: FxHashMap::from_iter([(requester, priority)]),
 			status: TileStatus::InFlight { generation, cancellation },
@@ -152,7 +152,7 @@ impl<'w, 's> TileRequester<'w, 's> {
 
 		let state = streaming.tiles.remove(&tile_key).unwrap();
 		streaming.tile_dependencies.remove(tile_key);
-		streaming.release_edit_interest_region(tile_key.region.into());
+		streaming.release_edit_interest_region(tile_key.region);
 		if let TileStatus::InFlight { cancellation, .. } = &state.status { cancellation.cancel(); }
 		if let Some(entity) = state.entity { self.commands.entity(entity).despawn(); }
 	}
@@ -172,7 +172,7 @@ impl<'w, 's> TileReleaser<'w, 's> {
 
 		let state = streaming.tiles.remove(&tile_key).unwrap();
 		streaming.tile_dependencies.remove(tile_key);
-		streaming.release_edit_interest_region(tile_key.region.into());
+		streaming.release_edit_interest_region(tile_key.region);
 		if let TileStatus::InFlight { cancellation, .. } = &state.status { cancellation.cancel(); }
 		if let Some(entity) = state.entity { self.commands.entity(entity).despawn(); }
 	}
