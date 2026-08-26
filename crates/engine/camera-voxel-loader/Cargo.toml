@@ -10,13 +10,13 @@ tracy = ["tracy-client/enable"]
 [dependencies]
 bevy = { workspace = true }
 tracy-client = { workspace = true }
-voxel-data = { version = "0.1.0", path = "../voxel-data" }
-tile-data = { version = "0.1.0", path = "../tile-data" }
-voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-streaming = { workspace = true }
 
 [dev-dependencies]
 dot_vox = "5.2.0"
-voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
+voxel-sources =  { workspace = true }
 
 [lints]
 workspace = true

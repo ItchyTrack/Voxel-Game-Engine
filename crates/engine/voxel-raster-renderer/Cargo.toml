@@ -1,5 +1,5 @@
 [package]
-name = "voxel-marching-renderer"
+name = "voxel-raster-renderer"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,15 +8,13 @@ default = []
 shader_hot_reload = ["bevy/embedded_watcher"]
 
 [dependencies]
-wgpu = { workspace = true }
 bevy = { workspace = true }
-rustc-hash = { workspace = true }
+log = { workspace = true }
+wgpu = { workspace = true }
 bytemuck = { workspace = true }
-basic-voxel = { version = "0.1.0", path = "../basic-voxel" }
-voxel-data = { version = "0.1.0", path = "../voxel-data" }
-tile-data = { version = "0.1.0", path = "../tile-data" }
-voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
-voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-gpu = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { workspace = true, features = ["webgpu"] }

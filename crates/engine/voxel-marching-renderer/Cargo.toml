@@ -1,0 +1,30 @@
+[package]
+name = "voxel-marching-renderer"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+shader_hot_reload = ["bevy/embedded_watcher"]
+
+[dependencies]
+wgpu = { workspace = true }
+bevy = { workspace = true }
+rustc-hash = { workspace = true }
+bytemuck = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-streaming = { workspace = true }
+voxel-gpu = { workspace = true }
+basic-voxel = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["webgpu"] }
+getrandom = { workspace = true }
+getrandom_0_3 = { workspace = true }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lints]
+workspace = true

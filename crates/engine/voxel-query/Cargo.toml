@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 bevy = { workspace = true }
-tile-data = { version = "0.1.0", path = "../tile-data" }
-voxel-data = { version = "0.1.0", path = "../voxel-data" }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
 
 [lints]
 workspace = true

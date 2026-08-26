@@ -1,0 +1,24 @@
+[package]
+name = "voxel-lightyear"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+tracy = ["tracy-client/enable"]
+
+[dependencies]
+bevy = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+tracy-client = { workspace = true }
+lightyear = "0.28.0"
+postcard = { version = "1.1", features = ["use-std"] }
+voxel-tasks = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-sources = { workspace = true }
+voxel-streaming = { workspace = true }
+voxel-content = { workspace = true }
+
+[lints]
+workspace = true

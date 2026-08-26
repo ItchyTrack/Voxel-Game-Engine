@@ -1,25 +1,26 @@
 [package]
-name = "voxel-physics"
+name = "voxel-streaming"
 version = "0.1.0"
 edition = "2024"
 
 [features]
 default = []
 tracy = ["tracy-client/enable"]
-gpu_profiling = []
 
 [dependencies]
 bevy = { workspace = true }
+bevy_ecs = { workspace = true }
+crossbeam-channel = { workspace = true }
 rustc-hash = { workspace = true }
-num = { workspace = true }
 tracy-client = { workspace = true }
-voxel-data = { version = "0.1.0", path = "../voxel-data" }
-voxel-query = { version = "0.1.0", path = "../voxel-query" }
-tile-data = { version = "0.1.0", path = "../tile-data" }
-voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
-voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
+futures = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-sources = { workspace = true }
+voxel-tasks = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console"] }
 getrandom = { workspace = true }
 getrandom_0_3 = { workspace = true }
 

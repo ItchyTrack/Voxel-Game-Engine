@@ -1,0 +1,17 @@
+[package]
+name = "voxel-content"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { workspace = true }
+bytemuck = { workspace = true }
+dot_vox = "5.2.0"
+voxel-tasks = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-sources = { workspace = true }
+voxel-streaming = { workspace = true }
+
+[lints]
+workspace = true

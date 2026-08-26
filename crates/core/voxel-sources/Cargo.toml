@@ -15,9 +15,9 @@ serde = { version = "1", features = ["derive"] }
 futures = { workspace = true }
 tracy-client = { workspace = true }
 typetag = "0.2"
-voxel-data = { version = "0.1.0", path = "../voxel-data" }
-voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
-tile-data = { version = "0.1.0", path = "../tile-data" }
+voxel-data = { workspace = true }
+voxel-tasks = { workspace = true }
+tile-data = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.114"

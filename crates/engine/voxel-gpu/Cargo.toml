@@ -1,26 +1,30 @@
 [package]
-name = "voxel-ray-renderer"
+name = "voxel-gpu"
 version = "0.1.0"
 edition = "2024"
 
 [features]
 default = []
+tracy = ["tracy-client/enable"]
 gpu_profiling = []
-shader_hot_reload = ["bevy/embedded_watcher"]
 
 [dependencies]
 bevy = { workspace = true }
-crossbeam-channel = { workspace = true }
-rustc-hash = { workspace = true }
 log = { workspace = true }
 wgpu = { workspace = true }
+num = { workspace = true }
 bytemuck = { workspace = true }
 bitflags = { workspace = true }
 tracy-client = { workspace = true }
-anyhow = "1.0"
-voxel-data = { version = "0.1.0", path = "../voxel-data" }
-tile-data = { version = "0.1.0", path = "../tile-data" }
-voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
+rustc-hash = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+orderly-allocator = "0.2.2"
+rand = "0.10.1"
+clone_cell = "0.4.2"
+parry3d = "0.26.0"
+voxel-tasks = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["console"] }

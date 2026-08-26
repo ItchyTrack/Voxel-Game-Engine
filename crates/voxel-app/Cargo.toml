@@ -34,24 +34,24 @@ bevy = { workspace = true }
 wgpu = { workspace = true }
 tracing-tracy = { version = "0.11", default-features = false, features = ["enable", "broadcast"], optional = true }
 tracy-client = { workspace = true }
-camera-voxel-loader = { version = "0.1.0", path = "../camera-voxel-loader" }
-voxel-ray-renderer = { version = "0.1.0", path = "../voxel-ray-renderer", features = ["shader_hot_reload"] }
-voxel-raster-renderer = { version = "0.1.0", path = "../voxel-raster-renderer", features = ["shader_hot_reload"] }
-voxel-marching-renderer = { version = "0.1.0", path = "../voxel-marching-renderer" }
-voxel-data = { version = "0.1.0", path = "../voxel-data" }
-voxel-query = { version = "0.1.0", path = "../voxel-query" }
-tile-data = { version = "0.1.0", path = "../tile-data" }
-basic-voxel = { version = "0.1.0", path = "../basic-voxel" }
-voxel-tasks = { version = "0.1.0", path = "../voxel-tasks" }
-voxel-gpu = { version = "0.1.0", path = "../voxel-gpu" }
-voxel-physics = { version = "0.1.0", path = "../voxel-physics" }
-voxel-streaming = { version = "0.1.0", path = "../voxel-streaming" }
-voxel-sources = { version = "0.1.0", path = "../voxel-sources" }
-voxel-lightyear = { version = "0.1.0", path = "../voxel-lightyear" }
-voxel-engine = { version = "0.1.0", path = "../voxel-engine" }
-voxel-content = { version = "0.1.0", path = "../voxel-content" }
 lightyear = { version = "0.28.0", features = ["udp", "netcode"] }
 serde = { version = "1.0", features = ["derive"] }
+voxel-tasks = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-sources = { workspace = true }
+voxel-streaming = { workspace = true }
+voxel-query = { workspace = true }
+voxel-physics = { workspace = true }
+voxel-lightyear = { workspace = true }
+voxel-content = { workspace = true }
+voxel-gpu = { workspace = true }
+basic-voxel = { workspace = true }
+camera-voxel-loader = { workspace = true }
+voxel-ray-renderer = { workspace = true }
+voxel-raster-renderer = { workspace = true }
+voxel-marching-renderer = { workspace = true }
+voxel-engine = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time"] }
