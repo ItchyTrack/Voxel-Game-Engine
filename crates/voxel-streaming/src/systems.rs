@@ -9,7 +9,9 @@ use crate::{tile_building::TileBuildingChannel, tile_requester::{TileRequester}}
 use crate::streaming::TileStatus;
 use tile_data::{DynamicTileData, LoadedTile, TileBuildingParameters};
 use crate::{GridStreaming, InflightChunkPresence, RequestChunkPresence, TileLoadStatus, TileLoadUpdate};
-use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, ChunkEditInterestChanged};
+use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged};
+
+// presence
 
 pub(crate) fn apply_source_presence(
 	mut source_results: MessageReader<SourceResult>,
@@ -40,17 +42,6 @@ pub(crate) fn apply_source_presence(
 				region: *region,
 				kind: ChunkAvailabilityChangeKind::BecamePresent,
 			});
-		}
-	}
-}
-
-pub(crate) fn publish_edit_interest_changes(
-	mut events: MessageWriter<ChunkEditInterestChanged>,
-	mut grids: Query<(GridId, &mut GridStreaming)>,
-) {
-	for (grid, mut streaming) in &mut grids {
-		for (region, interested) in std::mem::take(&mut streaming.queued_edit_interest) {
-			events.write(ChunkEditInterestChanged { grid, region, interested });
 		}
 	}
 }
@@ -100,6 +91,8 @@ pub(crate) fn make_edited_chunks_present(
 		});
 	}
 }
+
+// tiles
 
 pub(crate) fn dirty_edited_tiles(
 	mut edits: MessageReader<GridEditMessage>,

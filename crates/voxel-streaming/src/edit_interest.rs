@@ -1,9 +1,13 @@
+use bevy::prelude::*;
+
 use tile_data::NonZeroChunkRegion;
 use voxel_data::{
 	grid_tree::U32Cell,
 	region::NonZeroVoxelRegion,
 	signed_grid_tree::SignedGridTree,
+	grid::GridId,
 };
+use crate::streaming::GridStreaming;
 
 #[derive(Default)]
 pub struct ChunkEditInterest {
@@ -53,6 +57,25 @@ impl ChunkEditInterest {
 fn tree_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
 	NonZeroVoxelRegion::new(region.min(), region.size()).unwrap()
 }
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChunkEditInterestChanged {
+	pub grid: voxel_data::grid::GridId,
+	pub region: NonZeroChunkRegion,
+	pub interested: bool,
+}
+
+pub(crate) fn publish_edit_interest_changes(
+	mut events: MessageWriter<ChunkEditInterestChanged>,
+	mut grids: Query<(GridId, &mut GridStreaming)>,
+) {
+	for (grid, mut streaming) in &mut grids {
+		for (region, interested) in std::mem::take(&mut streaming.queued_edit_interest) {
+			events.write(ChunkEditInterestChanged { grid, region, interested });
+		}
+	}
+}
+
 
 #[cfg(test)]
 mod tests {

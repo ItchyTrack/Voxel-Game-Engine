@@ -16,6 +16,7 @@ pub use edit_interest::ChunkEditInterest;
 pub use presence::ChunkPresence;
 pub use tile_requester::{TileLoadStatus, TileLoadUpdate, TileRequester};
 pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
+pub use edit_interest::ChunkEditInterestChanged;
 
 #[doc(hidden)]
 pub use bevy as __bevy;
@@ -37,13 +38,6 @@ pub struct ChunkAvailabilityChanged {
 	pub grid: voxel_data::grid::GridId,
 	pub region: NonZeroChunkRegion,
 	pub kind: ChunkAvailabilityChangeKind,
-}
-
-#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ChunkEditInterestChanged {
-	pub grid: voxel_data::grid::GridId,
-	pub region: NonZeroChunkRegion,
-	pub interested: bool,
 }
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -69,7 +63,7 @@ impl Plugin for VoxelStreamingPlugin {
 			app.add_plugins(tile_data::TileDataPlugin);
 		}
 		app.add_message::<ChunkAvailabilityChanged>()
-			.add_message::<ChunkEditInterestChanged>()
+			.add_message::<edit_interest::ChunkEditInterestChanged>()
 			.add_message::<TileLoadUpdate>()
 			.init_resource::<tile_building::TileBuildingChannel>()
 			.init_resource::<tile_building::TileVoxelSourceBridge>()
@@ -97,7 +91,7 @@ impl Plugin for VoxelStreamingPlugin {
 					(
 						systems::invalidate_changed_generation_contexts,
 						systems::request_presence_for_new_grids,
-						systems::publish_edit_interest_changes,
+						edit_interest::publish_edit_interest_changes,
 						tile_building::submit_tile_voxel_requests,
 					)
 						.chain()

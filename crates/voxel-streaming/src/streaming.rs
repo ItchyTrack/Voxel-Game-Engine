@@ -20,7 +20,6 @@ pub(crate) struct TileState {
 pub(crate) enum TileStatus {
 	InFlight { generation: GridGeneration, cancellation: TileBuildingCancellationToken },
 	Loaded,
-	// Dirty, // for now when a tile is dirty we just rerequest it.
 }
 
 #[derive(Component, Default)]
