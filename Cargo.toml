@@ -2,24 +2,24 @@
 resolver = "3"
 
 members = [
-	"crates/voxel-tasks",
-	"crates/voxel-data",
-	"crates/voxel-query",
-	"crates/tile-data",
-	"crates/voxel-gpu",
-	"crates/voxel-streaming",
-	"crates/camera-voxel-loader",
-	"crates/voxel-sources",
-	"crates/voxel-lightyear",
-	"crates/voxel-ray-renderer",
-	"crates/voxel-raster-renderer",
-	"crates/voxel-marching-renderer",
-	"crates/voxel-physics",
-	"crates/voxel-content",
-	"crates/basic-voxel",
-	"crates/voxel-app",
-	"crates/voxel-engine",
+	"crates/core/voxel-tasks",
+	"crates/core/voxel-data",
+	"crates/core/tile-data",
+	"crates/core/voxel-sources",
+	"crates/core/voxel-streaming",
+	"crates/engine/voxel-gpu",
+	"crates/engine/voxel-query",
+	"crates/engine/camera-voxel-loader",
+	"crates/engine/voxel-lightyear",
+	"crates/engine/voxel-ray-renderer",
+	"crates/engine/voxel-raster-renderer",
+	"crates/engine/voxel-marching-renderer",
+	"crates/engine/voxel-physics",
+	"crates/engine/voxel-content",
+	"crates/engine/basic-voxel",
+	"crates/engine/voxel-engine",
 	"crates/bevy-web-worker",
+	"crates/voxel-app",
 ]
 
 default-members = [
@@ -44,6 +44,22 @@ tokio = "1"
 futures = "0.3.32"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+voxel-tasks = { version = "0.1.0", path = "crates/core/voxel-tasks" }
+voxel-data = { version = "0.1.0", path = "crates/core/voxel-data" }
+tile-data = { version = "0.1.0", path = "crates/core/tile-data" }
+voxel-sources = { version = "0.1.0", path = "crates/core/voxel-sources" }
+voxel-streaming = { version = "0.1.0", path = "crates/core/voxel-streaming" }
+voxel-gpu = { version = "0.1.0", path = "crates/engine/voxel-gpu" }
+voxel-query = { version = "0.1.0", path = "crates/engine/voxel-query" }
+camera-voxel-loader = { version = "0.1.0", path = "crates/engine/camera-voxel-loader" }
+voxel-lightyear = { version = "0.1.0", path = "crates/engine/voxel-lightyear" }
+voxel-ray-renderer = { version = "0.1.0", path = "crates/engine/voxel-ray-renderer" }
+voxel-raster-renderer = { version = "0.1.0", path = "crates/engine/voxel-raster-renderer" }
+voxel-marching-renderer = { version = "0.1.0", path = "crates/engine/voxel-marching-renderer" }
+voxel-physics = { version = "0.1.0", path = "crates/engine/voxel-physics" }
+voxel-content = { version = "0.1.0", path = "crates/engine/voxel-content" }
+basic-voxel = { version = "0.1.0", path = "crates/engine/basic-voxel" }
+voxel-engine = { version = "0.1.0", path = "crates/engine/voxel-engine" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"
