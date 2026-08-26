@@ -2,9 +2,9 @@ use bevy::math::{Quat, UVec3, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
 use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, GridType, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
-use voxel_data::transform_ext::TransformExt;
 use voxel_query::OccupancyTree;
 
+use crate::transform_ext::TransformExt;
 use crate::CubeFeature;
 
 /// ((min_a, max_a), (min_b, max_b), axis, index)

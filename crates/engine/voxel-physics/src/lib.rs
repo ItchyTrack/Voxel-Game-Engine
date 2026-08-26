@@ -15,6 +15,7 @@ pub use disabled::components;
 // pub mod math;
 // pub mod solving;
 // pub mod sparse_set;
+pub mod transform_ext;
 
 // use bevy::math::DVec3;
 // use bevy::prelude::*;

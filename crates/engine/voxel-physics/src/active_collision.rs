@@ -3,9 +3,9 @@ use tile_data::{CHUNK_SIZE, DynamicTileData, LoadedTile};
 use voxel_data::aabb::aabb_of_transformed_aabb;
 use voxel_data::bvh::BVH;
 use voxel_data::grid::GridId;
-use voxel_data::transform_ext::TransformExt;
 use voxel_query::OccupancyTileData;
 
+use crate::transform_ext::TransformExt;
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
 use crate::narrowphase::get_collisions_between_tiles;
 

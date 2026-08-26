@@ -4,8 +4,8 @@ use tracy_client::span;
 use bevy::transform::components::Transform;
 use voxel_data::bvh::BVH;
 use voxel_data::subgrid::{SubGridId, SubGridRef};
-use voxel_data::transform_ext::TransformExt;
 
+use crate::transform_ext::TransformExt;
 use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
 

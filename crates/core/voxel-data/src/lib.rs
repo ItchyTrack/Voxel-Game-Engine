@@ -6,7 +6,6 @@ pub mod grid_tree;
 pub mod region;
 pub mod sdf;
 pub mod signed_grid_tree;
-pub mod transform_ext;
 pub mod voxel_grid_tree;
 pub mod voxels;
 
