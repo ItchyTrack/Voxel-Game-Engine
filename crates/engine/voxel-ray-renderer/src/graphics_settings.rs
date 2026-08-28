@@ -6,11 +6,12 @@ use bevy::render::render_resource::ShaderType;
 #[derive(Resource, ExtractResource, Clone, Copy, Debug)]
 pub struct GraphicsSettings {
 	pub shadows: bool,
+	pub anti_aliasing: bool,
 }
 
 impl Default for GraphicsSettings {
 	fn default() -> Self {
-		Self { shadows: false }
+		Self { shadows: false, anti_aliasing: false }
 	}
 }
 
@@ -27,6 +28,6 @@ pub struct RenderSettingsUniform {
 
 impl RenderSettingsUniform {
 	pub fn from_graphics_settings(settings: &GraphicsSettings) -> Self {
-		Self { values: UVec4::new(settings.shadows as u32, 0, 0, 0) }
+		Self { values: UVec4::new(settings.shadows as u32, settings.anti_aliasing as u32, 0, 0) }
 	}
 }

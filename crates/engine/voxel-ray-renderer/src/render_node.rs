@@ -107,7 +107,6 @@ pub fn voxel_render_pass(
 
 	let device = render_context.render_device().wgpu_device().clone();
 	let encoder = render_context.command_encoder();
-	let main_texture = view_target.main_texture();
 	let color_attachment = view_target.get_color_attachment();
 	let depth_sample_view = view_depth.texture.create_view(&wgpu::TextureViewDescriptor {
 		label: Some("voxel_raycast_depth_sample_view"),
@@ -124,8 +123,6 @@ pub fn voxel_render_pass(
 	let gpu_bvh = voxel_renderer.render(
 		&device,
 		encoder,
-		main_texture.width(),
-		main_texture.height(),
 		view_bind_group,
 		prepared.view_uniform_offset,
 		bvh,

@@ -90,6 +90,7 @@ pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, 
 	let nodes = view.nodes();
 	let root_depth = view.root_depth();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
+	assert!(grid_tree::size(root_depth) <= 64, "ray-renderer grid tree root size must not exceed 64 voxels");
 
 	// -- Pass 1: DFS pre-order → gpu_order ------------------------------------
 	let mut cpu_to_gpu: Vec<u32>	   = vec![u32::MAX; nodes.len()];

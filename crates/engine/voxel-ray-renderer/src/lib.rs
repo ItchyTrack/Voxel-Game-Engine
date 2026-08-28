@@ -102,6 +102,8 @@ impl Plugin for VoxelRayRendererPlugin {
 		bevy::asset::embedded_asset!(app, "shaders/beam.slang");
 		bevy::asset::embedded_asset!(app, "shaders/raycasting.slang");
 		bevy::asset::embedded_asset!(app, "shaders/coloring_shader.slang");
+		bevy::asset::embedded_asset!(app, "shaders/coloring_common.slang");
+		bevy::asset::embedded_asset!(app, "shaders/anti_aliasing.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/beam_combined_raycast.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/bvh/beam_raycast.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/bvh/data.slang");

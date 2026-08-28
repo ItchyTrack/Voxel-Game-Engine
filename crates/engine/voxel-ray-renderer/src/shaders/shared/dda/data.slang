@@ -70,6 +70,33 @@ uint dda_get_child_contents_index(uint3 contents_pos) {
 	return contents_pos.x + contents_pos.y * DDA_SIZE + contents_pos.z * DDA_SIZE * DDA_SIZE;
 }
 
+bool dda_is_occupied<T : IDDADataSource>(uint tree_base, int3 query_pos) {
+	uint tree_header = dda_u32<T>(tree_base);
+	uint root_size = dda_node_size(tree_header & 0xFFu);
+	if (any(query_pos < int3(0)) || any(query_pos >= int3(root_size))) { return false; }
+
+	uint3 root_relative_pos = uint3(query_pos);
+	uint node_size = root_size;
+	uint node_byte_off = dda_nodes_base(tree_base);
+	while (node_size >= DDA_SIZE) {
+		uint bitmap_status = dda_parent_offset<T>(node_byte_off) >> 14u;
+		uint bitmap_low = (bitmap_status & 1u) != 0u ? dda_u32<T>(node_byte_off + 4u) : 0u;
+		uint bitmap_high = (bitmap_status & 2u) != 0u ? dda_u32<T>(node_byte_off + 4u + (bitmap_status & 1u) * 4u) : 0u;
+		uint child_size = node_size >> DDA_LOG_SIZE;
+		uint3 current_relative_pos = root_relative_pos & uint3(node_size - 1u);
+		uint cell_index = dda_get_child_contents_index(current_relative_pos / uint3(child_size));
+		if (!dda_bitmap_has(bitmap_low, bitmap_high, bitmap_status, cell_index)) { return false; }
+		if (node_size == DDA_SIZE) { return true; }
+
+		uint data_index = dda_data_index(bitmap_low, bitmap_high, bitmap_status, cell_index);
+		uint entry = dda_node_entry<T>(node_byte_off, bitmap_status, data_index, node_size);
+		if (entry == 0u) { return true; }
+		node_byte_off += entry * DDA_SLOT_BYTES;
+		node_size = child_size;
+	}
+	return false;
+}
+
 StructuredBuffer<uint> residency_grid_tree_buf : register(t0, space2);
 StructuredBuffer<uint> main_grid_tree_buf : register(t1, space2);
 

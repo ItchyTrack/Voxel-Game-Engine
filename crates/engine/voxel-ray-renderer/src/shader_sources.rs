@@ -11,6 +11,8 @@ const LOCAL_FILES: &[&str] = &[
 	"beam.slang",
 	"raycasting.slang",
 	"coloring_shader.slang",
+	"coloring_common.slang",
+	"anti_aliasing.slang",
 ];
 
 const SHARED_FILES: &[&str] = &[
