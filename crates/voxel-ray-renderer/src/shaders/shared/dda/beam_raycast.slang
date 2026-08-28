@@ -14,20 +14,10 @@ float beam_conservative_cell_hit_distance(float3 origin, float3 inv_dir, float b
 float beam_dda_raycast<T : IDDADataSource>(float3 origin, float3 dir, float max_length, uint tree_base, float beam_start_distance, float beam_expand_k, float item_scale) {
 	uint tree_header = dda_u32<T>(tree_base);
 	uint root_size = dda_node_size(tree_header & 0xFFu);
-	float3 root_min = float3(0.0);
-	float3 root_max = float3(float(root_size));
+	let root_intersection = dda_root_intersection(origin, dir, root_size);
+	if (!root_intersection.hit || root_intersection.entry_distance > max_length) { return 1e38; }
 
-	float3 inv_dir = float3(1.0) / dir;
-	float3 distance_to_min_planes = (root_min - origin) * inv_dir;
-	float3 distance_to_max_planes = (root_max - origin) * inv_dir;
-	float3 near_distances = min(distance_to_min_planes, distance_to_max_planes);
-	float entry_distance = max(max(near_distances.x, near_distances.y), near_distances.z);
-	float exit_distance = min(min(max(distance_to_min_planes.x, distance_to_max_planes.x), max(distance_to_min_planes.y, distance_to_max_planes.y)), max(distance_to_min_planes.z, distance_to_max_planes.z));
-	if ((entry_distance > exit_distance || exit_distance < 0.0)) { return 1e38; }
-	float distance_to_aabb = max(entry_distance, 0.0);
-	if ((distance_to_aabb > max_length)) { return 1e38; }
-
-	float starting_distance = distance_to_aabb;
+	float starting_distance = root_intersection.entry_distance;
 	uint3 plane_bits = uint3((tree_header >> 8u) & 0xFu, (tree_header >> 12u) & 0xFu, (tree_header >> 16u) & 0xFu);
 	float max_length_reduced = max_length;
 	if (plane_bits.x != 0u || plane_bits.y != 0u || plane_bits.z != 0u) {
@@ -35,41 +25,35 @@ float beam_dda_raycast<T : IDDADataSource>(float3 origin, float3 dir, float max_
 		float plane_scale = float((tree_header >> 20u) & 0xFFu) / 32.0 - 3.984375;
 		float root_half_size = float(root_size) / 2.0;
 		float nearest_plane_distance_signed = plane_scale * float(root_size) - dot(plane, origin + dir * starting_distance - float3(root_half_size));
-		float plane_distance = nearest_plane_distance_signed / dot(plane, dir);
-		if (nearest_plane_distance_signed / length(plane) <= 0.0) {
-			starting_distance += plane_distance;
-			if ((plane_distance < 0.0 || starting_distance > max_length_reduced)) { return 1e38; }
-			float3 hit_point = origin + dir * starting_distance;
-			if ((hit_point.x < 0.0 || hit_point.x > float(root_size) + 1.0 || hit_point.y < 0.0 || hit_point.y > float(root_size) + 1.0 || hit_point.z < 0.0 || hit_point.z > float(root_size) + 1.0)) { return 1e38; }
-		} else if (plane_distance >= 0.0) {
-			max_length_reduced = starting_distance + plane_distance;
+		let plane_dir_dot = dot(plane, dir);
+		if (plane_dir_dot == 0.0) {
+			if (nearest_plane_distance_signed < 0.0) { return 1e38; }
+		} else {
+			let plane_distance = nearest_plane_distance_signed / plane_dir_dot;
+			if (nearest_plane_distance_signed < 0.0) {
+				starting_distance += plane_distance;
+				if ((plane_distance < 0.0 || starting_distance > max_length_reduced)) { return 1e38; }
+				float3 hit_point = origin + dir * starting_distance;
+				if ((hit_point.x < 0.0 || hit_point.x > float(root_size) + 1.0 || hit_point.y < 0.0 || hit_point.y > float(root_size) + 1.0 || hit_point.z < 0.0 || hit_point.z > float(root_size) + 1.0)) { return 1e38; }
+			} else if (nearest_plane_distance_signed == 0.0 && plane_dir_dot > 0.0) {
+				max_length_reduced = starting_distance;
+			} else if (nearest_plane_distance_signed > 0.0 && plane_distance >= 0.0) {
+				max_length_reduced = min(max_length_reduced, starting_distance + plane_distance);
+			}
 		}
 	}
 
-	float3 axis_step_distances = abs(inv_dir);
-	uint step_mask = ((dir.x >= 0.0) ? 1u : 0u) + ((dir.y >= 0.0) ? 1u : 0u) * 2u + ((dir.z >= 0.0) ? 1u : 0u) * 4u;
-	float3 post_aabb_origin_pre_shift = origin + dir * starting_distance;
-	float3 post_aabb_origin_clamped = clamp(post_aabb_origin_pre_shift, root_min, float3(float(root_size) - 0.00001));
-	float3 move_towards_target = floor(post_aabb_origin_clamped) + float3(0.5);
-	float3 move_towards_delta = move_towards_target - post_aabb_origin_clamped;
-	float move_towards_length = length(move_towards_delta);
-	float3 post_aabb_origin = move_towards_length < 0.001 ? post_aabb_origin_clamped : post_aabb_origin_clamped + move_towards_delta / move_towards_length * 0.001;
-
-	float3 root_relative_post_aabb_origin = post_aabb_origin;
-	float3 axis_boundary_distances = float3(
-		(step_mask & 1u) != 0u ? ceil(root_relative_post_aabb_origin.x) : floor(root_relative_post_aabb_origin.x),
-		(step_mask & 2u) != 0u ? ceil(root_relative_post_aabb_origin.y) : floor(root_relative_post_aabb_origin.y),
-		(step_mask & 4u) != 0u ? ceil(root_relative_post_aabb_origin.z) : floor(root_relative_post_aabb_origin.z)
-	);
-	float3 axis_hit_distances = inv_dir * (axis_boundary_distances - root_relative_post_aabb_origin) + float3(starting_distance, starting_distance, starting_distance);
-	uint3 root_relative_grid_pos = uint3(int3(root_relative_post_aabb_origin));
-
+	let initialization = dda_initialize(origin, dir, starting_distance, root_size);
+	if (!initialization.valid || max_length_reduced < starting_distance) { return 1e38; }
+	float3 inv_dir = initialization.inv_dir;
+	float3 axis_step_distances = initialization.delta;
+	uint step_mask = initialization.step;
+	float3 axis_hit_distances = initialization.axis_distances;
+	uint3 root_relative_grid_pos = initialization.grid_pos;
 	float current_cell_entry_distance = starting_distance;
 	float safe_item_scale = max(item_scale, 1e-6);
 	float initial_beam_radius_local = beam_start_distance * beam_expand_k / safe_item_scale;
 	float beam_radius_growth_per_local_distance = item_scale * beam_expand_k / safe_item_scale;
-
-	if ((max_length_reduced < starting_distance)) { return 1e38; }
 
 	uint nodes_base = dda_nodes_base(tree_base);
 	uint node_size = root_size;
@@ -98,13 +82,13 @@ float beam_dda_raycast<T : IDDADataSource>(float3 origin, float3 dir, float max_
 				uint child_node_size = node_size >> DDA_LOG_SIZE;
 				uint3 cell_relative_grid_pos = root_relative_grid_pos & uint3(child_node_size - 1u);
 				uint3 cell_step_counts = uint3(
-					(step_mask & 1u) != 0u ? child_node_size - cell_relative_grid_pos.x - 1u : cell_relative_grid_pos.x,
-					(step_mask & 2u) != 0u ? child_node_size - cell_relative_grid_pos.y - 1u : cell_relative_grid_pos.y,
-					(step_mask & 4u) != 0u ? child_node_size - cell_relative_grid_pos.z - 1u : cell_relative_grid_pos.z
+					dir.x == 0.0 ? 0u : ((step_mask & 1u) != 0u ? child_node_size - cell_relative_grid_pos.x - 1u : cell_relative_grid_pos.x),
+					dir.y == 0.0 ? 0u : ((step_mask & 2u) != 0u ? child_node_size - cell_relative_grid_pos.y - 1u : cell_relative_grid_pos.y),
+					dir.z == 0.0 ? 0u : ((step_mask & 4u) != 0u ? child_node_size - cell_relative_grid_pos.z - 1u : cell_relative_grid_pos.z)
 				);
 				float3 axis_distances_at_cell_edge = axis_hit_distances + axis_step_distances * float3(cell_step_counts);
 				float distance_to_edge = min(min(axis_distances_at_cell_edge.x, axis_distances_at_cell_edge.y), axis_distances_at_cell_edge.z);
-				uint3 adjusted_step_counts = uint3(abs((float3(distance_to_edge) - axis_hit_distances + axis_step_distances) / axis_step_distances));
+				uint3 adjusted_step_counts = uint3(max(ceil((float3(distance_to_edge) - axis_hit_distances) / axis_step_distances), float3(0.0)));
 				if ((axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.y && axis_distances_at_cell_edge.x <= axis_distances_at_cell_edge.z)) { adjusted_step_counts.x = cell_step_counts.x; }
 				else if ((axis_distances_at_cell_edge.y <= axis_distances_at_cell_edge.z)) { adjusted_step_counts.y = cell_step_counts.y; }
 				else { adjusted_step_counts.z = cell_step_counts.z; }

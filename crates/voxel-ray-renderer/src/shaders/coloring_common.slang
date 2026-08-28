@@ -37,6 +37,17 @@ uint hash_uint(uint x) {
 	return h;
 }
 
+static const uint VOXEL_COORDINATE_SHIFT = 14u;
+
+uint3 decode_voxel_coordinate(uint packed_hit_data) {
+	let packed_coordinate = packed_hit_data >> VOXEL_COORDINATE_SHIFT;
+	return uint3(
+		packed_coordinate & 0x3Fu,
+		(packed_coordinate >> 6u) & 0x3Fu,
+		packed_coordinate >> 12u
+	);
+}
+
 struct VoxelContribution {
 	bool hit;
 	bool light_visible;
@@ -73,12 +84,11 @@ VoxelContribution calculate_voxel_contribution(uint4 data, float2 texture_positi
 	let world_hit = view.world_position + ray_dir * distance;
 	let transform_quat = float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w);
 	let local_hit = Quat::inv_rotate(transform_quat, world_hit - float3(item.pos_x, item.pos_y, item.pos_z)) / item.scale;
-	var surface_pos = frac(local_hit);
-	contribution.local_voxel_min = floor(local_hit);
+	contribution.local_voxel_min = float3(decode_voxel_coordinate(data.x));
+	var surface_pos = clamp(local_hit - contribution.local_voxel_min, float3(0.0), float3(1.0));
 	let normal_axis = (contribution.normal >> 3u) & 0xFu;
 	if (normal_axis < 3u) {
 		surface_pos[normal_axis] = (contribution.normal & (1u << normal_axis)) != 0u ? 0.0 : 1.0;
-		contribution.local_voxel_min[normal_axis] = round(local_hit[normal_axis]) - surface_pos[normal_axis];
 	}
 	contribution.surface_pos = surface_pos;
 	return contribution;
