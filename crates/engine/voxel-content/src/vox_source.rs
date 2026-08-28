@@ -4,10 +4,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use bevy::math::{IVec3, Quat, UVec3, Vec3};
-use voxel_data::compressed_voxels::CompressedVoxels;
-use voxel_data::grid::GridId;
-use voxel_data::grid_tree::NonZeroVoxelRegion;
-use voxel_data::voxels::{VoxelType, VoxelTypeId, Voxels};
+use voxel_data::{
+	compressed_voxels::CompressedVoxels,
+	grid::GridId,
+	voxels::{VoxelType, VoxelTypeId, Voxels},
+};
+use voxel_trees::grid_tree::NonZeroVoxelRegion;
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
 use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of};
 use tile_data::CHUNK_SIZE;

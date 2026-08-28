@@ -3,7 +3,7 @@ mod tests {
 	use bevy::math::{IVec2, IVec3, UVec3, Vec3};
 	use bevy::transform::components::Transform;
 	use std::{collections::{HashMap, HashSet}, io::Cursor};
-	use voxel_data::grid_tree::{GridTree, U16Cell, CellKind, NonZeroVoxelRegion, SIZE};
+	use voxel_trees::grid_tree::{GridTree, U16Cell, CellKind, NonZeroVoxelRegion, SIZE};
 	use bincode;
 
 	fn tree_voxels(tree: &GridTree<U16Cell>) -> HashMap<UVec3, u16> {

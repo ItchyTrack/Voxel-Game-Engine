@@ -1,12 +1,12 @@
 use bevy::prelude::*;
 
 use tile_data::NonZeroChunkRegion;
-use voxel_data::{
+use voxel_trees::{
 	grid_tree::U32Cell,
 	region::NonZeroVoxelRegion,
 	signed_grid_tree::SignedGridTree,
-	grid::GridId,
 };
+use voxel_data::grid::GridId;
 use crate::streaming::GridStreaming;
 
 #[derive(Default)]

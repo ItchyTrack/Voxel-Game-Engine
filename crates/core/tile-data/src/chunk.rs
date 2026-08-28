@@ -1,5 +1,5 @@
 use bevy::math::{IVec3, UVec3};
-use voxel_data::{
+use voxel_trees::{
 	define_region_types,
 	region::{NonZeroVoxelRegion, VoxelRegion},
 };

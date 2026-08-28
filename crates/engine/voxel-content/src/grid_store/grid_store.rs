@@ -2,9 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use bevy::math::{IVec3, UVec3};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
+use voxel_trees::region::NonZeroVoxelRegion;
 use voxel_data::{
 	compressed_voxels::CompressedVoxels,
-	region::NonZeroVoxelRegion,
 	voxels::{VoxelTypeInfo, Voxels},
 };
 use voxel_sources::{RequestId, edit::{GridEdit, GridGeneration}};

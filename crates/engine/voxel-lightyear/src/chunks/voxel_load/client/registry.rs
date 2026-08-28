@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use bevy::{log::warn, math::IVec3};
+use voxel_trees::region::NonZeroVoxelRegion;
+use voxel_data::{compressed_voxels::CompressedVoxels, grid::GridId, voxels::{VoxelTypeId, Voxels}};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use voxel_data::{compressed_voxels::CompressedVoxels, grid::GridId, region::NonZeroVoxelRegion, voxels::{VoxelTypeId, Voxels}};
 use voxel_sources::{RequestId, SourceHandle, edit::GridGeneration};
 use voxel_tasks::CancellationToken;
 

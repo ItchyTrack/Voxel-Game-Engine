@@ -1,7 +1,7 @@
 use bevy::ecs::message::Message;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
-use tile_data::{ChunkRegion, NonZeroChunkRegion};
+use tile_data::NonZeroChunkRegion;
 
 mod edit_interest;
 mod tile_dependency_index;

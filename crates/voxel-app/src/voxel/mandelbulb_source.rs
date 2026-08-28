@@ -2,7 +2,7 @@ use bevy::math::Vec3;
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
-use voxel_data::sdf::Sdf;
+use voxel_trees::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelType};
 use voxel_sources::SourceManager;
 use voxel_sources::edit::GridEditIdManager;

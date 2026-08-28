@@ -37,6 +37,7 @@ tracy-client = { workspace = true }
 lightyear = { version = "0.28.0", features = ["udp", "netcode"] }
 serde = { version = "1.0", features = ["derive"] }
 voxel-tasks = { workspace = true }
+voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
 voxel-sources = { workspace = true }

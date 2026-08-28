@@ -3,7 +3,7 @@ use std::time::Duration;
 use bevy::math::{I16Vec3, IVec3, Vec3};
 use bevy::transform::components::Transform;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
-use voxel_data::grid_tree::NonZeroVoxelRegion;
+use voxel_trees::grid_tree::NonZeroVoxelRegion;
 use voxel_data::voxel_grid_tree::VoxelGridTree;
 
 const CHUNK: i32 = 64;

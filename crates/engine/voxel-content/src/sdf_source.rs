@@ -3,9 +3,8 @@ use std::sync::Arc;
 
 use bevy::math::{IVec2, IVec3, Vec3};
 
-use voxel_data::grid::GridId;
-use voxel_data::sdf::Sdf;
-use voxel_data::voxels::{VoxelRef, VoxelTypeId, Voxels};
+use voxel_data::{grid::GridId, voxels::{VoxelRef, VoxelTypeId, Voxels}};
+use voxel_trees::sdf::Sdf;
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_of, chunk_origin};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};

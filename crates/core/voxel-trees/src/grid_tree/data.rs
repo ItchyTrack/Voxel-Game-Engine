@@ -16,16 +16,3 @@ pub trait GridType: Clone + Debug + 'static {
 	fn write_data(&self, data: Self::Data<'_>, bytes: &mut [u8]);
 	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool;
 }
-
-pub trait AsGridData<'a, G: GridType> {
-	fn as_grid_data(self) -> G::Data<'a>;
-}
-
-impl<'a, G> AsGridData<'a, G> for G::Data<'a>
-where
-	G: GridType,
-{
-	fn as_grid_data(self) -> G::Data<'a> {
-		self
-	}
-}

@@ -9,8 +9,8 @@ use bevy_egui::input::EguiWantsInput;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileKey};
 use voxel_content::grid_store::GridStoreEditApi;
+use voxel_trees::region::NonZeroVoxelRegion;
 use voxel_data::grid::{Grid, GridId};
-use voxel_data::region::NonZeroVoxelRegion;
 use voxel_data::voxels::{Voxel, VoxelType};
 use voxel_query::{OccupancyTileClass, VoxelWorldQueryParam};
 use voxel_sources::edit::{AddArea, RemoveArea};

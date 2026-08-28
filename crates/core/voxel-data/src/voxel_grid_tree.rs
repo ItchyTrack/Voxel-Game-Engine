@@ -1,5 +1,7 @@
-use crate::{grid_tree::{AsGridData, GridTree, GridType}, voxels::{VoxelRef, VoxelType, VoxelTypeId, VoxelTypeInfo}};
+use voxel_trees::grid_tree::{GridTree, GridType};
 use serde::{Deserialize, Serialize};
+
+use crate::voxels::{VoxelRef, VoxelType, VoxelTypeId, VoxelTypeInfo};
 
 /// Voxel grid storage type. The tree stores voxel bytes directly in each data slot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -13,8 +15,8 @@ impl VoxelGridType {
 	pub fn type_id(self) -> VoxelTypeId { self.type_info.id }
 }
 
-impl<'a, T: VoxelType + 'a> AsGridData<'a, VoxelGridType> for &'a T {
-	fn as_grid_data(self) -> VoxelRef<'a> { self.get_ref() }
+impl<'a, T: VoxelType + 'a> From<&'a T> for VoxelRef<'a> {
+	fn from(v: &'a T) -> Self { v.get_ref() }
 }
 
 impl GridType for VoxelGridType {

@@ -1,5 +1,5 @@
 [package]
-name = "voxel-data"
+name = "voxel-trees"
 version = "0.1.0"
 edition = "2024"
 
@@ -18,10 +18,17 @@ serde-big-array = "0.5"
 smallvec = "1.15"
 zstd = "0.13"
 voxel-tasks = { workspace = true }
-voxel-trees = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "grid_tree"
+harness = false
+
+[[bench]]
+name = "reduce_grid_tree"
+harness = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"

@@ -2,8 +2,8 @@ use bevy::math::{IVec2, IVec3, UVec3, Vec3};
 use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{io::{self, Read, Write}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
-
-use super::{grid_tree::{self, AsGridData, GridReducer, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps}, sdf::Sdf, voxel_grid_tree::{VoxelGridTree, VoxelGridType}};
+use voxel_trees::{grid_tree::{self, GridReducer, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps}, sdf::Sdf};
+use super::voxel_grid_tree::{VoxelGridTree, VoxelGridType};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VoxelTypeId(pub u16);
@@ -171,24 +171,48 @@ pub trait VoxelReducer {
 	) -> Option<Self::Output>;
 }
 
-impl<R> GridReducer<VoxelGridType> for R
+
+
+// impl<R> GridReducer<VoxelGridType> for R
+// where
+// 	R: VoxelReducer,
+// 	for<'d> &'d R::Output: Into<G::VoxelRef<'d>>,
+// {
+// 	type Output = R::Output;
+
+// 	fn output_grid_type(&self) -> VoxelGridType {
+// 		VoxelGridType::new(self.output_type_info())
+// 	}
+
+// 	fn reduce<'overlaps, 'a>(
+// 		&mut self,
+// 		region: NonZeroVoxelRegion,
+// 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
+// 	) -> Option<Self::Output>
+// 	{
+// 		VoxelReducer::reduce(self, region, overlaps)
+// 	}
+// }
+
+struct VoxelReducerAdapter<R>(R);
+
+impl<R> GridReducer<VoxelGridType> for VoxelReducerAdapter<R>
 where
 	R: VoxelReducer,
-	for<'d> &'d R::Output: AsGridData<'d, VoxelGridType>,
+	for<'d> &'d R::Output: Into<VoxelRef<'d>>,
 {
 	type Output = R::Output;
 
 	fn output_grid_type(&self) -> VoxelGridType {
-		VoxelGridType::new(self.output_type_info())
+		VoxelGridType::new(self.0.output_type_info())
 	}
 
 	fn reduce<'overlaps, 'a>(
 		&mut self,
 		region: NonZeroVoxelRegion,
 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
-	) -> Option<Self::Output>
-	{
-		VoxelReducer::reduce(self, region, overlaps)
+	) -> Option<Self::Output> {
+		VoxelReducer::reduce(&mut self.0, region, overlaps)
 	}
 }
 
@@ -204,7 +228,7 @@ impl Voxels {
 	pub fn reduce_voxels<'a, R>(output_region: NonZeroVoxelRegion, sources: &[SourceTree<'a>], reducer: R) -> Option<Self>
 	where
 		R: VoxelReducer,
-		for<'d> &'d R::Output: AsGridData<'d, VoxelGridType>,
+		for<'d> &'d R::Output: Into<VoxelRef<'d>>,
 	{
 		let source_trees: Vec<_> = sources
 			.iter()
@@ -217,7 +241,7 @@ impl Voxels {
 		let voxels = grid_tree::reduce_grid_trees(
 			output_region,
 			&source_trees,
-			reducer,
+			VoxelReducerAdapter(reducer),
 		)?;
 		Some(Self {
 			voxels,

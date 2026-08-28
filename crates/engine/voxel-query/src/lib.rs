@@ -11,7 +11,7 @@ use tile_data::{
 };
 use voxel_data::bvh::BVH;
 use voxel_data::grid::{Grid, GridId};
-use voxel_data::grid_tree::{GridTree, U16Cell};
+use voxel_trees::grid_tree::{GridTree, U16Cell};
 
 pub type OccupancyTree = GridTree<U16Cell>;
 

@@ -1,7 +1,7 @@
 use bevy::math::{Quat, UVec3, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
-use voxel_data::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, GridType, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
+use voxel_trees::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, GridType, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
 use voxel_query::OccupancyTree;
 
 use crate::transform_ext::TransformExt;
@@ -41,8 +41,8 @@ pub(crate) fn get_collisions_between_tiles(
 	let view_2 = tree_2.view();
 	let root_1 = view_1.root();
 	let root_2 = view_2.root();
-	let box_1 = DescendBox { origin: root_1.origin, size: voxel_data::grid_tree::size(root_1.depth), src: BoxSrc::Node(root_1) };
-	let box_2 = DescendBox { origin: root_2.origin, size: voxel_data::grid_tree::size(root_2.depth), src: BoxSrc::Node(root_2) };
+	let box_1 = DescendBox { origin: root_1.origin, size: voxel_trees::grid_tree::size(root_1.depth), src: BoxSrc::Node(root_1) };
+	let box_2 = DescendBox { origin: root_2.origin, size: voxel_trees::grid_tree::size(root_2.depth), src: BoxSrc::Node(root_2) };
 	descend(&mut collisions, &separating_axes, transform_of_1_in_2, view_1, box_1, view_2, box_2);
 	collisions
 }

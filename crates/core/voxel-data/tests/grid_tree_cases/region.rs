@@ -1,5 +1,5 @@
 use bevy::math::{IVec3, UVec3};
-use voxel_data::grid_tree::NonZeroVoxelRegion;
+use voxel_trees::grid_tree::NonZeroVoxelRegion;
 
 #[test]
 fn region_rejects_empty_or_negative_sizes() {

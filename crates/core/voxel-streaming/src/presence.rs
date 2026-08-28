@@ -2,9 +2,9 @@ use bevy::math::IVec3;
 use bevy::transform::components::Transform;
 
 use tile_data::NonZeroChunkRegion;
-use voxel_data::region::NonZeroVoxelRegion;
-use voxel_data::signed_grid_tree::SignedGridTree;
-use voxel_data::grid_tree::U16Cell;
+use voxel_trees::region::NonZeroVoxelRegion;
+use voxel_trees::signed_grid_tree::SignedGridTree;
+use voxel_trees::grid_tree::U16Cell;
 
 type ChunkGridTree = SignedGridTree<U16Cell>;
 

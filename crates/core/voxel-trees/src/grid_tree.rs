@@ -8,7 +8,7 @@ mod raycast;
 mod traversal;
 mod view;
 pub use cell::CellKind;
-pub use data::{AsGridData, GridData, GridType};
+pub use data::{GridData, GridType};
 pub use raw::GridTreeNode;
 use serde::{Deserialize, Serialize};
 pub use view::{CellRef, ChildCells, ChildCellsInRegion, GridTreeView, LeafCells, NodeRef};
@@ -224,10 +224,6 @@ impl GridType for U16Cell {
 	}
 }
 
-impl<'a> AsGridData<'a, U16Cell> for &'a u16 {
-	fn as_grid_data(self) -> u16 { *self }
-}
-
 /// Fixed-width `u32` grid type
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct U32Cell;
@@ -247,10 +243,6 @@ impl GridType for U32Cell {
 	}
 }
 
-impl<'a> AsGridData<'a, U32Cell> for &'a u32 {
-	fn as_grid_data(self) -> u32 { *self }
-}
-
 /// Fixed-width `u64` grid type
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct U64Cell;
@@ -268,10 +260,6 @@ impl GridType for U64Cell {
 	fn data_eq_bytes(&self, data: Self::Data<'_>, bytes: &[u8]) -> bool {
 		bytes[..8] == data.to_le_bytes()
 	}
-}
-
-impl<'a> AsGridData<'a, U64Cell> for &'a u64 {
-	fn as_grid_data(self) -> u64 { *self }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use voxel_data::grid_tree::NonZeroVoxelRegion;
+use voxel_trees::grid_tree::NonZeroVoxelRegion;
 
 use crate::{types::GridTileKey, unresolved_tile_index::UnresolvedTileIndex};
 

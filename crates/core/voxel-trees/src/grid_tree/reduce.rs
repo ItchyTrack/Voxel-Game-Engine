@@ -80,7 +80,7 @@ pub fn reduce_grid_trees<'a, G, R>(
 where
 	G: GridType,
 	R: GridReducer<G>,
-	for<'d> &'d R::Output: AsGridData<'d, G>,
+	for<'d> &'d R::Output: Into<G::Data<'d>>,
 {
 	let output_region = NonZeroVoxelRegion::from_min_end(output_region.min(), output_region.end())?;
 	if !region_fits_tree(output_region) {
@@ -123,7 +123,7 @@ fn reduce_output_region<'a, G, R>(
 where
 	G: GridType,
 	R: GridReducer<G>,
-	for<'d> &'d R::Output: AsGridData<'d, G>,
+	for<'d> &'d R::Output: Into<G::Data<'d>>,
 {
 	let node_region = NonZeroVoxelRegion::from_min_size(node_origin.as_ivec3(), UVec3::splat(size(node_depth) as u32)).unwrap();
 	let Some(region) = node_region.intersection(region) else { return true };
@@ -182,13 +182,13 @@ fn reduce_output_child<'a, G, R>(
 where
 	G: GridType,
 	R: GridReducer<G>,
-	for<'d> &'d R::Output: AsGridData<'d, G>,
+	for<'d> &'d R::Output: Into<G::Data<'d>>,
 {
 	match classify_region(sources, region, active_sources, overlaps_scratch) {
 		RegionAction::Empty => true,
 		RegionAction::Reduce => {
 			if let Some(value) = reducer.reduce(region, SourceOverlaps::<G>::from_collected(overlaps_scratch)) {
-				out.set_child_area_to_data(node_index, node_depth, child_index, (&value).as_grid_data());
+				out.set_child_area_to_data(node_index, node_depth, child_index, (&value).into());
 			}
 			true
 		}
@@ -488,7 +488,7 @@ fn set_axis(v: &mut IVec3, axis: usize, value: i32) {
 
 #[cfg(test)]
 mod tests {
-	use crate::grid_tree::U16Cell;
+	use voxel_trees::grid_tree::U16Cell;
 
 	use super::*;
 

@@ -194,7 +194,7 @@ fn split_region(region: NonZeroVoxelRegion) -> Vec<(usize, NonZeroVoxelRegion)> 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::grid_tree::U16Cell;
+	use voxel_trees::grid_tree::U16Cell;
 	use std::collections::HashMap;
 
 	#[test]

@@ -18,6 +18,7 @@ bytemuck = { workspace = true }
 bitflags = { workspace = true }
 tracy-client = { workspace = true }
 anyhow = "1.0"
+voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
 voxel-gpu = { workspace = true }

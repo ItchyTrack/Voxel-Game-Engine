@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use tile_data::TileClassId;
-use voxel_data::{
-	grid::GridId,
+use voxel_trees::{
 	grid_tree::NonZeroVoxelRegion,
 	signed_grid_tree::SignedGridTree,
 	grid_tree::U16Cell,
 };
+use voxel_data::grid::GridId;
 
 use crate::types::GridTileKey;
 
@@ -128,7 +128,7 @@ mod tests {
 
 	use bevy::prelude::*;
 	use tile_data::TileClassId;
-	use voxel_data::grid_tree::NonZeroVoxelRegion;
+	use voxel_trees::grid_tree::NonZeroVoxelRegion;
 
 	use crate::types::GridTileKey;
 

@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_priority_queue::PriorityQueue;
-use bevy::{log::tracing::Instrument, tasks::AsyncComputeTaskPool};
+use bevy::tasks::AsyncComputeTaskPool;
 
 pub struct PriorityTask {
 	priority: f32,

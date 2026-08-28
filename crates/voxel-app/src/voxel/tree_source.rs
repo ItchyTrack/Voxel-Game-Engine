@@ -5,9 +5,9 @@ use std::{
 
 use bevy::{prelude::*};
 use basic_voxel::{BasicVoxel, LodVoxel, downsample_region};
+use voxel_trees::region::NonZeroVoxelRegion;
 use voxel_data::{
 	grid::{Grid, GridId},
-	region::NonZeroVoxelRegion,
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};

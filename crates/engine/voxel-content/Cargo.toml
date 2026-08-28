@@ -8,6 +8,7 @@ bevy = { workspace = true }
 bytemuck = { workspace = true }
 dot_vox = "5.2.0"
 voxel-tasks = { workspace = true }
+voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
 voxel-sources = { workspace = true }

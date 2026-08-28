@@ -1,6 +1,6 @@
 use tracy_client::span;
 
-use voxel_data::grid_tree::{self, CellKind, GridTreeNode};
+use voxel_trees::grid_tree::{self, CellKind, GridTreeNode};
 use voxel_data::voxel_grid_tree::{VoxelGridTree};
 use voxel_data::voxels::{VoxelRef, VoxelTypeInfo};
 

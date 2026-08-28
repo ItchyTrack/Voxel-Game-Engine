@@ -3,12 +3,12 @@ use std::sync::RwLock;
 use bevy::math::IVec3;
 use rustc_hash::FxHashMap;
 use tile_data::NonZeroChunkRegion;
-use voxel_data::{
-	grid::GridId,
+use voxel_trees::{
 	grid_tree::U16Cell,
 	region::NonZeroVoxelRegion,
 	signed_grid_tree::SignedGridTree,
 };
+use voxel_data::grid::GridId;
 
 // Just a tmp helper for voxel source impls to use. Will remove proabaly
 

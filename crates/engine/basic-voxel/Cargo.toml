@@ -7,6 +7,7 @@ edition = "2024"
 bevy = { workspace = true }
 rustc-hash = { workspace = true }
 bytemuck = "1.25.2"
+voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
 voxel-streaming = { workspace = true }

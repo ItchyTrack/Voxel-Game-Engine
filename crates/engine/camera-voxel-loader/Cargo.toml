@@ -10,6 +10,7 @@ tracy = ["tracy-client/enable"]
 [dependencies]
 bevy = { workspace = true }
 tracy-client = { workspace = true }
+voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
 voxel-streaming = { workspace = true }

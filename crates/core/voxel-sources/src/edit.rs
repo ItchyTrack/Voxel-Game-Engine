@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
-use voxel_data::{grid::GridId, region::NonZeroVoxelRegion, voxels::{Voxel, Voxels}};
+use voxel_trees::region::NonZeroVoxelRegion;
+use voxel_data::{grid::GridId, voxels::{Voxel, Voxels}};
 
 #[typetag::serde(tag = "type")]
 pub trait GridEdit: std::fmt::Debug + Send + Sync + 'static {

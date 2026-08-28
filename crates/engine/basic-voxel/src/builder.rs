@@ -1,6 +1,6 @@
 use bevy::math::{IVec3, UVec3};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileVoxelReducer, VoxelRegionResult};
-use voxel_data::grid_tree::{NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps};
+use voxel_trees::grid_tree::{NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps};
 use voxel_data::voxel_grid_tree::VoxelGridType;
 use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, VoxelTypeId, Voxels};
 

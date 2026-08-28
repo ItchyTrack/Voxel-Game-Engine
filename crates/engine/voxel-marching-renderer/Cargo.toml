@@ -12,6 +12,7 @@ wgpu = { workspace = true }
 bevy = { workspace = true }
 rustc-hash = { workspace = true }
 bytemuck = { workspace = true }
+voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
 voxel-streaming = { workspace = true }

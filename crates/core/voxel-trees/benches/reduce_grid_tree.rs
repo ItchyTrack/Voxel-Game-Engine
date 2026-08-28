@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::math::{IVec3, UVec3};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use voxel_data::grid_tree::{GridReducer, GridTree, NonZeroVoxelRegion, SourceOverlaps, SourceTree, U16Cell, reduce_grid_trees};
+use voxel_trees::grid_tree::{GridReducer, GridTree, NonZeroVoxelRegion, SourceOverlaps, SourceTree, U16Cell, reduce_grid_trees};
 
 const SOURCE_SIZE: u32 = 16;
 const OUTPUT_SIZE: u32 = 16;

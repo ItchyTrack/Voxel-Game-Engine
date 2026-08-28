@@ -15,6 +15,7 @@ serde = { version = "1", features = ["derive"] }
 futures = { workspace = true }
 tracy-client = { workspace = true }
 typetag = "0.2"
+voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 voxel-tasks = { workspace = true }
 tile-data = { workspace = true }

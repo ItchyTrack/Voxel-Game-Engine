@@ -14,6 +14,7 @@ crossbeam-channel = { workspace = true }
 rustc-hash = { workspace = true }
 tracy-client = { workspace = true }
 futures = { workspace = true }
+voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
 voxel-sources = { workspace = true }
