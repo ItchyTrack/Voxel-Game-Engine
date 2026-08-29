@@ -1,3 +1,5 @@
+use smallvec::SmallVec;
+
 use super::*;
 
 impl<G: GridType> GridTree<G> {
@@ -131,7 +133,7 @@ impl<G: GridType> GridTree<G> {
 		}
 
 		let cell_size = child_size(node_depth);
-		let mut child_ops: [Vec<AreaOp<'a, G>>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| Vec::new());
+		let mut child_ops: [SmallVec<[AreaOp<'a, G>; 10]>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| SmallVec::default());
 
 		let node_end = node_origin + UVec3::splat(size(node_depth));
 		for op in ops {

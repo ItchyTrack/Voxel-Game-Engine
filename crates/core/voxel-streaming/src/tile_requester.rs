@@ -141,7 +141,7 @@ impl<'w, 's> TileRequester<'w, 's> {
 			let data = builder.build(session).await;
 			if task_cancellation.is_cancelled() { return; }
 			let _ = result_tx.send(TileBuildingResult { grid, tile_key, generation, context, data });
-		}.instrument(bevy::log::info_span!("build tile"))).detach();
+		}).detach();
 		cancellation_token
 	}
 

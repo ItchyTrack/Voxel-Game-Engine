@@ -82,7 +82,6 @@ where
 	R: GridReducer<G>,
 	for<'d> &'d R::Output: Into<G::Data<'d>>,
 {
-	let output_region = NonZeroVoxelRegion::from_min_end(output_region.min(), output_region.end())?;
 	if !region_fits_tree(output_region) {
 		return None;
 	}
