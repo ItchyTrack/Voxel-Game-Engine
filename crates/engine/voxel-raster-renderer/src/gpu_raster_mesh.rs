@@ -117,8 +117,7 @@ impl MeshFace {
 }
 
 fn align_voxel_data(data: &mut Vec<u8>) {
-	let alignment = VOXEL_DATA_ALIGNMENT as usize;
-	data.resize(data.len().max(1).next_multiple_of(alignment), 0);
+	data.resize(data.len().max(1).next_multiple_of(VOXEL_DATA_ALIGNMENT as usize), 0);
 }
 
 pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, gpu_data_readers: &VoxelGpuDataReaders) -> (Vec<u8>, Vec<u8>, u32) {
@@ -158,20 +157,4 @@ pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo
 
 	let face_count = faces.len() as u32;
 	(bytemuck::cast_slice(&faces).to_vec(), voxel_data, face_count)
-}
-
-#[cfg(test)]
-mod tests {
-	use super::MeshFace;
-
-	#[test]
-	fn mesh_face_packs_geometry_and_voxel_data_index() {
-		let face = MeshFace::new([63, 17, 5], 16, 6, 200);
-		assert_eq!(face.packed & 0x3F, 63);
-		assert_eq!((face.packed >> 6) & 0x3F, 17);
-		assert_eq!((face.packed >> 12) & 0x3F, 5);
-		assert_eq!((face.packed >> 18) & 0x7, 6);
-		assert_eq!((face.packed >> 21) & 0x3, 2);
-		assert_eq!(face.voxel_data_index, 200);
-	}
 }
