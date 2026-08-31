@@ -5,6 +5,7 @@ use voxel_data::voxel_grid_tree::{VoxelGridTree};
 use voxel_data::voxels::{VoxelRef, VoxelTypeInfo};
 
 use voxel_gpu::voxel_color::{VoxelGpuBlockEncoder, VoxelGpuDataReaders, VoxelGpuNodeEntry};
+use voxel_trees::views::GridTreeView;
 
 const SLOT_BYTES: usize = 4;
 const VOXEL_OFFSET_UNIT_BYTES: u32 = 16;

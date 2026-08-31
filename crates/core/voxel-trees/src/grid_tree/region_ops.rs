@@ -272,8 +272,8 @@ impl<G: GridType> GridTree<G> {
 		let dest_bounds = source_bounds.translated(offset);
 		if !self.make_sure_root_covers_area(dest_bounds.min().as_uvec3(), dest_bounds.max().as_uvec3()) { return; }
 		let leaves: Vec<_> = other.view().leaves().filter_map(|leaf| {
-			let leaf_region = NonZeroVoxelRegion::from_min_size(leaf.origin.as_ivec3(), UVec3::splat(leaf.size)).unwrap();
-			leaf_region.intersection(source_region).map(|clipped| (clipped, leaf.data_value()))
+			let leaf_region = NonZeroVoxelRegion::from_min_size(leaf.origin.as_ivec3(), UVec3::splat(leaf.size())).unwrap();
+			leaf_region.intersection(source_region).map(|clipped| (clipped, other.view().cell_data(leaf.child_handle.unwrap(), leaf.child_index)))
 		}).collect();
 		for (clipped, data) in leaves {
 			self.fill_region(clipped.translated(offset), map(data));

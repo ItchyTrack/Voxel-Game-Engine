@@ -2,6 +2,7 @@ use bevy::math::{I8Vec3, IVec3, UVec3, Vec3};
 use bevy::transform::components::Transform;
 
 use crate::grid_tree::{NonZeroVoxelRegion, GridTree, GridType};
+use crate::views::GridTreeView;
 
 #[derive(Clone, Debug)]
 pub struct SignedGridTree<G: GridType> {
@@ -32,7 +33,7 @@ impl<G: GridType + Default> SignedGridTree<G> {
 
 	pub fn get(&self, pos: IVec3) -> Option<G::Data<'_>> {
 		let (oct, local) = split_pos(pos);
-		self.trees[oct].get(&local)
+		self.trees[oct].get(local)
 	}
 
 	pub fn remove(&mut self, pos: IVec3) -> bool {
@@ -61,9 +62,15 @@ impl<G: GridType + Default> SignedGridTree<G> {
 		!parts.is_empty() && parts.into_iter().all(|(oct, local)| self.trees[oct].is_region_filled(local))
 	}
 
-	pub fn for_each_in_region(&self, region: NonZeroVoxelRegion, mut f: impl FnMut(IVec3, u32, G::Data<'_>)) {
+	pub fn for_each_in_region(&self, region: NonZeroVoxelRegion, mut f: impl FnMut(IVec3, G::Data<'_>)) {
 		for (oct, local) in split_region(region) {
-			self.trees[oct].for_each_in_region(local, |origin, size, value| f(join_region_origin(oct, origin, size), size, value));
+			self.trees[oct].for_each_in_region(local, |origin, value| f(join_region_origin(oct, origin, 1), value));
+		}
+	}
+
+	pub fn for_each_leaf_in_region(&self, region: NonZeroVoxelRegion, mut f: impl FnMut(IVec3, u32, G::Data<'_>)) {
+		for (oct, local) in split_region(region) {
+			self.trees[oct].for_each_leaf_in_region(local, |origin, size, value| f(join_region_origin(oct, origin, size), size, value));
 		}
 	}
 
@@ -87,7 +94,7 @@ impl<G: GridType + Default> SignedGridTree<G> {
 			let local_origin = world_to_local_point(oct, transform.translation);
 			let local_dir = world_to_local_vector(oct, world_dir);
 			let local_transform = Transform::from_translation(local_origin).looking_to(local_dir, Vec3::Y);
-			tree.raycast(&local_transform, max_length).map(|(pos, normal, dist)| (join_pos(oct, pos), local_to_world_normal(oct, normal), dist))
+			tree.view().raycast(&local_transform, max_length).map(|(pos, normal, dist)| (join_pos(oct, pos), local_to_world_normal(oct, normal), dist))
 		}).min_by(|a, b| a.2.total_cmp(&b.2))
 	}
 

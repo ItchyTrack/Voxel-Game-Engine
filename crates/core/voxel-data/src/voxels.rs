@@ -275,7 +275,7 @@ impl Voxels {
 			Some((min, max)) => (min.min(pos), max.max(pos)),
 			None => (pos, pos),
 		});
-		let old = self.voxels.get(&pos).map(|v| v.bytes().to_vec());
+		let old = self.voxels.get(pos).map(|v| v.bytes().to_vec());
 		let replaced = self.voxels.insert(&pos, voxel);
 		if let Some(bytes) = old {
 			out_voxel_bytes.copy_from_slice(&bytes);
@@ -338,7 +338,7 @@ impl Voxels {
 	}
 
 	pub fn remove_voxel_get_removed(&mut self, pos: &UVec3, out_voxel_bytes: &mut [u8]) -> bool {
-		let old = self.voxels.get(pos).map(|v| v.bytes().to_vec());
+		let old = self.voxels.get(*pos).map(|v| v.bytes().to_vec());
 		if self.voxels.remove(pos) {
 			self.bounding_box_dirty.store(true, Ordering::Release);
 			if let Some(bytes) = old {
@@ -391,9 +391,9 @@ impl Voxels {
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
-	pub fn voxel(&self, pos: &UVec3) -> Option<VoxelRef<'_>> { self.voxels.get(pos) }
+	pub fn voxel(&self, pos: &UVec3) -> Option<VoxelRef<'_>> { self.voxels.get(*pos) }
 	pub fn raw(&self, pos: &UVec3) -> Option<&[u8]> {
-		let voxel = self.voxels.get(pos)?;
+		let voxel = self.voxels.get(*pos)?;
 		Some(voxel.bytes())
 	}
 	pub fn grid_tree(&self) -> &VoxelGridTree { &self.voxels }

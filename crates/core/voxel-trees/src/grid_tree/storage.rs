@@ -165,7 +165,7 @@ impl<G: GridType> GridTree<G> {
 		}
 	}
 
-	pub fn internals(&self) -> (GridTreeView<'_, G>, UVec3, u8) {
+	pub fn internals(&self) -> (GridTreeViewImpl<'_, G>, UVec3, u8) {
 		(self.view(), self.raw.root_pos(), self.raw.root_depth())
 	}
 

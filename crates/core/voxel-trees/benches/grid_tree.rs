@@ -198,10 +198,10 @@ fn bench_query_mutate(c: &mut Criterion) {
 		b.iter(|| black_box(uniform.is_area_filled(black_box(&p(8, 8, 8)), black_box(IVec3::splat(32)))))
 	});
 
-	group.bench_function("for_each_in_region_mixed_32", |b| {
+	group.bench_function("for_each_leaf_in_region_mixed_32", |b| {
 		b.iter(|| {
 			let mut sum = 0u64;
-			mixed.for_each_in_region(black_box(NonZeroVoxelRegion::from_min_size(IVec3::splat(16), IVec3::splat(32)).unwrap()), |_, size, value| {
+			mixed.for_each_leaf_in_region(black_box(NonZeroVoxelRegion::from_min_size(IVec3::splat(16), IVec3::splat(32)).unwrap()), |_, size, value| {
 				sum = sum.wrapping_add(size as u64).wrapping_add(value as u64);
 			});
 			black_box(sum)

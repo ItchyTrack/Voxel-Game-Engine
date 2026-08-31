@@ -4,7 +4,7 @@ pub trait GridData: Copy + Eq + Debug {}
 
 impl<T: Copy + Eq + Debug> GridData for T {}
 
-pub trait GridType: Clone + Debug + 'static {
+pub trait GridType: Clone + Copy + Debug + 'static {
 	type Data<'a>: GridData
 	where
 		Self: 'a;

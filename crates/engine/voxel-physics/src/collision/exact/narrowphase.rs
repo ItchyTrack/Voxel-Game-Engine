@@ -1,7 +1,8 @@
 use bevy::math::{Quat, UVec3, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
-use voxel_trees::grid_tree::{get_child_contents_pos, CellKind, GridTreeView, GridType, NodeRef, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED};
+use voxel_trees::grid_tree::{CellKind, GridTreeViewImpl, GridType, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED, get_child_contents_pos};
+use voxel_trees::views::{GridTreeView, NodeRef};
 use voxel_query::OccupancyTree;
 
 use crate::transform_ext::TransformExt;
@@ -25,7 +26,7 @@ struct DescendBox {
 
 #[derive(Clone, Copy)]
 enum BoxSrc {
-	Node(NodeRef),
+	Node(NodeRef<u32>),
 	Solid,
 }
 
@@ -51,9 +52,9 @@ fn descend<G1: GridType, G2: GridType>(
 	collisions: &mut Vec<TileContact>,
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,
-	view_1: GridTreeView<'_, G1>,
+	view_1: GridTreeViewImpl<'_, G1>,
 	box_1: DescendBox,
-	view_2: GridTreeView<'_, G2>,
+	view_2: GridTreeViewImpl<'_, G2>,
 	box_2: DescendBox,
 ) {
 	let center_1 = *transform_of_1_in_2 * (box_1.origin.as_vec3() + Vec3::splat(box_1.size as f32 * 0.5));
@@ -81,17 +82,17 @@ fn descend<G1: GridType, G2: GridType>(
 	}
 }
 
-fn collect_children<G: GridType>(parent: &DescendBox, view: GridTreeView<'_, G>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
+fn collect_children<G: GridType>(parent: &DescendBox, view: GridTreeViewImpl<'_, G>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
 	let mut count = 0;
 	match parent.src {
 		BoxSrc::Node(node) => {
 			for child in view.occupied_children(node) {
 				let origin = child.origin;
-				let size = child.size;
-				match child.kind() {
+				let size = child.size();
+				match child.kind {
 					CellKind::Empty => {}
 					CellKind::Data => { out[count] = DescendBox { origin, size, src: BoxSrc::Solid }; count += 1; }
-					CellKind::Node => { out[count] = DescendBox { origin, size, src: BoxSrc::Node(view.child_node(child).expect("node cell has child")) }; count += 1; }
+					CellKind::Node => { out[count] = DescendBox { origin, size, src: BoxSrc::Node(child.node_ref().expect("node cell has child")) }; count += 1; }
 				}
 			}
 		}

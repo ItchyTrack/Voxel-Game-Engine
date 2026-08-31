@@ -18,7 +18,7 @@ impl ChunkEditInterest {
 	pub fn retain(&mut self, region: NonZeroChunkRegion) {
 		let region = tree_region(region);
 		let mut overlaps = Vec::new();
-		self.counts.for_each_in_region(region, |origin, size, count| {
+		self.counts.for_each_leaf_in_region(region, |origin, size, count| {
 			let occupied = NonZeroVoxelRegion::from_min_size(origin, bevy::math::UVec3::splat(size)).unwrap();
 			let overlap = occupied.intersection(region).expect("visited edit-interest cell did not overlap query");
 			overlaps.push((overlap, count.checked_add(1).expect("chunk edit-interest count overflow")));
@@ -35,7 +35,7 @@ impl ChunkEditInterest {
 		if !self.counts.is_area_filled(region) { return false; }
 
 		let mut remaining = Vec::new();
-		self.counts.for_each_in_region(region, |origin, size, count| {
+		self.counts.for_each_leaf_in_region(region, |origin, size, count| {
 			if count == 1 { return; }
 			let occupied = NonZeroVoxelRegion::from_min_size(origin, bevy::math::UVec3::splat(size)).unwrap();
 			let overlap = occupied.intersection(region).expect("visited edit-interest cell did not overlap query");

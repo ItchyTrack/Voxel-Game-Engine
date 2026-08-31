@@ -1,6 +1,8 @@
 use bevy::math::{IVec3, UVec3};
 
 use super::*;
+use crate::views::{GridTreeView, NodeRef};
+use view::GridTreeViewImpl;
 
 pub struct SourceTree<'a, G: GridType> {
 	pub tree: &'a GridTree<G>,
@@ -30,9 +32,9 @@ impl<'a, G: GridType> Clone for SourceOverlap<'a, G> {
 }
 
 #[derive(Clone, Copy)]
-struct SourceCursor {
+struct SourceCursor<'a, G: GridType> {
 	source_index: usize,
-	node: NodeRef,
+	node: NodeRef<<GridTreeViewImpl<'a, G> as GridTreeView<'a>>::NodeHandle>,
 	query: NonZeroVoxelRegion,
 }
 
@@ -111,7 +113,7 @@ where
 fn reduce_output_region<'a, G, R>(
 	region: NonZeroVoxelRegion,
 	sources: &[SourceTree<'a, G>],
-	active_sources: &[SourceCursor],
+	active_sources: &[SourceCursor<'a, G>],
 	overlaps_scratch: &mut Vec<SourceOverlap<'a, G>>,
 	reducer: &mut R,
 	out: &mut GridTree<G>,
@@ -129,7 +131,7 @@ where
 	let cell_size = child_size(node_depth);
 	let child_min = (region.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
 	let child_max = (region.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
-	let mut child_active_sources: [smallvec::SmallVec<[SourceCursor; 2]>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| smallvec::SmallVec::new());
+	let mut child_active_sources: [smallvec::SmallVec<[SourceCursor<G>; 2]>; SIZE_USIZE_CUBED] = std::array::from_fn(|_| smallvec::SmallVec::new());
 	partition_source_cursors_by_child(sources, active_sources, region, node_origin, cell_size, &mut child_active_sources);
 
 	for z in child_min.z..=child_max.z {
@@ -169,7 +171,7 @@ where
 fn reduce_output_child<'a, G, R>(
 	region: NonZeroVoxelRegion,
 	sources: &[SourceTree<'a, G>],
-	active_sources: &[SourceCursor],
+	active_sources: &[SourceCursor<'a, G>],
 	overlaps_scratch: &mut Vec<SourceOverlap<'a, G>>,
 	reducer: &mut R,
 	out: &mut GridTree<G>,
@@ -221,7 +223,7 @@ enum RegionAction {
 fn classify_region<'a, G>(
 	sources: &[SourceTree<'a, G>],
 	region: NonZeroVoxelRegion,
-	active_sources: &[SourceCursor],
+	active_sources: &[SourceCursor<'a, G>],
 	overlaps: &mut Vec<SourceOverlap<'a, G>>,
 ) -> RegionAction
 where
@@ -247,19 +249,19 @@ enum SourceRegionInspection {
 fn inspect_source_region<'a, G>(
 	source: &SourceTree<'a, G>,
 	region: NonZeroVoxelRegion,
-	cursor: SourceCursor,
+	cursor: SourceCursor<'a, G>,
 	overlaps: &mut Vec<SourceOverlap<'a, G>>,
 ) -> SourceRegionInspection
 where
 	G: GridType,
 {
-	fn recurse<'a, G>(
-		source: &SourceTree<'a, G>,
+	fn recurse<'tree, G>(
+		source: &SourceTree<'tree, G>,
 		region: NonZeroVoxelRegion,
 		source_index: usize,
-		node: NodeRef,
+		node: NodeRef<<GridTreeViewImpl<'tree, G> as GridTreeView<'tree>>::NodeHandle>,
 		query: NonZeroVoxelRegion,
-		overlaps: &mut Vec<SourceOverlap<'a, G>>,
+		overlaps: &mut Vec<SourceOverlap<'tree, G>>,
 	) -> Option<(NonZeroVoxelRegion, NonZeroVoxelRegion)>
 	where
 		G: GridType,
@@ -273,11 +275,11 @@ where
 				}
 			}
 
-			match child.kind() {
+			match child.kind {
 				CellKind::Empty => {}
-				CellKind::Data => overlaps.push(SourceOverlap { source_index, source_region, output_region, data: child.data_value() }),
+				CellKind::Data => overlaps.push(SourceOverlap { source_index, source_region, output_region, data: view.cell_data(child.child_handle.unwrap(), child.child_index)}),
 				CellKind::Node => {
-					let child_node = view.child_node(child).expect("Node kind implies child_node");
+					let child_node = child.node_ref().expect("Node kind implies child_node");
 					if let Some(split) = recurse(source, region, source_index, child_node, source_region, overlaps) {
 						return Some(split);
 					}
@@ -294,7 +296,7 @@ where
 	if overlaps.len() == overlap_start { SourceRegionInspection::Empty } else { SourceRegionInspection::Overlap }
 }
 
-fn root_source_cursor<G>(source_index: usize, source: &SourceTree<'_, G>, output_region: NonZeroVoxelRegion, source_bounds: NonZeroVoxelRegion) -> Option<SourceCursor>
+fn root_source_cursor<'tree, G>(source_index: usize, source: &SourceTree<'tree, G>, output_region: NonZeroVoxelRegion, source_bounds: NonZeroVoxelRegion) -> Option<SourceCursor<'tree, G>>
 where
 	G: GridType,
 {
@@ -303,16 +305,16 @@ where
 	let root = view.root();
 	let root_region = NonZeroVoxelRegion::from_min_size(root.origin.as_ivec3(), UVec3::splat(size(root.depth))).unwrap();
 	let query = query.intersection(root_region)?;
-	refine_cursor(source, SourceCursor { source_index, node: root, query })
+	refine_cursor(source, SourceCursor::<'tree, G> { source_index, node: root, query })
 }
 
-fn partition_source_cursors_by_child<G>(
-	sources: &[SourceTree<'_, G>],
-	active_sources: &[SourceCursor],
+fn partition_source_cursors_by_child<'a, G>(
+	sources: &[SourceTree<'a, G>],
+	active_sources: &[SourceCursor<'a, G>],
 	region: NonZeroVoxelRegion,
 	node_origin: UVec3,
 	cell_size: u32,
-	child_active_sources: &mut [smallvec::SmallVec<[SourceCursor; 2]>; SIZE_USIZE_CUBED],
+	child_active_sources: &mut [smallvec::SmallVec<[SourceCursor<'a, G>; 2]>; SIZE_USIZE_CUBED],
 ) where
 	G: GridType,
 {
@@ -328,8 +330,8 @@ fn partition_source_cursors_by_child<G>(
 					let child_origin = node_origin + UVec3::new(x, y, z) * cell_size;
 					let child_region = NonZeroVoxelRegion::from_min_size(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 					let Some(work_region) = child_region.intersection(region) else { continue };
-					if let Some(child_cursor) = child_cursor(source, cursor, work_region) {
-						child_active_sources[child_index as usize].push(child_cursor);
+					if let Some(child_ref) = child_ref(source, cursor, work_region) {
+						child_active_sources[child_index as usize].push(child_ref);
 					}
 				}
 			}
@@ -337,28 +339,28 @@ fn partition_source_cursors_by_child<G>(
 	}
 }
 
-fn child_source_cursors<G>(sources: &[SourceTree<'_, G>], active_sources: &[SourceCursor], region: NonZeroVoxelRegion) -> Vec<SourceCursor>
+fn child_source_cursors<'tree, G>(sources: &[SourceTree<'tree, G>], active_sources: &[SourceCursor<'tree, G>], region: NonZeroVoxelRegion) -> Vec<SourceCursor<'tree, G>>
 where
 	G: GridType,
 {
 	let mut child_sources = Vec::new();
 	for &cursor in active_sources {
-		if let Some(child_cursor) = child_cursor(&sources[cursor.source_index], cursor, region) {
-			child_sources.push(child_cursor);
+		if let Some(child_ref) = child_ref(&sources[cursor.source_index], cursor, region) {
+			child_sources.push(child_ref);
 		}
 	}
 	child_sources
 }
 
-fn child_cursor<G>(source: &SourceTree<'_, G>, cursor: SourceCursor, child_region: NonZeroVoxelRegion) -> Option<SourceCursor>
+fn child_ref<'tree, G>(source: &SourceTree<'tree, G>, cursor: SourceCursor<'tree, G>, child_region: NonZeroVoxelRegion) -> Option<SourceCursor<'tree, G>>
 where
 	G: GridType,
 {
 	let query = source_preimage(child_region, source)?.intersection(cursor.query)?;
-	refine_cursor(source, SourceCursor { query, ..cursor })
+	refine_cursor(source, SourceCursor::<G> { query, ..cursor })
 }
 
-fn refine_cursor<G>(source: &SourceTree<'_, G>, mut cursor: SourceCursor) -> Option<SourceCursor>
+fn refine_cursor<'tree, G>(source: &SourceTree<'tree, G>, mut cursor: SourceCursor<'tree, G>) -> Option<SourceCursor<'tree, G>>
 where
 	G: GridType,
 {
@@ -369,8 +371,8 @@ where
 
 		for (child, source_region) in view.occupied_children_in_region(cursor.node, cursor.query) {
 			intersecting_children = intersecting_children.saturating_add(1);
-			if child.kind() == CellKind::Node {
-				intersecting_node_child = Some((view.child_node(child).expect("Node kind implies child_node"), source_region));
+			if child.kind == CellKind::Node {
+				intersecting_node_child = Some((view.child(cursor.node, child.child_index).node_ref().expect("Node kind implies child_node"), source_region));
 			}
 		}
 

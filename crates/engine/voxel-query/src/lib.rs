@@ -12,6 +12,7 @@ use tile_data::{
 use voxel_data::bvh::BVH;
 use voxel_data::grid::{Grid, GridId};
 use voxel_trees::grid_tree::{GridTree, U16Cell};
+use voxel_trees::views::GridTreeView;
 
 pub type OccupancyTree = GridTree<U16Cell>;
 
@@ -136,7 +137,7 @@ where
 				rotation: Quat::from_rotation_arc(Vec3::Z, local_direction),
 				scale: Vec3::ONE,
 			};
-			let Some((tile_voxel, normal, distance)) = candidate.occupancy.tree.raycast(&local_ray, max_distance) else { continue };
+			let Some((tile_voxel, normal, distance)) = candidate.occupancy.tree.view().raycast(&local_ray, max_distance) else { continue };
 			if best.is_some_and(|hit| hit.distance <= distance) { continue; }
 			let tile_origin = candidate.loaded.key.region.min() * CHUNK_SIZE as i32;
 			best = Some(VoxelWorldRaycastHit {

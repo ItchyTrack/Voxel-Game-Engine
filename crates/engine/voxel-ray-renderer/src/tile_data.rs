@@ -4,6 +4,7 @@ use bevy::math::UVec3;
 use tile_data::{TileData, TileBuildingSession, TileBuilder, TileVoxelReducerRegistry};
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo};
 use voxel_gpu::{PackedBufferAllocation, VoxelGpuDataReaders};
+use voxel_trees::views::GridTreeView;
 
 use crate::{gpu_data::RayWorldGpuData, gpu_grid_tree::make_gpu_grid_tree};
 

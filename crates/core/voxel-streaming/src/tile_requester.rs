@@ -1,4 +1,4 @@
-use bevy::{ecs::{message::Message, system::SystemParam}, log::tracing::Instrument, prelude::*, tasks::AsyncComputeTaskPool};
+use bevy::{ecs::{message::Message, system::SystemParam}, prelude::*, tasks::AsyncComputeTaskPool};
 use rustc_hash::{FxHashMap, FxHashSet};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileBuilderRegistry, TileBuildingParameters, TileKey};
 use voxel_data::grid::GridId;

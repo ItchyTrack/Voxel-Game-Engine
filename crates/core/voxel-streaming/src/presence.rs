@@ -69,7 +69,7 @@ impl ChunkPresence {
 	/// broad-phase so cost scales with the region, not the whole footprint.
 	pub fn for_each_in_region(&self, min: IVec3, max: IVec3, mut f: impl FnMut(IVec3)) {
 		let Some(region) = NonZeroVoxelRegion::from_min_max(min, max) else { return };
-		self.tree.for_each_in_region(region, |origin, size, _| {
+		self.tree.for_each_leaf_in_region(region, |origin, size, _| {
 			let lo = origin.max(min);
 			let hi = (origin + IVec3::splat(size as i32) - IVec3::ONE).min(max);
 			for x in lo.x..=hi.x {

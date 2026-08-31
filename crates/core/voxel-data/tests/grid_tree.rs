@@ -100,7 +100,7 @@ mod tests {
 		}
 		let region = NonZeroVoxelRegion::from_min_max(IVec3::new(4, 4, 4), IVec3::new(10, 10, 10)).unwrap();
 		let mut actual = HashMap::new();
-		t.for_each_in_region(region, |origin, size, value| {
+		t.for_each_leaf_in_region(region, |origin, size, value| {
 			for dx in 0..size {
 				for dy in 0..size {
 					for dz in 0..size {
@@ -150,7 +150,7 @@ mod tests {
 		let tile_size = 5;
 
 		let mut actual = HashSet::new();
-		t.for_each_occupied_tile_cover(region, tile_size, |tile| {
+		t.view().for_each_occupied_tile_cover(region, tile_size, |tile| {
 			actual.insert(tile);
 		});
 
@@ -169,7 +169,7 @@ mod tests {
 		let region = NonZeroVoxelRegion::from_single(IVec3::ZERO);
 		let mut actual = Vec::new();
 
-		t.for_each_occupied_tile_cover(region, 2, |tile| actual.push(tile));
+		t.view().for_each_occupied_tile_cover(region, 2, |tile| actual.push(tile));
 
 		assert!(actual.is_empty(), "query returned phantom tiles: {actual:?}");
 	}

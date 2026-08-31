@@ -1,17 +1,14 @@
-use bevy::math::{I8Vec3, IVec3, U8Vec3, UVec3};
-use bevy::transform::components::Transform;
+use bevy::math::{IVec3, U8Vec3, UVec3};
 
-mod cell;
 mod data;
 mod raw;
-mod raycast;
-mod traversal;
 mod view;
-pub use cell::CellKind;
+pub use crate::views::CellKind;
 pub use data::{GridData, GridType};
 pub use raw::GridTreeNode;
 use serde::{Deserialize, Serialize};
-pub use view::{CellRef, ChildCells, ChildCellsInRegion, GridTreeView, LeafCells, NodeRef};
+pub use view::GridTreeViewImpl;
+use crate::views::LeafCells;
 
 pub const LOG_SIZE: u8 = 2;
 pub const SIZE: u8 = 1u8 << LOG_SIZE;
@@ -75,25 +72,24 @@ impl<G: GridType> GridTree<G> {
 
 	pub fn grid_type(&self) -> &G { &self.grid_type }
 
-	pub fn view(&self) -> GridTreeView<'_, G> {
-		GridTreeView::new(&self.grid_type, &self.raw)
+	pub fn view(&self) -> GridTreeViewImpl<'_, G> {
+		GridTreeViewImpl::new(self.grid_type, &self.raw)
 	}
 
-	pub fn get(&self, pos: &UVec3) -> Option<G::Data<'_>> {
-		traversal::get(self.view(), *pos)
-	}
-
-	pub fn contains_key(&self, pos: &UVec3) -> bool {
+	pub fn contains_key(&self, pos: UVec3) -> bool {
 		self.get(pos).is_some()
 	}
 
 	pub fn is_region_filled(&self, region: NonZeroVoxelRegion) -> bool {
-		traversal::is_area_filled(self.view(), region.min().as_uvec3(), region.size())
+		self.view().is_region_filled(region)
 	}
 
-	pub fn is_area_filled(&self, pos: &UVec3, size: UVec3) -> bool {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size) else { return true };
-		self.is_region_filled(region)
+	pub fn any_in_region(&self, region: NonZeroVoxelRegion) -> bool {
+		self.view().any_in_region(region)
+	}
+
+	pub fn get(&self, pos: UVec3) -> Option<G::Data<'_>> {
+		self.view().get(pos)
 	}
 
 	pub fn ensure_area_covered(&mut self, pos: &UVec3, size: UVec3) -> bool {
@@ -103,6 +99,38 @@ impl<G: GridType> GridTree<G> {
 		let min = pos;
 		let max = min + size - UVec3::ONE;
 		self.make_sure_root_covers_area(*min, max)
+	}
+
+	pub fn for_each_in_region<F>(&self, region: NonZeroVoxelRegion, f: F)
+	where
+		F: FnMut(UVec3, G::Data<'_>),
+	{
+		self.view().for_each_in_region(region, f);
+	}
+
+	pub fn for_each_leaf_in_region<F>(&self, region: NonZeroVoxelRegion, f: F)
+	where
+		F: FnMut(UVec3, u32, G::Data<'_>),
+	{
+		self.view().for_each_leaf_in_region(region, f);
+	}
+
+	pub fn for_each_node_in_region<F>(&self, region: NonZeroVoxelRegion, f: F)
+	where
+		F: FnMut(UVec3, u32, bool),
+	{
+		self.view().for_each_node_in_region(region.min().as_uvec3(), region.max().as_uvec3(), f);
+	}
+
+	pub fn for_each_occupied_tile_cover<F>(
+		&self,
+		region: NonZeroVoxelRegion,
+		tile_size: u32,
+		f: F,
+	) where
+		F: FnMut(UVec3),
+	{
+		self.view().for_each_occupied_tile_cover(region.min().as_uvec3(), region.max().as_uvec3(), tile_size, f);
 	}
 
 	#[inline]
@@ -142,6 +170,7 @@ mod storage;
 mod surgery;
 
 pub use crate::region::NonZeroVoxelRegion;
+use crate::views::{GridTreeView, GridView};
 pub use reduce::{reduce_grid_trees, GridReducer, SourceOverlap, SourceOverlaps, SourceTree};
 
 impl<G: GridType> GridTree<G> {
@@ -153,28 +182,6 @@ impl<G: GridType> GridTree<G> {
 	}
 	pub fn iter(&self) -> GridTreeIterator<'_, G> {
 		GridTreeIterator::new(self)
-	}
-
-	/// Visit every DATA leaf whose cell box intersects a half-open region.
-	pub fn for_each_in_region(&self, region: NonZeroVoxelRegion, f: impl FnMut(UVec3, u32, G::Data<'_>)) {
-		traversal::for_each_in_region(self.view(), region.min().as_uvec3(), region.max().as_uvec3(), f);
-	}
-
-	pub fn any_in_region(&self, region: NonZeroVoxelRegion) -> bool {
-		traversal::any_in_region(self.view(), region.min().as_uvec3(), region.max().as_uvec3())
-	}
-
-	/// Visit every occupied cell (internal node or data leaf) whose cell box intersects a half-open region.
-	pub fn for_each_node_in_region(&self, region: NonZeroVoxelRegion, f: impl FnMut(UVec3, u32, bool)) {
-		traversal::for_each_node_in_region(self.view(), region.min().as_uvec3(), region.max().as_uvec3(), f);
-	}
-
-	pub fn for_each_occupied_tile_cover(&self, region: NonZeroVoxelRegion, tile_size: u32, f: impl FnMut(UVec3)) {
-		traversal::for_each_occupied_tile_cover(self.view(), region.min().as_uvec3(), region.max().as_uvec3(), tile_size, f)
-	}
-
-	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(UVec3, I8Vec3, f32)> {
-		raycast::raycast(self.view(), transform, max_length)
 	}
 }
 
@@ -188,7 +195,7 @@ impl<'a, G: GridType> IntoIterator for &'a GridTree<G> {
 }
 
 pub struct GridTreeIterator<'a, G: GridType> {
-	leaves: LeafCells<'a, G>,
+	leaves: LeafCells<'a, GridTreeViewImpl<'a, G>>,
 }
 
 impl<'a, G: GridType> GridTreeIterator<'a, G> {
@@ -201,7 +208,7 @@ impl<'a, G: GridType> Iterator for GridTreeIterator<'a, G> {
 	type Item = (UVec3, u32, G::Data<'a>);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.leaves.next().map(|leaf| (leaf.origin, leaf.size, leaf.data_value()))
+		self.leaves.next().and_then(|leaf| Some((leaf.origin, leaf.size(), self.leaves.get_data(&leaf)?)))
 	}
 }
 
