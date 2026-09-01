@@ -32,6 +32,9 @@ impl<'tree, View: GridTreeView<'tree>> Cell<'tree, View> {
 	}
 
 	pub fn node_ref(self) -> Option<NodeRef<View::NodeHandle>> {
+		if self.kind != CellKind::Node {
+			return None;
+		}
 		self.child_handle.map(|handle| NodeRef { handle, depth: self.depth.saturating_sub(1), origin: self.origin })
 	}
 }
@@ -95,10 +98,10 @@ pub trait GridTreeView<'tree>: Copy + Clone + Debug where Self: 'tree {
 		let size = Self::child_size(node.depth);
 		let origin = node.origin + Self::child_offset_of(child_index).as_uvec3() * size;
 		let kind = self.cell_kind(node.handle, child_index);
-		let child_handle = if kind == CellKind::Empty {
-			None
-		} else {
-			Some(self.child_handle(node.handle, child_index))
+		let child_handle = match kind {
+			CellKind::Empty => None,
+			CellKind::Data => Some(node.handle),
+			CellKind::Node => Some(self.child_handle(node.handle, child_index)),
 		};
 		Cell { depth: node.depth, child_index, origin, kind, child_handle }
 	}
@@ -173,7 +176,7 @@ where
 		}
 		match child.kind {
 			CellKind::Data => f(child.origin, child.size(), view.cell_data(node.handle, child.child_index)),
-			CellKind::Node => region_recurse::<'tree>(view, child.node_ref().expect("node cell has child"), min, max, f),
+			CellKind::Node => region_recurse(view, child.node_ref().expect("node cell has child"), min, max, f),
 			CellKind::Empty => unreachable!(),
 		}
 	}
@@ -291,15 +294,14 @@ pub struct ChildCells<'tree, View: GridTreeView<'tree>> {
 	node: NodeRef<View::NodeHandle>,
 	next: u8,
 	occupied_only: bool,
-	mask: u64,
 	remaining_mask: u64,
 }
 
 impl<'tree, View: GridTreeView<'tree>> ChildCells<'tree, View> {
 	#[inline]
 	fn new(view: View, node: NodeRef<View::NodeHandle>, occupied_only: bool) -> Self {
-		let mask = view.occupancy_mask(node.handle);
-		Self { view, node, next: 0, occupied_only, mask, remaining_mask: mask }
+		let remaining_mask = view.occupancy_mask(node.handle);
+		Self { view, node, next: 0, occupied_only, remaining_mask }
 	}
 }
 
@@ -491,11 +493,13 @@ impl<'tree, View: GridTreeView<'tree> + 'tree> GridView<'tree> for View {
 	where
 		F: FnMut(UVec3, Self::Data<'tree>),
 	{
-		self.for_each_leaf_in_region(region, &mut |pos, size, data| {
-			for x in 0..size {
-				for y in 0..size {
-					for z in 0..size {
-						f(pos + UVec3::new(x, y, z), data);
+		self.for_each_leaf_in_region(region, &mut |pos: UVec3, size: u32, data| {
+			let leaf_region = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), UVec3::splat(size)).unwrap();
+			let overlap = leaf_region.intersection(region).expect("visited leaf intersects region");
+			for x in overlap.min().x..overlap.end().x {
+				for y in overlap.min().y..overlap.end().y {
+					for z in overlap.min().z..overlap.end().z {
+						f(IVec3::new(x, y, z).as_uvec3(), data);
 					}
 				}
 			}

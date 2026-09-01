@@ -528,7 +528,7 @@ mod tests {
 		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::ONE).expect("unit output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
-		assert_eq!(output.get(&UVec3::ZERO), Some(30));
+		assert_eq!(output.get(UVec3::ZERO), Some(30));
 	}
 
 	#[test]
@@ -545,7 +545,7 @@ mod tests {
 		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::ONE).expect("unit output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
-		assert_eq!(output.get(&UVec3::ZERO), Some(33));
+		assert_eq!(output.get(UVec3::ZERO), Some(33));
 	}
 
 	#[test]
@@ -558,8 +558,8 @@ mod tests {
 		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(8)).expect("output region");
 		let output = reduce_grid_trees(output_region, &sources, SumReducer).expect("reduced output");
 
-		assert_eq!(output.get(&UVec3::new(3, 6, 6)), Some(7));
-		assert_eq!(output.get(&UVec3::new(4, 6, 6)), Some(9));
+		assert_eq!(output.get(UVec3::new(3, 6, 6)), Some(7));
+		assert_eq!(output.get(UVec3::new(4, 6, 6)), Some(9));
 	}
 
 	#[derive(Clone, Copy, Debug)]
@@ -594,7 +594,7 @@ mod tests {
 		let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(4)).expect("output region");
 		let output = reduce_grid_trees(output_region, &sources, SourceVolumeReducer).expect("reduced output");
 
-		assert_eq!(output.get(&UVec3::new(0, 0, 0)), Some(8));
-		assert_eq!(output.get(&UVec3::new(3, 3, 3)), Some(8));
+		assert_eq!(output.get(UVec3::new(0, 0, 0)), Some(8));
+		assert_eq!(output.get(UVec3::new(3, 3, 3)), Some(8));
 	}
 }

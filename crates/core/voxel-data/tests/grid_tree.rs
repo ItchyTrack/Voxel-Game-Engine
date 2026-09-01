@@ -3,7 +3,10 @@ mod tests {
 	use bevy::math::{IVec2, IVec3, UVec3, Vec3};
 	use bevy::transform::components::Transform;
 	use std::{collections::{HashMap, HashSet}, io::Cursor};
-	use voxel_trees::grid_tree::{GridTree, U16Cell, CellKind, NonZeroVoxelRegion, SIZE};
+	use voxel_trees::{
+		grid_tree::{CellKind, GridTree, NonZeroVoxelRegion, U16Cell, SIZE},
+		views::GridTreeView,
+	};
 	use bincode;
 
 	fn tree_voxels(tree: &GridTree<U16Cell>) -> HashMap<UVec3, u16> {
@@ -47,15 +50,15 @@ mod tests {
 	fn basic_insert_get_remove() {
 		let mut t = GridTree::<U16Cell>::new();
 		assert!(!t.insert(&UVec3::new(3, 4, 5), 7));
-		assert_eq!(t.get(&UVec3::new(3, 4, 5)), Some(7));
+		assert_eq!(t.get(UVec3::new(3, 4, 5)), Some(7));
 		assert!(t.remove(&UVec3::new(3, 4, 5)));
-		assert_eq!(t.get(&UVec3::new(3, 4, 5)), None);
+		assert_eq!(t.get(UVec3::new(3, 4, 5)), None);
 	}
 
 	#[test]
 	fn negative_space_is_not_representable() {
 		let t = GridTree::<U16Cell>::new();
-		assert_eq!(t.get(&UVec3::new(0, 0, 0)), None);
+		assert_eq!(t.get(UVec3::new(0, 0, 0)), None);
 	}
 
 	#[test]
@@ -64,13 +67,13 @@ mod tests {
 		t.add_area(&UVec3::new(0, 0, 0), UVec3::splat(16), 7);
 		let view = t.view();
 		let root = view.root();
-		assert_eq!(root.index, 0);
+		assert_eq!(root.handle, 0);
 		assert_eq!(root.depth, 1);
 		assert_eq!(root.origin, UVec3::ZERO);
 		assert_eq!(view.root_pos(), UVec3::new(0, 0, 0));
 		let children: Vec<_> = view.occupied_children(root).collect();
 		assert_eq!(children.len(), SIZE as usize * SIZE as usize * SIZE as usize);
-		assert!(children.iter().all(|child| child.kind() == CellKind::Data));
+		assert!(children.iter().all(|child| child.kind == CellKind::Data));
 	}
 
 	#[test]
@@ -117,6 +120,24 @@ mod tests {
 	}
 
 	#[test]
+	fn voxel_region_query_clips_compressed_leaves() {
+		let mut tree = GridTree::<U16Cell>::new();
+		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 7);
+		let region = NonZeroVoxelRegion::from_min_max(IVec3::ONE, IVec3::splat(2)).unwrap();
+		let mut actual = HashSet::new();
+
+		tree.for_each_in_region(region, |pos, value| {
+			assert_eq!(value, 7);
+			actual.insert(pos);
+		});
+
+		let expected = (1..=2)
+			.flat_map(|x| (1..=2).flat_map(move |y| (1..=2).map(move |z| UVec3::new(x, y, z))))
+			.collect();
+		assert_eq!(actual, expected);
+	}
+
+	#[test]
 	fn occupied_bounds_queries_match_oracle() {
 		let mut t = GridTree::<U16Cell>::new();
 		t.add_area(&UVec3::new(2, 3, 4), UVec3::new(5, 6, 7), 3);
@@ -150,7 +171,7 @@ mod tests {
 		let tile_size = 5;
 
 		let mut actual = HashSet::new();
-		t.view().for_each_occupied_tile_cover(region, tile_size, |tile| {
+		t.for_each_occupied_tile_cover(region, tile_size, |tile| {
 			actual.insert(tile);
 		});
 
@@ -169,7 +190,7 @@ mod tests {
 		let region = NonZeroVoxelRegion::from_single(IVec3::ZERO);
 		let mut actual = Vec::new();
 
-		t.view().for_each_occupied_tile_cover(region, 2, |tile| actual.push(tile));
+		t.for_each_occupied_tile_cover(region, 2, |tile| actual.push(tile));
 
 		assert!(actual.is_empty(), "query returned phantom tiles: {actual:?}");
 	}
@@ -183,7 +204,7 @@ mod tests {
 			rotation: bevy::math::Quat::from_rotation_arc(Vec3::Z, Vec3::Z),
 			scale: Vec3::ONE,
 		};
-		let (pos, _, _) = t.raycast(&tf, Some(100.0)).expect("raycast hit");
+		let (pos, _, _) = t.view().raycast(&tf, Some(100.0)).expect("raycast hit");
 		assert_eq!(pos, UVec3::new(0, 0, 10));
 	}
 
@@ -192,16 +213,16 @@ mod tests {
 		let mut t = GridTree::<U16Cell>::new();
 		assert!(!t.insert(&UVec3::new(0, 0, 0), 1));
 		t.add_area(&UVec3::new(16, 0, 0), UVec3::ONE, 2);
-		assert_eq!(t.get(&UVec3::new(0, 0, 0)), Some(1));
-		assert_eq!(t.get(&UVec3::new(16, 0, 0)), Some(2));
+		assert_eq!(t.get(UVec3::new(0, 0, 0)), Some(1));
+		assert_eq!(t.get(UVec3::new(16, 0, 0)), Some(2));
 	}
 
 	#[test]
 	fn single_voxel_pair_build_uses_canonical_root_origin() {
 		let mut t = GridTree::<U16Cell>::new();
 		t.add_single_voxels(&[(UVec3::new(5, 0, 0), 7), (UVec3::new(8, 0, 0), 9)]);
-		assert_eq!(t.get(&UVec3::new(5, 0, 0)), Some(7));
-		assert_eq!(t.get(&UVec3::new(8, 0, 0)), Some(9));
+		assert_eq!(t.get(UVec3::new(5, 0, 0)), Some(7));
+		assert_eq!(t.get(UVec3::new(8, 0, 0)), Some(9));
 	}
 
 	#[test]
@@ -209,8 +230,8 @@ mod tests {
 		let mut t = GridTree::<U16Cell>::new();
 		t.add_single_voxels(&[(UVec3::new(0, 0, 0), 1), (UVec3::new(63, 63, 63), 2), (UVec3::new(0, 0, 0), 3)]);
 		assert_eq!(t.len(), 2);
-		assert_eq!(t.get(&UVec3::new(0, 0, 0)), Some(3));
-		assert_eq!(t.get(&UVec3::new(63, 63, 63)), Some(2));
+		assert_eq!(t.get(UVec3::new(0, 0, 0)), Some(3));
+		assert_eq!(t.get(UVec3::new(63, 63, 63)), Some(2));
 	}
 
 	#[test]
@@ -229,8 +250,8 @@ mod tests {
 		let mut t = GridTree::<U16Cell>::new();
 		assert!(!t.insert(&UVec3::new(5, 0, 0), 7));
 		assert!(!t.insert(&UVec3::new(8, 0, 0), 9));
-		assert_eq!(t.get(&UVec3::new(5, 0, 0)), Some(7));
-		assert_eq!(t.get(&UVec3::new(8, 0, 0)), Some(9));
+		assert_eq!(t.get(UVec3::new(5, 0, 0)), Some(7));
+		assert_eq!(t.get(UVec3::new(8, 0, 0)), Some(9));
 	}
 
 	#[test]
@@ -238,7 +259,7 @@ mod tests {
 		let mut t = GridTree::<U16Cell>::new();
 		let sdf = |q: Vec3| if (q - Vec3::new(16.5, 0.5, 0.5)).length() < 0.1 { -1.0 } else { 1.0 };
 		t.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, 2);
-		assert_eq!(t.get(&UVec3::new(16, 0, 0)), Some(2));
+		assert_eq!(t.get(UVec3::new(16, 0, 0)), Some(2));
 	}
 
 	#[test]
@@ -247,8 +268,8 @@ mod tests {
 		t.insert(&UVec3::new(0, 0, 0), 1);
 		let sdf = |q: Vec3| if (q - Vec3::new(16.5, 0.5, 0.5)).length() < 0.1 { -1.0 } else { 1.0 };
 		t.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, 2);
-		assert_eq!(t.get(&UVec3::new(0, 0, 0)), Some(1));
-		assert_eq!(t.get(&UVec3::new(16, 0, 0)), Some(2));
+		assert_eq!(t.get(UVec3::new(0, 0, 0)), Some(1));
+		assert_eq!(t.get(UVec3::new(16, 0, 0)), Some(2));
 	}
 
 

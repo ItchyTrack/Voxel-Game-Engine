@@ -279,8 +279,8 @@ mod tests {
 		let mut tree = GridTree::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 7);
 		assert_eq!(tree.len(), 16 * 16 * 16);
-		assert_eq!(tree.get(&UVec3::new(0, 0, 0)), Some(7));
-		assert_eq!(tree.get(&UVec3::new(15, 15, 15)), Some(7));
+		assert_eq!(tree.get(UVec3::new(0, 0, 0)), Some(7));
+		assert_eq!(tree.get(UVec3::new(15, 15, 15)), Some(7));
 	}
 
 	#[test]
@@ -288,8 +288,8 @@ mod tests {
 		let mut tree = GridTree::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(64), 7);
 		tree.remove_area(&UVec3::new(16, 16, 16), UVec3::splat(32));
-		assert_eq!(tree.get(&UVec3::new(15, 16, 16)), Some(7));
-		assert_eq!(tree.get(&UVec3::new(16, 16, 16)), None);
+		assert_eq!(tree.get(UVec3::new(15, 16, 16)), Some(7));
+		assert_eq!(tree.get(UVec3::new(16, 16, 16)), None);
 	}
 
 	#[test]
@@ -300,6 +300,6 @@ mod tests {
 		let radius = 5.0f32;
 		let sdf = |p: Vec3| (p - center).length() - radius;
 		tree.clear_sdf(Vec3::ZERO, Vec3::splat(16.0), &sdf, bevy::math::IVec2::splat(9), 6);
-		assert_eq!(tree.get(&UVec3::new(8, 8, 8)), None);
+		assert_eq!(tree.get(UVec3::new(8, 8, 8)), None);
 	}
 }
