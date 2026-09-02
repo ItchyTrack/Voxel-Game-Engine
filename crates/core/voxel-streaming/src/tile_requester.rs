@@ -5,7 +5,7 @@ use voxel_data::grid::GridId;
 use voxel_sources::edit::{GridEditIdManager, GridGeneration};
 use voxel_tasks::CancellationToken;
 
-use crate::{GridStreaming, streaming::{TileState, TileStatus}, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingResult, TileVoxelSourceBridge, session}};
+use crate::{GridStreaming, streaming::{TileState, TileStatus, TileRequestType}, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingResult, TileVoxelSourceBridge, session}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TileLoadStatus {
@@ -38,12 +38,14 @@ impl<'w, 's> TileRequester<'w, 's> {
 		requester: Entity,
 		tile_key: TileKey,
 		priority: f32,
+		min_latency: bool,
 		context: Option<&TileBuildingParameters>,
 	) -> bool {
 		if !valid_tile_key(tile_key) { return false; }
 		let Ok((mut streaming, edit_id_manager)) = self.grids.get_mut(grid) else { return false; };
 		if let Some(state) = streaming.tiles.get_mut(&tile_key) {
 			let joined = state.requesters.insert(requester, priority).is_none();
+			if min_latency { state.latency_requesters.insert(requester); }
 			if joined && matches!(&state.status, TileStatus::Loaded) {
 				let status = state.entity.map_or(TileLoadStatus::Empty, TileLoadStatus::Ready);
 				self.tile_load_updates.write(TileLoadUpdate { grid, requester, key: tile_key, status });
@@ -54,8 +56,12 @@ impl<'w, 's> TileRequester<'w, 's> {
 		let generation = edit_id_manager.latest_generation();
 		let cancellation = Self::spawn(&self.bridge, &self.builders, &self.results, grid, tile_key, generation, context);
 		streaming.retain_edit_interest_region(tile_key.region);
+		let mut latency_requesters = FxHashSet::default();
+		if min_latency { latency_requesters.insert(requester); }
 		streaming.tiles.insert(tile_key, TileState {
 			requesters: FxHashMap::from_iter([(requester, priority)]),
+			latency_requesters,
+			tile_request_type: TileRequestType::Regular,
 			status: TileStatus::InFlight { generation, cancellation },
 			entity: None,
 		});
@@ -115,11 +121,24 @@ impl<'w, 's> TileRequester<'w, 's> {
 	) {
 		assert!(!state.requesters.is_empty());
 		let generation = edit_id_manager.latest_generation();
-		let old_status = std::mem::replace(&mut state.status, TileStatus::InFlight {
-			generation,
-			cancellation: Self::spawn(bridge, builders, results, grid, tile_key, generation, context),
-		});
-		if let TileStatus::InFlight { cancellation, .. } = old_status { cancellation.cancel(); }
+		let cancellation = Self::spawn(bridge, builders, results, grid, tile_key, generation, context);
+		let old_status = std::mem::replace(&mut state.status, TileStatus::InFlight { generation, cancellation });
+		let old_request_type = std::mem::replace(&mut state.tile_request_type, TileRequestType::Regular);
+		let wants_latency = !state.latency_requesters.is_empty();
+
+		state.tile_request_type = match (wants_latency, old_status, old_request_type) {
+			(false, old, request_type) => {
+				if let TileStatus::InFlight { cancellation, .. } = old { cancellation.cancel(); }
+				if let TileRequestType::Latency(TileStatus::InFlight { cancellation, .. }) = request_type { cancellation.cancel(); }
+				TileRequestType::Regular
+			}
+			(true, TileStatus::Loaded, _) => TileRequestType::Regular,
+			(true, old @ TileStatus::InFlight { .. }, TileRequestType::Regular) => TileRequestType::Latency(old),
+			(true, TileStatus::InFlight { cancellation, .. }, TileRequestType::Latency(oldest)) => {
+				cancellation.cancel();
+				TileRequestType::Latency(oldest)
+			}
+		};
 	}
 
 	fn spawn(
@@ -148,12 +167,14 @@ impl<'w, 's> TileRequester<'w, 's> {
 	pub fn release_tile(&mut self, grid: GridId, requester: Entity, tile_key: TileKey) {
 		let Ok((mut streaming, _)) = self.grids.get_mut(grid) else { return };
 		let Some(state) = streaming.tiles.get_mut(&tile_key) else { return };
-		if state.requesters.remove(&requester).is_none() || !state.requesters.is_empty() { return; }
+		if state.requesters.remove(&requester).is_none() { return; }
+		state.latency_requesters.remove(&requester);
+		if !state.requesters.is_empty() { return; }
 
 		let state = streaming.tiles.remove(&tile_key).unwrap();
 		streaming.tile_dependencies.remove(tile_key);
 		streaming.release_edit_interest_region(tile_key.region);
-		if let TileStatus::InFlight { cancellation, .. } = &state.status { cancellation.cancel(); }
+		state.cancel_pending();
 		if let Some(entity) = state.entity { self.commands.entity(entity).despawn(); }
 	}
 }
@@ -168,12 +189,14 @@ impl<'w, 's> TileReleaser<'w, 's> {
 	pub fn release_tile(&mut self, grid: GridId, requester: Entity, tile_key: TileKey) {
 		let Ok((mut streaming, _)) = self.grids.get_mut(grid) else { return };
 		let Some(state) = streaming.tiles.get_mut(&tile_key) else { return };
-		if state.requesters.remove(&requester).is_none() || !state.requesters.is_empty() { return; }
+		if state.requesters.remove(&requester).is_none() { return; }
+		state.latency_requesters.remove(&requester);
+		if !state.requesters.is_empty() { return; }
 
 		let state = streaming.tiles.remove(&tile_key).unwrap();
 		streaming.tile_dependencies.remove(tile_key);
 		streaming.release_edit_interest_region(tile_key.region);
-		if let TileStatus::InFlight { cancellation, .. } = &state.status { cancellation.cancel(); }
+		state.cancel_pending();
 		if let Some(entity) = state.entity { self.commands.entity(entity).despawn(); }
 	}
 }

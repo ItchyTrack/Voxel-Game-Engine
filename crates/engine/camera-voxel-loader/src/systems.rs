@@ -22,7 +22,7 @@ fn acquire_tile(
 	priority: f32,
 	context: Option<&TileBuildingParameters>,
 ) {
-	if requester.fetch_tile(key.grid, requester_entity, key.tile_key, priority, context) { return; }
+	if requester.fetch_tile(key.grid, requester_entity, key.tile_key, priority, true, context) { return; }
 	let released = lifecycle.resolve(key, ResolvedTile::Empty);
 	for key in released { requester.release_tile(key.grid, requester_entity, key.tile_key); }
 }

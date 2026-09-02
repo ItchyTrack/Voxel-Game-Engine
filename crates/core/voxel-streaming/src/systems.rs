@@ -1,12 +1,12 @@
 use bevy::{ecs::message::{MessageReader, MessageWriter}};
 use bevy::math::IVec3;
 use bevy::prelude::*;
-use voxel_sources::{SourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
 
+use voxel_sources::{SourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
 use voxel_data::grid::GridId;
 use tile_data::{CHUNK_SIZE, chunks_covering_nonzero_voxel_region};
-use crate::{tile_building::TileBuildingChannel, tile_requester::{TileRequester}};
-use crate::streaming::TileStatus;
+use crate::{tile_building::TileBuildingChannel, tile_requester::TileRequester};
+use crate::streaming::{TileRequestType, TileStatus};
 use tile_data::{DynamicTileData, LoadedTile, TileBuildingParameters};
 use crate::{GridStreaming, InflightChunkPresence, RequestChunkPresence, TileLoadStatus, TileLoadUpdate};
 use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged};
@@ -124,43 +124,49 @@ pub(crate) fn receive_tile_results(
 		let key = result.tile_key;
 
 		let Ok(mut streaming) = grids.get_mut(result.grid) else { continue };
-		let accepted = streaming.tiles.get(&key)
-			.is_some_and(|tile_state| matches!(
-				&tile_state.status,
-				TileStatus::InFlight { generation, .. } if *generation <= result.generation
-			));
-		if !accepted { continue; }
+		let Some(tile_state) = streaming.tiles.get(&key) else { continue };
 
-		let (requesters, old) = {
+		let is_primary = matches!(
+			&tile_state.status,
+			TileStatus::InFlight { generation, .. } if *generation <= result.generation
+		);
+		let is_latency = !is_primary && matches!(
+			&tile_state.tile_request_type,
+			TileRequestType::Latency(TileStatus::InFlight { generation, .. }) if *generation <= result.generation
+		);
+		if !is_primary && !is_latency { continue; }
+
+		let (requesters, old_entity) = {
 			let tile_state = streaming.tiles.get(&key).unwrap();
 			(tile_state.requesters.keys().copied().collect::<Vec<_>>(), tile_state.entity)
 		};
 
-		match result.data {
-			Some(data) => {
-				let entity = commands.spawn((
-					DynamicTileData::new(data),
-					LoadedTile { grid: result.grid, key },
-					Transform::from_translation((key.min() * CHUNK_SIZE as i32).as_vec3()),
-					ChildOf(result.grid),
-				)).id();
-				let tile_state = streaming.tiles.get_mut(&key).unwrap();
-				tile_state.entity = Some(entity);
-				tile_state.status = TileStatus::Loaded;
-				for requester in requesters {
-					tile_load_updates.write(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Ready(entity) });
-				}
-				if let Some(old) = old { commands.entity(old).despawn(); }
+		let new_entity = result.data.map(|data| {
+			commands.spawn((
+				DynamicTileData::new(data),
+				LoadedTile { grid: result.grid, key },
+				Transform::from_translation((key.min() * CHUNK_SIZE as i32).as_vec3()),
+				ChildOf(result.grid),
+			)).id()
+		});
+
+		let tile_state = streaming.tiles.get_mut(&key).unwrap();
+		tile_state.entity = new_entity;
+
+		if is_primary {
+			// Authoritative result — the preserved oldest, if any, is now redundant.
+			if let TileRequestType::Latency(TileStatus::InFlight { cancellation, .. }) = &tile_state.tile_request_type {
+				cancellation.cancel();
 			}
-			None => {
-				let tile_state = streaming.tiles.get_mut(&key).unwrap();
-				tile_state.entity = None;
-				tile_state.status = TileStatus::Loaded;
-				for requester in requesters {
-					tile_load_updates.write(TileLoadUpdate { grid: result.grid, requester, key, status: TileLoadStatus::Empty });
-				}
-				if let Some(old) = old { commands.entity(old).despawn(); }
-			}
+			tile_state.status = TileStatus::Loaded;
 		}
+		// Either way, this slot has now resolved.
+		tile_state.tile_request_type = TileRequestType::Regular;
+
+		let status = new_entity.map_or(TileLoadStatus::Empty, TileLoadStatus::Ready);
+		for requester in requesters {
+			tile_load_updates.write(TileLoadUpdate { grid: result.grid, requester, key, status });
+		}
+		if let Some(old) = old_entity { commands.entity(old).despawn(); }
 	}
 }

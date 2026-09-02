@@ -121,7 +121,7 @@ fn update_ray_occupancy_requests(
 
 	// Acquire first so shared tiles survive an active-camera switch.
 	for request in acquisitions {
-		if requester.fetch_tile(request.grid, request.requester, request.key, 0.0, None) {
+		if requester.fetch_tile(request.grid, request.requester, request.key, 0.0, false, None) {
 			retained.insert(request);
 		}
 	}

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use voxel_sources::RequestId;
 
 use tile_data::NonZeroChunkRegion;
@@ -10,16 +10,35 @@ use crate::tile_dependency_index::TileDependencyIndex;
 use crate::{ChunkEditInterest, TileKey};
 
 #[derive(Debug)]
+pub(crate) enum TileStatus {
+	InFlight { generation: GridGeneration, cancellation: TileBuildingCancellationToken },
+	Loaded,
+}
+
+#[derive(Debug)]
+pub(crate) enum TileRequestType {
+	Regular,
+	Latency(TileStatus),
+}
+
+#[derive(Debug)]
 pub(crate) struct TileState {
 	pub(crate) requesters: FxHashMap<Entity, f32>,
+	pub(crate) latency_requesters: FxHashSet<Entity>,
+	pub(crate) tile_request_type: TileRequestType,
 	pub(crate) status: TileStatus,
 	pub(crate) entity: Option<Entity>,
 }
 
-#[derive(Debug)]
-pub(crate) enum TileStatus {
-	InFlight { generation: GridGeneration, cancellation: TileBuildingCancellationToken },
-	Loaded,
+impl TileState {
+	pub(crate) fn cancel_pending(&self) {
+		if let TileStatus::InFlight { cancellation, .. } = &self.status {
+			cancellation.cancel();
+		}
+		if let TileRequestType::Latency(TileStatus::InFlight { cancellation, .. }) = &self.tile_request_type {
+			cancellation.cancel();
+		}
+	}
 }
 
 #[derive(Component, Default)]
