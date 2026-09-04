@@ -9,7 +9,8 @@ use bevy::prelude::*;
 use tile_data::TileAppExt;
 use voxel_data::voxels::VoxelType;
 use voxel_gpu::VoxelGpuAppExt;
-// use voxel_physics::VoxelPhysicsAppExt;
+use voxel_mass::{GridEditMassAppExt, MassRange, VoxelMassAppExt};
+use voxel_sources::edit::{AddArea, RemoveArea};
 use voxel_raster_renderer::{VoxelRasterRendererPlugin, VoxelRasterTileAppExt};
 use voxel_ray_renderer::{VoxelRayRendererPlugin, VoxelRayTileAppExt};
 
@@ -20,12 +21,18 @@ impl Plugin for BasicVoxelPlugin {
 		bevy::asset::embedded_asset!(app, "shaders/basic_voxel.slang");
 		bevy::asset::embedded_asset!(app, "shaders/lod_voxel.slang");
 		app
+			.register_voxel_mass::<BasicVoxel>()
+			.register_voxel_mass::<MarchingVoxel>()
+			.register_grid_edit_mass::<AddArea, _>(|edit, region, readers| {
+				let mass = readers.mass(&edit.voxel().get_ref()).expect("AddArea voxel type has no mass reader");
+				let total = mass.checked_mul(u64::from(region.area())).expect("edit mass overflow");
+				MassRange::new(total, total)
+			})
+			.register_grid_edit_mass::<RemoveArea, _>(|_, _, _| MassRange::new(0, 0))
 			.register_tile_voxel_reducer(BasicToLodVoxelReducer)
 			.register_tile_voxel_reducer(LodToLodVoxelReducer)
 			.register_tile_voxel_reducer(BasicToMarchingVoxelReducer)
 			.register_tile_voxel_reducer(MarchingToMarchingVoxelReducer)
-			// .register_voxel_mass::<BasicVoxel>()
-			// .register_voxel_mass::<MarchingVoxel>()
 			.register_voxel_gpu_data::<BasicVoxel>()
 			.register_voxel_gpu_data::<LodVoxel>();
 

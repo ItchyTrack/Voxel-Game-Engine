@@ -1,8 +1,9 @@
 use std::ops::*;
 
 use bevy::math::{DMat3, DQuat, DVec3};
+use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct InertiaTensor {
 	pub mat: DMat3
 }

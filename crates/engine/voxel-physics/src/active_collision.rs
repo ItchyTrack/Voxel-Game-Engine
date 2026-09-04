@@ -2,44 +2,13 @@ use bevy::prelude::*;
 use tile_data::{CHUNK_SIZE, DynamicTileData, LoadedTile};
 use voxel_data::aabb::aabb_of_transformed_aabb;
 use voxel_data::bvh::BVH;
-use voxel_data::grid::GridId;
 use voxel_query::OccupancyTileData;
 
-use crate::transform_ext::TransformExt;
+use crate::collision::{Collision, Collisions, HalfCollision};
+use crate::GridId;
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
 use crate::narrowphase::get_collisions_between_tiles;
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum CubeFeature {
-	Vertex { xyz: u8 },
-	Edge { vertex_vertex: u8 },
-	Face { xyzs: u8 },
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct HalfCollision {
-	pub body_id: Entity,
-	pub grid_id: GridId,
-	pub voxel_pos: IVec3,
-	pub feature: CubeFeature,
-	pub collision: Vec3,
-	pub local_collision: Vec3,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct Collision {
-	pub part1: HalfCollision,
-	pub part2: HalfCollision,
-}
-
-impl Collision {
-	pub fn get_swapped(&self) -> Self {
-		Self { part1: self.part2, part2: self.part1 }
-	}
-}
-
-#[derive(Resource, Default)]
-pub struct Collisions(pub Vec<Collision>);
+use crate::transform_ext::TransformExt;
 
 struct TileCollider<'a> {
 	body: Entity,

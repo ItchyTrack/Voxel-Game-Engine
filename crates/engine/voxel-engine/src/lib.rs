@@ -4,6 +4,7 @@ use bevy::app::{PluginGroup, PluginGroupBuilder};
 use voxel_data::VoxelDataPlugin;
 use voxel_gpu::GpuVoxelDataPlugin;
 use voxel_lightyear::VoxelLightyearPlugins;
+use voxel_mass::VoxelMassPlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use voxel_streaming::VoxelStreamingPlugin;
 
@@ -27,7 +28,8 @@ impl PluginGroup for VoxelEnginePlugins {
 			.add(GpuVoxelDataPlugin)
 			.add(VoxelDataPlugin)
 			.add(VoxelStreamingPlugin)
-			.add(VoxelPhysicsPlugin);
+			.add(VoxelMassPlugin { authoritative: self.mode != VoxelEngineMode::Client })
+			.add(VoxelPhysicsPlugin { simulation_enabled: self.mode != VoxelEngineMode::Client });
 
 		match self.mode {
 			VoxelEngineMode::Server => group.add_group(VoxelLightyearPlugins {

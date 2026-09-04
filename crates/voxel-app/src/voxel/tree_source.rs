@@ -3,7 +3,7 @@ use std::{
 	sync::{Arc, OnceLock},
 };
 
-use bevy::{prelude::*};
+use bevy::{math::{DMat3, DVec3}, prelude::*};
 use basic_voxel::{BasicVoxel, LodVoxel, downsample_region};
 use voxel_trees::region::NonZeroVoxelRegion;
 use voxel_data::{
@@ -11,12 +11,13 @@ use voxel_data::{
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
-use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
+use voxel_physics::{IsStatic, RigidBody, components::{VoxelCollider, VoxelMass}};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceManager, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{chunk_of, chunk_origin};
 use voxel_streaming::GridStreaming;
+use voxel_mass::{MassError, MassProperties, SourceMassChange, SourceMassState, VoxelMassReaders, VoxelMassSet, mass_properties_of_voxels};
 
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
 const LEAF_COLORS: [[u8; 4]; 4] = [[42, 112, 48, 255], [52, 132, 55, 255], [65, 148, 61, 255], [79, 158, 68, 255]];
@@ -71,16 +72,21 @@ impl Plugin for TreeSourcePlugin {
 	fn build(&self, app: &mut App) {
 		let grid = Arc::new(OnceLock::new());
 		let bounds = estimated_chunk_bounds(self.settings);
+		let model = Arc::new(build_tree_model(self.settings, bounds));
+		let mass_state = SourceMassState::default();
+		let mass_readers = app.world().resource::<VoxelMassReaders>().clone();
 		app.register_voxel_source(TreeSource {
 			grid: grid.clone(),
-			settings: self.settings,
 			bounds,
-			model: OnceLock::new(),
+			model: model.clone(),
 			handle: OnceLock::new(),
 			forgotten: ForgottenChunks::default(),
+			mass_state: mass_state.clone(),
+			mass_readers,
 		})
-			.insert_resource(TreeGrid { grid, bounds, position: self.position })
-			.add_systems(Startup, spawn_tree);
+			.insert_resource(TreeGrid { grid, bounds, position: self.position, model, mass_state })
+			.add_systems(Startup, spawn_tree)
+			.add_systems(FixedUpdate, drain_tree_source_mass_changes.in_set(VoxelMassSet::SourceDrain));
 	}
 }
 
@@ -89,25 +95,29 @@ struct TreeGrid {
 	grid: Arc<OnceLock<GridId>>,
 	bounds: NonZeroChunkRegion,
 	position: Vec3,
+	model: Arc<TreeModel>,
+	mass_state: SourceMassState,
 }
 
 struct TreeSource {
 	grid: Arc<OnceLock<GridId>>,
-	settings: TreeSettings,
 	bounds: NonZeroChunkRegion,
-	model: OnceLock<Arc<TreeModel>>,
+	model: Arc<TreeModel>,
 	handle: OnceLock<SourceHandle>,
 	forgotten: ForgottenChunks,
+	mass_state: SourceMassState,
+	mass_readers: VoxelMassReaders,
 }
 
 impl TreeSource {
 	fn is_mine(&self, grid: GridId) -> bool { self.grid.get() == Some(&grid) }
-
-	fn model_shared(&self) -> Arc<TreeModel> { self.model.get_or_init(|| Arc::new(build_tree_model(self.settings))).clone() }
 }
 
 impl ChunkSource for TreeSource {
-	fn init(&mut self, handle: SourceHandle) { let _ = self.handle.set(handle); }
+	fn init(&mut self, handle: SourceHandle) {
+		self.mass_state.set_source_id(handle.id());
+		let _ = self.handle.set(handle);
+	}
 
 	fn request_voxels(
 		&mut self,
@@ -146,7 +156,9 @@ impl ChunkSource for TreeSource {
 			_ => lod == 0,
 		};
 
-		let model = self.model_shared();
+		let model = self.model.clone();
+		let mass_state = self.mass_state.clone();
+		let mass_readers = self.mass_readers.clone();
 		let handle = self.handle.get().expect("tree source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
@@ -155,9 +167,17 @@ impl ChunkSource for TreeSource {
 				let mut merged: Option<Voxels> = None;
 				for &chunk in &owned_chunks {
 					if cancellation.is_cancelled() { break; }
-					let Some(part) = rasterize_tree_chunk(&model, chunk, &cancellation) else { continue };
-					let offset = (chunk - region.min()) * CHUNK_SIZE as i32;
-					merged.get_or_insert_with(|| Voxels::new::<BasicVoxel>()).merge_from(&part, offset);
+					let part = rasterize_tree_chunk(&model, chunk, &cancellation);
+					if cancellation.is_cancelled() { break; }
+					let exact = part.as_ref()
+						.and_then(|voxels| mass_properties_of_voxels(&mass_readers, voxels, chunk_origin(chunk)))
+						.unwrap_or(MassProperties::ZERO);
+					let estimator = model.mass_estimator.chunks.get(&chunk).expect("accepted tree chunk has no mass estimator");
+					mass_state.reconcile_generated_chunk(grid, chunk, estimator.estimate, estimator.error, exact);
+					if let Some(part) = part {
+						let offset = (chunk - region.min()) * CHUNK_SIZE as i32;
+						merged.get_or_insert_with(|| Voxels::new::<BasicVoxel>()).merge_from(&part, offset);
+					}
 				}
 				merged
 			} else {
@@ -203,9 +223,22 @@ fn spawn_tree(mut commands: Commands, tree: Res<TreeGrid>) {
 	let mut streaming = GridStreaming::default();
 	streaming.mark_present_area(tree.bounds);
 
-	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEditIdManager::default(), ReplicateVoxels, VoxelCollider, streaming)).id();
+	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEditIdManager::default(), ReplicateVoxels, VoxelCollider, VoxelMass, streaming)).id();
 	let _ = tree.grid.set(grid);
+	tree.mass_state.initialize_grid_once(
+		grid,
+		tree.model.mass_estimator.total_estimate,
+		tree.model.mass_estimator.total_error,
+	);
 	commands.entity(body).add_child(grid);
+}
+
+fn drain_tree_source_mass_changes(
+	sources: Res<SourceManager>,
+	mut changes: MessageWriter<SourceMassChange>,
+) {
+	let Some(source) = sources.get_source::<TreeSource>() else { return };
+	changes.write_batch(source.mass_state.drain_changes());
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -231,7 +264,40 @@ struct TreeModel {
 	branches: Vec<BranchSegment>,
 	leaves: Vec<Vec3>,
 	primitive_index: HashMap<IVec3, ChunkPrimitives>,
+	mass_estimator: TreeMassEstimator,
 	settings: TreeSettings,
+}
+
+#[derive(Clone, Copy)]
+struct ChunkMassEstimator {
+	estimate: MassProperties,
+	error: MassError,
+}
+
+struct TreeMassEstimator {
+	chunks: HashMap<IVec3, ChunkMassEstimator>,
+	total_estimate: MassProperties,
+	total_error: MassError,
+}
+
+#[derive(Default)]
+struct ChunkMassBuilder {
+	mass: u64,
+	first_moment: [i128; 3],
+	inertia_at_origin: DMat3,
+	upper_mass: u64,
+	lower_first_moment: [i128; 3],
+	upper_first_moment: [i128; 3],
+}
+
+struct PrimitiveChunkPart {
+	chunk: IVec3,
+	weight: u64,
+	mass: u64,
+	first_moment: [i128; 3],
+	upper_mass: u64,
+	lower_first_moment: [i128; 3],
+	upper_first_moment: [i128; 3],
 }
 
 type VoxelBounds = NonZeroVoxelRegion;
@@ -258,7 +324,7 @@ fn estimated_chunk_bounds(settings: TreeSettings) -> NonZeroChunkRegion {
 	NonZeroChunkRegion::from_min_end(min, max).unwrap()
 }
 
-fn build_tree_model(settings: TreeSettings) -> TreeModel {
+fn build_tree_model(settings: TreeSettings, bounds: NonZeroChunkRegion) -> TreeModel {
 	let nodes = grow_branches(settings);
 	let (child_counts, pipe_areas) = branch_pipe_areas(&nodes);
 	let mut branches = Vec::with_capacity(nodes.len().saturating_sub(1));
@@ -286,7 +352,233 @@ fn build_tree_model(settings: TreeSettings) -> TreeModel {
 		index_primitive(&mut primitive_index, sphere_voxel_bounds(center, settings.leaf_radius), |primitives| primitives.leaves.push(index));
 	}
 
-	TreeModel { branches, leaves, primitive_index, settings }
+	let mass_estimator = estimate_tree_mass(bounds, &branches, &leaves, settings);
+	TreeModel { branches, leaves, primitive_index, mass_estimator, settings }
+}
+
+fn estimate_tree_mass(
+	bounds: NonZeroChunkRegion,
+	branches: &[BranchSegment],
+	leaves: &[Vec3],
+	settings: TreeSettings,
+) -> TreeMassEstimator {
+	let mut builders = HashMap::new();
+	for z in bounds.min().z..bounds.end().z {
+		for y in bounds.min().y..bounds.end().y {
+			for x in bounds.min().x..bounds.end().x {
+				builders.insert(IVec3::new(x, y, z), ChunkMassBuilder::default());
+			}
+		}
+	}
+
+	for &branch in branches {
+		let radius = f64::from(branch.radius.abs());
+		let length = f64::from(branch.start.distance(branch.end));
+		let volume = std::f64::consts::PI * radius * radius * length
+			+ 4.0 / 3.0 * std::f64::consts::PI * radius.powi(3);
+		let mass = rounded_mass(volume, 100);
+		let center = (branch.start + branch.end) * 0.5;
+		let inertia = cylinder_inertia_at_origin(mass, center, radius, length, branch.end - branch.start);
+		add_primitive_estimate(&mut builders, segment_voxel_bounds(branch), 100, mass, center, inertia);
+	}
+	for &center in leaves {
+		let radius = f64::from(settings.leaf_radius.abs());
+		let volume = 4.0 / 3.0 * std::f64::consts::PI * radius.powi(3);
+		let mass = rounded_mass(volume, 10);
+		let inertia = sphere_inertia_at_origin(mass, center, radius);
+		add_primitive_estimate(&mut builders, sphere_voxel_bounds(center, settings.leaf_radius), 10, mass, center, inertia);
+	}
+
+	let mut builders: Vec<_> = builders.into_iter().collect();
+	builders.sort_by_key(|(chunk, _)| (chunk.z, chunk.y, chunk.x));
+	let mut chunks = HashMap::with_capacity(builders.len());
+	let mut total_mass = 0u64;
+	let mut total_first_moment = [0i64; 3];
+	let mut total_inertia = DMat3::ZERO;
+	let mut total_error = MassError::ZERO;
+	for (chunk, builder) in builders {
+		let estimate_first_moment = builder.first_moment.map(|value| i64::try_from(value).expect("tree first moment overflow"));
+		let estimate = MassProperties::new(builder.mass, estimate_first_moment, builder.inertia_at_origin);
+		let error = MassError::new(
+			builder.mass,
+			builder.upper_mass.checked_sub(builder.mass).expect("tree estimate exceeds primitive mass bound"),
+			std::array::from_fn(|axis| {
+				u64::try_from(builder.first_moment[axis] - builder.lower_first_moment[axis])
+					.expect("tree first-moment error overflow")
+			}),
+			std::array::from_fn(|axis| {
+				u64::try_from(builder.upper_first_moment[axis] - builder.first_moment[axis])
+					.expect("tree first-moment error overflow")
+			}),
+		);
+		total_mass = total_mass.checked_add(builder.mass).expect("tree mass overflow");
+		for axis in 0..3 {
+			total_first_moment[axis] = total_first_moment[axis]
+				.checked_add(estimate_first_moment[axis])
+				.expect("tree first moment overflow");
+		}
+		total_inertia += builder.inertia_at_origin;
+		total_error = total_error.checked_add(error);
+		chunks.insert(chunk, ChunkMassEstimator { estimate, error });
+	}
+
+	TreeMassEstimator {
+		chunks,
+		total_estimate: MassProperties::new(total_mass, total_first_moment, total_inertia),
+		total_error,
+	}
+}
+
+fn add_primitive_estimate(
+	builders: &mut HashMap<IVec3, ChunkMassBuilder>,
+	bounds: VoxelBounds,
+	voxel_mass: u64,
+	nominal_mass: u64,
+	center: Vec3,
+	inertia_at_origin: DMat3,
+) {
+	let mut parts = primitive_chunk_parts(bounds, voxel_mass);
+	let total_weight: u64 = parts.iter().map(|part| part.weight).sum();
+	let total_upper_mass: u64 = parts.iter().map(|part| part.upper_mass).sum();
+	assert!(nominal_mass <= total_upper_mass, "analytic primitive estimate exceeds indexed voxel bound");
+
+	let mut cumulative_weight = 0u128;
+	let mut allocated_mass = 0u64;
+	for part in &mut parts {
+		cumulative_weight += u128::from(part.weight);
+		let cumulative_mass = u128::from(nominal_mass) * cumulative_weight / u128::from(total_weight);
+		let cumulative_mass = u64::try_from(cumulative_mass).expect("tree primitive mass overflow");
+		part.mass = cumulative_mass.checked_sub(allocated_mass).expect("tree primitive mass allocation underflow");
+		allocated_mass = cumulative_mass;
+		for axis in 0..3 {
+			let coordinate = primitive_part_average_coordinate(bounds, part.chunk, axis);
+			part.first_moment[axis] = (part.mass as f64 * coordinate).round() as i128;
+		}
+	}
+	assert_eq!(allocated_mass, nominal_mass);
+
+	for axis in 0..3 {
+		let target = (nominal_mass as f64 * f64::from(center[axis])).round() as i128;
+		let mut residual = target - parts.iter().map(|part| part.first_moment[axis]).sum::<i128>();
+		for part in &mut parts {
+			if residual > 0 {
+				let adjustment = residual.min(part.upper_first_moment[axis] - part.first_moment[axis]);
+				part.first_moment[axis] += adjustment;
+				residual -= adjustment;
+			} else if residual < 0 {
+				let adjustment = (-residual).min(part.first_moment[axis] - part.lower_first_moment[axis]);
+				part.first_moment[axis] -= adjustment;
+				residual += adjustment;
+			}
+		}
+		assert_eq!(residual, 0, "analytic primitive first moment exceeds indexed voxel bound");
+	}
+
+	for part in parts {
+		let builder = builders.get_mut(&part.chunk).expect("primitive lies outside estimated tree bounds");
+		builder.mass = builder.mass.checked_add(part.mass).expect("tree mass overflow");
+		builder.upper_mass = builder.upper_mass.checked_add(part.upper_mass).expect("tree mass bound overflow");
+		for axis in 0..3 {
+			builder.first_moment[axis] = builder.first_moment[axis]
+				.checked_add(part.first_moment[axis])
+				.expect("tree first moment overflow");
+			builder.lower_first_moment[axis] = builder.lower_first_moment[axis]
+				.checked_add(part.lower_first_moment[axis])
+				.expect("tree first-moment bound overflow");
+			builder.upper_first_moment[axis] = builder.upper_first_moment[axis]
+				.checked_add(part.upper_first_moment[axis])
+				.expect("tree first-moment bound overflow");
+		}
+		if nominal_mass != 0 {
+			builder.inertia_at_origin += inertia_at_origin * (part.mass as f64 / nominal_mass as f64);
+		}
+	}
+}
+
+fn primitive_chunk_parts(bounds: VoxelBounds, voxel_mass: u64) -> Vec<PrimitiveChunkPart> {
+	let chunk_min = chunk_of(bounds.min());
+	let chunk_max = chunk_of(bounds.end() - IVec3::ONE);
+	let mut parts = Vec::new();
+	for z in chunk_min.z..=chunk_max.z {
+		for y in chunk_min.y..=chunk_max.y {
+			for x in chunk_min.x..=chunk_max.x {
+				let chunk = IVec3::new(x, y, z);
+				let origin = chunk_origin(chunk);
+				let min = bounds.min().max(origin);
+				let end = bounds.end().min(origin + IVec3::splat(CHUNK_SIZE as i32));
+				let size = (end - min).as_uvec3();
+				let weight = u64::from(size.x) * u64::from(size.y) * u64::from(size.z);
+				let upper_mass = weight.checked_mul(voxel_mass).expect("tree primitive mass bound overflow");
+				let mut lower_first_moment = [0i128; 3];
+				let mut upper_first_moment = [0i128; 3];
+				for axis in 0..3 {
+					let plane_count = u64::from(size[(axis + 1) % 3]) * u64::from(size[(axis + 2) % 3]);
+					let (negative_sum, positive_sum) = signed_coordinate_sums(min[axis], end[axis]);
+					lower_first_moment[axis] = negative_sum * i128::from(plane_count) * i128::from(voxel_mass);
+					upper_first_moment[axis] = positive_sum * i128::from(plane_count) * i128::from(voxel_mass);
+				}
+				parts.push(PrimitiveChunkPart {
+					chunk,
+					weight,
+					mass: 0,
+					first_moment: [0; 3],
+					upper_mass,
+					lower_first_moment,
+					upper_first_moment,
+				});
+			}
+		}
+	}
+	parts
+}
+
+fn primitive_part_average_coordinate(bounds: VoxelBounds, chunk: IVec3, axis: usize) -> f64 {
+	let origin = chunk_origin(chunk);
+	let min = bounds.min().max(origin);
+	let end = bounds.end().min(origin + IVec3::splat(CHUNK_SIZE as i32));
+	f64::from(min[axis] + end[axis] - 1) * 0.5
+}
+
+fn signed_coordinate_sums(min: i32, end: i32) -> (i128, i128) {
+	let negative_end = end.min(0);
+	let positive_min = min.max(0);
+	(
+		integer_range_sum(min, negative_end),
+		integer_range_sum(positive_min, end),
+	)
+}
+
+fn integer_range_sum(min: i32, end: i32) -> i128 {
+	if end <= min { return 0 }
+	let count = i128::from(end - min);
+	count * i128::from(min + end - 1) / 2
+}
+
+fn rounded_mass(volume: f64, voxel_mass: u64) -> u64 {
+	(volume * voxel_mass as f64).round() as u64
+}
+
+fn cylinder_inertia_at_origin(mass: u64, center: Vec3, radius: f64, length: f64, direction: Vec3) -> DMat3 {
+	let mass = mass as f64;
+	let axis = direction.normalize_or_zero().as_dvec3();
+	let axial = 0.5 * mass * radius * radius;
+	let radial = mass * (3.0 * radius * radius + length * length) / 12.0;
+	let intrinsic = DMat3::IDENTITY * radial + outer_product(axis) * (axial - radial);
+	intrinsic + point_mass_inertia(mass, center.as_dvec3() + DVec3::splat(0.5))
+}
+
+fn sphere_inertia_at_origin(mass: u64, center: Vec3, radius: f64) -> DMat3 {
+	let mass = mass as f64;
+	DMat3::IDENTITY * (0.4 * mass * radius * radius)
+		+ point_mass_inertia(mass, center.as_dvec3() + DVec3::splat(0.5))
+}
+
+fn point_mass_inertia(mass: f64, position: DVec3) -> DMat3 {
+	(DMat3::IDENTITY * position.length_squared() - outer_product(position)) * mass
+}
+
+fn outer_product(vector: DVec3) -> DMat3 {
+	DMat3::from_cols(vector * vector.x, vector * vector.y, vector * vector.z)
 }
 
 fn index_primitive(chunks: &mut HashMap<IVec3, ChunkPrimitives>, bounds: VoxelBounds, mut add: impl FnMut(&mut ChunkPrimitives)) {
@@ -346,7 +638,10 @@ fn rasterize_tree_chunk(model: &TreeModel, chunk: IVec3, cancellation: &Cancella
 }
 
 #[cfg(test)]
-fn generate_tree_voxels(settings: TreeSettings) -> HashMap<IVec3, BasicVoxel> { rasterize_tree_voxels(&build_tree_model(settings)) }
+fn generate_tree_voxels(settings: TreeSettings) -> HashMap<IVec3, BasicVoxel> {
+	let bounds = estimated_chunk_bounds(settings);
+	rasterize_tree_voxels(&build_tree_model(settings, bounds))
+}
 
 #[cfg(test)]
 fn rasterize_tree_voxels(model: &TreeModel) -> HashMap<IVec3, BasicVoxel> {
@@ -533,8 +828,8 @@ mod tests {
 	#[test]
 	fn generated_tree_has_dense_foliage() {
 		let settings = TreeSettings::default();
-		let model = build_tree_model(settings);
 		let estimated_bounds = estimated_chunk_bounds(settings);
+		let model = build_tree_model(settings, estimated_bounds);
 		assert!(model.primitive_index.keys().all(|&chunk| estimated_bounds.contains(chunk)));
 
 		let voxels = rasterize_tree_voxels(&model);
@@ -546,22 +841,18 @@ mod tests {
 	}
 
 	#[test]
-	fn model_is_initialized_by_first_load() {
+	fn model_contains_an_estimator_for_every_accepted_chunk() {
 		let settings = TreeSettings { attraction_points: 0, max_iterations: 0, ..default() };
-		let grid = Arc::new(OnceLock::new());
-		let _ = grid.set(GridId::PLACEHOLDER);
-		let mut source = TreeSource {
-			grid,
-			settings,
-			bounds: estimated_chunk_bounds(settings),
-			model: OnceLock::new(),
-			handle: OnceLock::new(),
-			forgotten: ForgottenChunks::default(),
-		};
+		let bounds = estimated_chunk_bounds(settings);
+		let model = build_tree_model(settings, bounds);
 
-		assert!(source.model.get().is_none());
-		assert_eq!(source.request_voxels(RequestId::from_raw(1), &CancellationToken::new(), GridId::PLACEHOLDER, NonZeroChunkRegion::from_single(IVec3::ZERO), 1, None, GridGeneration::default()), SourceCoverage::All);
-		assert!(source.model.get().is_some());
+		for z in bounds.min().z..bounds.end().z {
+			for y in bounds.min().y..bounds.end().y {
+				for x in bounds.min().x..bounds.end().x {
+					assert!(model.mass_estimator.chunks.contains_key(&IVec3::new(x, y, z)));
+				}
+			}
+		}
 	}
 
 	#[test]

@@ -3,15 +3,19 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use bevy::math::{IVec3, Quat, UVec3, Vec3};
+use bevy::{math::{IVec3, Quat, UVec3, Vec3}, prelude::{MessageWriter, Res}};
 use voxel_data::{
 	compressed_voxels::CompressedVoxels,
 	grid::GridId,
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
+use voxel_mass::{
+	MassError, MassProperties, SourceMassChange, SourceMassState, VoxelMassReaders,
+	mass_properties_of_voxels,
+};
 use voxel_trees::grid_tree::NonZeroVoxelRegion;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
-use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceManager, edit::GridGeneration};
+use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of, chunk_origin};
 use tile_data::CHUNK_SIZE;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
@@ -36,9 +40,11 @@ struct VoxFileSourceInner<T: VoxMaterialVoxel> {
 	bindings: RwLock<HashMap<GridId, GridBinding>>,
 	files: RwLock<HashMap<PathBuf, FileCache>>,
 	forgotten: ForgottenChunks,
+	mass_state: SourceMassState,
+	initialized_mass: RwLock<HashMap<GridId, (GridBinding, MassProperties)>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct GridBinding {
 	path: PathBuf,
 	offset: IVec3,
@@ -61,6 +67,8 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 				bindings: RwLock::new(HashMap::new()),
 				files: RwLock::new(HashMap::new()),
 				forgotten: ForgottenChunks::default(),
+				mass_state: SourceMassState::default(),
+				initialized_mass: RwLock::new(HashMap::new()),
 			}),
 		}
 	}
@@ -242,6 +250,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 
 impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 	fn init(&mut self, handle: SourceHandle) {
+		self.inner.mass_state.set_source_id(handle.id());
 		let _ = self.inner.handle.set(handle);
 	}
 
@@ -325,6 +334,45 @@ impl<T: VoxMaterialVoxel> Default for VoxFileSource<T> {
 
 pub fn vox_file_source<T: VoxMaterialVoxel>() -> VoxFileSource<T> {
 	VoxFileSource::new()
+}
+
+pub fn drain_vox_file_source_mass_changes<T: VoxMaterialVoxel>(
+	sources: Res<SourceManager>,
+	mass_readers: Res<VoxelMassReaders>,
+	mut changes: MessageWriter<SourceMassChange>,
+) {
+	let Some(source) = sources.get_source::<VoxFileSource<T>>() else { return };
+	let bindings: Vec<_> = source.inner.bindings.read().unwrap()
+		.iter()
+		.map(|(&grid, binding)| (grid, binding.clone()))
+		.collect();
+
+	for (grid, binding) in bindings {
+		if source.inner.initialized_mass.read().unwrap().get(&grid).is_some_and(|(current, _)| current == &binding) {
+			continue;
+		}
+		source.ensure_file_loaded(&binding.path);
+		let mut estimate = MassProperties::ZERO;
+		let files = source.inner.files.read().unwrap();
+		if let Some(cache) = files.get(&binding.path) {
+			for (&chunk, compressed) in &cache.chunks {
+				let voxels = compressed.decompress().expect("cached VOX chunk failed to decompress");
+				let origin = chunk_origin(chunk) + binding.offset;
+				let Some(exact) = mass_properties_of_voxels(&mass_readers, &voxels, origin) else { continue };
+				estimate.checked_apply(exact.checked_difference(&MassProperties::ZERO));
+			}
+		}
+		drop(files);
+
+		let previous = source.inner.initialized_mass.write().unwrap().insert(grid, (binding, estimate));
+		if let Some((_, previous)) = previous {
+			source.inner.mass_state.replace_grid_estimate(grid, previous, estimate, MassError::ZERO);
+		} else {
+			source.inner.mass_state.initialize_grid_once(grid, estimate, MassError::ZERO);
+		}
+	}
+
+	changes.write_batch(source.inner.mass_state.drain_changes());
 }
 
 #[cfg(test)]

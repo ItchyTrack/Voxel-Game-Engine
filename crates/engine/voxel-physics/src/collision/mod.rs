@@ -4,7 +4,6 @@ pub mod exact;
 use bevy::prelude::*;
 
 pub use chunk_requests::PhysicsConsumer;
-// pub use exact::ExactPlugin;
 
 use crate::{GridId, PhysicsBodyId};
 

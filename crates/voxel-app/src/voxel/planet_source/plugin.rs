@@ -6,13 +6,14 @@ use basic_voxel::{BasicVoxel, LodVoxel};
 use tile_data::NonZeroChunkRegion;
 use voxel_data::voxels::VoxelType;
 use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
-use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
+use voxel_physics::{components::{VoxelCollider, VoxelMass}, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
+use voxel_mass::{MassError, SourceMassChange, SourceMassState, VoxelMassSet};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceManager, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
 use voxel_streaming::GridStreaming;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
-use super::generation::{build_planet_region, planet_voxel_unchecked, planet_lod_voxel_unchecked};
+use super::generation::{build_planet_region, planet_mass_properties, planet_voxel_unchecked, planet_lod_voxel_unchecked};
 use super::tiles::{planet_tiles, tile_has_chunk};
 
 pub struct ProceduralPlanetPlugin;
@@ -21,23 +22,30 @@ impl Plugin for ProceduralPlanetPlugin {
 	fn build(&self, app: &mut App) {
 		let _ = planet_tiles();
 		let grids = Arc::new(OnceLock::new());
+		let mass_state = SourceMassState::default();
 		app.register_voxel_source(ProceduralPlanetSource {
 			grids: grids.clone(),
 			handle: OnceLock::new(),
 			forgotten: ForgottenChunks::default(),
+			mass_state: mass_state.clone(),
 		})
-		.insert_resource(PlanetGridMap(grids))
-		.add_systems(Startup, spawn_planet);
+		.insert_resource(PlanetGridMap { grids, mass_state })
+		.add_systems(Startup, spawn_planet)
+		.add_systems(FixedUpdate, drain_planet_source_mass_changes.in_set(VoxelMassSet::SourceDrain));
 	}
 }
 
 #[derive(Resource, Clone)]
-struct PlanetGridMap(Arc<OnceLock<HashMap<GridId, usize>>>);
+struct PlanetGridMap {
+	grids: Arc<OnceLock<HashMap<GridId, usize>>>,
+	mass_state: SourceMassState,
+}
 
 struct ProceduralPlanetSource {
 	grids: Arc<OnceLock<HashMap<GridId, usize>>>,
 	handle: OnceLock<SourceHandle>,
 	forgotten: ForgottenChunks,
+	mass_state: SourceMassState,
 }
 
 impl ProceduralPlanetSource {
@@ -48,6 +56,7 @@ impl ProceduralPlanetSource {
 
 impl ChunkSource for ProceduralPlanetSource {
 	fn init(&mut self, handle: SourceHandle) {
+		self.mass_state.set_source_id(handle.id());
 		let _ = self.handle.set(handle);
 	}
 
@@ -160,14 +169,28 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 				transform,
 				Grid::new::<BasicVoxel>(),
 				VoxelCollider,
+				VoxelMass,
 				GridEditIdManager::default(),
 				ReplicateVoxels,
 				streaming,
 			))
 			.id();
 		grid_map.insert(grid_entity, tile.index);
+		grids.mass_state.initialize_grid_once(
+			grid_entity,
+			planet_mass_properties(tile),
+			MassError::ZERO,
+		);
 		commands.entity(parent).add_child(grid_entity);
 	}
 
-	let _ = grids.0.set(grid_map);
+	let _ = grids.grids.set(grid_map);
+}
+
+fn drain_planet_source_mass_changes(
+	sources: Res<SourceManager>,
+	mut changes: MessageWriter<SourceMassChange>,
+) {
+	let Some(source) = sources.get_source::<ProceduralPlanetSource>() else { return };
+	changes.write_batch(source.mass_state.drain_changes());
 }

@@ -44,6 +44,7 @@ voxel-sources = { workspace = true }
 voxel-streaming = { workspace = true }
 voxel-query = { workspace = true }
 voxel-physics = { workspace = true }
+voxel-mass = { workspace = true }
 voxel-lightyear = { workspace = true }
 voxel-content = { workspace = true }
 voxel-gpu = { workspace = true }

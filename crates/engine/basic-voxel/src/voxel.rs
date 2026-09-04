@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 use voxel_content::{VoxMaterial, VoxMaterialVoxel};
 use voxel_data::voxels::{VoxelType, VoxelTypeId};
 use voxel_gpu::{VoxelGpuBlockEncoder, VoxelGpuData, VoxelGpuNodeEntry};
-// use voxel_physics::VoxelMassValue;
+use voxel_mass::VoxelMassValue;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, bytemuck::Pod, bytemuck::Zeroable)]
@@ -255,12 +255,10 @@ impl VoxelGpuData for LodVoxel {
 	}
 }
 
-// impl VoxelMassValue for BasicVoxel {
-// 	fn voxel_mass(&self) -> f64 {
-// 		self.mass as f64
-// 	}
-// }
+impl VoxelMassValue for BasicVoxel {
+	fn voxel_mass(&self) -> u64 { u64::from(self.mass) }
+}
 
-// impl VoxelMassValue for MarchingVoxel {
-// 	fn voxel_mass(&self) -> f64 { self.0.voxel_mass() }
-// }
+impl VoxelMassValue for MarchingVoxel {
+	fn voxel_mass(&self) -> u64 { self.0.voxel_mass() }
+}

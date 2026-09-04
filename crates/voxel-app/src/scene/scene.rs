@@ -6,11 +6,15 @@ use voxel_sources::edit::GridEditIdManager;
 use std::path::PathBuf;
 
 use basic_voxel::{BasicVoxel, MarchingVoxel};
-use voxel_content::{SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource};
+use voxel_content::{
+	SdfSource, StreamingVoxels, VoxFileSource, VoxelStoreSource,
+	drain_vox_file_source_mass_changes,
+};
 use voxel_data::grid::Grid;
 use voxel_data::voxels::VoxelType;
 use voxel_physics::components::{VoxelCollider, VoxelMass};
 use voxel_lightyear::ReplicateVoxels;
+use voxel_mass::VoxelMassSet;
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, RotationalInertia, VoxelPhysicsAppExt
 };
@@ -31,6 +35,14 @@ impl Plugin for ScenePlugin {
 			.register_voxel_source(MarchingVoxFileSource::new())
 			.register_voxel_source(SdfSource::new())
 			.add_systems(Startup, setup_scene)
+			.add_systems(
+				FixedUpdate,
+				(
+					drain_vox_file_source_mass_changes::<BasicVoxel>,
+					drain_vox_file_source_mass_changes::<MarchingVoxel>,
+				)
+					.in_set(VoxelMassSet::SourceDrain),
+			)
 			.add_physics_apply_systems(drive_orientation);
 	}
 }

@@ -1,8 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bevy::prelude::*;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
 use voxel_data::{grid::GridId, voxels::{VoxelTypeId, VoxelTypeInfo, Voxels}};
+use voxel_mass::{MassError, MassProperties, SourceMassChange, SourceMassState, VoxelMassReaders, mass_properties_of_voxels};
 use voxel_sources::{
 	ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceId,
 	SourceResult, SourceResultData, edit::{GridEdit, GridGeneration},
@@ -17,7 +18,7 @@ struct Acquisition {
 	voxel_type: VoxelTypeInfo,
 	generation: GridGeneration,
 	baseline: Option<Voxels>,
-	queued_edits: Vec<(GridGeneration, Arc<dyn GridEdit>)>,
+	queued_edits: Vec<(GridGeneration, Arc<dyn GridEdit>, MassError)>,
 }
 
 #[derive(Default)]
@@ -25,17 +26,48 @@ pub struct VoxelStoreSource {
 	handle: Option<SourceHandle>,
 	grids: HashMap<GridId, GridStore>,
 	acquisitions: HashMap<RequestId, Acquisition>,
+	mass_state: SourceMassState,
+	mass_readers: VoxelMassReaders,
 }
 
 impl VoxelStoreSource {
+	pub(crate) fn new(mass_readers: VoxelMassReaders) -> Self {
+		Self { mass_readers, ..Default::default() }
+	}
+
 	pub fn insert_chunk_data(&mut self, grid: GridId, chunk_data: HashMap<IVec3, Voxels>) {
+		self.mass_state.initialize_grid_once(grid, MassProperties::ZERO, MassError::ZERO);
 		let store = self.grids.entry(grid).or_default();
 		for (chunk, voxels) in chunk_data {
+			let previous = store.get_chunk(chunk).map(|version| {
+				version.voxels()
+					.as_ref()
+					.and_then(|voxels| mass_properties_of_voxels(&self.mass_readers, voxels, chunk_origin(chunk)))
+					.unwrap_or(MassProperties::ZERO)
+			});
+			let exact = mass_properties_of_voxels(&self.mass_readers, &voxels, chunk_origin(chunk))
+				.unwrap_or(MassProperties::ZERO);
+			match previous {
+				Some(previous) => self.mass_state.apply_exact_edit(grid, previous, exact, MassError::ZERO),
+				None => {
+					self.mass_state.reconcile_generated_chunk(
+						grid,
+						chunk,
+						MassProperties::ZERO,
+						MassError::ZERO,
+						exact,
+					);
+				}
+			}
 			store.save_chunk(chunk, GridGeneration::default(), &voxels);
 		}
 	}
 
-	pub fn source_id(&self) -> SourceId {
+	pub(crate) fn set_mass_readers(&mut self, mass_readers: VoxelMassReaders) {
+		self.mass_readers = mass_readers;
+	}
+
+	pub(crate) fn source_id(&self) -> SourceId {
 		self.handle.as_ref().expect("voxel store source was not initialized").id()
 	}
 
@@ -73,14 +105,25 @@ impl VoxelStoreSource {
 		voxel_type: VoxelTypeInfo,
 		generation: GridGeneration,
 		edit: Arc<dyn GridEdit>,
+		reserved_error: MassError,
 	) {
+		self.mass_state.initialize_grid_once(grid, MassProperties::ZERO, MassError::ZERO);
 		match self.chunk_ownership(grid, chunk) {
 			ChunkOwnership::Owned => {
-				self.grids.entry(grid).or_default().apply_edit(chunk, voxel_type, generation, edit.as_ref());
+				assert_eq!(reserved_error, MassError::ZERO, "owned edits cannot carry a mass reservation");
+				let (before, after) = self.grids.entry(grid).or_default().apply_edit(
+					chunk,
+					voxel_type,
+					generation,
+					edit.as_ref(),
+					&self.mass_readers,
+				);
+				self.mass_state.apply_exact_edit(grid, before, after, MassError::ZERO);
 			}
 			ChunkOwnership::Acquiring(request_id) => {
 				if let Some(acquisition) = self.acquisitions.get_mut(&request_id) {
-					acquisition.queued_edits.push((generation, edit));
+					self.mass_state.reserve_edit_error(grid, reserved_error);
+					acquisition.queued_edits.push((generation, edit, reserved_error));
 				}
 			}
 			ChunkOwnership::Unowned => {}
@@ -100,14 +143,18 @@ impl VoxelStoreSource {
 			}
 			SourceResultData::VoxelsLoaded { .. } => {
 				let Some(acquisition) = self.acquisitions.remove(&result.request_id) else { return };
-				self.grids.entry(acquisition.grid).or_default().complete_acquisition(
+				let mass_changes = self.grids.entry(acquisition.grid).or_default().complete_acquisition(
 					acquisition.chunk,
 					result.request_id,
 					acquisition.generation,
 					acquisition.baseline.as_ref(),
 					acquisition.voxel_type,
 					&acquisition.queued_edits,
+					&self.mass_readers,
 				);
+				for (before, after, reserved_error) in mass_changes {
+					self.mass_state.apply_exact_edit(acquisition.grid, before, after, reserved_error);
+				}
 				for (&grid, store) in self.grids.iter_mut() {
 					store.retain_current_versions();
 					for request in store.poll_waiting_requests() {
@@ -145,6 +192,7 @@ impl VoxelStoreSource {
 
 impl ChunkSource for VoxelStoreSource {
 	fn init(&mut self, handle: SourceHandle) {
+		self.mass_state.set_source_id(handle.id());
 		self.handle = Some(handle);
 	}
 
@@ -239,4 +287,14 @@ pub fn complete_voxel_store_acquisitions(
 			store.receive_acquisition_result(result);
 		}
 	}
+}
+
+pub fn drain_voxel_store_mass_changes(
+	mut sources: ResMut<voxel_sources::SourceManager>,
+	mass_readers: Res<VoxelMassReaders>,
+	mut changes: MessageWriter<SourceMassChange>,
+) {
+	let Some(store) = sources.get_source_mut::<VoxelStoreSource>() else { return };
+	store.mass_readers = mass_readers.clone();
+	changes.write_batch(store.mass_state.drain_changes());
 }

@@ -16,6 +16,7 @@ members = [
 	"crates/engine/voxel-raster-renderer",
 	"crates/engine/voxel-marching-renderer",
 	"crates/engine/voxel-physics",
+	"crates/engine/voxel-mass",
 	"crates/engine/voxel-content",
 	"crates/engine/basic-voxel",
 	"crates/engine/voxel-engine",
@@ -59,6 +60,7 @@ voxel-ray-renderer = { version = "0.1.0", path = "crates/engine/voxel-ray-render
 voxel-raster-renderer = { version = "0.1.0", path = "crates/engine/voxel-raster-renderer" }
 voxel-marching-renderer = { version = "0.1.0", path = "crates/engine/voxel-marching-renderer" }
 voxel-physics = { version = "0.1.0", path = "crates/engine/voxel-physics" }
+voxel-mass = { version = "0.1.0", path = "crates/engine/voxel-mass" }
 voxel-content = { version = "0.1.0", path = "crates/engine/voxel-content" }
 basic-voxel = { version = "0.1.0", path = "crates/engine/basic-voxel" }
 voxel-engine = { version = "0.1.0", path = "crates/engine/voxel-engine" }

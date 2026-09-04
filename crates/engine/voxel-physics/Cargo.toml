@@ -12,7 +12,9 @@ gpu_profiling = []
 bevy = { workspace = true }
 rustc-hash = { workspace = true }
 num = { workspace = true }
+serde = { version = "1", features = ["derive"] }
 tracy-client = { workspace = true }
+voxel-mass = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
