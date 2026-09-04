@@ -1,6 +1,5 @@
 use voxel_trees::grid_tree::GridType;
 
-/// Zero-byte value used by reconciliation trees as a set marker.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MarkerGridType;
 

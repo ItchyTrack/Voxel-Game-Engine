@@ -18,7 +18,7 @@ pub struct VoxelMassReaders {
 
 impl VoxelMassReaders {
 	pub fn register<T: VoxelMassValue>(&mut self) {
-		self.readers.insert(T::TYPE_ID, read_mass::<T>);
+		self.readers.insert(T::TYPE_ID, |voxel: &VoxelRef<'_>| { T::from_voxel_ref(voxel).voxel_mass() });
 	}
 
 	pub fn contains(&self, voxel_type: VoxelTypeId) -> bool {
@@ -28,10 +28,6 @@ impl VoxelMassReaders {
 	pub fn mass(&self, voxel: &VoxelRef<'_>) -> Option<u64> {
 		self.readers.get(&voxel.type_id()).map(|reader| reader(voxel))
 	}
-}
-
-fn read_mass<T: VoxelMassValue>(voxel: &VoxelRef<'_>) -> u64 {
-	T::from_voxel_ref(voxel).voxel_mass()
 }
 
 pub trait VoxelMassAppExt {
