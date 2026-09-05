@@ -12,7 +12,7 @@ pub use edit::{GridEditMassAppExt, GridEditMassReaders, MassRange, edit_reservat
 pub use grid::{GridMassProperties, SourceMassChange, apply_source_mass_changes};
 pub use inertia_tensor::InertiaTensor;
 pub use marker::MarkerGridType;
-pub use properties::{AddRemove, BodyMassError, MassDelta, MassError, MassProperties};
+pub use properties::{BodyMassError, MassError, MassProperties};
 pub use source::SourceMassState;
 pub use voxel::{VoxelMassAppExt, VoxelMassReaders, VoxelMassValue, mass_properties_of_voxels};
 

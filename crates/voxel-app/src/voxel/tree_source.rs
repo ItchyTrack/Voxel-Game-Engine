@@ -17,7 +17,7 @@ use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, Sou
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{chunk_of, chunk_origin};
 use voxel_streaming::GridStreaming;
-use voxel_mass::{MassError, MassProperties, SourceMassChange, SourceMassState, VoxelMass, VoxelMassReaders, VoxelMassSet, mass_properties_of_voxels};
+use voxel_mass::{CenterOfMass, InertiaTensor, Mass, MassError, MassProperties, RotationalInertia, SourceMassChange, SourceMassState, VoxelMass, VoxelMassReaders, VoxelMassSet, mass_properties_of_voxels};
 
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
 const LEAF_COLORS: [[u8; 4]; 4] = [[42, 112, 48, 255], [52, 132, 55, 255], [65, 148, 61, 255], [79, 158, 68, 255]];
@@ -282,9 +282,8 @@ struct TreeMassEstimator {
 
 #[derive(Default)]
 struct ChunkMassBuilder {
-	mass: u64,
+	properties: MassProperties,
 	first_moment: [i128; 3],
-	inertia_at_origin: DMat3,
 	upper_mass: u64,
 	lower_first_moment: [i128; 3],
 	upper_first_moment: [i128; 3],
@@ -378,30 +377,33 @@ fn estimate_tree_mass(
 			+ 4.0 / 3.0 * std::f64::consts::PI * radius.powi(3);
 		let mass = rounded_mass(volume, 100);
 		let center = (branch.start + branch.end) * 0.5;
-		let inertia = cylinder_inertia_at_origin(mass, center, radius, length, branch.end - branch.start);
-		add_primitive_estimate(&mut builders, segment_voxel_bounds(branch), 100, mass, center, inertia);
+		add_primitive_estimate(&mut builders, segment_voxel_bounds(branch), 100, MassProperties {
+			mass: Mass(mass),
+			center_of_mass: CenterOfMass(center.as_dvec3() + DVec3::splat(0.5)),
+			rotational_inertia: RotationalInertia(cylinder_inertia(mass, radius, length, branch.end - branch.start)),
+		});
 	}
 	for &center in leaves {
 		let radius = f64::from(settings.leaf_radius.abs());
 		let volume = 4.0 / 3.0 * std::f64::consts::PI * radius.powi(3);
 		let mass = rounded_mass(volume, 10);
-		let inertia = sphere_inertia_at_origin(mass, center, radius);
-		add_primitive_estimate(&mut builders, sphere_voxel_bounds(center, settings.leaf_radius), 10, mass, center, inertia);
+		add_primitive_estimate(&mut builders, sphere_voxel_bounds(center, settings.leaf_radius), 10, MassProperties {
+			mass: Mass(mass),
+			center_of_mass: CenterOfMass(center.as_dvec3() + DVec3::splat(0.5)),
+			rotational_inertia: RotationalInertia(InertiaTensor::from_mat3(DMat3::IDENTITY * (0.4 * mass as f64 * radius * radius))),
+		});
 	}
 
 	let mut builders: Vec<_> = builders.into_iter().collect();
 	builders.sort_by_key(|(chunk, _)| (chunk.z, chunk.y, chunk.x));
 	let mut chunks = HashMap::with_capacity(builders.len());
-	let mut total_mass = 0u64;
-	let mut total_first_moment = [0i64; 3];
-	let mut total_inertia = DMat3::ZERO;
+	let mut total_estimate = MassProperties::ZERO;
 	let mut total_error = MassError::ZERO;
 	for (chunk, builder) in builders {
-		let estimate_first_moment = builder.first_moment.map(|value| i64::try_from(value).expect("tree first moment overflow"));
-		let estimate = MassProperties::new(builder.mass, estimate_first_moment, builder.inertia_at_origin);
+		let estimate = builder.properties;
 		let error = MassError::new(
-			builder.mass,
-			builder.upper_mass.checked_sub(builder.mass).expect("tree estimate exceeds primitive mass bound"),
+			estimate.mass.0,
+			builder.upper_mass.checked_sub(estimate.mass.0).expect("tree estimate exceeds primitive mass bound"),
 			std::array::from_fn(|axis| {
 				u64::try_from(builder.first_moment[axis] - builder.lower_first_moment[axis])
 					.expect("tree first-moment error overflow")
@@ -411,20 +413,14 @@ fn estimate_tree_mass(
 					.expect("tree first-moment error overflow")
 			}),
 		);
-		total_mass = total_mass.checked_add(builder.mass).expect("tree mass overflow");
-		for axis in 0..3 {
-			total_first_moment[axis] = total_first_moment[axis]
-				.checked_add(estimate_first_moment[axis])
-				.expect("tree first moment overflow");
-		}
-		total_inertia += builder.inertia_at_origin;
+		total_estimate = total_estimate.checked_add(estimate);
 		total_error = total_error.checked_add(error);
 		chunks.insert(chunk, ChunkMassEstimator { estimate, error });
 	}
 
 	TreeMassEstimator {
 		chunks,
-		total_estimate: MassProperties::new(total_mass, total_first_moment, total_inertia),
+		total_estimate,
 		total_error,
 	}
 }
@@ -433,10 +429,11 @@ fn add_primitive_estimate(
 	builders: &mut HashMap<IVec3, ChunkMassBuilder>,
 	bounds: VoxelBounds,
 	voxel_mass: u64,
-	nominal_mass: u64,
-	center: Vec3,
-	inertia_at_origin: DMat3,
+	primitive: MassProperties,
 ) {
+	let nominal_mass = primitive.mass.0;
+	let center = primitive.center_of_mass.0 - DVec3::splat(0.5);
+	let inertia_at_origin = primitive.rotational_inertia.0.move_from_center_of_mass(&primitive.center_of_mass.0, nominal_mass as f64);
 	let mut parts = primitive_chunk_parts(bounds, voxel_mass);
 	let total_weight: u64 = parts.iter().map(|part| part.weight).sum();
 	let total_upper_mass: u64 = parts.iter().map(|part| part.upper_mass).sum();
@@ -458,7 +455,7 @@ fn add_primitive_estimate(
 	assert_eq!(allocated_mass, nominal_mass);
 
 	for axis in 0..3 {
-		let target = (nominal_mass as f64 * f64::from(center[axis])).round() as i128;
+		let target = (nominal_mass as f64 * center[axis]).round() as i128;
 		let mut residual = target - parts.iter().map(|part| part.first_moment[axis]).sum::<i128>();
 		for part in &mut parts {
 			if residual > 0 {
@@ -476,7 +473,6 @@ fn add_primitive_estimate(
 
 	for part in parts {
 		let builder = builders.get_mut(&part.chunk).expect("primitive lies outside estimated tree bounds");
-		builder.mass = builder.mass.checked_add(part.mass).expect("tree mass overflow");
 		builder.upper_mass = builder.upper_mass.checked_add(part.upper_mass).expect("tree mass bound overflow");
 		for axis in 0..3 {
 			builder.first_moment[axis] = builder.first_moment[axis]
@@ -489,8 +485,15 @@ fn add_primitive_estimate(
 				.checked_add(part.upper_first_moment[axis])
 				.expect("tree first-moment bound overflow");
 		}
-		if nominal_mass != 0 {
-			builder.inertia_at_origin += inertia_at_origin * (part.mass as f64 / nominal_mass as f64);
+		if part.mass != 0 {
+			let center = DVec3::new(part.first_moment[0] as f64, part.first_moment[1] as f64, part.first_moment[2] as f64)
+				/ part.mass as f64 + DVec3::splat(0.5);
+			let inertia = InertiaTensor::from_mat3(inertia_at_origin.mat * (part.mass as f64 / nominal_mass as f64));
+			builder.properties = builder.properties.checked_add(MassProperties {
+				mass: Mass(part.mass),
+				center_of_mass: CenterOfMass(center),
+				rotational_inertia: RotationalInertia(inertia.move_to_center_of_mass(&center, part.mass as f64)),
+			});
 		}
 	}
 }
@@ -558,23 +561,12 @@ fn rounded_mass(volume: f64, voxel_mass: u64) -> u64 {
 	(volume * voxel_mass as f64).round() as u64
 }
 
-fn cylinder_inertia_at_origin(mass: u64, center: Vec3, radius: f64, length: f64, direction: Vec3) -> DMat3 {
+fn cylinder_inertia(mass: u64, radius: f64, length: f64, direction: Vec3) -> InertiaTensor {
 	let mass = mass as f64;
 	let axis = direction.normalize_or_zero().as_dvec3();
 	let axial = 0.5 * mass * radius * radius;
 	let radial = mass * (3.0 * radius * radius + length * length) / 12.0;
-	let intrinsic = DMat3::IDENTITY * radial + outer_product(axis) * (axial - radial);
-	intrinsic + point_mass_inertia(mass, center.as_dvec3() + DVec3::splat(0.5))
-}
-
-fn sphere_inertia_at_origin(mass: u64, center: Vec3, radius: f64) -> DMat3 {
-	let mass = mass as f64;
-	DMat3::IDENTITY * (0.4 * mass * radius * radius)
-		+ point_mass_inertia(mass, center.as_dvec3() + DVec3::splat(0.5))
-}
-
-fn point_mass_inertia(mass: f64, position: DVec3) -> DMat3 {
-	(DMat3::IDENTITY * position.length_squared() - outer_product(position)) * mass
+	InertiaTensor::from_mat3(DMat3::IDENTITY * radial + outer_product(axis) * (axial - radial))
 }
 
 fn outer_product(vector: DVec3) -> DMat3 {

@@ -1,131 +1,29 @@
-use bevy::{math::{DMat3, Vec3}, prelude::Component};
+use bevy::{math::{DMat3, DVec3}, prelude::{Component, Transform, Vec3}};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AddRemove<T> {
-	Add(T),
-	Remove(T),
-}
+use crate::{CenterOfMass, InertiaTensor, Mass, RotationalInertia};
 
-impl AddRemove<u64> {
-	pub const fn amount(self) -> u64 {
-		match self {
-			Self::Add(amount) | Self::Remove(amount) => amount,
-		}
-	}
-
-	pub fn checked_add(self, other: Self) -> Self {
-		match (self, other) {
-			(Self::Add(a), Self::Add(b)) => Self::Add(a.checked_add(b).expect("mass delta overflow")),
-			(Self::Remove(a), Self::Remove(b)) => Self::Remove(a.checked_add(b).expect("mass delta overflow")),
-			(Self::Add(a), Self::Remove(b)) if a >= b => Self::Add(a - b),
-			(Self::Add(a), Self::Remove(b)) => Self::Remove(b - a),
-			(Self::Remove(a), Self::Add(b)) if a >= b => Self::Remove(a - b),
-			(Self::Remove(a), Self::Add(b)) => Self::Add(b - a),
-		}
-	}
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Mass, center of mass, and inertia about that center, all in the same local space.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct MassProperties {
-	mass: u64,
-	first_moment: [i64; 3],
-	inertia_at_origin: DMat3,
-}
-
-impl Default for MassProperties {
-	fn default() -> Self { Self::ZERO }
+	pub mass: Mass,
+	pub center_of_mass: CenterOfMass,
+	pub rotational_inertia: RotationalInertia,
 }
 
 impl MassProperties {
 	pub const ZERO: Self = Self {
-		mass: 0,
-		first_moment: [0; 3],
-		inertia_at_origin: DMat3::ZERO,
+		mass: Mass(0),
+		center_of_mass: CenterOfMass(DVec3::ZERO),
+		rotational_inertia: RotationalInertia(InertiaTensor::ZERO),
 	};
 
-	pub const fn new(mass: u64, first_moment: [i64; 3], inertia_at_origin: DMat3) -> Self {
-		Self { mass, first_moment, inertia_at_origin }
-	}
-
-	pub const fn mass(&self) -> u64 { self.mass }
-	pub const fn first_moment(&self) -> [i64; 3] { self.first_moment }
-	pub const fn inertia_at_origin(&self) -> DMat3 { self.inertia_at_origin }
-
-	/// Returns `None` for a massless value.
-	pub fn center_of_mass(&self) -> Option<Vec3> {
-		(self.mass != 0).then(|| {
-			let inverse_mass = 1.0 / self.mass as f32;
-			Vec3::new(
-				self.first_moment[0] as f32 * inverse_mass,
-				self.first_moment[1] as f32 * inverse_mass,
-				self.first_moment[2] as f32 * inverse_mass,
-			) + Vec3::splat(0.5)
-		})
-	}
-
-	pub fn checked_apply(&mut self, delta: MassDelta) {
-		let mass = match delta.mass {
-			AddRemove::Add(amount) => self.mass.checked_add(amount).expect("mass overflow"),
-			AddRemove::Remove(amount) => self.mass.checked_sub(amount).expect("mass underflow"),
-		};
-		let first_moment = std::array::from_fn(|axis| {
-			self.first_moment[axis].checked_add(delta.first_moment[axis]).expect("first-moment overflow")
-		});
-		self.mass = mass;
-		self.first_moment = first_moment;
-		self.inertia_at_origin += delta.inertia_at_origin;
-	}
-
-	pub fn checked_applied(mut self, delta: MassDelta) -> Self {
-		self.checked_apply(delta);
-		self
-	}
-
-	pub fn checked_difference(&self, previous: &Self) -> MassDelta {
-		MassDelta::checked_difference(*self, *previous)
-	}
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct MassDelta {
-	mass: AddRemove<u64>,
-	first_moment: [i64; 3],
-	inertia_at_origin: DMat3,
-}
-
-impl Default for MassDelta {
-	fn default() -> Self { Self::ZERO }
-}
-
-impl MassDelta {
-	pub const ZERO: Self = Self {
-		mass: AddRemove::Add(0),
-		first_moment: [0; 3],
-		inertia_at_origin: DMat3::ZERO,
-	};
-
-	pub const fn new(mass: AddRemove<u64>, first_moment: [i64; 3], inertia_at_origin: DMat3) -> Self {
-		Self { mass, first_moment, inertia_at_origin }
-	}
-
-	pub const fn mass(&self) -> AddRemove<u64> { self.mass }
-	pub const fn first_moment(&self) -> [i64; 3] { self.first_moment }
-	pub const fn inertia_at_origin(&self) -> DMat3 { self.inertia_at_origin }
-
-	pub fn checked_difference(new: MassProperties, old: MassProperties) -> Self {
-		let mass = if new.mass >= old.mass {
-			AddRemove::Add(new.mass - old.mass)
-		} else {
-			AddRemove::Remove(old.mass - new.mass)
-		};
-		let first_moment = std::array::from_fn(|axis| {
-			new.first_moment[axis].checked_sub(old.first_moment[axis]).expect("first-moment delta overflow")
-		});
+	pub fn get_transformed(self, transform: &Transform) -> Self {
+		assert_eq!(transform.scale, Vec3::ONE, "mass grid transform must have unit scale");
 		Self {
-			mass,
-			first_moment,
-			inertia_at_origin: new.inertia_at_origin - old.inertia_at_origin,
+			center_of_mass: self.center_of_mass.get_transformed(transform),
+			rotational_inertia: RotationalInertia(self.rotational_inertia.0.get_rotated(transform.rotation.as_dquat())),
+			..self
 		}
 	}
 
@@ -133,33 +31,39 @@ impl MassDelta {
 		Self::checked_sum([self, other])
 	}
 
-	pub fn checked_sum(deltas: impl IntoIterator<Item = Self>) -> Self {
-		let mut added_mass = 0u128;
-		let mut removed_mass = 0u128;
-		let mut first_moment = [0i128; 3];
-		let mut inertia_at_origin = DMat3::ZERO;
-		for delta in deltas {
-			match delta.mass {
-				AddRemove::Add(value) => added_mass = added_mass.checked_add(u128::from(value)).expect("mass delta overflow"),
-				AddRemove::Remove(value) => removed_mass = removed_mass.checked_add(u128::from(value)).expect("mass delta overflow"),
-			}
-			for axis in 0..3 {
-				first_moment[axis] = first_moment[axis]
-					.checked_add(i128::from(delta.first_moment[axis]))
-					.expect("first-moment delta overflow");
-			}
-			inertia_at_origin += delta.inertia_at_origin;
+	pub fn checked_sum(parts: impl IntoIterator<Item = Self, IntoIter: Clone>) -> Self {
+		Self::combine(parts.into_iter().map(|part| (part, 1)))
+	}
+
+	/// Applies replacements together so source handoffs cannot cause intermediate mass underflow.
+	pub fn checked_replaced(self, changes: impl IntoIterator<Item = (Self, Self), IntoIter: Clone>) -> Self {
+		Self::combine(std::iter::once((self, 1)).chain(
+			changes.into_iter().flat_map(|(before, after)| [(before, -1), (after, 1)]),
+		))
+	}
+
+	fn combine(parts: impl Iterator<Item = (Self, i128)> + Clone) -> Self {
+		let reference = parts.clone().find(|(part, _)| part.mass.0 != 0)
+			.map_or(DVec3::ZERO, |(part, _)| part.center_of_mass.0);
+		let mut mass = 0i128;
+		let mut weighted_offset = DVec3::ZERO;
+		for (part, sign) in parts.clone() {
+			let signed_mass = i128::from(part.mass.0) * sign;
+			mass = mass.checked_add(signed_mass).expect("mass overflow");
+			weighted_offset += (part.center_of_mass.0 - reference) * signed_mass as f64;
 		}
-		let mass = if added_mass >= removed_mass {
-			AddRemove::Add(u64::try_from(added_mass - removed_mass).expect("mass delta overflow"))
-		} else {
-			AddRemove::Remove(u64::try_from(removed_mass - added_mass).expect("mass delta overflow"))
-		};
-		Self {
-			mass,
-			first_moment: first_moment.map(|value| i64::try_from(value).expect("first-moment delta overflow")),
-			inertia_at_origin,
+		let mass = u64::try_from(mass).expect("mass underflow or overflow");
+		if mass == 0 { return Self::ZERO; }
+		let center = reference + weighted_offset / mass as f64;
+		let mut inertia = InertiaTensor::ZERO;
+		for (part, sign) in parts {
+			if part.mass.0 == 0 { continue; }
+			let shifted = part.rotational_inertia.0.move_from_center_of_mass(
+				&(part.center_of_mass.0 - center), part.mass.0 as f64,
+			);
+			if sign > 0 { inertia += shifted; } else { inertia -= shifted; }
 		}
+		Self { mass: Mass(mass), center_of_mass: CenterOfMass(center), rotational_inertia: RotationalInertia(inertia) }
 	}
 }
 
@@ -192,6 +96,50 @@ impl MassError {
 	pub const fn mass_plus(&self) -> u64 { self.mass_plus }
 	pub const fn first_moment_minus(&self) -> [u64; 3] { self.first_moment_minus }
 	pub const fn first_moment_plus(&self) -> [u64; 3] { self.first_moment_plus }
+
+	/// Transforms voxel-index first-moment error bounds into parent-space bounds.
+	pub fn get_transformed(self, transform: &Transform) -> Self {
+		let rotation = DMat3::from_quat(transform.rotation.as_dquat());
+		let mass_coefficient = transform.translation.as_dvec3() + rotation * DVec3::splat(0.5);
+		let moment_minus = self.first_moment_minus();
+		let moment_plus = self.first_moment_plus();
+		let mut transformed_minus = [0; 3];
+		let mut transformed_plus = [0; 3];
+
+		for output_axis in 0..3 {
+			let mut minus = 0.0;
+			let mut plus = 0.0;
+			for input_axis in 0..3 {
+				let coefficient = rotation.col(input_axis)[output_axis];
+				if coefficient >= 0.0 {
+					minus = add_up(minus, multiply_up(coefficient, moment_minus[input_axis]));
+					plus = add_up(plus, multiply_up(coefficient, moment_plus[input_axis]));
+				} else {
+					minus = add_up(minus, multiply_up(-coefficient, moment_plus[input_axis]));
+					plus = add_up(plus, multiply_up(-coefficient, moment_minus[input_axis]));
+				}
+			}
+
+			let coefficient = mass_coefficient[output_axis];
+			if coefficient >= 0.0 {
+				minus = add_up(minus, multiply_up(coefficient, self.mass_minus()));
+				plus = add_up(plus, multiply_up(coefficient, self.mass_plus()));
+			} else {
+				minus = add_up(minus, multiply_up(-coefficient, self.mass_plus()));
+				plus = add_up(plus, multiply_up(-coefficient, self.mass_minus()));
+			}
+
+			transformed_minus[output_axis] = outward_rounded_error(minus);
+			transformed_plus[output_axis] = outward_rounded_error(plus);
+		}
+
+		MassError::new(
+			self.mass_minus(),
+			self.mass_plus(),
+			transformed_minus,
+			transformed_plus,
+		)
+	}
 
 	pub fn checked_add(self, other: Self) -> Self {
 		Self {
@@ -235,4 +183,21 @@ fn checked_array_add(a: [u64; 3], b: [u64; 3]) -> [u64; 3] {
 
 fn checked_array_sub(a: [u64; 3], b: [u64; 3]) -> [u64; 3] {
 	std::array::from_fn(|axis| a[axis].checked_sub(b[axis]).expect("first-moment error underflow"))
+}
+
+fn multiply_up(coefficient: f64, value: u64) -> f64 {
+	if coefficient == 0.0 || value == 0 { return 0.0 }
+	let value = value as f64;
+	(coefficient * value.next_up()).next_up()
+}
+
+fn add_up(a: f64, b: f64) -> f64 {
+	if b == 0.0 { a } else { (a + b).next_up() }
+}
+
+fn outward_rounded_error(value: f64) -> u64 {
+	const U64_UPPER_BOUND: f64 = 18_446_744_073_709_551_616.0;
+	let rounded = value.ceil();
+	assert!(rounded.is_finite() && rounded >= 0.0 && rounded < U64_UPPER_BOUND, "body mass error overflow");
+	rounded as u64
 }

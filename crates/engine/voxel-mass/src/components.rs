@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{math::DVec3, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use crate::InertiaTensor;
@@ -6,13 +6,19 @@ use crate::InertiaTensor;
 #[derive(Component, Default, Debug, Clone, Copy)]
 pub struct VoxelMass;
 
-#[derive(Component, Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Mass(pub f32);
+#[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mass(pub u64);
 
-/// Local-space rotational
+/// Local-space inertia tensor about the center of mass.
 #[derive(Component, Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RotationalInertia(pub InertiaTensor);
 
-/// Local-space offset from the body's transform origin to its center of mass.
+/// Local-space offset from the transform origin to the center of mass.
 #[derive(Component, Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct CenterOfMass(pub Vec3);
+pub struct CenterOfMass(pub DVec3);
+
+impl CenterOfMass {
+	pub fn get_transformed(self, transform: &Transform) -> Self {
+		Self(transform.rotation.as_dquat() * self.0 + transform.translation.as_dvec3())
+	}
+}

@@ -1,8 +1,8 @@
-use bevy::{math::DMat3, prelude::*};
+use bevy::{math::{DMat3, DVec3}, prelude::*};
 use tracy_client::span;
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
 use voxel_data::voxels::{VoxelType, Voxels};
-use voxel_mass::MassProperties;
+use voxel_mass::{CenterOfMass, InertiaTensor, Mass, MassProperties, RotationalInertia};
 use voxel_tasks::CancellationToken;
 
 use basic_voxel::{BasicVoxel, LodVoxel};
@@ -72,9 +72,9 @@ pub(super) fn build_planet_region<V: VoxelType>(
 pub(super) fn planet_mass_properties(tile: &PlanetTile) -> MassProperties {
 	let mut total = MassProperties::ZERO;
 	for &chunk in &tile.present_chunks {
-		total = checked_sum_mass_properties(total, planet_chunk_mass_properties(tile, chunk));
+		total = total.checked_add(planet_chunk_mass_properties(tile, chunk));
 	}
-	assert!(total.inertia_at_origin().is_finite(), "planet mass estimate has non-finite inertia");
+	assert!(total.rotational_inertia.0.mat.is_finite(), "planet mass estimate has non-finite inertia");
 	total
 }
 
@@ -99,71 +99,25 @@ fn planet_chunk_mass_properties(tile: &PlanetTile, chunk: IVec3) -> MassProperti
 			let voxel_z = origin.z.checked_add(z0).expect("planet voxel coordinate overflow");
 			let length = u64::try_from(z1.checked_sub(z0).expect("planet column length underflow"))
 				.expect("planet column length is negative");
-			properties = checked_sum_mass_properties(
-				properties,
-				vertical_run_mass_properties([i64::from(voxel_x), i64::from(voxel_y), i64::from(voxel_z)], length),
-			);
+			properties = properties.checked_add(vertical_run_mass_properties(
+				DVec3::new(f64::from(voxel_x), f64::from(voxel_y), f64::from(voxel_z)), length,
+			));
 		}
 	}
 
 	properties
 }
 
-fn vertical_run_mass_properties(origin: [i64; 3], count: u64) -> MassProperties {
-	let voxel_mass = u64::from(PLANET_VOXEL_MASS);
-	let mass = voxel_mass.checked_mul(count).expect("planet mass overflow");
-	let count_i128 = i128::from(count);
-	let index_sum = count
-		.checked_mul(count.checked_sub(1).expect("planet column is empty"))
-		.expect("planet coordinate sum overflow") / 2;
-	let coordinate_sums = [
-		i128::from(origin[0]).checked_mul(count_i128).expect("planet coordinate sum overflow"),
-		i128::from(origin[1]).checked_mul(count_i128).expect("planet coordinate sum overflow"),
-		i128::from(origin[2])
-			.checked_mul(count_i128)
-			.and_then(|sum| sum.checked_add(i128::from(index_sum)))
-			.expect("planet coordinate sum overflow"),
-	];
-	let first_moment = coordinate_sums.map(|sum| {
-		let weighted = sum.checked_mul(i128::from(PLANET_VOXEL_MASS)).expect("planet first moment overflow");
-		i64::try_from(weighted).expect("planet first moment overflow")
-	});
-
-	MassProperties::new(mass, first_moment, vertical_run_inertia(origin, count))
-}
-
-fn vertical_run_inertia(origin: [i64; 3], count: u64) -> DMat3 {
-	let n = count as f64;
-	let x = origin[0] as f64 + 0.5;
-	let y = origin[1] as f64 + 0.5;
-	let z = origin[2] as f64 + 0.5;
-	let index_sum = n * (n - 1.0) * 0.5;
-	let index_square_sum = n * (n - 1.0) * (2.0 * n - 1.0) / 6.0;
-	let z_sum = n * z + index_sum;
-	let z_square_sum = n * z * z + 2.0 * z * index_sum + index_square_sum;
-	let cube_center_inertia = n / 6.0;
-	let voxel_mass = f64::from(PLANET_VOXEL_MASS);
-	let xx = voxel_mass * (n * y * y + z_square_sum + cube_center_inertia);
-	let yy = voxel_mass * (n * x * x + z_square_sum + cube_center_inertia);
-	let zz = voxel_mass * (n * x * x + n * y * y + cube_center_inertia);
-
-	DMat3::from_cols_array(&[
-		xx, -voxel_mass * n * x * y, -voxel_mass * x * z_sum,
-		-voxel_mass * n * x * y, yy, -voxel_mass * y * z_sum,
-		-voxel_mass * x * z_sum, -voxel_mass * y * z_sum, zz,
-	])
-}
-
-fn checked_sum_mass_properties(a: MassProperties, b: MassProperties) -> MassProperties {
-	let mass = a.mass().checked_add(b.mass()).expect("planet mass overflow");
-	let a_first_moment = a.first_moment();
-	let b_first_moment = b.first_moment();
-	let first_moment = std::array::from_fn(|axis| {
-		a_first_moment[axis].checked_add(b_first_moment[axis]).expect("planet first moment overflow")
-	});
-	let inertia_at_origin = a.inertia_at_origin() + b.inertia_at_origin();
-	assert!(inertia_at_origin.is_finite(), "planet mass estimate has non-finite inertia");
-	MassProperties::new(mass, first_moment, inertia_at_origin)
+fn vertical_run_mass_properties(origin: DVec3, count: u64) -> MassProperties {
+	let mass = u64::from(PLANET_VOXEL_MASS).checked_mul(count).expect("planet mass overflow");
+	let length = count as f64;
+	MassProperties {
+		mass: Mass(mass),
+		center_of_mass: CenterOfMass(origin + DVec3::new(0.5, 0.5, length * 0.5)),
+		rotational_inertia: RotationalInertia(InertiaTensor::from_mat3(DMat3::from_diagonal(
+			DVec3::new(1.0 + length * length, 1.0 + length * length, 2.0) * (mass as f64 / 12.0),
+		))),
+	}
 }
 
 pub(super) fn column_shape_z_range(

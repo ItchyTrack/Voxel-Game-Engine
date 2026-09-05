@@ -85,9 +85,9 @@ fn solve_physics(
 		body.integrated_center_of_mass_transform = integrated_center_of_mass_transform.0;
 		body.velocity = velocity.0;
 		body.angular_velocity = angular_velocity.0;
-		body.mass = mass.0;
+		body.mass = mass.0 as f32;
 		body.rotational_inertia = inertia.0;
-		body.center_of_mass = com.0;
+		body.center_of_mass = com.0.as_vec3();
 		body.is_static = is_static || mass.0.is_zero();
 		solver_bodies.insert(entity, body);
 	}

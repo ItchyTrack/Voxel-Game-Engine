@@ -143,7 +143,7 @@ fn draw_inertia_boxes(
 	let color = Color::srgba(1.0, 0.2, 0.2, 0.6);
 
 	for (gt, mass, com, inertia) in bodies.iter() {
-		if mass.0 <= 0.0 { continue; }
+		if mass.0 == 0 { continue; }
 
 		let body_t = gt.compute_transform();
 		let world_inertia = inertia.0.get_rotated(body_t.rotation.as_dquat());
@@ -161,12 +161,12 @@ fn draw_inertia_boxes(
 		let v1 = Vec3::new(eigen.eigenvectors[(0, 1)], eigen.eigenvectors[(1, 1)], eigen.eigenvectors[(2, 1)]);
 		let v2 = Vec3::new(eigen.eigenvectors[(0, 2)], eigen.eigenvectors[(1, 2)], eigen.eigenvectors[(2, 2)]);
 
-		let s0 = v0.normalize_or_zero() * ((6.0 / mass.0) * (e1 + e2 - e0)).max(0.0).sqrt();
-		let s1 = v1.normalize_or_zero() * ((6.0 / mass.0) * (e0 + e2 - e1)).max(0.0).sqrt();
-		let s2 = v2.normalize_or_zero() * ((6.0 / mass.0) * (e0 + e1 - e2)).max(0.0).sqrt();
+		let s0 = v0.normalize_or_zero() * ((6.0 / mass.0 as f32) * (e1 + e2 - e0)).max(0.0).sqrt();
+		let s1 = v1.normalize_or_zero() * ((6.0 / mass.0 as f32) * (e0 + e2 - e1)).max(0.0).sqrt();
+		let s2 = v2.normalize_or_zero() * ((6.0 / mass.0 as f32) * (e0 + e1 - e2)).max(0.0).sqrt();
 
 		// Corner of the box (matches main: pos + (s0+s1+s2)/-2).
-		let world_com = body_t.transform_point(com.0);
+		let world_com = body_t.transform_point(com.0.as_vec3());
 		let origin = world_com - (s0 + s1 + s2) * 0.5;
 
 		let p000 = origin;

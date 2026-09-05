@@ -362,7 +362,7 @@ fn hold_held_body_system(
 	let Some(ray) = player_ray(&cameras) else { return };
 
 	let target = ray.origin + ray.direction * HOLD_DISTANCE;
-	let body_com_world = *transform * com.0;
+	let body_com_world = *transform * com.0.as_vec3();
 	let offset = target - body_com_world;
 	if offset.length_squared() < 1e-6 { return; }
 	let dir = offset.normalize();
@@ -370,5 +370,5 @@ fn hold_held_body_system(
 	let delta_v = dir * (offset.length() * 4.0 - velocity_in_dir * 0.5)
 		- (velocity.0 - dir * velocity_in_dir);
 	let delta_v = delta_v.clamp_length_max(MAX_GRAB_ACCEL * time.delta_secs());
-	impulses.apply_central_impulse(body_entity, mass.0 * delta_v);
+	impulses.apply_central_impulse(body_entity, mass.0 as f32 * delta_v);
 }

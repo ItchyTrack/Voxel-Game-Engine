@@ -359,7 +359,7 @@ pub fn drain_vox_file_source_mass_changes<T: VoxMaterialVoxel>(
 				let voxels = compressed.decompress().expect("cached VOX chunk failed to decompress");
 				let origin = chunk_origin(chunk) + binding.offset;
 				let Some(exact) = mass_properties_of_voxels(&mass_readers, &voxels, origin) else { continue };
-				estimate.checked_apply(exact.checked_difference(&MassProperties::ZERO));
+				estimate = estimate.checked_add(exact);
 			}
 		}
 		drop(files);

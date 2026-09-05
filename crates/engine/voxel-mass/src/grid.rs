@@ -3,24 +3,26 @@ use rustc_hash::FxHashMap;
 use voxel_data::grid::GridId;
 use voxel_sources::SourceId;
 
-use crate::{MassDelta, MassError, MassProperties};
+use crate::{MassError, MassProperties};
 
 #[derive(Clone, Copy, Debug, Message)]
 pub struct SourceMassChange {
 	source_id: SourceId,
 	grid: GridId,
-	delta: MassDelta,
+	before: MassProperties,
+	after: MassProperties,
 	new_error: MassError,
 }
 
 impl SourceMassChange {
-	pub const fn new(source_id: SourceId, grid: GridId, delta: MassDelta, new_error: MassError) -> Self {
-		Self { source_id, grid, delta, new_error }
+	pub const fn new(source_id: SourceId, grid: GridId, before: MassProperties, after: MassProperties, new_error: MassError) -> Self {
+		Self { source_id, grid, before, after, new_error }
 	}
 
 	pub const fn source_id(&self) -> SourceId { self.source_id }
 	pub const fn grid(&self) -> GridId { self.grid }
-	pub const fn delta(&self) -> MassDelta { self.delta }
+	pub const fn before(&self) -> MassProperties { self.before }
+	pub const fn after(&self) -> MassProperties { self.after }
 	pub const fn new_error(&self) -> MassError { self.new_error }
 }
 
@@ -51,8 +53,7 @@ impl GridMassProperties {
 
 	pub fn apply_batch<'a>(&mut self, changes: impl IntoIterator<Item = &'a SourceMassChange>) {
 		let changes: Vec<_> = changes.into_iter().collect();
-		let delta = MassDelta::checked_sum(changes.iter().map(|change| change.delta));
-		self.nominal.checked_apply(delta);
+		self.nominal = self.nominal.checked_replaced(changes.iter().map(|change| (change.before, change.after)));
 		for change in changes {
 			self.source_errors.insert(change.source_id, change.new_error);
 		}

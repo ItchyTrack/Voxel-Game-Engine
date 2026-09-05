@@ -29,7 +29,7 @@ pub fn edit_reservation_error(
 	new_mass: MassRange,
 	region: NonZeroVoxelRegion,
 ) -> MassError {
-	let old_mass_max = current.mass().checked_add(current_error.mass_plus()).expect("mass bound overflow");
+	let old_mass_max = current.mass.0.checked_add(current_error.mass_plus()).expect("mass bound overflow");
 	let mass_delta_min = i128::from(new_mass.min()) - i128::from(old_mass_max);
 	let mass_delta_max = i128::from(new_mass.max());
 

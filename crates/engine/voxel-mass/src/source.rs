@@ -6,31 +6,13 @@ use voxel_data::grid::GridId;
 use voxel_sources::SourceId;
 use voxel_trees::signed_grid_tree::SignedGridTree;
 
-use crate::{MarkerGridType, MassDelta, MassError, MassProperties, SourceMassChange};
-
-#[derive(Debug)]
-struct PendingChange {
-	delta: MassDelta,
-	new_error: MassError,
-}
+use crate::{MarkerGridType, MassError, MassProperties, SourceMassChange};
 
 #[derive(Debug, Default)]
 struct GridState {
 	current_error: MassError,
-	pending: Option<PendingChange>,
+	pending: Vec<(MassProperties, MassProperties)>,
 	reconciled_chunks: SignedGridTree<MarkerGridType>,
-}
-
-impl GridState {
-	fn queue(&mut self, delta: MassDelta, new_error: MassError) {
-		self.pending = Some(match self.pending.take() {
-			Some(pending) => PendingChange {
-				delta: pending.delta.checked_add(delta),
-				new_error,
-			},
-			None => PendingChange { delta, new_error },
-		});
-	}
 }
 
 #[derive(Debug, Default)]
@@ -63,10 +45,7 @@ impl SourceMassState {
 		if inner.grids.contains_key(&grid) { return false; }
 		inner.grids.insert(grid, GridState {
 			current_error: error,
-			pending: Some(PendingChange {
-				delta: MassDelta::checked_difference(estimate, MassProperties::ZERO),
-				new_error: error,
-			}),
+			pending: vec![(MassProperties::ZERO, estimate)],
 			reconciled_chunks: SignedGridTree::new(),
 		});
 		true
@@ -83,7 +62,7 @@ impl SourceMassState {
 		let state = inner.grids.get_mut(&grid).expect("mass grid was not initialized");
 		state.current_error = error;
 		state.reconciled_chunks = SignedGridTree::new();
-		state.queue(MassDelta::checked_difference(estimate, previous), error);
+		state.pending.push((previous, estimate));
 	}
 
 	pub fn current_error(&self, grid: GridId) -> Option<MassError> {
@@ -109,13 +88,8 @@ impl SourceMassState {
 		let state = inner.grids.get_mut(&grid).expect("mass grid was not initialized");
 		if state.reconciled_chunks.get(lod0_chunk).is_some() { return false; }
 
-		let mut new_error = state.current_error;
-		new_error.checked_reduce(error);
-		let delta = MassDelta::checked_difference(exact, estimate);
-		let new_pending_delta = state.pending.as_ref().map_or(delta, |pending| pending.delta.checked_add(delta));
-
-		state.current_error = new_error;
-		state.pending = Some(PendingChange { delta: new_pending_delta, new_error });
+		state.current_error.checked_reduce(error);
+		state.pending.push((estimate, exact));
 		state.reconciled_chunks.insert(lod0_chunk, ());
 		true
 	}
@@ -124,21 +98,11 @@ impl SourceMassState {
 	pub fn reserve_edit_error(&self, grid: GridId, error: MassError) {
 		let mut inner = self.inner.lock().expect("source mass state lock poisoned");
 		let state = inner.grids.get_mut(&grid).expect("mass grid was not initialized");
-		let new_error = state.current_error.checked_expanded(error);
-		state.current_error = new_error;
-		state.queue(MassDelta::ZERO, new_error);
+		state.current_error.checked_expand(error);
+		state.pending.push((MassProperties::ZERO, MassProperties::ZERO));
 	}
 
-	/// Applies an exact edit delta and removes its earlier error reservation.
-	pub fn apply_exact_edit_delta(&self, grid: GridId, delta: MassDelta, reserved_error: MassError) {
-		let mut inner = self.inner.lock().expect("source mass state lock poisoned");
-		let state = inner.grids.get_mut(&grid).expect("mass grid was not initialized");
-		let new_error = state.current_error.checked_reduced(reserved_error);
-		let new_pending_delta = state.pending.as_ref().map_or(delta, |pending| pending.delta.checked_add(delta));
-		state.current_error = new_error;
-		state.pending = Some(PendingChange { delta: new_pending_delta, new_error });
-	}
-
+	/// Replaces an edit's old properties and removes its earlier error reservation.
 	pub fn apply_exact_edit(
 		&self,
 		grid: GridId,
@@ -146,7 +110,10 @@ impl SourceMassState {
 		after: MassProperties,
 		reserved_error: MassError,
 	) {
-		self.apply_exact_edit_delta(grid, MassDelta::checked_difference(after, before), reserved_error);
+		let mut inner = self.inner.lock().expect("source mass state lock poisoned");
+		let state = inner.grids.get_mut(&grid).expect("mass grid was not initialized");
+		state.current_error.checked_reduce(reserved_error);
+		state.pending.push((before, after));
 	}
 
 	/// Changes source uncertainty without changing reconciliation markers.
@@ -156,15 +123,16 @@ impl SourceMassState {
 
 	/// Changes source uncertainty without changing reconciliation markers.
 	pub fn reduce_grid_error(&self, grid: GridId, error: MassError) {
-		self.apply_exact_edit_delta(grid, MassDelta::ZERO, error);
+		self.apply_exact_edit(grid, MassProperties::ZERO, MassProperties::ZERO, error);
 	}
 
 	pub fn drain_changes(&self) -> Vec<SourceMassChange> {
 		let mut inner = self.inner.lock().expect("source mass state lock poisoned");
 		let source_id = inner.source_id.expect("source mass state was not initialized");
-		inner.grids.iter_mut().filter_map(|(grid, state)| {
-			let pending = state.pending.take()?;
-			Some(SourceMassChange::new(source_id, *grid, pending.delta, pending.new_error))
+		inner.grids.iter_mut().flat_map(|(&grid, state)| {
+			let error = state.current_error;
+			std::mem::take(&mut state.pending).into_iter()
+				.map(move |(before, after)| SourceMassChange::new(source_id, grid, before, after, error))
 		}).collect()
 	}
 

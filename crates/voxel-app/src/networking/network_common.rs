@@ -13,7 +13,7 @@ pub struct NetworkBody;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NetworkGrid;
 
-pub const PROTOCOL_ID: u64 = 0x564F_5845_4C4D_4153;
+pub const PROTOCOL_ID: u64 = 0x564F_5845_4C4D_4154;
 pub const PRIVATE_KEY: [u8; 32] = [7; 32];
 pub const SERVER_ADDR: &str = "127.0.0.1:5000";
 pub const CLIENT_ADDR: &str = "127.0.0.1:0";
