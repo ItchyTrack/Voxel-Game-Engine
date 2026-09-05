@@ -1,11 +1,12 @@
-use bevy::prelude::{Commands, Component, Entity, Message, MessageReader, Query};
+use bevy::prelude::Component;
 use rustc_hash::FxHashMap;
 use voxel_data::grid::GridId;
 use voxel_sources::SourceId;
 
 use crate::{MassError, MassProperties};
 
-#[derive(Clone, Copy, Debug, Message)]
+/// A source-local mass replacement returned directly to its registered system.
+#[derive(Clone, Copy, Debug)]
 pub struct SourceMassChange {
 	source_id: SourceId,
 	grid: GridId,
@@ -58,25 +59,5 @@ impl GridMassProperties {
 			self.source_errors.insert(change.source_id, change.new_error);
 		}
 		self.initialized = true;
-	}
-}
-
-pub fn apply_source_mass_changes(
-	mut commands: Commands,
-	mut changes: MessageReader<SourceMassChange>,
-	mut grids: Query<&mut GridMassProperties>,
-) {
-	let mut by_grid = FxHashMap::<Entity, Vec<SourceMassChange>>::default();
-	for change in changes.read() {
-		by_grid.entry(change.grid).or_default().push(*change);
-	}
-	for (grid, changes) in by_grid {
-		if let Ok(mut properties) = grids.get_mut(grid) {
-			properties.apply_batch(&changes);
-		} else {
-			let mut properties = GridMassProperties::default();
-			properties.apply_batch(&changes);
-			commands.entity(grid).insert(properties);
-		}
 	}
 }

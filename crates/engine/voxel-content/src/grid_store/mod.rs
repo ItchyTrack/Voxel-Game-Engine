@@ -5,11 +5,11 @@ mod voxel_store_source;
 pub use edit_api::GridStoreEditApi;
 pub use grid_store::GridStore;
 pub use voxel_store_source::{
-	VoxelStoreSource, complete_voxel_store_acquisitions, drain_voxel_store_mass_changes,
+	VoxelStoreSource, complete_voxel_store_acquisitions,
 };
 
 use bevy::prelude::*;
-use voxel_mass::{VoxelMassReaders, VoxelMassSet};
+use voxel_mass::{SourceMassPlugin, VoxelMassReaders};
 use voxel_sources::VoxelSourcesAppExt;
 
 #[derive(Default)]
@@ -20,9 +20,6 @@ impl Plugin for VoxelStoreSourcePlugin {
 		let mass_readers = app.world().resource::<VoxelMassReaders>().clone();
 		app.register_voxel_source(VoxelStoreSource::new(mass_readers))
 			.add_systems(PreUpdate, complete_voxel_store_acquisitions)
-			.add_systems(
-				FixedUpdate,
-				drain_voxel_store_mass_changes.in_set(VoxelMassSet::SourceDrain),
-			);
+			.add_plugins(SourceMassPlugin::<VoxelStoreSource>::default());
 	}
 }

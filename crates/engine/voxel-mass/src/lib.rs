@@ -10,11 +10,11 @@ mod voxel;
 
 pub use components::{BodyMassInitialized, CenterOfMass, Mass, RotationalInertia, VoxelMass};
 pub use edit::{GridEditMassAppExt, GridEditMassReaders, MassRange, edit_reservation_error};
-pub use grid::{GridMassProperties, SourceMassChange, apply_source_mass_changes};
+pub use grid::{GridMassProperties, SourceMassChange};
 pub use inertia_tensor::InertiaTensor;
 pub use marker::MarkerGridType;
 pub use properties::{BodyMassError, MassError, MassProperties};
-pub use source::SourceMassState;
+pub use source::{SourceMass, SourceMassPlugin, apply_source_mass_changes};
 pub use voxel::{VoxelMassAppExt, VoxelMassReaders, VoxelMassValue, mass_properties_of_voxels};
 
 use bevy::prelude::*;
@@ -22,7 +22,6 @@ use voxel_data::{body::Body, grid::Grid};
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VoxelMassSet {
-	SourceDrain,
 	ApplySourceChanges,
 	BodyAggregation,
 }
@@ -53,12 +52,10 @@ impl Plugin for VoxelMassPlugin {
 			.register_required_components::<Grid, GridMassProperties>()
 			.init_resource::<VoxelMassReaders>()
 			.init_resource::<GridEditMassReaders>()
-			.add_message::<SourceMassChange>()
 			.configure_sets(
 				FixedUpdate,
-				(VoxelMassSet::SourceDrain, VoxelMassSet::ApplySourceChanges, VoxelMassSet::BodyAggregation).chain(),
+				(VoxelMassSet::ApplySourceChanges, VoxelMassSet::BodyAggregation).chain(),
 			)
-			.add_systems(FixedUpdate, apply_source_mass_changes.in_set(VoxelMassSet::ApplySourceChanges))
 			.add_systems(FixedUpdate, body::aggregate_body_mass_properties.in_set(VoxelMassSet::BodyAggregation));
 	}
 }
