@@ -1,12 +1,16 @@
+mod components;
 mod edit;
 mod grid;
+mod inertia_tensor;
 mod marker;
 mod properties;
 mod source;
 mod voxel;
 
+pub use components::{CenterOfMass, Mass, RotationalInertia, VoxelMass};
 pub use edit::{GridEditMassAppExt, GridEditMassReaders, MassRange, edit_reservation_error};
 pub use grid::{GridMassProperties, SourceMassChange, apply_source_mass_changes};
+pub use inertia_tensor::InertiaTensor;
 pub use marker::MarkerGridType;
 pub use properties::{AddRemove, BodyMassError, MassDelta, MassError, MassProperties};
 pub use source::SourceMassState;

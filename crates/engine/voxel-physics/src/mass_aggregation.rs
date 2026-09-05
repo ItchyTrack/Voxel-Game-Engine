@@ -1,7 +1,7 @@
 use bevy::{math::{DMat3, DVec3}, prelude::*};
-use voxel_mass::{BodyMassError, GridMassProperties, MassError, MassProperties, VoxelMassAuthority};
+use voxel_mass::{BodyMassError, CenterOfMass, GridMassProperties, InertiaTensor, Mass, MassError, MassProperties, RotationalInertia, VoxelMass, VoxelMassAuthority};
 
-use crate::{CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, components::VoxelMass, inertia_tensor::InertiaTensor};
+use crate::{IsStatic, RigidBody};
 
 pub fn aggregate_body_mass_properties(
 	authority: Res<VoxelMassAuthority>,

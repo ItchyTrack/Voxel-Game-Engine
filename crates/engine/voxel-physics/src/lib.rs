@@ -5,7 +5,6 @@ mod narrowphase;
 pub mod collision;
 pub mod components;
 pub mod constraints;
-pub mod inertia_tensor;
 pub mod integration;
 pub mod math;
 mod mass_aggregation;
@@ -16,9 +15,8 @@ pub mod transform_ext;
 use bevy::prelude::*;
 
 pub use collision::{Collision, Collisions, CubeFeature, HalfCollision, PhysicsConsumer};
-pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+pub use components::{AngularVelocity, IsStatic, RigidBody, Velocity};
 pub use constraints::BallJoint;
-pub use inertia_tensor::InertiaTensor;
 pub use integration::PhysicsIntegratedCenterOfMassTransform;
 pub use solving::{Accelerations, Impulses};
 pub use voxel_data::grid::GridId;

@@ -4,9 +4,8 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use camera_voxel_loader::{CameraVoxelLoader, CoverageDebugState, FreezeCameraVoxelLoader};
 use voxel_tasks::AsyncPriorityTaskPool;
-use voxel_physics::{
-	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
-};
+use voxel_mass::{CenterOfMass, Mass, RotationalInertia};
+use voxel_physics::{BallJoint, FreezePhysics, IsStatic, RigidBody};
 use crate::voxel::rendering::VoxelRenderMode;
 use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::GraphicsSettings};
 use voxel_raster_renderer::gpu_data::RasterWorldGpuData;

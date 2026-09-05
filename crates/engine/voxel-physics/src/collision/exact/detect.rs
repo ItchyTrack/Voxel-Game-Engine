@@ -5,9 +5,10 @@ use num::Zero;
 use voxel_data::bvh::BVH;
 use voxel_data::grid::Grid;
 use voxel_data::subgrid::{SubGrid, SubGridId};
+use voxel_mass::Mass;
 
 use crate::collision::{Collisions};
-use crate::components::{IsStatic, Mass, RigidBody, VoxelCollider};
+use crate::components::{IsStatic, RigidBody, VoxelCollider};
 use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
 

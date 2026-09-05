@@ -1,16 +1,12 @@
-use bevy::math::{DMat3, DQuat};
 use bevy::prelude::*;
 
 pub mod components {
 	use bevy::prelude::*;
 
-	use super::InertiaTensor;
+	use voxel_mass::{CenterOfMass, Mass, RotationalInertia};
 
 	#[derive(Component, Default, Debug, Clone, Copy)]
 	pub struct VoxelCollider;
-
-	#[derive(Component, Default, Debug, Clone, Copy)]
-	pub struct VoxelMass;
 
 	#[derive(Component, Default, Debug, Clone, Copy)]
 	#[require(Transform, Velocity, AngularVelocity, Mass, RotationalInertia, CenterOfMass)]
@@ -23,34 +19,12 @@ pub mod components {
 	pub struct AngularVelocity(pub Vec3);
 
 	#[derive(Component, Default, Debug, Clone, Copy)]
-	pub struct Mass(pub f32);
-
-	#[derive(Component, Default, Debug, Clone, Copy)]
-	pub struct RotationalInertia(pub InertiaTensor);
-
-	#[derive(Component, Default, Debug, Clone, Copy)]
-	pub struct CenterOfMass(pub Vec3);
-
-	#[derive(Component, Default, Debug, Clone, Copy)]
 	pub struct IsStatic;
 }
 
-pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+pub use components::{AngularVelocity, IsStatic, RigidBody, Velocity};
 
 pub type PhysicsBodyId = Entity;
-
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
-pub struct InertiaTensor {
-	pub mat: DMat3,
-}
-
-impl InertiaTensor {
-	pub const ZERO: Self = Self { mat: DMat3::ZERO };
-
-	pub fn get_rotated(&self, rotation: DQuat) -> Self {
-		Self { mat: DMat3::from_quat(rotation) * self.mat * DMat3::from_quat(rotation.inverse()) }
-	}
-}
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BallJoint {

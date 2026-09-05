@@ -14,7 +14,8 @@ use voxel_data::grid::{Grid, GridId};
 use voxel_data::voxels::{Voxel, VoxelType};
 use voxel_query::{OccupancyTileClass, VoxelWorldQueryParam};
 use voxel_sources::edit::{AddArea, RemoveArea};
-use voxel_physics::{CenterOfMass, FreezePhysics, Impulses, IsStatic, Mass, Velocity, VoxelPhysicsAppExt};
+use voxel_mass::{CenterOfMass, Mass};
+use voxel_physics::{FreezePhysics, Impulses, IsStatic, Velocity, VoxelPhysicsAppExt};
 use voxel_streaming::{GridStreaming, TileRequester};
 
 use crate::audio::plugin::PlaySfx;

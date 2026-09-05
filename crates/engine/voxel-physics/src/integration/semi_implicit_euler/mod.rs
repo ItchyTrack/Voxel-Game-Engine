@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use voxel_data::grid::Grid;
+use voxel_mass::{CenterOfMass, Mass, RotationalInertia};
 
-use crate::components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
+use crate::components::{AngularVelocity, IsStatic, RigidBody, Velocity};
 use crate::solving::{Accelerations, Impulse, Impulses};
 use crate::VoxelPhysicsAppExt;
 

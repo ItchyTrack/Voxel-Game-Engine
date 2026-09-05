@@ -12,11 +12,11 @@ use voxel_content::{
 };
 use voxel_data::grid::Grid;
 use voxel_data::voxels::VoxelType;
-use voxel_physics::components::{VoxelCollider, VoxelMass};
+use voxel_physics::components::VoxelCollider;
 use voxel_lightyear::ReplicateVoxels;
-use voxel_mass::VoxelMassSet;
+use voxel_mass::{RotationalInertia, VoxelMass, VoxelMassSet};
 use voxel_physics::{
-	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, RotationalInertia, VoxelPhysicsAppExt
+	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, VoxelPhysicsAppExt
 };
 use voxel_sources::{SourceManager, VoxelSourcesAppExt};
 use voxel_streaming::{GridStreaming, RequestChunkPresence};

@@ -4,8 +4,8 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_mass::BodyMassError;
-use voxel_physics::{CenterOfMass, IsStatic, Mass, RotationalInertia, components::VoxelCollider};
+use voxel_mass::{BodyMassError, CenterOfMass, Mass, RotationalInertia};
+use voxel_physics::{IsStatic, components::VoxelCollider};
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NetworkBody;
