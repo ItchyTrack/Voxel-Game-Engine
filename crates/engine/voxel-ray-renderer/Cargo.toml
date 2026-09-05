@@ -1,0 +1,36 @@
+[package]
+name = "voxel-ray-renderer"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+gpu_profiling = []
+shader_hot_reload = ["bevy/embedded_watcher"]
+
+[dependencies]
+bevy = { workspace = true }
+crossbeam-channel = { workspace = true }
+rustc-hash = { workspace = true }
+log = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+bitflags = { workspace = true }
+tracy-client = { workspace = true }
+anyhow = "1.0"
+voxel-trees = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-gpu = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console"] }
+getrandom = { workspace = true }
+getrandom_0_3 = { workspace = true }
+wgpu = { workspace = true, features = ["webgpu"] }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lints]
+workspace = true

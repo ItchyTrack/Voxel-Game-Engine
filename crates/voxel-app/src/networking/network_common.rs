@@ -4,6 +4,8 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 use voxel_lightyear::ReplicateVoxels;
+use voxel_mass::{BodyMassError, BodyMassInitialized, CenterOfMass, Mass, RotationalInertia};
+use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NetworkBody;
@@ -11,7 +13,7 @@ pub struct NetworkBody;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NetworkGrid;
 
-pub const PROTOCOL_ID: u64 = 0x564F_5845_4C47_414D;
+pub const PROTOCOL_ID: u64 = 0x564F_5845_4C4D_4155;
 pub const PRIVATE_KEY: [u8; 32] = [7; 32];
 pub const SERVER_ADDR: &str = "127.0.0.1:5000";
 pub const CLIENT_ADDR: &str = "127.0.0.1:0";
@@ -44,6 +46,14 @@ impl Plugin for NetworkProtocolPlugin {
 		app.component::<NetworkGrid>().replicate();
 		app.component::<NetworkTransform>().replicate();
 		app.component::<ReplicateVoxels>().replicate();
+		app.component::<Mass>().replicate();
+		app.component::<CenterOfMass>().replicate();
+		app.component::<RotationalInertia>().replicate();
+		app.component::<BodyMassError>().replicate();
+		app.component::<IsStatic>().replicate();
+		app.component::<VoxelCollider>().replicate();
+		app.component::<BodyMassInitialized>().replicate();
+		app.component::<RigidBody>().replicate();
 	}
 }
 

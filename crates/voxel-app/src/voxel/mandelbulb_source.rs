@@ -2,9 +2,10 @@ use bevy::math::Vec3;
 use bevy::prelude::*;
 
 use voxel_data::grid::Grid;
-use voxel_data::sdf::Sdf;
+use voxel_trees::sdf::Sdf;
 use voxel_data::voxels::{VoxelRef, VoxelType};
-use voxel_edit::GridEdits;
+use voxel_sources::SourceManager;
+use voxel_sources::edit::GridEditIdManager;
 use voxel_lightyear::ReplicateVoxels;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
@@ -96,18 +97,18 @@ impl VoxelSdf for MandelbulbSdf {
 	}
 }
 
-pub fn spawn_mandelbulb_grid(mut commands: Commands, source: Res<SdfSource>) {
+pub fn spawn_mandelbulb_grid(mut commands: Commands, mut source: ResMut<SourceManager>) {
 	let entity = commands
 		.spawn((
 			Transform::from_translation(Vec3::new(0.0, 0.0, -1000.0)),
 			Grid::new::<BasicVoxel>(),
-			GridEdits::default(),
+			GridEditIdManager::default(),
 			GridStreaming::default(),
 			RequestChunkPresence,
 			ReplicateVoxels,
 		))
 		.id();
-	source.set_grid_sdf_with_options(entity, MandelbulbSdf::default(), SdfSourceOptions {
+	source.get_source_mut::<SdfSource>().unwrap().set_grid_sdf_with_options(entity, MandelbulbSdf::default(), SdfSourceOptions {
 		cost: COST,
 		sample_radius_scale: 1.0,
 	});

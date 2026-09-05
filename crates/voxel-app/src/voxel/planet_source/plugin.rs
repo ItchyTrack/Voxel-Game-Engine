@@ -3,17 +3,18 @@ use std::sync::{Arc, OnceLock};
 
 use bevy::prelude::*;
 use basic_voxel::{BasicVoxel, LodVoxel};
-use tracy_client::span;
-use voxel_data::{grid::{Grid, GridId}, voxels::{VoxelType, VoxelTypeId}};
-use voxel_edit::GridEdits;
+use tile_data::NonZeroChunkRegion;
+use voxel_data::voxels::VoxelType;
+use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{CancellationToken, ChunkSource, LendResult, LentChunks, SourceHandle, VoxelSourcesAppExt};
-use voxel_streaming::{ForgottenChunks, GridStreaming};
+use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, SourceMassAppExt, VoxelMass, VoxelMassReaders};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
+use voxel_streaming::GridStreaming;
+use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
-use super::config::PLANET_COST;
-use super::generation::{build_planet_chunk, build_planet_lod_region};
-use super::tiles::{planet_tiles, tile_has_any_chunk_in_region, tile_has_chunk};
+use super::generation::{build_planet_region, planet_mass_properties, planet_voxel_unchecked, planet_lod_voxel_unchecked};
+use super::tiles::{planet_tiles, tile_has_chunk};
 
 pub struct ProceduralPlanetPlugin;
 
@@ -25,21 +26,24 @@ impl Plugin for ProceduralPlanetPlugin {
 			grids: grids.clone(),
 			handle: OnceLock::new(),
 			forgotten: ForgottenChunks::default(),
-			lent: LentChunks::default(),
+			mass_initialized: false,
 		})
-		.insert_resource(PlanetGridMap(grids))
-		.add_systems(Startup, spawn_planet);
+		.insert_resource(PlanetGridMap { grids })
+		.add_systems(Startup, spawn_planet)
+		.register_source_mass::<ProceduralPlanetSource>();
 	}
 }
 
 #[derive(Resource, Clone)]
-struct PlanetGridMap(Arc<OnceLock<HashMap<GridId, usize>>>);
+struct PlanetGridMap {
+	grids: Arc<OnceLock<HashMap<GridId, usize>>>,
+}
 
 struct ProceduralPlanetSource {
 	grids: Arc<OnceLock<HashMap<GridId, usize>>>,
 	handle: OnceLock<SourceHandle>,
 	forgotten: ForgottenChunks,
-	lent: LentChunks,
+	mass_initialized: bool,
 }
 
 impl ProceduralPlanetSource {
@@ -49,102 +53,97 @@ impl ProceduralPlanetSource {
 }
 
 impl ChunkSource for ProceduralPlanetSource {
-	fn init(&self, handle: SourceHandle) {
+	fn init(&mut self, handle: SourceHandle) {
 		let _ = self.handle.set(handle);
 	}
 
-	fn request_available_area(&self, grid: GridId) {
-		if let Some(handle) = self.handle.get() {
-			handle.presence_loaded(grid);
+	fn request_voxels(
+		&mut self,
+		request_id: RequestId,
+		cancellation: &CancellationToken,
+		grid: GridId,
+		region: NonZeroChunkRegion,
+		lod: u8,
+		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
+	) -> SourceCoverage {
+		if cancellation.is_cancelled() { return SourceCoverage::None; }
+		let Some(tile_index) = self.tile_index(grid) else { return SourceCoverage::None };
+		let Some(tile) = planet_tiles().get(tile_index) else { return SourceCoverage::None };
+
+		let mut owned_chunks = Vec::new();
+		for z in region.min().z..region.end().z {
+			for y in region.min().y..region.end().y {
+				for x in region.min().x..region.end().x {
+					let chunk = IVec3::new(x, y, z);
+					if tile_has_chunk(tile, chunk) && !self.forgotten.contains(grid, chunk) {
+						owned_chunks.push(chunk);
+					}
+				}
+			}
 		}
-	}
+		let coverage = if owned_chunks.is_empty() {
+			return SourceCoverage::None;
+		} else if owned_chunks.len() == region.area() as usize {
+			SourceCoverage::All
+		} else {
+			SourceCoverage::Some
+		};
 
-	fn cost(&self, grid_id: GridId, chunk: IVec3) -> Option<u32> {
-		if self.forgotten.contains(grid_id, chunk) || self.lent.contains(grid_id, chunk) { return None; }
-		let tile = planet_tiles().get(self.tile_index(grid_id)?)?;
-		tile_has_chunk(tile, chunk).then_some(PLANET_COST)
-	}
+		let use_basic_voxel = match voxel_type {
+			Some(id) if id == BasicVoxel::TYPE_INFO.id && lod == 0 => true,
+			Some(id) if id == LodVoxel::TYPE_INFO.id => false,
+			_ => lod == 0,
+		};
 
-	fn request_load(&self, grid_id: GridId, chunk: IVec3, edit_index: u64, cancellation: CancellationToken) -> bool {
-		if cancellation.is_cancelled() || self.forgotten.contains(grid_id, chunk) || self.lent.contains(grid_id, chunk) { return false; }
-		let _zone = span!("planet source request_load chunk");
-		let voxels = (!self.forgotten.contains(grid_id, chunk) && !self.lent.contains(grid_id, chunk))
-			.then(|| {
-				self.tile_index(grid_id)
-					.and_then(|tile_index| build_planet_chunk(tile_index, chunk, &cancellation))
-			})
-			.flatten();
-		if cancellation.is_cancelled() { return false; }
-		if let Some(handle) = self.handle.get() {
-			let _zone = span!("planet source publish chunk");
-			handle.loaded(grid_id, chunk, edit_index, voxels);
-		}
-		true
-	}
-
-	fn cost_voxels(&self, grid_id: GridId, min: IVec3, size: IVec3, _lod: f32, voxel_type: VoxelTypeId) -> Option<u32> {
-		if !self.forgotten.any_remembered_in(grid_id, min, size) || !self.lent.any_available_in(grid_id, min, size) { return None; }
-		let tile = planet_tiles().get(self.tile_index(grid_id)?)?;
-		assert_eq!(voxel_type, LodVoxel::TYPE_INFO.id, "planet source does not support requested voxel type");
-		tile_has_any_chunk_in_region(tile, min, size).then_some(PLANET_COST)
-	}
-
-	fn request_voxel_area(
-		&self,
-		grid_id: GridId,
-		min: IVec3,
-		size: IVec3,
-		lod: f32,
-		voxel_type: VoxelTypeId,
-		edit_index: u64,
-		cancellation: CancellationToken,
-	) -> bool {
-		if cancellation.is_cancelled() || !self.lent.any_available_in(grid_id, min, size) { return false; }
-		let _zone = span!("planet source request_voxel_area");
-		tracy_client::plot!("planet lod level", lod as f64);
-		let voxels = self.tile_index(grid_id).and_then(|tile_index| {
-			let step = 1i32 << lod.max(0.0).floor() as u32;
-			let extent = IVec3::splat(tile_data::CHUNK_SIZE / step);
-			let mut out: Option<voxel_data::voxels::Voxels> = None;
-			for z in 0..size.z { for y in 0..size.y { for x in 0..size.x {
-				let offset = IVec3::new(x, y, z);
-				let chunk = min + offset;
-				if self.forgotten.contains(grid_id, chunk) || self.lent.contains(grid_id, chunk) { continue; }
-				let Some(voxels) = build_planet_lod_region(tile_index, chunk, IVec3::ONE, lod, &cancellation) else { continue };
-				out.get_or_insert_with(|| voxel_data::voxels::Voxels::new_with_type(voxels.voxel_type_info())).merge_from(&voxels, offset * extent);
-			}}}
-			out
+		let handle = self.handle.get().expect("planet source was not initialized").clone();
+		let cancellation = cancellation.clone();
+		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+			let _span = bevy::log::info_span!("PlanetSource build").entered();
+			let voxels = if use_basic_voxel {
+				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_voxel_unchecked)
+			} else {
+				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_lod_voxel_unchecked)
+			};
+			if !cancellation.is_cancelled() && let Some(voxels) = voxels {
+				handle.voxels(request_id, grid, region, lod, generation, voxels);
+			}
+			handle.voxels_loaded(request_id, generation);
 		});
-		if cancellation.is_cancelled() { return false; }
-		if let Some(handle) = self.handle.get() {
-			let _zone = span!("planet source publish lod");
-			handle.voxels_loaded(grid_id, min, size, lod, voxel_type, edit_index, voxels);
-		}
-		true
+		coverage
 	}
 
-	fn lend(&self, grid_id: GridId, chunk: IVec3, cancellation: CancellationToken) -> LendResult {
-		if self.forgotten.contains(grid_id, chunk) || !self.lent.begin(grid_id, chunk) { return LendResult::Unavailable; }
-		let voxels = self.tile_index(grid_id).and_then(|tile_index| build_planet_chunk(tile_index, chunk, &cancellation));
-		if cancellation.is_cancelled() {
-			self.lent.end(grid_id, chunk);
-			return LendResult::Unavailable;
+	fn request_presence(&mut self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
+		let handle = self.handle.get().expect("planet source was not initialized");
+		if let Some(tile_index) = self.tile_index(grid)
+			&& let Some(tile) = planet_tiles().get(tile_index) {
+			for &chunk in &tile.present_chunks {
+				handle.presence(request_id, grid, NonZeroChunkRegion::from_single(chunk));
+			}
 		}
-		LendResult::Borrowed(voxels)
+		handle.presence_loaded(request_id);
 	}
 
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+		let Some(tile_index) = self.tile_index(grid) else { return };
+		if planet_tiles().get(tile_index).is_none() { return; }
+		self.forgotten.remember_area(grid, region);
+	}
 
-	fn return_area(&self, grid_id: GridId, min: IVec3, size: IVec3) { self.lent.end_area(grid_id, min, size); }
-
-	fn forget(&self, grid_id: GridId, chunk: IVec3) {
-		self.forgotten.forget(grid_id, chunk);
-		self.lent.end(grid_id, chunk);
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+		let Some(tile_index) = self.tile_index(grid) else { return };
+		if planet_tiles().get(tile_index).is_none() { return; }
+		self.forgotten.forget_area(grid, region);
 	}
 }
 
 fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 	let parent = commands
-		.spawn((RigidBody, IsStatic, Transform::from_xyz(0.0, 0.0, -2000.0)))
+		.spawn((
+			RigidBody,
+			IsStatic,
+			Transform::from_xyz(0.0, 0.0, -2000.0)
+		))
 		.id();
 
 	let mut grid_map = HashMap::with_capacity(planet_tiles().len());
@@ -152,7 +151,7 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 	for tile in planet_tiles() {
 		let mut streaming = GridStreaming::default();
 		for &chunk in &tile.present_chunks {
-			streaming.mark_present(chunk);
+			streaming.mark_present_area(NonZeroChunkRegion::from_single(chunk));
 		}
 
 		let rotation = Quat::from_mat3(&Mat3::from_cols(tile.axis_x, tile.axis_y, tile.normal));
@@ -167,7 +166,8 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 				transform,
 				Grid::new::<BasicVoxel>(),
 				VoxelCollider,
-				GridEdits::default(),
+				VoxelMass,
+				GridEditIdManager::default(),
 				ReplicateVoxels,
 				streaming,
 			))
@@ -176,5 +176,18 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 		commands.entity(parent).add_child(grid_entity);
 	}
 
-	let _ = grids.0.set(grid_map);
+	let _ = grids.grids.set(grid_map);
+}
+
+impl SourceMass for ProceduralPlanetSource {
+	fn take_mass_changes(&mut self, _readers: &VoxelMassReaders) -> Vec<SourceMassChange> {
+		if self.mass_initialized { return Vec::new(); }
+		let Some(grids) = self.grids.get() else { return Vec::new() };
+		let source_id = self.handle.get().expect("planet source was not initialized").id();
+		let changes = grids.iter().map(|(&grid, &tile)| {
+			SourceMassChange::new(source_id, grid, MassProperties::ZERO, planet_mass_properties(&planet_tiles()[tile]), MassError::ZERO)
+		}).collect();
+		self.mass_initialized = true;
+		changes
+	}
 }

@@ -1,0 +1,112 @@
+use std::any::Any;
+
+use crossbeam_channel::Sender;
+use tile_data::NonZeroChunkRegion;
+use voxel_data::grid::GridId;
+use voxel_data::voxels::{VoxelTypeId, Voxels};
+use voxel_tasks::CancellationToken;
+
+use crate::SourceResult;
+use crate::edit::GridGeneration;
+use crate::request::{RequestId, SourceResultData};
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct SourceId(pub usize);
+
+#[derive(Clone)]
+pub struct SourceHandle {
+	pub(super) id: SourceId,
+	pub(super) messages: Sender<SourceResult>,
+}
+
+impl SourceHandle {
+	pub fn id(&self) -> SourceId { self.id }
+
+	pub fn voxels(
+		&self,
+		request_id: RequestId,
+		grid: GridId,
+		region: NonZeroChunkRegion,
+		lod: u8,
+		generation: GridGeneration,
+		voxels: Voxels,
+	) {
+		let _ = self.messages.send(SourceResult {
+			request_id,
+			data: SourceResultData::Voxels {
+				grid,
+				region,
+				lod,
+				generation,
+				voxels,
+			},
+		});
+	}
+
+	pub fn voxels_loaded(&self, request_id: RequestId, generation: GridGeneration) {
+		let _ = self.messages.send(SourceResult {
+			request_id,
+			data: SourceResultData::VoxelsLoaded { generation },
+		});
+	}
+
+	pub fn presence(&self, request_id: RequestId, grid: GridId, region: NonZeroChunkRegion) {
+		let _ = self.messages.send(SourceResult {
+			request_id,
+			data: SourceResultData::Presence{ grid, region },
+		});
+	}
+
+	pub fn presence_loaded(&self, request_id: RequestId) {
+		let _ = self.messages.send(SourceResult {
+			request_id,
+			data: SourceResultData::PresenceLoaded,
+		});
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceCoverage {
+	/// The source owns none of the region.
+	None,
+	/// The source may own part of the region.
+	Some,
+	/// The source owns the entire region.
+	All,
+}
+
+pub trait ChunkSource: Send + Sync + SourceToAny {
+	fn init(&mut self, handle: SourceHandle);
+
+	fn request_voxels(
+		&mut self,
+		request_id: RequestId,
+		cancellation: &CancellationToken,
+		grid: GridId,
+		region: NonZeroChunkRegion,
+		lod: u8,
+		voxel_type: Option<VoxelTypeId>,
+		generation: GridGeneration,
+	) -> SourceCoverage;
+
+	fn request_presence(
+		&mut self,
+		request_id: RequestId,
+		cancellation: CancellationToken,
+		grid: GridId,
+	);
+
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion);
+
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion);
+}
+
+pub trait SourceToAny: 'static {
+	fn as_any(&self) -> &dyn Any;
+	fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: 'static> SourceToAny for T {
+	fn as_any(&self) -> &dyn Any { self }
+	fn as_any_mut (&mut self) -> &mut dyn Any { self }
+}

@@ -1,0 +1,32 @@
+[package]
+name = "voxel-streaming"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+tracy = ["tracy-client/enable"]
+
+[dependencies]
+bevy = { workspace = true }
+bevy_ecs = { workspace = true }
+crossbeam-channel = { workspace = true }
+rustc-hash = { workspace = true }
+tracy-client = { workspace = true }
+futures = { workspace = true }
+voxel-trees = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-sources = { workspace = true }
+voxel-tasks = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console"] }
+getrandom = { workspace = true }
+getrandom_0_3 = { workspace = true }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lints]
+workspace = true

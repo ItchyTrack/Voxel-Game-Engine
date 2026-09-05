@@ -3,16 +3,15 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use camera_voxel_loader::{CameraVoxelLoader, CoverageDebugState, FreezeCameraVoxelLoader};
-use voxel_tasks::AsyncTaskPriorityQueueResource;
-use voxel_physics::{
-	BallJoint, CenterOfMass, FreezePhysics, IsStatic, Mass, RigidBody, RotationalInertia,
-};
+use voxel_tasks::AsyncPriorityTaskPool;
+use voxel_mass::{CenterOfMass, Mass, RotationalInertia};
+use voxel_physics::{BallJoint, FreezePhysics, IsStatic, RigidBody};
 use crate::voxel::rendering::VoxelRenderMode;
 use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::GraphicsSettings};
 use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
 use tile_data::CHUNK_SIZE;
-use voxel_streaming::{ChunkState, GridStreaming};
+use voxel_streaming::GridStreaming;
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
@@ -71,7 +70,6 @@ fn debug_window(
 	mut chunk_presence_boxes: ResMut<ChunkPresenceBoxes>,
 	mut coverage_boxes: ResMut<CoverageBoxes>,
 	mut voxel_render_mode: ResMut<VoxelRenderMode>,
-	async_task_priority_queue: Res<AsyncTaskPriorityQueueResource>,
 ) -> Result {
 	let ctx = contexts.ctx_mut()?;
 
@@ -92,7 +90,7 @@ fn debug_window(
 		.map(|s| (s.bvh_bytes / 1000, s.bvh_leaf_bytes / 1000))
 		.unwrap_or((0, 0));
 
-	let async_queue_len = async_task_priority_queue.len();
+	let async_queue_len = AsyncPriorityTaskPool::get().len();
 	let mut render_mode = *voxel_render_mode;
 
 	egui::Window::new("Debug")
@@ -145,7 +143,7 @@ fn draw_inertia_boxes(
 	let color = Color::srgba(1.0, 0.2, 0.2, 0.6);
 
 	for (gt, mass, com, inertia) in bodies.iter() {
-		if mass.0 <= 0.0 { continue; }
+		if mass.0 == 0 { continue; }
 
 		let body_t = gt.compute_transform();
 		let world_inertia = inertia.0.get_rotated(body_t.rotation.as_dquat());
@@ -163,12 +161,12 @@ fn draw_inertia_boxes(
 		let v1 = Vec3::new(eigen.eigenvectors[(0, 1)], eigen.eigenvectors[(1, 1)], eigen.eigenvectors[(2, 1)]);
 		let v2 = Vec3::new(eigen.eigenvectors[(0, 2)], eigen.eigenvectors[(1, 2)], eigen.eigenvectors[(2, 2)]);
 
-		let s0 = v0.normalize_or_zero() * ((6.0 / mass.0) * (e1 + e2 - e0)).max(0.0).sqrt();
-		let s1 = v1.normalize_or_zero() * ((6.0 / mass.0) * (e0 + e2 - e1)).max(0.0).sqrt();
-		let s2 = v2.normalize_or_zero() * ((6.0 / mass.0) * (e0 + e1 - e2)).max(0.0).sqrt();
+		let s0 = v0.normalize_or_zero() * ((6.0 / mass.0 as f32) * (e1 + e2 - e0)).max(0.0).sqrt();
+		let s1 = v1.normalize_or_zero() * ((6.0 / mass.0 as f32) * (e0 + e2 - e1)).max(0.0).sqrt();
+		let s2 = v2.normalize_or_zero() * ((6.0 / mass.0 as f32) * (e0 + e1 - e2)).max(0.0).sqrt();
 
 		// Corner of the box (matches main: pos + (s0+s1+s2)/-2).
-		let world_com = body_t.transform_point(com.0);
+		let world_com = body_t.transform_point(com.0.as_vec3());
 		let origin = world_com - (s0 + s1 + s2) * 0.5;
 
 		let p000 = origin;
@@ -250,25 +248,17 @@ fn draw_box_edges<C: GizmoConfigGroup>(gizmos: &mut Gizmos<C>, gt: &GlobalTransf
 	}
 }
 
-fn chunk_state_color(state: ChunkState) -> Color {
-	match state {
-		ChunkState::Available => Color::srgb(0.2, 0.2, 0.2),
-		ChunkState::InFlight => Color::srgb(0.9, 0.9, 0.1),
-		ChunkState::Loaded => Color::srgb(0.1, 0.8, 0.1),
-		ChunkState::InternalDirty => Color::srgb(0.9, 0.9, 0.9),
-	}
-}
-
 fn draw_chunk_presence(
 	mut gizmos: Gizmos<ChunkGizmos>,
 	grids: Query<(&GlobalTransform, &GridStreaming)>,
 ) {
 	const INSET: f32 = 0.75;
+	let color = Color::srgb(0.1, 0.8, 0.1);
 	for (gt, streaming) in grids.iter() {
-		for (origin, size, state) in streaming.presence().iter_states() {
-			let lo = (origin * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
-			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
-			draw_box_edges(&mut gizmos, gt, lo, hi, chunk_state_color(state));
+		for (origin, size) in streaming.presence().iter_present() {
+			let lo = (origin * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
+			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
+			draw_box_edges(&mut gizmos, gt, lo, hi, color);
 		}
 	}
 }
@@ -282,12 +272,12 @@ fn draw_coverage(
 	for loader in &loaders {
 		for tile in loader.coverage_debug_tiles() {
 			let Ok(gt) = transforms.get(tile.grid) else { continue };
-			let lo = (tile.min * CHUNK_SIZE).as_vec3() + Vec3::splat(INSET);
-			let hi = ((tile.min + tile.size) * CHUNK_SIZE).as_vec3() - Vec3::splat(INSET);
+			let lo = (tile.region.min() * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
+			let hi = (tile.region.end() * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
 			let color = match tile.state {
-				CoverageDebugState::Pending => chunk_state_color(ChunkState::InFlight),
-				CoverageDebugState::Loaded => chunk_state_color(ChunkState::Loaded),
-				CoverageDebugState::Empty => chunk_state_color(ChunkState::Available),
+				CoverageDebugState::Pending => Color::srgb(0.9, 0.9, 0.1),
+				CoverageDebugState::Loaded => Color::srgb(0.1, 0.8, 0.1),
+				CoverageDebugState::Empty => Color::srgb(0.2, 0.2, 0.2),
 				CoverageDebugState::Waiting => Color::srgb(0.9, 0.1, 0.1),
 			};
 			draw_box_edges(&mut gizmos, gt, lo, hi, color);

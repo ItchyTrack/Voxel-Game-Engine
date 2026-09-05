@@ -1,0 +1,23 @@
+[package]
+name = "camera-voxel-loader"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+tracy = ["tracy-client/enable"]
+
+[dependencies]
+bevy = { workspace = true }
+tracy-client = { workspace = true }
+voxel-trees = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-streaming = { workspace = true }
+
+[dev-dependencies]
+dot_vox = "5.2.0"
+voxel-sources =  { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "tile-data"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { workspace = true }
+rustc-hash = { workspace = true }
+async-trait = "0.1.89"
+serde = { version = "1", features = ["derive"] }
+voxel-trees = { workspace = true }
+voxel-data = { workspace = true }
+
+[lints]
+workspace = true

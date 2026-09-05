@@ -1,0 +1,33 @@
+[package]
+name = "voxel-physics"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+tracy = ["tracy-client/enable"]
+gpu_profiling = []
+
+[dependencies]
+bevy = { workspace = true }
+rustc-hash = { workspace = true }
+num = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+tracy-client = { workspace = true }
+voxel-mass = { workspace = true }
+voxel-trees = { workspace = true }
+voxel-data = { workspace = true }
+tile-data = { workspace = true }
+voxel-sources = { workspace = true }
+voxel-streaming = { workspace = true }
+voxel-query = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true }
+getrandom_0_3 = { workspace = true }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lints]
+workspace = true

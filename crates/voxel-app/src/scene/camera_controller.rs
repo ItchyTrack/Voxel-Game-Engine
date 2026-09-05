@@ -63,7 +63,7 @@ fn fly_camera_system(
 
 		if keys.pressed(KeyCode::ArrowLeft)  { cam.yaw   += cam.rotation_speed * dt; }
 		if keys.pressed(KeyCode::ArrowRight) { cam.yaw   -= cam.rotation_speed * dt; }
-		if keys.pressed(KeyCode::ArrowUp)    { cam.pitch += cam.rotation_speed * dt; }
+		if keys.pressed(KeyCode::ArrowUp)	{ cam.pitch += cam.rotation_speed * dt; }
 		if keys.pressed(KeyCode::ArrowDown)  { cam.pitch -= cam.rotation_speed * dt; }
 
 		cam.pitch = cam.pitch.clamp(-PITCH_LIMIT, PITCH_LIMIT);

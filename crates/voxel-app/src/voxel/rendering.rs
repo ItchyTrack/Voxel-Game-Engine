@@ -1,8 +1,11 @@
 use basic_voxel::MarchingVoxel;
 use bevy::prelude::*;
-use tile_data::TileGenerationContext;
+use tile_data::TileBuildingParameters;
 use voxel_data::{grid::Grid, voxels::VoxelType};
-use voxel_gpu::{RenderingContext, RenderingType};
+use voxel_gpu::RenderingContext;
+use voxel_marching_renderer::MarchingRenderingType;
+use voxel_raster_renderer::RasterRenderingType;
+use voxel_ray_renderer::RayRenderingType;
 
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VoxelRenderMode {
@@ -24,18 +27,26 @@ impl Plugin for VoxelAppRenderingPlugin {
 fn apply_grid_rendering_contexts(
 	mut commands: Commands,
 	mode: Res<VoxelRenderMode>,
-	grids: Query<(Entity, &Grid, Option<&TileGenerationContext>)>,
+	ray: Res<RayRenderingType>,
+	raster: Res<RasterRenderingType>,
+	marching: Res<MarchingRenderingType>,
+	grids: Query<(Entity, &Grid, Option<&TileBuildingParameters>)>,
 ) {
-	let rendering_type = match *mode {
-		VoxelRenderMode::Ray => RenderingType::Ray,
-		VoxelRenderMode::Raster => RenderingType::Raster,
+	let selected = match *mode {
+		VoxelRenderMode::Ray => ray.0,
+		VoxelRenderMode::Raster => raster.0,
 	};
-	let mut context = None;
 	for (entity, grid, current) in &grids {
-		if grid.voxel_type_info().id == MarchingVoxel::TYPE_INFO.id { continue; }
-		if current.is_none() || mode.is_changed() {
-			let context = context.get_or_insert_with(|| TileGenerationContext::new(RenderingContext { rendering_type }));
-			commands.entity(entity).insert(context.clone());
+		let rendering_type = if grid.voxel_type_info().id == MarchingVoxel::TYPE_INFO.id {
+			marching.0
+		} else {
+			selected
+		};
+		let matches = current
+			.and_then(|parameters| parameters.downcast_ref::<RenderingContext>())
+			.is_some_and(|context| context.rendering_type == rendering_type);
+		if !matches {
+			commands.entity(entity).insert(TileBuildingParameters::new(RenderingContext { rendering_type }));
 		}
 	}
 }

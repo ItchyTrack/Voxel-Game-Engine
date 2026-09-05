@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use lightyear::prelude::server::{NetcodeServer, ServerPlugins, ServerUdpIo, Start};
-use voxel_physics::{IsStatic, RigidBody};
+use voxel_data::body::Body;
 
 use crate::networking::network_common::{NetworkBody, NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, REPLICATION_INTERVAL, SERVER_ADDR, replicate_grid_bundle};
 
@@ -44,14 +44,10 @@ fn configure_connected_client(trigger: On<Add, LinkOf>, mut commands: Commands) 
 
 fn replicate_new_bodies(
 	mut commands: Commands,
-	bodies: Query<(Entity, &Transform, Has<IsStatic>), (With<RigidBody>, Without<NetworkBody>)>,
+	bodies: Query<(Entity, &Transform), (With<Body>, Without<NetworkBody>)>,
 ) {
-	for (entity, transform, is_static) in &bodies {
-		let mut entity_commands = commands.entity(entity);
-		entity_commands.insert((NetworkBody, replicate_grid_bundle(), NetworkTransform::from(*transform)));
-		if is_static {
-			entity_commands.insert(IsStatic);
-		}
+	for (entity, transform) in &bodies {
+		commands.entity(entity).insert((NetworkBody, replicate_grid_bundle(), NetworkTransform::from(*transform)));
 	}
 }
 

@@ -1,0 +1,172 @@
+use bevy::{ecs::message::{MessageReader, MessageWriter}};
+use bevy::math::IVec3;
+use bevy::prelude::*;
+
+use voxel_sources::{SourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
+use voxel_data::grid::GridId;
+use tile_data::{CHUNK_SIZE, chunks_covering_nonzero_voxel_region};
+use crate::{tile_building::TileBuildingChannel, tile_requester::TileRequester};
+use crate::streaming::{TileRequestType, TileStatus};
+use tile_data::{DynamicTileData, LoadedTile, TileBuildingParameters};
+use crate::{GridStreaming, InflightChunkPresence, RequestChunkPresence, TileLoadStatus, TileLoadUpdate};
+use crate::{ChunkAvailabilityChangeKind, ChunkAvailabilityChanged};
+
+// presence
+
+pub(crate) fn apply_source_presence(
+	mut source_results: MessageReader<SourceResult>,
+	mut grids: Query<&mut GridStreaming>,
+	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
+) {
+	for result in source_results.read() {
+		let SourceResultData::Presence { grid, region } = &result.data else { continue };
+		let Ok(mut streaming) = grids.get_mut(*grid) else {
+			warn!(grid=?grid, region=?region, "source presence missing GridStreaming");
+			continue;
+		};
+		let mut any_new = false;
+		for x in region.min().x..region.end().x {
+			for y in region.min().y..region.end().y {
+				for z in region.min().z..region.end().z {
+					let chunk = IVec3::new(x, y, z);
+					if !streaming.presence().is_present(chunk) {
+						any_new = true;
+					}
+				}
+			}
+		}
+		if any_new {
+			streaming.mark_present_area(*region);
+			availability_events.write(ChunkAvailabilityChanged {
+				grid: *grid,
+				region: *region,
+				kind: ChunkAvailabilityChangeKind::BecamePresent,
+			});
+		}
+	}
+}
+
+pub(crate) fn request_presence_for_new_grids(
+	mut sources: ResMut<SourceManager>,
+	mut commands: Commands,
+	grids: Query<(Entity, GridId), (With<RequestChunkPresence>, Without<InflightChunkPresence>)>,
+) {
+	for (entity, grid) in &grids {
+		let request_id = sources.request_presence(grid);
+		commands.entity(entity).insert(InflightChunkPresence(request_id));
+	}
+}
+
+pub(crate) fn receive_chunk_presence_loaded(
+	mut commands: Commands,
+	mut results: MessageReader<SourceResult>,
+	grids: Query<(Entity, &InflightChunkPresence)>,
+) {
+	for result in results.read() {
+		if !matches!(result.data, SourceResultData::PresenceLoaded) { continue; }
+		for (entity, request) in &grids {
+			if request.0 != result.request_id { continue; }
+			let mut entity = commands.entity(entity);
+			entity.remove::<InflightChunkPresence>();
+			entity.remove::<RequestChunkPresence>();
+			break;
+		}
+	}
+}
+
+pub(crate) fn make_edited_chunks_present(
+	mut edits: MessageReader<GridEditMessage>,
+	mut grids: Query<&mut GridStreaming>,
+	mut availability_events: MessageWriter<ChunkAvailabilityChanged>,
+) {
+	for edit in edits.read() {
+		let region = chunks_covering_nonzero_voxel_region(edit.edit().affected_region());
+		let Ok(mut streaming) = grids.get_mut(edit.grid_id()) else { continue };
+		if streaming.presence().all_present_in_region(region) { continue; }
+		streaming.mark_present_area(region);
+		availability_events.write(ChunkAvailabilityChanged {
+			grid: edit.grid_id(),
+			region,
+			kind: ChunkAvailabilityChangeKind::BecamePresent,
+		});
+	}
+}
+
+// tiles
+
+pub(crate) fn dirty_edited_tiles(
+	mut edits: MessageReader<GridEditMessage>,
+	mut tile_builder: TileRequester,
+	grids: Query<(GridId, Option<&TileBuildingParameters>)>,
+) {
+	for edit in edits.read() {
+		let Ok((_, context)) = grids.get(edit.grid_id()) else { continue };
+		let region = chunks_covering_nonzero_voxel_region(edit.edit().affected_region());
+		tile_builder.dirty_stale_tiles(edit.grid_id(), [region], context);
+	}
+}
+
+pub(crate) fn invalidate_changed_generation_contexts(
+	mut tile_builder: TileRequester,
+	grids: Query<(GridId, Option<&TileBuildingParameters>), Changed<TileBuildingParameters>>,
+) {
+	for (grid, context) in &grids { tile_builder.invalidate_building_context(grid, context); }
+}
+
+pub(crate) fn receive_tile_results(
+	mut commands: Commands,
+	channel: Res<TileBuildingChannel>,
+	mut tile_load_updates: MessageWriter<TileLoadUpdate>,
+	mut grids: Query<&mut GridStreaming>,
+) {
+	let results: Vec<_> = channel.drain().collect();
+	for result in results {
+		let key = result.tile_key;
+
+		let Ok(mut streaming) = grids.get_mut(result.grid) else { continue };
+		let Some(tile_state) = streaming.tiles.get(&key) else { continue };
+
+		let is_primary = matches!(
+			&tile_state.status,
+			TileStatus::InFlight { generation, .. } if *generation <= result.generation
+		);
+		let is_latency = !is_primary && matches!(
+			&tile_state.tile_request_type,
+			TileRequestType::Latency(TileStatus::InFlight { generation, .. }) if *generation <= result.generation
+		);
+		if !is_primary && !is_latency { continue; }
+
+		let (requesters, old_entity) = {
+			let tile_state = streaming.tiles.get(&key).unwrap();
+			(tile_state.requesters.keys().copied().collect::<Vec<_>>(), tile_state.entity)
+		};
+
+		let new_entity = result.data.map(|data| {
+			commands.spawn((
+				DynamicTileData::new(data),
+				LoadedTile { grid: result.grid, key },
+				Transform::from_translation((key.min() * CHUNK_SIZE as i32).as_vec3()),
+				ChildOf(result.grid),
+			)).id()
+		});
+
+		let tile_state = streaming.tiles.get_mut(&key).unwrap();
+		tile_state.entity = new_entity;
+
+		if is_primary {
+			// Authoritative result — the preserved oldest, if any, is now redundant.
+			if let TileRequestType::Latency(TileStatus::InFlight { cancellation, .. }) = &tile_state.tile_request_type {
+				cancellation.cancel();
+			}
+			tile_state.status = TileStatus::Loaded;
+		}
+		// Either way, this slot has now resolved.
+		tile_state.tile_request_type = TileRequestType::Regular;
+
+		let status = new_entity.map_or(TileLoadStatus::Empty, TileLoadStatus::Ready);
+		for requester in requesters {
+			tile_load_updates.write(TileLoadUpdate { grid: result.grid, requester, key, status });
+		}
+		if let Some(old) = old_entity { commands.entity(old).despawn(); }
+	}
+}

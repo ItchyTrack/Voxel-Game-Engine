@@ -1,177 +1,126 @@
-use bevy::math::U16Vec3;
-use bevy::prelude::*;
+use bevy::{math::{DMat3, DVec3}, prelude::*};
 use tracy_client::span;
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
 use voxel_data::voxels::{VoxelType, Voxels};
-use voxel_sources::CancellationToken;
-use tile_data::chunk_origin;
-use tile_data::CHUNK_SIZE;
+use voxel_mass::{CenterOfMass, InertiaTensor, Mass, MassProperties, RotationalInertia};
+use voxel_tasks::CancellationToken;
 
 use basic_voxel::{BasicVoxel, LodVoxel};
 
-use super::config::{PLANET_RADIUS, TILE_INWARD_DEPTH, TILE_OUTWARD_HEIGHT, TILE_SHAPE_EPSILON};
-use super::terrain::{terrain_color, terrain_sample};
+use super::config::{TILE_INWARD_DEPTH, TILE_OUTWARD_HEIGHT, TILE_SHAPE_EPSILON};
 use super::tiles::{PlanetTile, planet_tiles};
 
-pub(super) fn build_planet_chunk(tile_index: usize, chunk: IVec3, cancellation: &CancellationToken) -> Option<Voxels> {
-	let _zone = span!("planet build chunk");
-	let tile = planet_tiles().get(tile_index)?;
-	let origin = chunk_origin(chunk);
-	let mut points = Vec::new();
-	append_planet_samples(
-		tile,
-		origin,
-		IVec3::splat(CHUNK_SIZE),
-		1,
-		0,
-		true,
-		Some(cancellation),
-		&mut points,
-	);
-	if cancellation.is_cancelled() { return None; }
-	tracy_client::plot!("planet chunk emitted voxels", points.len() as f64);
-	points_to_voxels(points)
+const PLANET_VOXEL_MASS: u32 = 100;
+
+pub(super) fn planet_voxel_unchecked(_pos: IVec3) -> BasicVoxel {
+	BasicVoxel { color: [200, 100, 30, 255], mass: PLANET_VOXEL_MASS }
 }
 
-pub(super) fn build_planet_lod_region(
+pub(super) fn planet_lod_voxel_unchecked(_pos: IVec3) -> LodVoxel {
+	LodVoxel::solid([200, 100, 30, 255])
+}
+
+pub(super) fn build_planet_region<V: VoxelType>(
 	tile_index: usize,
-	min_chunk: IVec3,
-	size_chunks: IVec3,
-	lod: f32,
+	region: NonZeroChunkRegion,
+	chunks: &[IVec3],
+	lod: u8,
 	cancellation: &CancellationToken,
+	sample: impl Fn(IVec3) -> V,
 ) -> Option<Voxels> {
-	let _zone = span!("planet build lod region");
+	let _zone = span!("planet build region");
 	let tile = planet_tiles().get(tile_index)?;
-	let step = 1i32 << lod.max(0.0).floor() as u32;
+	let step = 1i32 << lod as u32;
 	let sample_offset = step / 2;
-	let extent = (size_chunks * CHUNK_SIZE) / step;
-	let origin = chunk_origin(min_chunk);
-	let mut points = Vec::new();
-	tracy_client::plot!("planet lod step", step as f64);
-	tracy_client::plot!(
-		"planet lod source chunks",
-		(size_chunks.x * size_chunks.y * size_chunks.z) as f64
-	);
-	append_planet_samples(
-		tile,
-		origin,
-		extent,
-		step,
-		sample_offset,
-		false,
-		Some(cancellation),
-		&mut points,
-	);
-	if cancellation.is_cancelled() { return None; }
-	tracy_client::plot!("planet lod emitted voxels", points.len() as f64);
-	points_to_lod_voxels(points)
-}
-
-fn points_to_voxels(points: Vec<(U16Vec3, BasicVoxel)>) -> Option<Voxels> {
-	let _zone = span!("planet points to voxels");
-	tracy_client::plot!("planet points to voxels input", points.len() as f64);
-	if points.is_empty() {
-		None
-	} else {
-		let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
-		let mut voxels = Voxels::new::<BasicVoxel>();
-		voxels.add_voxels(&voxel_refs);
-		Some(voxels)
-	}
-}
-
-fn points_to_lod_voxels(points: Vec<(U16Vec3, BasicVoxel)>) -> Option<Voxels> {
-	let _zone = span!("planet points to lod voxels");
-	tracy_client::plot!("planet points to lod voxels input", points.len() as f64);
-	if points.is_empty() {
-		None
-	} else {
-		let lod_points: Vec<_> = points
-			.iter()
-			.map(|(pos, voxel)| (*pos, LodVoxel::solid(voxel.color)))
-			.collect();
-		let voxel_refs: Vec<_> = lod_points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
-		let mut voxels = Voxels::new::<LodVoxel>();
-		voxels.add_voxels(&voxel_refs);
-		Some(voxels)
-	}
-}
-
-fn append_planet_samples(
-	tile: &PlanetTile,
-	origin: IVec3,
-	extent: IVec3,
-	step: i32,
-	sample_offset: i32,
-	full_mass: bool,
-	cancellation: Option<&CancellationToken>,
-	points: &mut Vec<(U16Vec3, BasicVoxel)>,
-) {
-	let _zone = span!("planet append samples");
-	let mass = if full_mass { 100 } else { 0 };
+	let chunk_extent = CHUNK_SIZE as i32 / step;
 	let step_f = step as f32;
-	let sample_base_z = origin.z as f32 + sample_offset as f32 + 0.5;
 
-	let mut columns_tested = 0usize;
-	let mut columns_in_shape = 0usize;
-	let mut z_candidates = 0usize;
-	let terrain_samples = 0usize;
-	let start_points = points.len();
+	let mut areas = Vec::new();
 
-	tracy_client::plot!("planet sample extent x", extent.x as f64);
-	tracy_client::plot!("planet sample extent y", extent.y as f64);
-	tracy_client::plot!("planet sample extent z", extent.z as f64);
+	for &chunk in chunks {
+		if cancellation.is_cancelled() { return None; }
+		let origin = chunk_origin(chunk);
+		let chunk_offset = (chunk - region.min()) * chunk_extent;
+		let sample_base_z = origin.z as f32 + sample_offset as f32 + 0.5;
 
-	for y in 0..extent.y {
-		if cancellation.is_some_and(CancellationToken::is_cancelled) { return; }
-		let sample_y = (origin.y + y * step + sample_offset) as f32 + 0.5;
-		for x in 0..extent.x {
-			columns_tested += 1;
-			let sample_x = (origin.x + x * step + sample_offset) as f32 + 0.5;
-			let Some((z0, z1)) =
-				column_shape_z_range(tile, sample_x, sample_y, sample_base_z, extent.z, step_f)
-			else {
-				continue;
-			};
-			columns_in_shape += 1;
-			z_candidates += (z1 - z0) as usize;
+		for y in 0..chunk_extent {
+			let sample_y = (origin.y + y * step + sample_offset) as f32 + 0.5;
+			for x in 0..chunk_extent {
+				let sample_x = (origin.x + x * step + sample_offset) as f32 + 0.5;
+				let Some((z0, z1)) =
+					column_shape_z_range(tile, sample_x, sample_y, sample_base_z, chunk_extent, step_f)
+				else {
+					continue;
+				};
 
-			// let lateral_len_sq = sample_x * sample_x + sample_y * sample_y;
-
-			for z in z0..z1 {
-				// let sample_z = sample_base_z + z as f32 * step_f;
-				// let radial = PLANET_RADIUS + sample_z;
-				// let radius = (lateral_len_sq + radial * radial).sqrt();
-				// if radius <= 1e-5 {
-				//     continue;
-				// }
-
-				// let unit = local_unit_to_planet(tile, sample_x, sample_y, radial, radius);
-				// terrain_samples += 1;
-				// let terrain = terrain_sample(unit);
-				// let altitude = radius - PLANET_RADIUS;
-				// if altitude > terrain.height {
-				//     continue;
-				// }
-
-				points.push((
-					IVec3::new(x, y, z).as_u16vec3(),
-					BasicVoxel { color: [200, 100, 30, 255], mass },
-				));
+				let pos = chunk_offset + IVec3::new(x, y, z0);
+				let size = UVec3::new(1, 1, (z1 - z0) as u32);
+				areas.push((pos.as_uvec3(), size, sample(IVec3::new(x, y, z0))));
 			}
 		}
 	}
 
-	tracy_client::plot!("planet columns tested", columns_tested as f64);
-	tracy_client::plot!("planet columns in shape", columns_in_shape as f64);
-	tracy_client::plot!("planet z candidates", z_candidates as f64);
-	tracy_client::plot!("planet terrain samples", terrain_samples as f64);
-	tracy_client::plot!(
-		"planet append emitted voxels",
-		(points.len() - start_points) as f64
-	);
+	if areas.is_empty() {
+		return None;
+	}
+	let area_refs: Vec<_> = areas.iter().map(|(pos, size, voxel)| (*pos, *size, voxel.get_ref())).collect();
+	let mut voxels = Voxels::new::<V>();
+	voxels.add_areas(&area_refs);
+	Some(voxels)
 }
 
-fn column_shape_z_range(
+pub(super) fn planet_mass_properties(tile: &PlanetTile) -> MassProperties {
+	let mut total = MassProperties::ZERO;
+	for &chunk in &tile.present_chunks {
+		total = total.checked_add(planet_chunk_mass_properties(tile, chunk));
+	}
+	assert!(total.rotational_inertia.0.mat.is_finite(), "planet mass estimate has non-finite inertia");
+	total
+}
+
+fn planet_chunk_mass_properties(tile: &PlanetTile, chunk: IVec3) -> MassProperties {
+	let origin = chunk_origin(chunk);
+	let extent = i32::try_from(CHUNK_SIZE).expect("chunk size exceeds i32");
+	let sample_base_z = origin.z as f32 + 0.5;
+	let mut properties = MassProperties::ZERO;
+
+	for y in 0..extent {
+		let voxel_y = origin.y.checked_add(y).expect("planet voxel coordinate overflow");
+		let sample_y = voxel_y as f32 + 0.5;
+		for x in 0..extent {
+			let voxel_x = origin.x.checked_add(x).expect("planet voxel coordinate overflow");
+			let sample_x = voxel_x as f32 + 0.5;
+			let Some((z0, z1)) =
+				column_shape_z_range(tile, sample_x, sample_y, sample_base_z, extent, 1.0)
+			else {
+				continue;
+			};
+
+			let voxel_z = origin.z.checked_add(z0).expect("planet voxel coordinate overflow");
+			let length = u64::try_from(z1.checked_sub(z0).expect("planet column length underflow"))
+				.expect("planet column length is negative");
+			properties = properties.checked_add(vertical_run_mass_properties(
+				DVec3::new(f64::from(voxel_x), f64::from(voxel_y), f64::from(voxel_z)), length,
+			));
+		}
+	}
+
+	properties
+}
+
+fn vertical_run_mass_properties(origin: DVec3, count: u64) -> MassProperties {
+	let mass = u64::from(PLANET_VOXEL_MASS).checked_mul(count).expect("planet mass overflow");
+	let length = count as f64;
+	MassProperties {
+		mass: Mass(mass),
+		center_of_mass: CenterOfMass(origin + DVec3::new(0.5, 0.5, length * 0.5)),
+		rotational_inertia: RotationalInertia(InertiaTensor::from_mat3(DMat3::from_diagonal(
+			DVec3::new(1.0 + length * length, 1.0 + length * length, 2.0) * (mass as f64 / 12.0),
+		))),
+	}
+}
+
+pub(super) fn column_shape_z_range(
 	tile: &PlanetTile,
 	sample_x: f32,
 	sample_y: f32,
@@ -200,8 +149,4 @@ fn column_shape_z_range(
 	let z0 = (((min_sample_z - sample_base_z) / step).ceil() as i32).clamp(0, extent_z);
 	let z1 = (((max_sample_z - sample_base_z) / step).ceil() as i32).clamp(0, extent_z);
 	(z0 < z1).then_some((z0, z1))
-}
-
-fn local_unit_to_planet(tile: &PlanetTile, x: f32, y: f32, radial: f32, radius: f32) -> Vec3 {
-	(tile.axis_x * x + tile.axis_y * y + tile.normal * radial) / radius
 }

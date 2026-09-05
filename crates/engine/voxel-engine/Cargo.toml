@@ -1,0 +1,20 @@
+[package]
+name = "voxel-engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { workspace = true }
+voxel-data = { workspace = true }
+voxel-streaming = { workspace = true }
+voxel-lightyear = { workspace = true }
+voxel-physics = { workspace = true }
+voxel-mass = { workspace = true }
+voxel-gpu = { workspace = true }
+camera-voxel-loader = { workspace = true }
+voxel-ray-renderer = { workspace = true }
+voxel-raster-renderer = { workspace = true }
+voxel-marching-renderer = { workspace = true }
+
+[lints]
+workspace = true
