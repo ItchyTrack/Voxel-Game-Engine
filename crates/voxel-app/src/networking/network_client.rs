@@ -2,8 +2,7 @@ use bevy::prelude::*;
 use basic_voxel::BasicVoxel;
 use lightyear::prelude::*;
 use lightyear::prelude::client::{ClientPlugins, Connect, NetcodeClient};
-use voxel_data::grid::Grid;
-use voxel_physics::{IsStatic, RigidBody};
+use voxel_data::{body::Body, grid::Grid};
 use voxel_sources::edit::GridEditIdManager;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
@@ -50,14 +49,10 @@ fn start_client(mut commands: Commands, client_id: Res<SelectedClientId>) {
 
 fn init_replicated_bodies(
 	mut commands: Commands,
-	bodies: Query<(Entity, Option<&NetworkTransform>, Has<IsStatic>), (With<NetworkBody>, With<Replicated>, Without<RigidBody>)>,
+	bodies: Query<(Entity, Option<&NetworkTransform>), (With<NetworkBody>, With<Replicated>, Without<Body>)>,
 ) {
-	for (entity, network_transform, is_static) in &bodies {
-		let mut entity_commands = commands.entity(entity);
-		entity_commands.insert((RigidBody, network_transform.copied().map(Transform::from).unwrap_or_default()));
-		if is_static {
-			entity_commands.insert(IsStatic);
-		}
+	for (entity, network_transform) in &bodies {
+		commands.entity(entity).insert((Body, network_transform.copied().map(Transform::from).unwrap_or_default()));
 	}
 }
 

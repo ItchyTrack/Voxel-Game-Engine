@@ -1,3 +1,4 @@
+mod body;
 mod components;
 mod edit;
 mod grid;
@@ -7,7 +8,7 @@ mod properties;
 mod source;
 mod voxel;
 
-pub use components::{CenterOfMass, Mass, RotationalInertia, VoxelMass};
+pub use components::{BodyMassInitialized, CenterOfMass, Mass, RotationalInertia, VoxelMass};
 pub use edit::{GridEditMassAppExt, GridEditMassReaders, MassRange, edit_reservation_error};
 pub use grid::{GridMassProperties, SourceMassChange, apply_source_mass_changes};
 pub use inertia_tensor::InertiaTensor;
@@ -17,7 +18,7 @@ pub use source::SourceMassState;
 pub use voxel::{VoxelMassAppExt, VoxelMassReaders, VoxelMassValue, mass_properties_of_voxels};
 
 use bevy::prelude::*;
-use voxel_data::grid::Grid;
+use voxel_data::{body::Body, grid::Grid};
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VoxelMassSet {
@@ -44,6 +45,12 @@ impl Default for VoxelMassPlugin {
 impl Plugin for VoxelMassPlugin {
 	fn build(&self, app: &mut App) {
 		app.insert_resource(VoxelMassAuthority(self.authoritative))
+			.register_required_components::<Body, Mass>()
+			.register_required_components::<Body, CenterOfMass>()
+			.register_required_components::<Body, RotationalInertia>()
+			.register_required_components::<Body, BodyMassError>()
+			.register_required_components::<Body, BodyMassInitialized>()
+			.register_required_components::<Grid, GridMassProperties>()
 			.init_resource::<VoxelMassReaders>()
 			.init_resource::<GridEditMassReaders>()
 			.add_message::<SourceMassChange>()
@@ -52,15 +59,6 @@ impl Plugin for VoxelMassPlugin {
 				(VoxelMassSet::SourceDrain, VoxelMassSet::ApplySourceChanges, VoxelMassSet::BodyAggregation).chain(),
 			)
 			.add_systems(FixedUpdate, apply_source_mass_changes.in_set(VoxelMassSet::ApplySourceChanges))
-			.add_systems(Update, add_grid_mass_properties);
-	}
-}
-
-fn add_grid_mass_properties(
-	mut commands: Commands,
-	grids: Query<Entity, (Added<Grid>, Without<GridMassProperties>)>,
-) {
-	for grid in &grids {
-		commands.entity(grid).insert(GridMassProperties::default());
+			.add_systems(FixedUpdate, body::aggregate_body_mass_properties.in_set(VoxelMassSet::BodyAggregation));
 	}
 }

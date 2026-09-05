@@ -6,6 +6,10 @@ use crate::InertiaTensor;
 #[derive(Component, Default, Debug, Clone, Copy)]
 pub struct VoxelMass;
 
+/// Whether all of a body's grids that require voxel mass have been initialized.
+#[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BodyMassInitialized(pub bool);
+
 #[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mass(pub u64);
 

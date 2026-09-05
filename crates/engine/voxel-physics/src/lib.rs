@@ -7,12 +7,12 @@ pub mod components;
 pub mod constraints;
 pub mod integration;
 pub mod math;
-mod mass_aggregation;
 pub mod solving;
 pub mod sparse_set;
 pub mod transform_ext;
 
 use bevy::prelude::*;
+use voxel_mass::{BodyMassError, BodyMassInitialized, Mass};
 
 pub use collision::{Collision, Collisions, CubeFeature, HalfCollision, PhysicsConsumer};
 pub use components::{AngularVelocity, IsStatic, RigidBody, Velocity};
@@ -21,7 +21,7 @@ pub use integration::PhysicsIntegratedCenterOfMassTransform;
 pub use solving::{Accelerations, Impulses};
 pub use voxel_data::grid::GridId;
 
-pub type PhysicsBodyId = Entity;
+pub type PhysicsBodyId = voxel_data::body::BodyId;
 
 /// When set to `true`, the solver is skipped each tick.
 #[derive(Resource, Debug, Clone, Copy)]
@@ -30,10 +30,6 @@ pub struct FreezePhysics(pub bool);
 impl Default for FreezePhysics {
 	fn default() -> Self { Self(true) }
 }
-
-/// Whether every dynamic body's voxel mass is precise enough for physics.
-#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct PhysicsMassReady(pub bool);
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PhysicsSimulationEnabled(pub bool);
@@ -75,7 +71,15 @@ pub trait VoxelPhysicsAppExt {
 
 pub fn physics_not_frozen(freeze: Res<FreezePhysics>) -> bool { !freeze.0 }
 
-pub fn physics_mass_ready(ready: Res<PhysicsMassReady>) -> bool { ready.0 }
+/// Dynamic rigid bodies must have initialized mass with at most 1% mass uncertainty.
+pub fn physics_mass_ready(
+	bodies: Query<(&Mass, &BodyMassError, &BodyMassInitialized), (With<RigidBody>, Without<IsStatic>)>,
+) -> bool {
+	bodies.iter().all(|(mass, error, initialized)| {
+		let maximum_error = error.0.mass_minus().max(error.0.mass_plus());
+		initialized.0 && u128::from(maximum_error) * 100 <= u128::from(mass.0)
+	})
+}
 
 pub fn physics_simulation_enabled(enabled: Res<PhysicsSimulationEnabled>) -> bool { enabled.0 }
 
@@ -130,7 +134,6 @@ impl Plugin for VoxelPhysicsPlugin {
 			app.add_plugins(voxel_mass::VoxelMassPlugin::default());
 		}
 		app.init_resource::<FreezePhysics>()
-			.init_resource::<PhysicsMassReady>()
 			.insert_resource(PhysicsSimulationEnabled(self.simulation_enabled))
 			.insert_resource(Time::<Fixed>::from_hz(120.0))
 			.configure_sets(
@@ -154,12 +157,6 @@ impl Plugin for VoxelPhysicsPlugin {
 				solving::avbd::AvbdPlugin,
 			))
 			.add_systems(Startup, |mut commands: Commands| { commands.spawn(PhysicsConsumer::default()); })
-			.add_systems(
-				FixedUpdate,
-				mass_aggregation::aggregate_body_mass_properties
-					.in_set(voxel_mass::VoxelMassSet::BodyAggregation)
-					.after(voxel_mass::VoxelMassSet::ApplySourceChanges),
-			)
 			.add_systems(
 				FixedUpdate,
 				(
