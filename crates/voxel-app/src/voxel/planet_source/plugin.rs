@@ -8,7 +8,7 @@ use voxel_data::voxels::VoxelType;
 use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, SourceMassPlugin, VoxelMass, VoxelMassReaders};
+use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, SourceMassAppExt, VoxelMass, VoxelMassReaders};
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
 use voxel_streaming::GridStreaming;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
@@ -30,7 +30,7 @@ impl Plugin for ProceduralPlanetPlugin {
 		})
 		.insert_resource(PlanetGridMap { grids })
 		.add_systems(Startup, spawn_planet)
-		.add_plugins(SourceMassPlugin::<ProceduralPlanetSource>::default());
+		.register_source_mass::<ProceduralPlanetSource>();
 	}
 }
 

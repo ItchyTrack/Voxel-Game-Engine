@@ -16,7 +16,7 @@ use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, Sou
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{chunk_of, chunk_origin};
 use voxel_streaming::GridStreaming;
-use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, SourceMassPlugin, VoxelMass, VoxelMassReaders, mass_properties_of_voxels};
+use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, SourceMassAppExt, VoxelMass, VoxelMassReaders, mass_properties_of_voxels};
 
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
 const LEAF_COLORS: [[u8; 4]; 4] = [[42, 112, 48, 255], [52, 132, 55, 255], [65, 148, 61, 255], [79, 158, 68, 255]];
@@ -89,7 +89,7 @@ impl Plugin for TreeSourcePlugin {
 		})
 			.insert_resource(TreeGrid { grid, bounds, position: self.position })
 			.add_systems(Startup, spawn_tree)
-			.add_plugins(SourceMassPlugin::<TreeSource>::default());
+			.register_source_mass::<TreeSource>();
 	}
 }
 

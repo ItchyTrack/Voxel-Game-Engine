@@ -14,7 +14,7 @@ pub use grid::{GridMassProperties, SourceMassChange};
 pub use inertia_tensor::InertiaTensor;
 pub use marker::MarkerGridType;
 pub use properties::{BodyMassError, MassError, MassProperties};
-pub use source::{SourceMass, SourceMassPlugin, apply_source_mass_changes};
+pub use source::{SourceMass, SourceMassAppExt, apply_source_mass_changes};
 pub use voxel::{VoxelMassAppExt, VoxelMassReaders, VoxelMassValue, mass_properties_of_voxels};
 
 use bevy::prelude::*;

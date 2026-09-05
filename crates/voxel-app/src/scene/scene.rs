@@ -13,7 +13,7 @@ use voxel_data::grid::Grid;
 use voxel_data::voxels::VoxelType;
 use voxel_physics::components::VoxelCollider;
 use voxel_lightyear::ReplicateVoxels;
-use voxel_mass::{RotationalInertia, SourceMassPlugin, VoxelMass};
+use voxel_mass::{RotationalInertia, SourceMassAppExt, VoxelMass};
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, VoxelPhysicsAppExt
 };
@@ -34,10 +34,8 @@ impl Plugin for ScenePlugin {
 			.register_voxel_source(MarchingVoxFileSource::new())
 			.register_voxel_source(SdfSource::new())
 			.add_systems(Startup, setup_scene)
-			.add_plugins((
-				SourceMassPlugin::<SceneVoxFileSource>::default(),
-				SourceMassPlugin::<MarchingVoxFileSource>::default(),
-			))
+			.register_source_mass::<SceneVoxFileSource>()
+			.register_source_mass::<MarchingVoxFileSource>()
 			.add_physics_apply_systems(drive_orientation);
 	}
 }

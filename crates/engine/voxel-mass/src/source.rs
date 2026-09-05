@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use bevy::prelude::*;
 use rustc_hash::FxHashMap;
 use voxel_sources::{ChunkSource, SourceManager};
@@ -11,16 +9,14 @@ pub trait SourceMass: ChunkSource {
 	fn take_mass_changes(&mut self, readers: &VoxelMassReaders) -> Vec<SourceMassChange>;
 }
 
-/// Registers direct mass updates for one concrete source type.
-pub struct SourceMassPlugin<S>(PhantomData<fn() -> S>);
-
-impl<S> Default for SourceMassPlugin<S> {
-	fn default() -> Self { Self(PhantomData) }
+pub trait SourceMassAppExt {
+	/// Registers direct mass updates for one concrete source type.
+	fn register_source_mass<S: SourceMass + 'static>(&mut self) -> &mut Self;
 }
 
-impl<S: SourceMass + 'static> Plugin for SourceMassPlugin<S> {
-	fn build(&self, app: &mut App) {
-		app.add_systems(FixedUpdate, apply_source_mass_changes::<S>.in_set(VoxelMassSet::ApplySourceChanges));
+impl SourceMassAppExt for App {
+	fn register_source_mass<S: SourceMass + 'static>(&mut self) -> &mut Self {
+		self.add_systems(FixedUpdate, apply_source_mass_changes::<S>.in_set(VoxelMassSet::ApplySourceChanges))
 	}
 }
 
