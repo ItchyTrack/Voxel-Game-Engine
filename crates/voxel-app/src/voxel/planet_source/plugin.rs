@@ -8,11 +8,12 @@ use voxel_data::voxels::VoxelType;
 use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
+use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, SourceMassAppExt, VoxelMass, VoxelMassReaders};
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
 use voxel_streaming::GridStreaming;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
-use super::generation::{build_planet_region, planet_voxel_unchecked, planet_lod_voxel_unchecked};
+use super::generation::{build_planet_region, planet_mass_properties, planet_voxel_unchecked, planet_lod_voxel_unchecked};
 use super::tiles::{planet_tiles, tile_has_chunk};
 
 pub struct ProceduralPlanetPlugin;
@@ -25,19 +26,24 @@ impl Plugin for ProceduralPlanetPlugin {
 			grids: grids.clone(),
 			handle: OnceLock::new(),
 			forgotten: ForgottenChunks::default(),
+			mass_initialized: false,
 		})
-		.insert_resource(PlanetGridMap(grids))
-		.add_systems(Startup, spawn_planet);
+		.insert_resource(PlanetGridMap { grids })
+		.add_systems(Startup, spawn_planet)
+		.register_source_mass::<ProceduralPlanetSource>();
 	}
 }
 
 #[derive(Resource, Clone)]
-struct PlanetGridMap(Arc<OnceLock<HashMap<GridId, usize>>>);
+struct PlanetGridMap {
+	grids: Arc<OnceLock<HashMap<GridId, usize>>>,
+}
 
 struct ProceduralPlanetSource {
 	grids: Arc<OnceLock<HashMap<GridId, usize>>>,
 	handle: OnceLock<SourceHandle>,
 	forgotten: ForgottenChunks,
+	mass_initialized: bool,
 }
 
 impl ProceduralPlanetSource {
@@ -160,6 +166,7 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 				transform,
 				Grid::new::<BasicVoxel>(),
 				VoxelCollider,
+				VoxelMass,
 				GridEditIdManager::default(),
 				ReplicateVoxels,
 				streaming,
@@ -169,5 +176,18 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 		commands.entity(parent).add_child(grid_entity);
 	}
 
-	let _ = grids.0.set(grid_map);
+	let _ = grids.grids.set(grid_map);
+}
+
+impl SourceMass for ProceduralPlanetSource {
+	fn take_mass_changes(&mut self, _readers: &VoxelMassReaders) -> Vec<SourceMassChange> {
+		if self.mass_initialized { return Vec::new(); }
+		let Some(grids) = self.grids.get() else { return Vec::new() };
+		let source_id = self.handle.get().expect("planet source was not initialized").id();
+		let changes = grids.iter().map(|(&grid, &tile)| {
+			SourceMassChange::new(source_id, grid, MassProperties::ZERO, planet_mass_properties(&planet_tiles()[tile]), MassError::ZERO)
+		}).collect();
+		self.mass_initialized = true;
+		changes
+	}
 }

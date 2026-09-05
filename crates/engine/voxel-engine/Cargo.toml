@@ -9,6 +9,7 @@ voxel-data = { workspace = true }
 voxel-streaming = { workspace = true }
 voxel-lightyear = { workspace = true }
 voxel-physics = { workspace = true }
+voxel-mass = { workspace = true }
 voxel-gpu = { workspace = true }
 camera-voxel-loader = { workspace = true }
 voxel-ray-renderer = { workspace = true }

@@ -9,9 +9,13 @@ use voxel_data::{
 	grid::GridId,
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
+use voxel_mass::{
+	MassError, MassProperties, SourceMass, SourceMassChange, VoxelMassReaders,
+	mass_properties_of_voxels,
+};
 use voxel_trees::grid_tree::NonZeroVoxelRegion;
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
-use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of};
+use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of, chunk_origin};
 use tile_data::CHUNK_SIZE;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
@@ -28,6 +32,7 @@ pub trait VoxMaterialVoxel: VoxelType {
 
 pub struct VoxFileSource<T: VoxMaterialVoxel> {
 	inner: Arc<VoxFileSourceInner<T>>,
+	initialized_mass: HashMap<GridId, (GridBinding, MassProperties)>,
 }
 
 struct VoxFileSourceInner<T: VoxMaterialVoxel> {
@@ -38,7 +43,7 @@ struct VoxFileSourceInner<T: VoxMaterialVoxel> {
 	forgotten: ForgottenChunks,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct GridBinding {
 	path: PathBuf,
 	offset: IVec3,
@@ -62,6 +67,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 				files: RwLock::new(HashMap::new()),
 				forgotten: ForgottenChunks::default(),
 			}),
+			initialized_mass: HashMap::new(),
 		}
 	}
 
@@ -71,17 +77,19 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 			offset: pos.as_ivec3(),
 		});
 	}
+}
 
+impl<T: VoxMaterialVoxel> VoxFileSourceInner<T> {
 	fn binding(&self, grid: GridId) -> Option<GridBinding> {
-		self.inner.bindings.read().unwrap().get(&grid).cloned()
+		self.bindings.read().unwrap().get(&grid).cloned()
 	}
 
 	fn ensure_file_loaded(&self, path: &PathBuf) {
-		if let Some(cache)= self.inner.files.read().unwrap().get(path) && cache.load_attempted{
+		if let Some(cache)= self.files.read().unwrap().get(path) && cache.load_attempted{
 			return;
 		}
 
-		let mut files = self.inner.files.write().unwrap();
+		let mut files = self.files.write().unwrap();
 		let cache = files.entry(path.clone()).or_default();
 		cache.load_attempted = true;
 
@@ -196,7 +204,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 
 	fn source_chunk(&self, path: &PathBuf, chunk: IVec3) -> Option<Voxels> {
 		self.ensure_file_loaded(path);
-		self.inner.files.read().unwrap().get(path)?.chunks.get(&chunk)?.decompress().ok()
+		self.files.read().unwrap().get(path)?.chunks.get(&chunk)?.decompress().ok()
 	}
 
 	fn translated_chunk(&self, binding: &GridBinding, grid_chunk: IVec3) -> Option<Voxels> {
@@ -230,7 +238,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 
 	fn translated_available_area(&self, binding: &GridBinding) -> Option<NonZeroChunkRegion> {
 		self.ensure_file_loaded(&binding.path);
-		let files = self.inner.files.read().unwrap();
+		let files = self.files.read().unwrap();
 		let area = files.get(&binding.path)?.available_area?;
 		let min_voxel = area.min() * CHUNK_SIZE as i32 + binding.offset;
 		let max_voxel_exclusive = area.end() * CHUNK_SIZE as i32 + binding.offset;
@@ -255,7 +263,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		_voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
 	) -> SourceCoverage {
-		let Some(binding) = self.binding(grid) else { return SourceCoverage::None; };
+		let Some(binding) = self.inner.binding(grid) else { return SourceCoverage::None; };
 
 		let mut owned_chunks = Vec::new();
 		for z in region.min().z..region.end().z {
@@ -276,7 +284,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 			SourceCoverage::Some
 		};
 
-		let source = VoxFileSource { inner: self.inner.clone() };
+		let source = self.inner.clone();
 		let handle = self.inner.handle.get().expect("VOX source was not initialized").clone();
 		let cancellation = cancellation.clone();
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
@@ -299,20 +307,20 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		grid: GridId,
 	) {
 		let handle = self.inner.handle.get().expect("VOX source was not initialized");
-		if let Some(binding) = self.binding(grid)
-			&& let Some(region) = self.translated_available_area(&binding) {
+		if let Some(binding) = self.inner.binding(grid)
+			&& let Some(region) = self.inner.translated_available_area(&binding) {
 			handle.presence(request_id, grid, region);
 		}
 		handle.presence_loaded(request_id);
 	}
 
 	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
-		if self.binding(grid).is_none() { return; }
+		if self.inner.binding(grid).is_none() { return; }
 		self.inner.forgotten.remember_area(grid, region);
 	}
 
 	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
-		if self.binding(grid).is_none() { return; }
+		if self.inner.binding(grid).is_none() { return; }
 		self.inner.forgotten.forget_area(grid, region);
 	}
 }
@@ -325,6 +333,39 @@ impl<T: VoxMaterialVoxel> Default for VoxFileSource<T> {
 
 pub fn vox_file_source<T: VoxMaterialVoxel>() -> VoxFileSource<T> {
 	VoxFileSource::new()
+}
+
+impl<T: VoxMaterialVoxel> SourceMass for VoxFileSource<T> {
+	fn take_mass_changes(&mut self, readers: &VoxelMassReaders) -> Vec<SourceMassChange> {
+		let bindings: Vec<_> = self.inner.bindings.read().unwrap()
+			.iter()
+			.map(|(&grid, binding)| (grid, binding.clone()))
+			.collect();
+		let source_id = self.inner.handle.get().expect("VOX source was not initialized").id();
+		let mut changes = Vec::new();
+		for (grid, binding) in bindings {
+			if self.initialized_mass.get(&grid).is_some_and(|(current, _)| current == &binding) {
+				continue;
+			}
+			self.inner.ensure_file_loaded(&binding.path);
+			let mut mass = MassProperties::ZERO;
+			let files = self.inner.files.read().unwrap();
+			if let Some(cache) = files.get(&binding.path) {
+				for (&chunk, compressed) in &cache.chunks {
+					let voxels = compressed.decompress().expect("cached VOX chunk failed to decompress");
+					let origin = chunk_origin(chunk) + binding.offset;
+					let Some(exact) = mass_properties_of_voxels(readers, &voxels, origin) else { continue };
+					mass = mass.checked_add(exact);
+				}
+			}
+			drop(files);
+
+			let previous = self.initialized_mass.insert(grid, (binding, mass))
+				.map_or(MassProperties::ZERO, |(_, previous)| previous);
+			changes.push(SourceMassChange::new(source_id, grid, previous, mass, MassError::ZERO));
+		}
+		changes
+	}
 }
 
 #[cfg(test)]
@@ -355,7 +396,7 @@ mod tests {
 	fn zero_offset_translation_preserves_source_chunk_positions_for_church() {
 		let source = VoxFileSource::<TestVoxel>::new();
 		let path = church_path();
-		source.ensure_file_loaded(&path);
+		source.inner.ensure_file_loaded(&path);
 		let binding = GridBinding { path: path.clone(), offset: IVec3::ZERO };
 		let files = source.inner.files.read().unwrap();
 		let cache = files.get(&path).expect("church cache");
@@ -363,8 +404,8 @@ mod tests {
 		drop(files);
 
 		for chunk in sample_chunks {
-			let raw = source.source_chunk(&path, chunk).expect("raw chunk");
-			let translated = source.translated_chunk(&binding, chunk).expect("translated chunk");
+			let raw = source.inner.source_chunk(&path, chunk).expect("raw chunk");
+			let translated = source.inner.translated_chunk(&binding, chunk).expect("translated chunk");
 			let raw_voxels: std::collections::HashMap<_, _> = raw
 				.grid_tree()
 				.iter()
@@ -383,11 +424,11 @@ mod tests {
 	fn zero_offset_available_area_matches_source_chunk_bounds_for_church() {
 		let source = VoxFileSource::<TestVoxel>::new();
 		let path = church_path();
-		source.ensure_file_loaded(&path);
+		source.inner.ensure_file_loaded(&path);
 		let binding = GridBinding { path: path.clone(), offset: IVec3::ZERO };
 		let files = source.inner.files.read().unwrap();
 		let area = files.get(&path).and_then(|cache| cache.available_area).expect("church area");
 		drop(files);
-		assert_eq!(source.translated_available_area(&binding).map(Into::into), Some(area));
+		assert_eq!(source.inner.translated_available_area(&binding).map(Into::into), Some(area));
 	}
 }

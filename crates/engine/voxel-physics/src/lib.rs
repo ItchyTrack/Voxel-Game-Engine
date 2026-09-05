@@ -1,241 +1,186 @@
 mod active_collision;
-mod disabled;
 #[path = "collision/exact/narrowphase.rs"]
 mod narrowphase;
 
-pub use active_collision::{Collision, Collisions, CubeFeature, HalfCollision};
-pub use disabled::*;
-pub use disabled::components;
-
-// pub mod constraints;
-// pub mod collision;
-// pub mod components;
-// pub mod inertia_tensor;
-// pub mod integration;
-// pub mod math;
-// pub mod solving;
-// pub mod sparse_set;
+pub mod collision;
+pub mod components;
+pub mod constraints;
+pub mod integration;
+pub mod math;
+pub mod solving;
+pub mod sparse_set;
 pub mod transform_ext;
 
-// use bevy::math::DVec3;
-// use bevy::prelude::*;
+use bevy::prelude::*;
+use voxel_mass::{BodyMassError, BodyMassInitialized, Mass};
 
-// use std::sync::Arc;
+pub use collision::{Collision, Collisions, CubeFeature, HalfCollision, PhysicsConsumer};
+pub use components::{AngularVelocity, IsStatic, RigidBody, Velocity};
+pub use constraints::BallJoint;
+pub use integration::PhysicsIntegratedCenterOfMassTransform;
+pub use solving::{Accelerations, Impulses};
+pub use voxel_data::grid::GridId;
 
-// use rustc_hash::FxHashMap;
-// use voxel_data::{grid::Grid, voxels::{VoxelRef, VoxelType, VoxelTypeId}};
+pub type PhysicsBodyId = voxel_data::body::BodyId;
 
-// pub use constraints::BallJoint;
-// pub use collision::{Collisions, PhysicsConsumer};
-// pub use components::{AngularVelocity, CenterOfMass, IsStatic, Mass, RigidBody, RotationalInertia, Velocity};
-// pub use inertia_tensor::InertiaTensor;
-// pub use integration::PhysicsIntegratedCenterOfMassTransform;
-// pub use solving::{Accelerations, Impulses};
-// pub use voxel_data::grid::GridId;
+/// When set to `true`, the solver is skipped each tick.
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct FreezePhysics(pub bool);
 
-// use crate::components::VoxelMass;
+impl Default for FreezePhysics {
+	fn default() -> Self { Self(true) }
+}
 
-// pub type PhysicsBodyId = Entity;
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhysicsSimulationEnabled(pub bool);
 
-// /// When set to `true`, the solver is skipped each tick.
-// #[derive(Resource, Debug, Clone, Copy)]
-// pub struct FreezePhysics(pub bool);
+/// System sets used by [`VoxelPhysicsPlugin`] inside `FixedUpdate`, run in order.
+///
+/// Game systems that push impulses, drag held bodies, etc. should run in
+/// [`PhysicsSet::Apply`] so their effects are picked up the same step.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PhysicsSet {
+	/// Queue impulses, hold-targets, and constraint edits before physics stages.
+	Apply,
+	/// Broadphase + narrowphase; fills the [`Collisions`] resource.
+	Collision,
+	/// Integrates body state into [`PhysicsIntegratedCenterOfMassTransform`].
+	Integration,
+	/// Consumes collisions and integrated transforms to solve body motion.
+	Solving,
+}
 
-// impl Default for FreezePhysics {
-// 	fn default() -> Self {
-// 		Self(true)
-// 	}
-// }
+pub trait VoxelPhysicsAppExt {
+	fn add_physics_apply_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self;
+	fn add_physics_collision_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self;
+	fn add_physics_integration_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self;
+	fn add_physics_solving_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self;
+}
 
-// /// System sets used by [`VoxelPhysicsPlugin`] inside `FixedUpdate`, run in order.
-// ///
-// /// Game systems that push impulses, drag held bodies, etc. should run in
-// /// [`PhysicsSet::Apply`] so their effects are picked up the same step.
-// #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pub enum PhysicsSet {
-// 	/// Queue impulses, hold-targets, and constraint edits before physics stages.
-// 	Apply,
-// 	/// Broadphase + narrowphase; fills the [`Collisions`] resource.
-// 	Collision,
-// 	/// Integrates body state into [`PhysicsIntegratedCenterOfMassTransform`].
-// 	Integration,
-// 	/// Consumes collisions and integrated transforms to solve body motion.
-// 	Solving,
-// }
+pub fn physics_not_frozen(freeze: Res<FreezePhysics>) -> bool { !freeze.0 }
 
-// type VoxelMassReader = Arc<dyn Fn(&VoxelRef) -> Option<f64> + Send + Sync>;
+/// Dynamic rigid bodies must have initialized mass with at most 1% mass uncertainty.
+pub fn physics_mass_ready(
+	bodies: Query<(&Mass, &BodyMassError, &BodyMassInitialized), (With<RigidBody>, Without<IsStatic>)>,
+) -> bool {
+	bodies.iter().all(|(mass, error, initialized)| {
+		let maximum_error = error.0.mass_minus().max(error.0.mass_plus());
+		initialized.0 && u128::from(maximum_error) * 100 <= u128::from(mass.0)
+	})
+}
 
-// #[derive(Resource, Default, Clone)]
-// pub struct VoxelMassReaders {
-// 	readers: FxHashMap<VoxelTypeId, VoxelMassReader>,
-// }
+pub fn physics_simulation_enabled(enabled: Res<PhysicsSimulationEnabled>) -> bool { enabled.0 }
 
-// impl VoxelMassReaders {
-// 	pub fn register<T: VoxelMassValue>(&mut self) {
-// 		self.readers.insert(T::TYPE_INFO.id, Arc::new(|voxel| Some(T::from_voxel_ref(voxel).voxel_mass())));
-// 	}
+impl VoxelPhysicsAppExt for App {
+	fn add_physics_apply_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self {
+		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Apply));
+		self
+	}
 
-// 	pub fn mass(&self, voxel: &VoxelRef) -> Option<f64> {
-// 		self.readers.get(&voxel.type_id()).and_then(|reader| reader(voxel))
-// 	}
-// }
+	fn add_physics_collision_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self {
+		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Collision));
+		self
+	}
 
-// pub trait VoxelMassValue: VoxelType {
-// 	fn voxel_mass(&self) -> f64;
-// }
+	fn add_physics_integration_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self {
+		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Integration));
+		self
+	}
 
-// pub trait VoxelPhysicsAppExt {
-// 	fn register_voxel_mass<T: VoxelMassValue>(&mut self) -> &mut Self;
-// 	fn add_physics_apply_systems<M>(
-// 		&mut self,
-// 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
-// 	) -> &mut Self;
-// 	fn add_physics_collision_systems<M>(
-// 		&mut self,
-// 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
-// 	) -> &mut Self;
-// 	fn add_physics_integration_systems<M>(
-// 		&mut self,
-// 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
-// 	) -> &mut Self;
-// 	fn add_physics_solving_systems<M>(
-// 		&mut self,
-// 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
-// 	) -> &mut Self;
-// }
+	fn add_physics_solving_systems<M>(
+		&mut self,
+		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
+	) -> &mut Self {
+		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Solving));
+		self
+	}
+}
 
-// pub fn physics_not_frozen(freeze: Res<FreezePhysics>) -> bool {
-// 	!freeze.0
-// }
+pub struct VoxelPhysicsPlugin {
+	pub simulation_enabled: bool,
+}
 
-// impl VoxelPhysicsAppExt for App {
-// 	fn register_voxel_mass<T: VoxelMassValue>(&mut self) -> &mut Self {
-// 		self.init_resource::<VoxelMassReaders>();
-// 		self.world_mut().resource_mut::<VoxelMassReaders>().register::<T>();
-// 		self
-// 	}
+impl Default for VoxelPhysicsPlugin {
+	fn default() -> Self { Self { simulation_enabled: true } }
+}
 
-// 	fn add_physics_apply_systems<M>(
-// 		&mut self,
-// 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
-// 	) -> &mut Self {
-// 		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Apply));
-// 		self
-// 	}
-
-// 	fn add_physics_collision_systems<M>(
-// 		&mut self,
-// 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
-// 	) -> &mut Self {
-// 		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Collision));
-// 		self
-// 	}
-
-// 	fn add_physics_integration_systems<M>(
-// 		&mut self,
-// 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
-// 	) -> &mut Self {
-// 		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Integration));
-// 		self
-// 	}
-
-// 	fn add_physics_solving_systems<M>(
-// 		&mut self,
-// 		systems: impl bevy::ecs::schedule::IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>,
-// 	) -> &mut Self {
-// 		self.add_systems(FixedUpdate, systems.in_set(PhysicsSet::Solving));
-// 		self
-// 	}
-// }
-
-// #[derive(Default)]
-// pub struct VoxelPhysicsPlugin;
-
-// impl Plugin for VoxelPhysicsPlugin {
-// 	fn build(&self, app: &mut App) {
-// 		use voxel_streaming::VoxelStreamingAppExt;
-// 		app.init_resource::<FreezePhysics>()
-// 			.init_resource::<VoxelMassReaders>()
-// 			.insert_resource(Time::<Fixed>::from_hz(120.0))
-// 			.configure_sets(
-// 				FixedUpdate,
-// 				(
-// 					PhysicsSet::Apply,
-// 					PhysicsSet::Collision,
-// 					PhysicsSet::Integration,
-// 					PhysicsSet::Solving,
-// 				)
-// 					.chain()
-// 					.run_if(voxel_streaming::chunks_ready::<PhysicsConsumer>)
-// 					.run_if(physics_not_frozen),
-// 			)
-// 			.add_plugins((
-// 				collision::exact::ExactPlugin,
-// 				integration::semi_implicit_euler::SemiImplicitEulerPlugin,
-// 				solving::avbd::AvbdPlugin,
-// 			))
-// 			.register_chunk_consumer::<PhysicsConsumer>()
-// 			.add_systems(Startup, |mut commands: Commands| { commands.spawn(PhysicsConsumer::default()); })
-// 			.add_systems(
-// 				FixedUpdate,
-// 				(
-// 					collision::chunk_requests::cache_presence_aabb,
-// 					collision::chunk_requests::request_collision_chunks,
-// 				)
-// 					.chain()
-// 					.before(PhysicsSet::Collision),
-// 			)
-// 			.add_systems(FixedUpdate, compute_mass_properties.before(PhysicsSet::Collision))
-// 			.add_systems(
-// 				FixedUpdate,
-// 				voxel_streaming::run_streaming
-// 					.after(collision::chunk_requests::request_collision_chunks)
-// 					.before(PhysicsSet::Apply),
-// 			);
-// 	}
-// }
-
-// /// Derives `Mass`, `CenterOfMass`, and `RotationalInertia` from the voxel masses
-// /// of each child `Grid`. Recomputes a body whenever one of its child grids
-// /// changes (voxels added/removed), which also covers the initial population.
-// fn compute_mass_properties(
-// 	mut bodies: Query<(&Children, &mut Mass, &mut CenterOfMass, &mut RotationalInertia), With<RigidBody>>,
-// 	grids: Query<(&Transform, &Grid), (With<VoxelMass>, With<Grid>)>,
-// 	changed_grids: Query<(), (With<VoxelMass>, With<Grid>, Changed<Grid>)>,
-// 	mass_readers: Res<VoxelMassReaders>,
-// ) {
-// 	if changed_grids.is_empty() { return; }
-
-// 	for (children, mut mass, mut com, mut inertia) in bodies.iter_mut() {
-// 		if !children.iter().any(|child| changed_grids.contains(child)) { continue; }
-
-// 		let mut total_mass: f64 = 0.0;
-// 		let mut com_times_mass = DVec3::ZERO;
-// 		let mut tensor_at_origin = InertiaTensor::ZERO;
-
-// 		for child in children.iter() {
-// 			let Ok((grid_pose, grid)) = grids.get(child) else { continue };
-// 			for sub_grid in grid.subgrids() {
-// 				let sub_pos = sub_grid.sub_grid_pos().as_dvec3();
-// 				for (voxel_pos, count, voxel) in sub_grid.voxels().grid_tree().iter() {
-// 					let Some(m) = mass_readers.mass(&voxel) else { continue };
-// 					let base = sub_pos + voxel_pos.as_dvec3();
-// 					let run = count as i32;
-// 					for dx in 0..run { for dy in 0..run { for dz in 0..run {
-// 						let local_pos = base + DVec3::new(dx as f64 + 0.5, dy as f64 + 0.5, dz as f64 + 0.5);
-// 						let body_pos = (*grid_pose * local_pos.as_vec3()).as_dvec3();
-// 						total_mass += m;
-// 						com_times_mass += body_pos * m;
-// 						tensor_at_origin += InertiaTensor::get_inertia_tensor_for_cube_at_pos(m, 1.0, &body_pos);
-// 					}}}
-// 				}
-// 			}
-// 		}
-
-// 		if total_mass <= 0.0 { continue; }
-// 		let com_vec = com_times_mass / total_mass;
-// 		mass.0 = total_mass as f32;
-// 		com.0 = com_vec.as_vec3();
-// 		inertia.0 = tensor_at_origin.move_to_center_of_mass(&com_vec, total_mass);
-// 	}
-// }
+impl Plugin for VoxelPhysicsPlugin {
+	fn build(&self, app: &mut App) {
+		if !app.is_plugin_added::<voxel_query::VoxelQueryPlugin>() {
+			app.add_plugins(voxel_query::VoxelQueryPlugin);
+		}
+		if !app.is_plugin_added::<voxel_mass::VoxelMassPlugin>() {
+			app.add_plugins(voxel_mass::VoxelMassPlugin::default());
+		}
+		app.init_resource::<FreezePhysics>()
+			.insert_resource(PhysicsSimulationEnabled(self.simulation_enabled))
+			.insert_resource(Time::<Fixed>::from_hz(120.0))
+			.configure_sets(
+				FixedUpdate,
+				(
+					PhysicsSet::Apply,
+					PhysicsSet::Collision,
+					PhysicsSet::Integration,
+					PhysicsSet::Solving,
+				)
+					.chain()
+					.after(voxel_mass::VoxelMassSet::BodyAggregation)
+					.run_if(physics_simulation_enabled)
+					.run_if(collision::chunk_requests::collision_tiles_ready)
+					.run_if(physics_not_frozen)
+					.run_if(physics_mass_ready),
+			)
+			.add_plugins((
+				collision::exact::ExactPlugin,
+				integration::semi_implicit_euler::SemiImplicitEulerPlugin,
+				solving::avbd::AvbdPlugin,
+			))
+			.add_systems(Startup, |mut commands: Commands| { commands.spawn(PhysicsConsumer::default()); })
+			.add_systems(
+				FixedUpdate,
+				(
+					collision::chunk_requests::remove_stale_collision_requests,
+					collision::chunk_requests::mark_edited_collision_tiles_pending,
+					collision::chunk_requests::cache_presence_aabb,
+					collision::chunk_requests::request_collision_chunks,
+				)
+					.chain()
+					.run_if(physics_simulation_enabled)
+					.before(PhysicsSet::Collision),
+			)
+			.add_systems(
+				FixedUpdate,
+				voxel_streaming::run_streaming
+					.run_if(physics_simulation_enabled)
+					.after(collision::chunk_requests::request_collision_chunks)
+					.before(collision::chunk_requests::receive_collision_tiles),
+			)
+			.add_systems(
+				FixedUpdate,
+				collision::chunk_requests::receive_collision_tiles
+					.run_if(physics_simulation_enabled)
+					.before(PhysicsSet::Apply),
+			);
+	}
+}

@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::voxels::{VoxelType, VoxelTypeInfo};
 
-/// A [`Grid`] entity. Each rigid voxel object owns one.
+/// A [`Grid`] entity. A [`Body`](crate::body::Body) can own multiple grids.
 pub type GridId = Entity;
 
 #[derive(Debug, Component)]

@@ -11,8 +11,10 @@ voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
 voxel-streaming = { workspace = true }
+voxel-sources = { workspace = true }
 voxel-content = { workspace = true }
 voxel-physics = { workspace = true }
+voxel-mass = { workspace = true }
 voxel-gpu = { workspace = true }
 voxel-ray-renderer = { workspace = true }
 voxel-raster-renderer = { workspace = true }

@@ -1,13 +1,8 @@
-mod broadphase;
-mod detect;
-mod narrowphase;
-
 use bevy::prelude::*;
 
+use crate::active_collision::detect_collisions;
 use crate::collision::Collisions;
 use crate::VoxelPhysicsAppExt;
-
-use detect::detect_collisions;
 
 #[derive(Default)]
 pub struct ExactPlugin;

@@ -6,13 +6,17 @@ use bevy::prelude::*;
 use rustc_hash::FxHashMap;
 use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
 use voxel_data::bvh::BVH;
-use tile_data::{CHUNK_SIZE, chunk_origin};
-use voxel_sources::SourceManager;
-use voxel_streaming::GridStreaming;
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileKey, chunk_origin, chunks_covering_nonzero_voxel_region};
+use voxel_query::OccupancyTileClass;
+use voxel_sources::edit::GridEditMessage;
+use voxel_streaming::{GridStreaming, TileLoadUpdate, TileRequester};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
 
-voxel_streaming::chunk_consumer!(pub PhysicsConsumer);
+#[derive(Component, Default)]
+pub struct PhysicsConsumer {
+	pending: HashSet<(Entity, TileKey)>,
+}
 
 #[derive(Component, Default)]
 pub struct WantedChunks(HashSet<IVec3>);
@@ -83,11 +87,15 @@ fn present_chunks(streaming: &GridStreaming) -> Vec<IVec3> {
 /// static bodies request only chunks intersecting an overlapping body's AABB.
 pub fn request_collision_chunks(
 	bodies: Query<(&Transform, Has<IsStatic>), With<RigidBody>>,
-	mut grids: Query<(Entity, &ChildOf, &Transform, &mut GridStreaming, &PresenceAabb, &mut WantedChunks), With<VoxelCollider>>,
-	mut consumers: Query<&mut PhysicsConsumer>,
-	mut sources: ResMut<SourceManager>,
+	class: Res<OccupancyTileClass>,
+	mut consumers: Query<(Entity, &mut PhysicsConsumer)>,
+	mut streaming: ParamSet<(
+		TileRequester,
+		Query<(Entity, &ChildOf, &Transform, &GridStreaming, &PresenceAabb, &mut WantedChunks), With<VoxelCollider>>,
+	)>,
 ) {
-	let Ok(mut consumer) = consumers.single_mut() else { return };
+	let Ok((consumer_entity, mut consumer)) = consumers.single_mut() else { return };
+	let mut grids = streaming.p1();
 
 	// Pass 1: accumulate each body's world AABB from its grids' cached extents.
 	let mut reqs: Vec<GridReq> = Vec::new();
@@ -204,16 +212,70 @@ pub fn request_collision_chunks(
 		});
 	}
 
-	// Pass 3: diff against last tick — fetch newly wanted chunks, release dropped
-	// ones. Grids absent from `desired` (their body vanished) release everything.
-	for (entity, _, _, mut streaming, _, mut wanted) in grids.iter_mut() {
+	// Pass 3: diff against last tick — fetch newly wanted occupancy tiles and
+	// release dropped ones. Grids absent from `desired` release everything.
+	let mut acquisitions = Vec::new();
+	let mut releases = Vec::new();
+	for (entity, _, _, _, _, mut wanted) in grids.iter_mut() {
 		let want = desired.remove(&entity).unwrap_or_default();
-		for &chunk in want.difference(&wanted.0) {
-			streaming.fetch_needed(sources.as_mut(), entity, consumer.as_mut(), chunk);
-		}
-		for &chunk in wanted.0.difference(&want) {
-			streaming.release_needed(sources.as_mut(), entity, consumer.as_mut(), chunk);
-		}
+		acquisitions.extend(want.difference(&wanted.0).map(|&chunk| {
+			(entity, TileKey::new(NonZeroChunkRegion::from_single(chunk), 0, class.0))
+		}));
+		releases.extend(wanted.0.difference(&want).map(|&chunk| {
+			(entity, TileKey::new(NonZeroChunkRegion::from_single(chunk), 0, class.0))
+		}));
 		wanted.0 = want;
 	}
+	drop(grids);
+
+	let mut requester = streaming.p0();
+	for (grid, key) in releases {
+		consumer.pending.remove(&(grid, key));
+		requester.release_tile(grid, consumer_entity, key);
+	}
+	for (grid, key) in acquisitions {
+		if requester.fetch_tile(grid, consumer_entity, key, 0.0, true, None) {
+			consumer.pending.insert((grid, key));
+		}
+	}
+}
+
+pub fn mark_edited_collision_tiles_pending(
+	mut edits: MessageReader<GridEditMessage>,
+	class: Res<OccupancyTileClass>,
+	grids: Query<&WantedChunks>,
+	mut consumers: Query<&mut PhysicsConsumer>,
+) {
+	let Ok(mut consumer) = consumers.single_mut() else { return };
+	for edit in edits.read() {
+		let Ok(wanted) = grids.get(edit.grid_id()) else { continue };
+		let affected = chunks_covering_nonzero_voxel_region(edit.edit().affected_region());
+		for chunk in wanted.0.iter().copied().filter(|chunk| affected.contains(*chunk)) {
+			consumer.pending.insert((edit.grid_id(), TileKey::new(NonZeroChunkRegion::from_single(chunk), 0, class.0)));
+		}
+	}
+}
+
+pub fn remove_stale_collision_requests(
+	grids: Query<(), With<VoxelCollider>>,
+	mut consumers: Query<&mut PhysicsConsumer>,
+) {
+	let Ok(mut consumer) = consumers.single_mut() else { return };
+	consumer.pending.retain(|(grid, _)| grids.get(*grid).is_ok());
+}
+
+pub fn receive_collision_tiles(
+	mut updates: MessageReader<TileLoadUpdate>,
+	mut consumers: Query<(Entity, &mut PhysicsConsumer)>,
+) {
+	let Ok((consumer_entity, mut consumer)) = consumers.single_mut() else { return };
+	for update in updates.read() {
+		if update.requester == consumer_entity {
+			consumer.pending.remove(&(update.grid, update.key));
+		}
+	}
+}
+
+pub fn collision_tiles_ready(consumers: Query<&PhysicsConsumer>) -> bool {
+	consumers.single().is_ok_and(|consumer| consumer.pending.is_empty())
 }

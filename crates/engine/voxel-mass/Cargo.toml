@@ -1,0 +1,15 @@
+[package]
+name = "voxel-mass"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+voxel-data = { workspace = true }
+voxel-sources = { workspace = true }
+voxel-trees = { workspace = true }
+
+[lints]
+workspace = true

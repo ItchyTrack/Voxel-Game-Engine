@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
 use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
@@ -6,10 +6,18 @@ use voxel_trees::region::NonZeroVoxelRegion;
 use voxel_data::{grid::GridId, voxels::{Voxel, Voxels}};
 
 #[typetag::serde(tag = "type")]
-pub trait GridEdit: std::fmt::Debug + Send + Sync + 'static {
+pub trait GridEdit: std::fmt::Debug + Send + Sync + GridEditToAny {
 	fn affected_region(&self) -> NonZeroVoxelRegion;
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels);
 	fn apply_to_tracking(&self) {} // todo once voxel tracking is added
+}
+
+pub trait GridEditToAny: 'static {
+	fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: 'static> GridEditToAny for T {
+	fn as_any(&self) -> &dyn Any { self }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,6 +28,8 @@ pub struct AddArea {
 
 impl AddArea {
 	pub fn new(region: NonZeroVoxelRegion, voxel: Voxel) -> Self { Self { region, voxel } }
+
+	pub fn voxel(&self) -> &Voxel { &self.voxel }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
