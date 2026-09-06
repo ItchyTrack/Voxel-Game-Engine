@@ -259,7 +259,7 @@ where
 		source: &SourceTree<'tree, G>,
 		region: NonZeroVoxelRegion,
 		source_index: usize,
-		node: NodeRef<<GridTreeViewImpl<'tree, G> as GridTreeView<'tree>>::NodeHandle>,
+		node: NodeRef<<GridTreeViewImpl<'tree, G> as GridTreeView>::NodeHandle>,
 		query: NonZeroVoxelRegion,
 		overlaps: &mut Vec<SourceOverlap<'tree, G>>,
 	) -> Option<(NonZeroVoxelRegion, NonZeroVoxelRegion)>

@@ -18,7 +18,7 @@ pub struct NodeRef<H> {
 
 /// A child slot.
 #[derive(Clone, Copy, Debug)]
-pub struct Cell<'tree, View: GridTreeView<'tree>> {
+pub struct Cell<'tree, View: GridTreeView> {
 	pub depth: u8,
 	pub child_index: u8,
 	pub origin: UVec3,
@@ -26,7 +26,7 @@ pub struct Cell<'tree, View: GridTreeView<'tree>> {
 	pub child_handle: Option<View::NodeHandle>,
 }
 
-impl<'tree, View: GridTreeView<'tree>> Cell<'tree, View> {
+impl<'tree, View: GridTreeView> Cell<'tree, View> {
 	pub fn size(self) -> u32 {
 		View::child_size(self.depth)
 	}
@@ -39,7 +39,7 @@ impl<'tree, View: GridTreeView<'tree>> Cell<'tree, View> {
 	}
 }
 
-pub trait GridTreeView<'tree>: Copy + Clone + Debug where Self: 'tree {
+pub trait GridTreeView: Sized + Debug {
 	type NodeHandle: Copy + Clone + Eq + Debug;
 	type Data<'d>: Copy where Self: 'd;
 
@@ -61,7 +61,7 @@ pub trait GridTreeView<'tree>: Copy + Clone + Debug where Self: 'tree {
 
 	fn child_handle(&self, node: Self::NodeHandle, child_index: u8) -> Self::NodeHandle;
 
-	fn cell_data(&self, node: Self::NodeHandle, child_index: u8) -> Self::Data<'tree>;
+	fn cell_data<'tree>(&'tree self, node: Self::NodeHandle, child_index: u8) -> Self::Data<'tree>;
 
 	fn occupancy_mask(&self, node: Self::NodeHandle) -> u64;
 
@@ -128,7 +128,7 @@ pub trait GridTreeView<'tree>: Copy + Clone + Debug where Self: 'tree {
 		node_region_recurse(self, self.root(), min, max, &mut |o, s, is_leaf| f(o, s, is_leaf));
 	}
 
-	fn for_each_leaf_in_region<F>(&self, region: NonZeroVoxelRegion, mut f: F)
+	fn for_each_leaf_in_region<'tree, F>(&'tree self, region: NonZeroVoxelRegion, mut f: F)
 	where
 		F: FnMut(UVec3, u32, Self::Data<'tree>),
 	{
@@ -165,7 +165,7 @@ pub trait GridTreeView<'tree>: Copy + Clone + Debug where Self: 'tree {
 	fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(UVec3, I8Vec3, f32)>;
 }
 
-fn region_recurse<'tree, View: GridTreeView<'tree> + 'tree, F>(view: &View, node: NodeRef<View::NodeHandle>, min: UVec3, max: UVec3, f: &mut F)
+fn region_recurse<'tree, View: GridTreeView + 'tree, F>(view: &View, node: NodeRef<View::NodeHandle>, min: UVec3, max: UVec3, f: &mut F)
 where
 	F: FnMut(UVec3, u32, View::Data<'tree>),
 {
@@ -182,7 +182,7 @@ where
 	}
 }
 
-fn node_region_recurse<'tree, View: GridTreeView<'tree>, F>(view: &View, node: NodeRef<View::NodeHandle>, min: UVec3, max: UVec3, f: &mut F)
+fn node_region_recurse<'tree, View: GridTreeView, F>(view: &View, node: NodeRef<View::NodeHandle>, min: UVec3, max: UVec3, f: &mut F)
 where
 	F: FnMut(UVec3, u32, bool),
 {
@@ -199,7 +199,7 @@ where
 	}
 }
 
-fn region_any_recurse<'tree, View: GridTreeView<'tree>>(view: &View, node: NodeRef<View::NodeHandle>, min: UVec3, max: UVec3) -> bool {
+fn region_any_recurse<'tree, View: GridTreeView>(view: &View, node: NodeRef<View::NodeHandle>, min: UVec3, max: UVec3) -> bool {
 	for child in view.occupied_children(node) {
 		let child_end = child.origin + UVec3::splat(child.size()); // exclusive
 		if child.origin.cmpgt(max).any() || child_end.cmple(min).any() {
@@ -219,7 +219,7 @@ fn region_any_recurse<'tree, View: GridTreeView<'tree>>(view: &View, node: NodeR
 }
 
 #[inline]
-fn occupied_tile_cover_recurse<'tree, View: GridTreeView<'tree>, F>(
+fn occupied_tile_cover_recurse<'tree, View: GridTreeView, F>(
 	view: &View,
 	node: NodeRef<View::NodeHandle>,
 	min: UVec3,
@@ -270,7 +270,7 @@ fn occupied_tile_cover_recurse<'tree, View: GridTreeView<'tree>, F>(
 	}
 }
 
-fn region_filled_recurse<'tree, View: GridTreeView<'tree>>(view: &View, node: NodeRef<View::NodeHandle>, min: UVec3, end: UVec3) -> bool {
+fn region_filled_recurse<'tree, View: GridTreeView>(view: &View, node: NodeRef<View::NodeHandle>, min: UVec3, end: UVec3) -> bool {
 	for child in view.children(node) {
 		let child_end = child.origin + UVec3::splat(child.size());
 		if child.origin.cmpge(end).any() || child_end.cmple(min).any() {
@@ -289,7 +289,7 @@ fn region_filled_recurse<'tree, View: GridTreeView<'tree>>(view: &View, node: No
 	true
 }
 
-pub struct ChildCells<'tree, View: GridTreeView<'tree>> {
+pub struct ChildCells<'tree, View: GridTreeView> {
 	view: View,
 	node: NodeRef<View::NodeHandle>,
 	next: u8,
@@ -297,7 +297,7 @@ pub struct ChildCells<'tree, View: GridTreeView<'tree>> {
 	remaining_mask: u64,
 }
 
-impl<'tree, View: GridTreeView<'tree>> ChildCells<'tree, View> {
+impl<'tree, View: GridTreeView> ChildCells<'tree, View> {
 	#[inline]
 	fn new(view: View, node: NodeRef<View::NodeHandle>, occupied_only: bool) -> Self {
 		let remaining_mask = view.occupancy_mask(node.handle);
@@ -305,7 +305,7 @@ impl<'tree, View: GridTreeView<'tree>> ChildCells<'tree, View> {
 	}
 }
 
-impl<'tree, View: GridTreeView<'tree>> Iterator for ChildCells<'tree, View> {
+impl<'tree, View: GridTreeView> Iterator for ChildCells<'tree, View> {
 	type Item = Cell<'tree, View>;
 
 	#[inline]
@@ -324,19 +324,19 @@ impl<'tree, View: GridTreeView<'tree>> Iterator for ChildCells<'tree, View> {
 	}
 }
 
-pub struct ChildCellsInRegion<'tree, View: GridTreeView<'tree>> {
+pub struct ChildCellsInRegion<'tree, View: GridTreeView> {
 	view: View,
 	node: NodeRef<View::NodeHandle>,
 	region: NonZeroVoxelRegion,
 	remaining_mask: u64,
 }
 
-impl<'tree, View: GridTreeView<'tree>> Copy for ChildCellsInRegion<'tree, View> {}
-impl<'tree, View: GridTreeView<'tree>> Clone for ChildCellsInRegion<'tree, View> {
+impl<'tree, View: GridTreeView> Copy for ChildCellsInRegion<'tree, View> {}
+impl<'tree, View: GridTreeView> Clone for ChildCellsInRegion<'tree, View> {
 	fn clone(&self) -> Self { *self }
 }
 
-impl<'tree, View: GridTreeView<'tree>> ChildCellsInRegion<'tree, View> {
+impl<'tree, View: GridTreeView> ChildCellsInRegion<'tree, View> {
 	fn new(view: View, node: NodeRef<View::NodeHandle>, region: NonZeroVoxelRegion) -> Self {
 		assert!(region.min().is_negative_bitmask() == 0);
 		let node_region = NonZeroVoxelRegion::from_min_size(node.origin.as_ivec3(), UVec3::splat(View::size(node.depth))).unwrap();
@@ -373,7 +373,7 @@ impl<'tree, View: GridTreeView<'tree>> ChildCellsInRegion<'tree, View> {
 	}
 }
 
-impl<'tree, View: GridTreeView<'tree>> Iterator for ChildCellsInRegion<'tree, View> {
+impl<'tree, View: GridTreeView> Iterator for ChildCellsInRegion<'tree, View> {
 	type Item = (Cell<'tree, View>, NonZeroVoxelRegion);
 
 	#[inline]
@@ -397,13 +397,13 @@ impl<H: Copy> Clone for LeafFrame<H> {
 }
 
 /// Depth-first iterator over DATA leaves. Fixed stack sized by `View::MAX_DEPTH`
-pub struct LeafCells<'tree, View: GridTreeView<'tree>> {
+pub struct LeafCells<'tree, View: GridTreeView> {
 	view: View,
 	stack: Vec<LeafFrame<View::NodeHandle>>,
 	stack_len: usize,
 }
 
-impl<'tree, View: GridTreeView<'tree>> LeafCells<'tree, View> {
+impl<'tree, View: GridTreeView> LeafCells<'tree, View> {
 	#[inline]
 	fn new(view: View) -> Self {
 		let root = view.root();
@@ -417,7 +417,7 @@ impl<'tree, View: GridTreeView<'tree>> LeafCells<'tree, View> {
 	}
 }
 
-impl<'tree, View: GridTreeView<'tree>> Iterator for LeafCells<'tree, View> {
+impl<'tree, View: GridTreeView> Iterator for LeafCells<'tree, View> {
 	type Item = Cell<'tree, View>;
 
 	#[inline]
@@ -454,7 +454,7 @@ impl<'tree, View: GridTreeView<'tree>> Iterator for LeafCells<'tree, View> {
 	}
 }
 
-impl<'tree, View: GridTreeView<'tree> + 'tree> GridView<'tree> for View {
+impl<'tree, View: GridTreeView + 'tree> GridView<'tree> for View {
 	type Data<'d> = View::Data<'d> where Self: 'd;
 
 	fn get(&self, pos: UVec3) -> Option<Self::Data<'tree>> {
@@ -489,7 +489,7 @@ impl<'tree, View: GridTreeView<'tree> + 'tree> GridView<'tree> for View {
 		NonZeroVoxelRegion::from_min_size(root.origin.as_ivec3(), UVec3::splat(Self::size(root.depth)))
 	}
 
-	fn for_each_in_region<F>(&self, region: NonZeroVoxelRegion, mut f: F)
+	fn for_each_in_region<F, 'tree>(&'tree self, region: NonZeroVoxelRegion, mut f: F)
 	where
 		F: FnMut(UVec3, Self::Data<'tree>),
 	{

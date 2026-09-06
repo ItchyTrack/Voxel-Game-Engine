@@ -4,24 +4,7 @@ use crate::views::{GridTreeView, NodeRef, CellKind};
 use bevy::math::{I8Vec3, Vec3, UVec3};
 use bevy::prelude::*;
 
-#[derive(Debug, Clone, Copy)]
-pub struct GridTreeViewImpl<'tree, G: GridType> {
-	grid_type: G,
-	raw: &'tree RawGridTree,
-}
-
-impl<'tree, G: GridType> GridTreeViewImpl<'tree, G> {
-	pub fn new(grid_type: G, raw: &'tree RawGridTree) -> Self {
-		Self { grid_type, raw }
-	}
-
-	#[inline]
-	pub fn nodes(self) -> Vec<GridTreeNode<'tree>> {
-		(0..self.raw.node_count() as u32).map(|index| GridTreeNode::new(self.raw, index)).collect()
-	}
-}
-
-impl<'tree, G: GridType> GridTreeView<'tree> for GridTreeViewImpl<'tree, G> {
+impl<G: GridType> GridTreeView for GridTree<G> {
 	type NodeHandle = u32;
 	type Data<'d> = G::Data<'d> where Self: 'd;
 	const BRANCH_LOG2: u8 = LOG_SIZE;
@@ -36,10 +19,9 @@ impl<'tree, G: GridType> GridTreeView<'tree> for GridTreeViewImpl<'tree, G> {
 	}
 	fn cell_kind(&self, node: u32, i: u8) -> CellKind { self.raw.cell_kind(node, i) }
 	fn child_handle(&self, node: u32, i: u8) -> u32 { self.raw.child_index(node, i) }
-	fn cell_data(&self, node: u32, i: u8) -> G::Data<'tree> {
+	fn cell_data<'tree>(&'tree self, node: u32, i: u8) -> G::Data<'tree> {
 		self.grid_type.read_data(self.raw.cell_bytes(node, i))
 	}
-	#[inline]
 	fn occupancy_mask(&self, node: u32) -> u64 {
 		self.raw.data_mask(node) | self.raw.node_mask(node)
 	}

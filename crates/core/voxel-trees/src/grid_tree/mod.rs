@@ -7,7 +7,6 @@ pub use crate::views::CellKind;
 pub use data::{GridData, GridType};
 pub use raw::GridTreeNode;
 use serde::{Deserialize, Serialize};
-pub use view::GridTreeViewImpl;
 use crate::views::LeafCells;
 
 pub const LOG_SIZE: u8 = 2;
@@ -72,24 +71,8 @@ impl<G: GridType> GridTree<G> {
 
 	pub fn grid_type(&self) -> &G { &self.grid_type }
 
-	pub fn view(&self) -> GridTreeViewImpl<'_, G> {
-		GridTreeViewImpl::new(self.grid_type, &self.raw)
-	}
-
 	pub fn contains_key(&self, pos: UVec3) -> bool {
 		self.get(pos).is_some()
-	}
-
-	pub fn is_region_filled(&self, region: NonZeroVoxelRegion) -> bool {
-		self.view().is_region_filled(region)
-	}
-
-	pub fn any_in_region(&self, region: NonZeroVoxelRegion) -> bool {
-		self.view().any_in_region(region)
-	}
-
-	pub fn get(&self, pos: UVec3) -> Option<G::Data<'_>> {
-		self.view().get(pos)
 	}
 
 	pub fn ensure_area_covered(&mut self, pos: &UVec3, size: UVec3) -> bool {
@@ -101,36 +84,8 @@ impl<G: GridType> GridTree<G> {
 		self.make_sure_root_covers_area(*min, max)
 	}
 
-	pub fn for_each_in_region<F>(&self, region: NonZeroVoxelRegion, f: F)
-	where
-		F: FnMut(UVec3, G::Data<'_>),
-	{
-		self.view().for_each_in_region(region, f);
-	}
-
-	pub fn for_each_leaf_in_region<F>(&self, region: NonZeroVoxelRegion, f: F)
-	where
-		F: FnMut(UVec3, u32, G::Data<'_>),
-	{
-		self.view().for_each_leaf_in_region(region, f);
-	}
-
-	pub fn for_each_node_in_region<F>(&self, region: NonZeroVoxelRegion, f: F)
-	where
-		F: FnMut(UVec3, u32, bool),
-	{
-		self.view().for_each_node_in_region(region.min().as_uvec3(), region.max().as_uvec3(), f);
-	}
-
-	pub fn for_each_occupied_tile_cover<F>(
-		&self,
-		region: NonZeroVoxelRegion,
-		tile_size: u32,
-		f: F,
-	) where
-		F: FnMut(UVec3),
-	{
-		self.view().for_each_occupied_tile_cover(region.min().as_uvec3(), region.max().as_uvec3(), tile_size, f);
+	pub fn nodes(&self) -> Vec<GridTreeNode<'_>> {
+		(0..self.raw.node_count() as u32).map(|i| GridTreeNode::new(&self.raw, i)).collect()
 	}
 
 	#[inline]
@@ -195,7 +150,7 @@ impl<'a, G: GridType> IntoIterator for &'a GridTree<G> {
 }
 
 pub struct GridTreeIterator<'a, G: GridType> {
-	leaves: LeafCells<'a, GridTreeViewImpl<'a, G>>,
+	leaves: LeafCells<'a, &GridTree<'a, G>>,
 }
 
 impl<'a, G: GridType> GridTreeIterator<'a, G> {

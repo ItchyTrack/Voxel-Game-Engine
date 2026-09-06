@@ -2,7 +2,7 @@ use bevy::math::UVec3;
 use std::fmt::Debug;
 use crate::region::NonZeroVoxelRegion;
 
-pub trait GridView<'grid>: Copy + Clone + Debug where Self: 'grid {
+pub trait GridView: Debug {
 	type Data<'d>: Copy where Self: 'd;
 
 	fn get(&self, pos: UVec3) -> Option<Self::Data<'grid>>;
