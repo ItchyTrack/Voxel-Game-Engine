@@ -355,7 +355,7 @@ impl<T: VoxMaterialVoxel> SourceMass for VoxFileSource<T> {
 					let voxels = compressed.decompress().expect("cached VOX chunk failed to decompress");
 					let origin = chunk_origin(chunk) + binding.offset;
 					let Some(exact) = mass_properties_of_voxels(readers, &voxels, origin) else { continue };
-					mass = mass.checked_add(exact);
+					mass = mass.add(exact);
 				}
 			}
 			drop(files);

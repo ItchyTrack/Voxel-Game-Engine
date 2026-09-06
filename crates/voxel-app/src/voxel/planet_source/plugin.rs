@@ -13,7 +13,7 @@ use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, Sou
 use voxel_streaming::GridStreaming;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
-use super::generation::{build_planet_region, planet_mass_properties, planet_voxel_unchecked, planet_lod_voxel_unchecked};
+use super::generation::{build_planet_region, planet_mass_properties, planet_voxel, planet_lod_voxel};
 use super::tiles::{planet_tiles, tile_has_chunk};
 
 pub struct ProceduralPlanetPlugin;
@@ -101,9 +101,9 @@ impl ChunkSource for ProceduralPlanetSource {
 		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let _span = bevy::log::info_span!("PlanetSource build").entered();
 			let voxels = if use_basic_voxel {
-				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_voxel_unchecked)
+				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_voxel)
 			} else {
-				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_lod_voxel_unchecked)
+				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_lod_voxel)
 			};
 			if !cancellation.is_cancelled() && let Some(voxels) = voxels {
 				handle.voxels(request_id, grid, region, lod, generation, voxels);

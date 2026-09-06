@@ -78,7 +78,7 @@ impl Plugin for TreeSourcePlugin {
 		let chunk_masses: Vec<_> = ordered_chunks.iter().map(|(chunk, voxels)| {
 			mass_properties_of_voxels(mass_readers, voxels, chunk_origin(**chunk)).unwrap_or(MassProperties::ZERO)
 		}).collect();
-		let mass = MassProperties::checked_sum(chunk_masses);
+		let mass = MassProperties::sum(chunk_masses);
 		app.register_voxel_source(TreeSource {
 			grid: grid.clone(),
 			bounds,

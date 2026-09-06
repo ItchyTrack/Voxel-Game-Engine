@@ -54,9 +54,9 @@ pub fn mass_properties_of_voxels(
 		let voxel_mass = reader(&voxel);
 		if voxel_mass == 0 { continue; }
 		let size = u64::from(leaf_size);
-		let count = size.checked_mul(size).and_then(|n| n.checked_mul(size)).expect("voxel count overflow");
-		let mass = voxel_mass.checked_mul(count).expect("mass overflow");
-		properties = properties.checked_add(MassProperties {
+		let count = size * size * size;
+		let mass = voxel_mass * count;
+		properties = properties.add(MassProperties {
 			mass: Mass(mass),
 			center_of_mass: CenterOfMass(grid_voxel_origin.as_dvec3() + leaf_origin.as_dvec3() + DVec3::splat(size as f64 * 0.5)),
 			rotational_inertia: RotationalInertia(InertiaTensor::get_inertia_tensor_for_cube(mass as f64, size as f64)),

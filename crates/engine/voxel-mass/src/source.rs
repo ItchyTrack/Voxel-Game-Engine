@@ -4,13 +4,11 @@ use voxel_sources::{ChunkSource, SourceManager};
 
 use crate::{GridMassProperties, SourceMassChange, VoxelMassReaders, VoxelMassSet};
 
-/// A source owns its mass bookkeeping and any work needed to produce these updates.
 pub trait SourceMass: ChunkSource {
 	fn take_mass_changes(&mut self, readers: &VoxelMassReaders) -> Vec<SourceMassChange>;
 }
 
 pub trait SourceMassAppExt {
-	/// Registers direct mass updates for one concrete source type.
 	fn register_source_mass<S: SourceMass + 'static>(&mut self) -> &mut Self;
 }
 

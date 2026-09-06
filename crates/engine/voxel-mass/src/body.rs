@@ -23,9 +23,9 @@ pub fn aggregate_body_mass_properties(
 		let mut initialized = true;
 		for (transform, properties, requires_mass) in parts.clone() {
 			initialized &= !requires_mass || properties.is_initialized();
-			error = error.checked_add(properties.aggregate_error().get_transformed(transform));
+			error = error.add(properties.aggregate_error().get_transformed(transform));
 		}
-		let properties = MassProperties::checked_sum(
+		let properties = MassProperties::sum(
 			parts.map(|(transform, properties, _)| properties.nominal().get_transformed(transform)),
 		);
 

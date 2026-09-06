@@ -27,16 +27,16 @@ impl MassProperties {
 		}
 	}
 
-	pub fn checked_add(self, other: Self) -> Self {
-		Self::checked_sum([self, other])
+	pub fn add(self, other: Self) -> Self {
+		Self::sum([self, other])
 	}
 
-	pub fn checked_sum(parts: impl IntoIterator<Item = Self, IntoIter: Clone>) -> Self {
+	pub fn sum(parts: impl IntoIterator<Item = Self, IntoIter: Clone>) -> Self {
 		Self::combine(parts.into_iter().map(|part| (part, 1)))
 	}
 
 	/// Applies replacements together so source handoffs cannot cause intermediate mass underflow.
-	pub fn checked_replaced(self, changes: impl IntoIterator<Item = (Self, Self), IntoIter: Clone>) -> Self {
+	pub fn replaced(self, changes: impl IntoIterator<Item = (Self, Self), IntoIter: Clone>) -> Self {
 		Self::combine(std::iter::once((self, 1)).chain(
 			changes.into_iter().flat_map(|(before, after)| [(before, -1), (after, 1)]),
 		))
@@ -49,7 +49,7 @@ impl MassProperties {
 		let mut weighted_offset = DVec3::ZERO;
 		for (part, sign) in parts.clone() {
 			let signed_mass = i128::from(part.mass.0) * sign;
-			mass = mass.checked_add(signed_mass).expect("mass overflow");
+			mass = mass + signed_mass;
 			weighted_offset += (part.center_of_mass.0 - reference) * signed_mass as f64;
 		}
 		let mass = u64::try_from(mass).expect("mass underflow or overflow");
@@ -141,35 +141,35 @@ impl MassError {
 		)
 	}
 
-	pub fn checked_add(self, other: Self) -> Self {
+	pub fn add(self, other: Self) -> Self {
 		Self {
-			mass_minus: self.mass_minus.checked_add(other.mass_minus).expect("mass error overflow"),
-			mass_plus: self.mass_plus.checked_add(other.mass_plus).expect("mass error overflow"),
-			first_moment_minus: checked_array_add(self.first_moment_minus, other.first_moment_minus),
-			first_moment_plus: checked_array_add(self.first_moment_plus, other.first_moment_plus),
+			mass_minus: self.mass_minus + other.mass_minus,
+			mass_plus: self.mass_plus + other.mass_plus,
+			first_moment_minus: array_add(self.first_moment_minus, other.first_moment_minus),
+			first_moment_plus: array_add(self.first_moment_plus, other.first_moment_plus),
 		}
 	}
 
-	pub fn checked_expand(&mut self, amount: Self) {
-		*self = self.checked_add(amount);
+	pub fn expand(&mut self, amount: Self) {
+		*self = self.add(amount);
 	}
 
-	pub fn checked_reduce(&mut self, amount: Self) {
+	pub fn reduce(&mut self, amount: Self) {
 		*self = Self {
-			mass_minus: self.mass_minus.checked_sub(amount.mass_minus).expect("mass error underflow"),
-			mass_plus: self.mass_plus.checked_sub(amount.mass_plus).expect("mass error underflow"),
-			first_moment_minus: checked_array_sub(self.first_moment_minus, amount.first_moment_minus),
-			first_moment_plus: checked_array_sub(self.first_moment_plus, amount.first_moment_plus),
+			mass_minus: self.mass_minus - amount.mass_minus,
+			mass_plus: self.mass_plus - amount.mass_plus,
+			first_moment_minus: array_sub(self.first_moment_minus, amount.first_moment_minus),
+			first_moment_plus: array_sub(self.first_moment_plus, amount.first_moment_plus),
 		};
 	}
 
-	pub fn checked_expanded(mut self, amount: Self) -> Self {
-		self.checked_expand(amount);
+	pub fn expanded(mut self, amount: Self) -> Self {
+		self.expand(amount);
 		self
 	}
 
-	pub fn checked_reduced(mut self, amount: Self) -> Self {
-		self.checked_reduce(amount);
+	pub fn reduced(mut self, amount: Self) -> Self {
+		self.reduce(amount);
 		self
 	}
 }
@@ -177,12 +177,12 @@ impl MassError {
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BodyMassError(pub MassError);
 
-fn checked_array_add(a: [u64; 3], b: [u64; 3]) -> [u64; 3] {
-	std::array::from_fn(|axis| a[axis].checked_add(b[axis]).expect("first-moment error overflow"))
+fn array_add(a: [u64; 3], b: [u64; 3]) -> [u64; 3] {
+	std::array::from_fn(|axis| a[axis] - b[axis])
 }
 
-fn checked_array_sub(a: [u64; 3], b: [u64; 3]) -> [u64; 3] {
-	std::array::from_fn(|axis| a[axis].checked_sub(b[axis]).expect("first-moment error underflow"))
+fn array_sub(a: [u64; 3], b: [u64; 3]) -> [u64; 3] {
+	std::array::from_fn(|axis| a[axis] - b[axis])
 }
 
 fn multiply_up(coefficient: f64, value: u64) -> f64 {

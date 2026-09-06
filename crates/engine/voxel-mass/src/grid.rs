@@ -45,7 +45,7 @@ impl GridMassProperties {
 	pub fn source_error(&self, source_id: SourceId) -> Option<MassError> { self.source_errors.get(&source_id).copied() }
 
 	pub fn aggregate_error(&self) -> MassError {
-		self.source_errors.values().copied().fold(MassError::ZERO, MassError::checked_add)
+		self.source_errors.values().copied().fold(MassError::ZERO, MassError::add)
 	}
 
 	pub fn apply(&mut self, change: &SourceMassChange) {
@@ -54,7 +54,7 @@ impl GridMassProperties {
 
 	pub fn apply_batch<'a>(&mut self, changes: impl IntoIterator<Item = &'a SourceMassChange>) {
 		let changes: Vec<_> = changes.into_iter().collect();
-		self.nominal = self.nominal.checked_replaced(changes.iter().map(|change| (change.before, change.after)));
+		self.nominal = self.nominal.replaced(changes.iter().map(|change| (change.before, change.after)));
 		for change in changes {
 			self.source_errors.insert(change.source_id, change.new_error);
 		}

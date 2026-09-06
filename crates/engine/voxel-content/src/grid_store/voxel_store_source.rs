@@ -118,7 +118,7 @@ impl VoxelStoreSource {
 			}
 			ChunkOwnership::Acquiring(request_id) => {
 				if let Some(acquisition) = self.acquisitions.get_mut(&request_id) {
-					self.mass_errors.get_mut(&grid).unwrap().checked_expand(reserved_error);
+					self.mass_errors.get_mut(&grid).unwrap().expand(reserved_error);
 					self.pending_mass.push((grid, MassProperties::ZERO, MassProperties::ZERO));
 					acquisition.queued_edits.push((generation, edit, reserved_error));
 				}
@@ -150,7 +150,7 @@ impl VoxelStoreSource {
 					&self.mass_readers,
 				);
 				for (before, after, reserved_error) in mass_changes {
-					self.mass_errors.get_mut(&acquisition.grid).expect("acquiring grid has no mass reservation").checked_reduce(reserved_error);
+					self.mass_errors.get_mut(&acquisition.grid).expect("acquiring grid has no mass reservation").reduce(reserved_error);
 					self.pending_mass.push((acquisition.grid, before, after));
 				}
 				for (&grid, store) in self.grids.iter_mut() {

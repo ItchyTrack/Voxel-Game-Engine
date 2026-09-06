@@ -12,11 +12,11 @@ use super::tiles::{PlanetTile, planet_tiles};
 
 const PLANET_VOXEL_MASS: u32 = 100;
 
-pub(super) fn planet_voxel_unchecked(_pos: IVec3) -> BasicVoxel {
+pub(super) fn planet_voxel(_pos: IVec3) -> BasicVoxel {
 	BasicVoxel { color: [200, 100, 30, 255], mass: PLANET_VOXEL_MASS }
 }
 
-pub(super) fn planet_lod_voxel_unchecked(_pos: IVec3) -> LodVoxel {
+pub(super) fn planet_lod_voxel(_pos: IVec3) -> LodVoxel {
 	LodVoxel::solid([200, 100, 30, 255])
 }
 
@@ -72,7 +72,7 @@ pub(super) fn build_planet_region<V: VoxelType>(
 pub(super) fn planet_mass_properties(tile: &PlanetTile) -> MassProperties {
 	let mut total = MassProperties::ZERO;
 	for &chunk in &tile.present_chunks {
-		total = total.checked_add(planet_chunk_mass_properties(tile, chunk));
+		total = total.add(planet_chunk_mass_properties(tile, chunk));
 	}
 	assert!(total.rotational_inertia.0.mat.is_finite(), "planet mass estimate has non-finite inertia");
 	total
@@ -85,10 +85,10 @@ fn planet_chunk_mass_properties(tile: &PlanetTile, chunk: IVec3) -> MassProperti
 	let mut properties = MassProperties::ZERO;
 
 	for y in 0..extent {
-		let voxel_y = origin.y.checked_add(y).expect("planet voxel coordinate overflow");
+		let voxel_y = origin.y + y;
 		let sample_y = voxel_y as f32 + 0.5;
 		for x in 0..extent {
-			let voxel_x = origin.x.checked_add(x).expect("planet voxel coordinate overflow");
+			let voxel_x = origin.x + x;
 			let sample_x = voxel_x as f32 + 0.5;
 			let Some((z0, z1)) =
 				column_shape_z_range(tile, sample_x, sample_y, sample_base_z, extent, 1.0)
@@ -96,10 +96,10 @@ fn planet_chunk_mass_properties(tile: &PlanetTile, chunk: IVec3) -> MassProperti
 				continue;
 			};
 
-			let voxel_z = origin.z.checked_add(z0).expect("planet voxel coordinate overflow");
+			let voxel_z = origin.z + z0;
 			let length = u64::try_from(z1.checked_sub(z0).expect("planet column length underflow"))
 				.expect("planet column length is negative");
-			properties = properties.checked_add(vertical_run_mass_properties(
+			properties = properties.add(vertical_run_mass_properties(
 				DVec3::new(f64::from(voxel_x), f64::from(voxel_y), f64::from(voxel_z)), length,
 			));
 		}
@@ -109,7 +109,7 @@ fn planet_chunk_mass_properties(tile: &PlanetTile, chunk: IVec3) -> MassProperti
 }
 
 fn vertical_run_mass_properties(origin: DVec3, count: u64) -> MassProperties {
-	let mass = u64::from(PLANET_VOXEL_MASS).checked_mul(count).expect("planet mass overflow");
+	let mass = u64::from(PLANET_VOXEL_MASS) * count;
 	let length = count as f64;
 	MassProperties {
 		mass: Mass(mass),
