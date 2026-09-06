@@ -36,9 +36,9 @@ impl MassProperties {
 	}
 
 	/// Applies replacements together so source handoffs cannot cause intermediate mass underflow.
-	pub fn replaced(self, changes: impl IntoIterator<Item = (Self, Self), IntoIter: Clone>) -> Self {
+	pub fn replaced(self, updates: impl IntoIterator<Item = (Self, Self), IntoIter: Clone>) -> Self {
 		Self::combine(std::iter::once((self, 1)).chain(
-			changes.into_iter().flat_map(|(before, after)| [(before, -1), (after, 1)]),
+			updates.into_iter().flat_map(|(before, after)| [(before, -1), (after, 1)]),
 		))
 	}
 

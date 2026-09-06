@@ -16,7 +16,7 @@ use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, Sou
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{chunk_of, chunk_origin};
 use voxel_streaming::GridStreaming;
-use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, SourceMassAppExt, VoxelMass, VoxelMassReaders, mass_properties_of_voxels};
+use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, SourceMassAppExt, VoxelMass, VoxelMassReaders, mass_properties_of_voxels};
 
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
 const LEAF_COLORS: [[u8; 4]; 4] = [[42, 112, 48, 255], [52, 132, 55, 255], [65, 148, 61, 255], [79, 158, 68, 255]];
@@ -219,11 +219,11 @@ fn spawn_tree(mut commands: Commands, tree: Res<TreeGrid>) {
 }
 
 impl SourceMass for TreeSource {
-	fn take_mass_changes(&mut self, _readers: &VoxelMassReaders) -> Vec<SourceMassChange> {
+	fn take_mass_updates(&mut self, _readers: &VoxelMassReaders) -> Vec<SourceMassUpdate> {
 		let Some(&grid) = self.grid.get() else { return Vec::new() };
 		let Some(mass) = self.pending_mass.take() else { return Vec::new() };
 		let source_id = self.handle.get().expect("tree source was not initialized").id();
-		vec![SourceMassChange::new(source_id, grid, MassProperties::ZERO, mass, MassError::ZERO)]
+		vec![SourceMassUpdate::new(source_id, grid, MassProperties::ZERO, mass, MassError::ZERO)]
 	}
 }
 

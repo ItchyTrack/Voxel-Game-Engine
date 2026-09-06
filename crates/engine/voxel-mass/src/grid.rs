@@ -7,7 +7,7 @@ use crate::{MassError, MassProperties};
 
 /// A source-local mass replacement returned directly to its registered system.
 #[derive(Clone, Copy, Debug)]
-pub struct SourceMassChange {
+pub struct SourceMassUpdate {
 	source_id: SourceId,
 	grid: GridId,
 	before: MassProperties,
@@ -15,7 +15,7 @@ pub struct SourceMassChange {
 	new_error: MassError,
 }
 
-impl SourceMassChange {
+impl SourceMassUpdate {
 	pub const fn new(source_id: SourceId, grid: GridId, before: MassProperties, after: MassProperties, new_error: MassError) -> Self {
 		Self { source_id, grid, before, after, new_error }
 	}
@@ -48,11 +48,11 @@ impl GridMassProperties {
 		self.source_errors.values().copied().fold(MassError::ZERO, MassError::add)
 	}
 
-	pub fn apply(&mut self, change: &SourceMassChange) {
+	pub fn apply(&mut self, change: &SourceMassUpdate) {
 		self.apply_batch(std::iter::once(change));
 	}
 
-	pub fn apply_batch<'a>(&mut self, changes: impl IntoIterator<Item = &'a SourceMassChange>) {
+	pub fn apply_batch<'a>(&mut self, changes: impl IntoIterator<Item = &'a SourceMassUpdate>) {
 		let changes: Vec<_> = changes.into_iter().collect();
 		self.nominal = self.nominal.replaced(changes.iter().map(|change| (change.before, change.after)));
 		for change in changes {

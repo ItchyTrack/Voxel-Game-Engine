@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use bevy::prelude::*;
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
 use voxel_data::{grid::GridId, voxels::{VoxelTypeId, VoxelTypeInfo, Voxels}};
-use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, VoxelMassReaders, mass_properties_of_voxels};
+use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, VoxelMassReaders, mass_properties_of_voxels};
 use voxel_sources::{
 	ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceId,
 	SourceResult, SourceResultData, edit::{GridEdit, GridGeneration},
@@ -140,7 +140,7 @@ impl VoxelStoreSource {
 			}
 			SourceResultData::VoxelsLoaded { .. } => {
 				let Some(acquisition) = self.acquisitions.remove(&result.request_id) else { return };
-				let mass_changes = self.grids.entry(acquisition.grid).or_default().complete_acquisition(
+				let mass_updates = self.grids.entry(acquisition.grid).or_default().complete_acquisition(
 					acquisition.chunk,
 					result.request_id,
 					acquisition.generation,
@@ -149,7 +149,7 @@ impl VoxelStoreSource {
 					&acquisition.queued_edits,
 					&self.mass_readers,
 				);
-				for (before, after, reserved_error) in mass_changes {
+				for (before, after, reserved_error) in mass_updates {
 					self.mass_errors.get_mut(&acquisition.grid).expect("acquiring grid has no mass reservation").reduce(reserved_error);
 					self.pending_mass.push((acquisition.grid, before, after));
 				}
@@ -287,11 +287,11 @@ pub fn complete_voxel_store_acquisitions(
 }
 
 impl SourceMass for VoxelStoreSource {
-	fn take_mass_changes(&mut self, readers: &VoxelMassReaders) -> Vec<SourceMassChange> {
+	fn take_mass_updates(&mut self, readers: &VoxelMassReaders) -> Vec<SourceMassUpdate> {
 		self.mass_readers = readers.clone();
 		let source_id = self.source_id();
 		self.pending_mass.drain(..).map(|(grid, before, after)| {
-			SourceMassChange::new(source_id, grid, before, after, self.mass_errors[&grid])
+			SourceMassUpdate::new(source_id, grid, before, after, self.mass_errors[&grid])
 		}).collect()
 	}
 }

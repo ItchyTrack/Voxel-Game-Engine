@@ -143,19 +143,19 @@ impl GridStore {
 			None => ChunkVersion::empty(baseline_generation),
 		};
 		let mut current = stored.push_version(baseline);
-		let mut mass_changes = Vec::with_capacity(edits.len());
+		let mut mass_updates = Vec::with_capacity(edits.len());
 		for (generation, edit, reserved_error) in edits {
 			let before = current.voxels().unwrap_or_else(|| Voxels::new_with_type(voxel_type));
 			let before_mass = chunk_mass(mass_readers, chunk, &before);
 			let after = edited_chunk_voxels(before, chunk, voxel_type, edit.as_ref());
 			let after_mass = chunk_mass(mass_readers, chunk, &after);
 			current = stored.push_version(ChunkVersion::from_voxels(*generation, &after));
-			mass_changes.push((before_mass, after_mass, *reserved_error));
+			mass_updates.push((before_mass, after_mass, *reserved_error));
 		}
 		if stored.ownership == ChunkOwnership::Acquiring(request_id) {
 			stored.ownership = ChunkOwnership::Owned;
 		}
-		mass_changes
+		mass_updates
 	}
 
 	pub(crate) fn apply_edit(

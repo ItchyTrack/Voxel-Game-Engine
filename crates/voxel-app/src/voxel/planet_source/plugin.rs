@@ -8,7 +8,7 @@ use voxel_data::voxels::VoxelType;
 use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassChange, SourceMassAppExt, VoxelMass, VoxelMassReaders};
+use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, SourceMassAppExt, VoxelMass, VoxelMassReaders};
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
 use voxel_streaming::GridStreaming;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
@@ -180,14 +180,14 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 }
 
 impl SourceMass for ProceduralPlanetSource {
-	fn take_mass_changes(&mut self, _readers: &VoxelMassReaders) -> Vec<SourceMassChange> {
+	fn take_mass_updates(&mut self, _readers: &VoxelMassReaders) -> Vec<SourceMassUpdate> {
 		if self.mass_initialized { return Vec::new(); }
 		let Some(grids) = self.grids.get() else { return Vec::new() };
 		let source_id = self.handle.get().expect("planet source was not initialized").id();
-		let changes = grids.iter().map(|(&grid, &tile)| {
-			SourceMassChange::new(source_id, grid, MassProperties::ZERO, planet_mass_properties(&planet_tiles()[tile]), MassError::ZERO)
+		let mass_updates = grids.iter().map(|(&grid, &tile)| {
+			SourceMassUpdate::new(source_id, grid, MassProperties::ZERO, planet_mass_properties(&planet_tiles()[tile]), MassError::ZERO)
 		}).collect();
 		self.mass_initialized = true;
-		changes
+		mass_updates
 	}
 }

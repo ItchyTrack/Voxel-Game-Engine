@@ -10,11 +10,11 @@ mod voxel;
 
 pub use components::{BodyMassInitialized, CenterOfMass, Mass, RotationalInertia, VoxelMass};
 pub use edit::{GridEditMassAppExt, GridEditMassReaders, MassRange, edit_reservation_error};
-pub use grid::{GridMassProperties, SourceMassChange};
+pub use grid::{GridMassProperties, SourceMassUpdate};
 pub use inertia_tensor::InertiaTensor;
 pub use marker::MarkerGridType;
 pub use properties::{BodyMassError, MassError, MassProperties};
-pub use source::{SourceMass, SourceMassAppExt, apply_source_mass_changes};
+pub use source::{SourceMass, SourceMassAppExt, apply_source_mass_updates};
 pub use voxel::{VoxelMassAppExt, VoxelMassReaders, VoxelMassValue, mass_properties_of_voxels};
 
 use bevy::prelude::*;

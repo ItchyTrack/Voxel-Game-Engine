@@ -10,7 +10,7 @@ use voxel_data::{
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
 use voxel_mass::{
-	MassError, MassProperties, SourceMass, SourceMassChange, VoxelMassReaders,
+	MassError, MassProperties, SourceMass, SourceMassUpdate, VoxelMassReaders,
 	mass_properties_of_voxels,
 };
 use voxel_trees::grid_tree::NonZeroVoxelRegion;
@@ -336,13 +336,13 @@ pub fn vox_file_source<T: VoxMaterialVoxel>() -> VoxFileSource<T> {
 }
 
 impl<T: VoxMaterialVoxel> SourceMass for VoxFileSource<T> {
-	fn take_mass_changes(&mut self, readers: &VoxelMassReaders) -> Vec<SourceMassChange> {
+	fn take_mass_updates(&mut self, readers: &VoxelMassReaders) -> Vec<SourceMassUpdate> {
 		let bindings: Vec<_> = self.inner.bindings.read().unwrap()
 			.iter()
 			.map(|(&grid, binding)| (grid, binding.clone()))
 			.collect();
 		let source_id = self.inner.handle.get().expect("VOX source was not initialized").id();
-		let mut changes = Vec::new();
+		let mut mass_updates = Vec::new();
 		for (grid, binding) in bindings {
 			if self.initialized_mass.get(&grid).is_some_and(|(current, _)| current == &binding) {
 				continue;
@@ -362,9 +362,9 @@ impl<T: VoxMaterialVoxel> SourceMass for VoxFileSource<T> {
 
 			let previous = self.initialized_mass.insert(grid, (binding, mass))
 				.map_or(MassProperties::ZERO, |(_, previous)| previous);
-			changes.push(SourceMassChange::new(source_id, grid, previous, mass, MassError::ZERO));
+			mass_updates.push(SourceMassUpdate::new(source_id, grid, previous, mass, MassError::ZERO));
 		}
-		changes
+		mass_updates
 	}
 }
 
