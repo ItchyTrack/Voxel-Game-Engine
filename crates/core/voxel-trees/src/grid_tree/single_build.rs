@@ -39,7 +39,7 @@ impl TempNode {
 	}
 }
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	pub(super) fn build_single_voxel_pairs<'a>(&mut self, min: UVec3, max: UVec3, voxels: &[(UVec3, G::Data<'a>)]) -> bool {
 		let Some((root_pos, depth)) = Self::canonical_root_for_bounds(min, max) else {
 			return false;

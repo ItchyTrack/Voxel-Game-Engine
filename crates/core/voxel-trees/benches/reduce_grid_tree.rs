@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::math::{IVec3, UVec3};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use voxel_trees::grid_tree::{GridReducer, GridTree, NonZeroVoxelRegion, SourceOverlaps, SourceTree, U16Cell, reduce_grid_trees};
+use voxel_trees::grid_tree::{GridReducer, GridTree64, NonZeroVoxelRegion, SourceOverlaps, SourceTree, U16Cell, reduce_grid_trees};
 
 const SOURCE_SIZE: u32 = 16;
 const OUTPUT_SIZE: u32 = 16;
@@ -30,7 +30,7 @@ impl GridReducer<U16Cell> for SumReducer {
 	}
 }
 
-fn dense_source() -> GridTree<U16Cell> {
+fn dense_source() -> GridTree64<U16Cell> {
 	let mut voxels = Vec::with_capacity(SOURCE_SIZE as usize * SOURCE_SIZE as usize * SOURCE_SIZE as usize);
 	for z in 0..SOURCE_SIZE {
 		for y in 0..SOURCE_SIZE {
@@ -40,12 +40,12 @@ fn dense_source() -> GridTree<U16Cell> {
 			}
 		}
 	}
-	let mut tree = GridTree::new();
+	let mut tree = GridTree64::new();
 	tree.add_single_voxels(&voxels);
 	tree
 }
 
-fn sparse_source() -> GridTree<U16Cell> {
+fn sparse_source() -> GridTree64<U16Cell> {
 	let mut voxels = Vec::new();
 	for z in 0..SOURCE_SIZE {
 		for y in 0..SOURCE_SIZE {
@@ -59,12 +59,12 @@ fn sparse_source() -> GridTree<U16Cell> {
 			}
 		}
 	}
-	let mut tree = GridTree::new();
+	let mut tree = GridTree64::new();
 	tree.add_single_voxels(&voxels);
 	tree
 }
 
-fn bench_case(group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>, name: &str, trees: &[GridTree<U16Cell>]) {
+fn bench_case(group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>, name: &str, trees: &[GridTree64<U16Cell>]) {
 	let sources: Vec<_> = trees
 		.iter()
 		.enumerate()

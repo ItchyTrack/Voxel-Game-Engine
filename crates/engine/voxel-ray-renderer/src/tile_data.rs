@@ -83,7 +83,7 @@ impl TileBuilder for VoxelRayTileBuilder {
 		);
 		let (bounds_min, bounds_max) = voxels.bounding_box()?;
 		let placement = RayTilePlacement {
-			tree_root_pos: voxels.grid_tree().view().root_pos(),
+			tree_root_pos: voxels.grid_tree().root_pos(),
 			bounds_min,
 			bounds_max,
 		};

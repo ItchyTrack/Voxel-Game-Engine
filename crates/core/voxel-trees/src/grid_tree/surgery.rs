@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 
 use super::*;
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	pub(super) fn occupied_count_in_cell(&self, node_depth: u8, node_index: u32, child_index: u8) -> u64 {
 		match self.raw.cell_kind(node_index, child_index) {
 			CellKind::Empty => 0,

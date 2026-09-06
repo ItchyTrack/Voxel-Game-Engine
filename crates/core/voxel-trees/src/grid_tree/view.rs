@@ -1,10 +1,9 @@
-use super::{raw::RawGridTree, GridType, LOG_SIZE};
-use crate::grid_tree::GridTreeNode;
+use super::{GridTree64, GridType, LOG_SIZE};
 use crate::views::{GridTreeView, NodeRef, CellKind};
 use bevy::math::{I8Vec3, Vec3, UVec3};
 use bevy::prelude::*;
 
-impl<G: GridType> GridTreeView for GridTree<G> {
+impl<G: GridType> GridTreeView for GridTree64<G> {
 	type NodeHandle = u32;
 	type Data<'d> = G::Data<'d> where Self: 'd;
 	const BRANCH_LOG2: u8 = LOG_SIZE;

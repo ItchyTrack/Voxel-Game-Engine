@@ -2,7 +2,7 @@ use bevy::math::UVec3;
 
 use super::*;
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	pub fn fill_region(&mut self, region: NonZeroVoxelRegion, data: G::Data<'_>) {
 		self.add_regions(&[(region, data)]);
 	}

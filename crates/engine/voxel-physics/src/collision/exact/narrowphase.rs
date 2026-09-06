@@ -1,7 +1,7 @@
 use bevy::math::{Quat, UVec3, U8Vec3, Vec3};
 
 use bevy::transform::components::Transform;
-use voxel_trees::grid_tree::{CellKind, GridTreeViewImpl, GridType, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED, get_child_contents_pos};
+use voxel_trees::grid_tree::{CellKind, GridTree64, GridType, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED, get_child_contents_pos};
 use voxel_trees::views::{GridTreeView, NodeRef};
 use voxel_query::OccupancyTree;
 
@@ -38,8 +38,8 @@ pub(crate) fn get_collisions_between_tiles(
 	let mut collisions = vec![];
 	if tree_1.is_empty() || tree_2.is_empty() { return collisions; }
 	let separating_axes = compute_1x1x1_cube_separating_axes(transform_of_1_in_2.rotation);
-	let view_1 = tree_1.view();
-	let view_2 = tree_2.view();
+	let view_1 = tree_1;
+	let view_2 = tree_2;
 	let root_1 = view_1.root();
 	let root_2 = view_2.root();
 	let box_1 = DescendBox { origin: root_1.origin, size: voxel_trees::grid_tree::size(root_1.depth), src: BoxSrc::Node(root_1) };
@@ -52,9 +52,9 @@ fn descend<G1: GridType, G2: GridType>(
 	collisions: &mut Vec<TileContact>,
 	separating_axes: &SeparatingAxes,
 	transform_of_1_in_2: &Transform,
-	view_1: GridTreeViewImpl<'_, G1>,
+	view_1: &GridTree64<G1>,
 	box_1: DescendBox,
-	view_2: GridTreeViewImpl<'_, G2>,
+	view_2: &GridTree64<G2>,
 	box_2: DescendBox,
 ) {
 	let center_1 = *transform_of_1_in_2 * (box_1.origin.as_vec3() + Vec3::splat(box_1.size as f32 * 0.5));
@@ -82,7 +82,7 @@ fn descend<G1: GridType, G2: GridType>(
 	}
 }
 
-fn collect_children<G: GridType>(parent: &DescendBox, view: GridTreeViewImpl<'_, G>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
+fn collect_children<G: GridType>(parent: &DescendBox, view: &GridTree64<G>, out: &mut [DescendBox; SIZE_USIZE_CUBED]) -> usize {
 	let mut count = 0;
 	match parent.src {
 		BoxSrc::Node(node) => {

@@ -5,11 +5,11 @@ use crate::region::NonZeroVoxelRegion;
 pub trait GridView: Debug {
 	type Data<'d>: Copy where Self: 'd;
 
-	fn get(&self, pos: UVec3) -> Option<Self::Data<'grid>>;
+	fn get(&self, pos: UVec3) -> Option<Self::Data<'_>>;
 
 	fn bounds(&self) -> Option<NonZeroVoxelRegion>;
 
-	fn for_each_in_region<F>(&self, region: NonZeroVoxelRegion, mut f: F)
+	fn for_each_in_region<'grid, F>(&'grid self, region: NonZeroVoxelRegion, mut f: F)
 	where
 		F: FnMut(UVec3, Self::Data<'grid>),
 	{

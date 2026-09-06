@@ -1,6 +1,6 @@
 use super::*;
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	#[inline]
 	pub(super) fn max_extent() -> u32 {
 		size(13) // may be 6 for voxels... need to add this param somewhere else
@@ -35,7 +35,7 @@ impl<G: GridType> GridTree<G> {
 	pub(super) fn make_sure_root_covers_pos(&mut self, pos: UVec3) -> bool {
 		if self.raw.used_cell_count(0) == 0 {
 			let Some((root_pos, root_depth)) = Self::canonical_root_for_bounds(pos, pos) else {
-				bevy::log::warn!("GridTree position {pos:?} is outside canonical positive extent {:?}; skipping insert", Self::canonical_extent_region());
+				bevy::log::warn!("GridTree64 position {pos:?} is outside canonical positive extent {:?}; skipping insert", Self::canonical_extent_region());
 				return false;
 			};
 			self.reset_empty_root(root_pos, root_depth);
@@ -55,7 +55,7 @@ impl<G: GridType> GridTree<G> {
 	pub(super) fn make_sure_root_covers_area(&mut self, min: UVec3, max: UVec3) -> bool {
 		if self.raw.used_cell_count(0) == 0 {
 			let Some((root_pos, root_depth)) = Self::canonical_root_for_bounds(min, max) else {
-				bevy::log::warn!("GridTree area {min:?}..={max:?} is outside canonical positive extent {:?}; skipping edit", Self::canonical_extent_region());
+				bevy::log::warn!("GridTree64 area {min:?}..={max:?} is outside canonical positive extent {:?}; skipping edit", Self::canonical_extent_region());
 				return false;
 			};
 			self.reset_empty_root(root_pos, root_depth);
@@ -72,7 +72,7 @@ impl<G: GridType> GridTree<G> {
 		let cover_min = self.raw.root_pos().min(min);
 		let cover_max = existing_max.max(max);
 		let Some((target_pos, target_depth)) = Self::canonical_root_for_bounds(cover_min, cover_max) else {
-			bevy::log::warn!("GridTree bounds {min:?}..={max:?} are outside canonical positive extent {:?}; skipping edit", Self::canonical_extent_region());
+			bevy::log::warn!("GridTree64 bounds {min:?}..={max:?} are outside canonical positive extent {:?}; skipping edit", Self::canonical_extent_region());
 			return false;
 		};
 		if self.raw.used_cell_count(0) == 0 {
@@ -165,8 +165,8 @@ impl<G: GridType> GridTree<G> {
 		}
 	}
 
-	pub fn internals(&self) -> (GridTreeViewImpl<'_, G>, UVec3, u8) {
-		(self.view(), self.raw.root_pos(), self.raw.root_depth())
+	pub fn internals(&self) -> (&Self, UVec3, u8) {
+		(self, self.raw.root_pos(), self.raw.root_depth())
 	}
 
 	/// Collapse a full uniform child subtree back into one data cell and continue upward.
@@ -209,7 +209,7 @@ impl<G: GridType> GridTree<G> {
 		if self.raw.free_node_count() >= MAX_TREE_DEPTH_USIZE || self.raw.node_count() + MAX_TREE_DEPTH_USIZE <= G::MAX_NODE_OFFSET as usize {
 			return true;
 		}
-		bevy::log::warn!("GridTree node arena full ({} total, {} free); skipping edit", self.raw.node_count(), self.raw.free_node_count());
+		bevy::log::warn!("GridTree64 node arena full ({} total, {} free); skipping edit", self.raw.node_count(), self.raw.free_node_count());
 		false
 	}
 }

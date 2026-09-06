@@ -1,6 +1,6 @@
 use super::*;
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	/// Insert one data cell. Returns true when the position was already occupied.
 	pub fn insert(&mut self, pos: &UVec3, data: G::Data<'_>) -> bool {
 		if !self.make_sure_root_covers_pos(*pos) {
@@ -59,9 +59,9 @@ impl<G: GridType> GridTree<G> {
 
 	/// Remove one cell. Returns true when the position was occupied.
 	pub fn remove(&mut self, pos: &UVec3) -> bool {
-		if pos.cmplt(self.view().root_pos()).any() { return false; }
-		let root_relative_pos = pos - self.view().root_pos();
-		let root_size = super::size(self.view().root_depth());
+		if pos.cmplt(self.root_pos()).any() { return false; }
+		let root_relative_pos = pos - self.root_pos();
+		let root_size = super::size(self.root_depth());
 		if root_relative_pos.x >= root_size || root_relative_pos.y >= root_size || root_relative_pos.z >= root_size {
 			return false;
 		}

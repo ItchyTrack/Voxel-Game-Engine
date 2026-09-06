@@ -1,4 +1,4 @@
-use voxel_trees::grid_tree::{GridTree, GridType};
+use voxel_trees::grid_tree::{GridTree64, GridType};
 use serde::{Deserialize, Serialize};
 
 use crate::voxels::{VoxelRef, VoxelType, VoxelTypeId, VoxelTypeInfo};
@@ -35,4 +35,4 @@ impl GridType for VoxelGridType {
 	}
 }
 
-pub type VoxelGridTree = GridTree<VoxelGridType>;
+pub type VoxelGridTree = GridTree64<VoxelGridType>;

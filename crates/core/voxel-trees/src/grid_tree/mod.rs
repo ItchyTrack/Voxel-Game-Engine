@@ -34,7 +34,7 @@ pub fn get_child_contents_pos(contents_index: u8) -> U8Vec3 {
 }
 
 #[derive(Debug, Clone)]
-pub struct GridTree<G: GridType> {
+pub struct GridTree64<G: GridType> {
 	grid_type: G,
 	raw: raw::RawGridTree,
 }
@@ -57,13 +57,13 @@ enum CellWrite<'a, G: GridType> {
 impl<'a, G: GridType> Copy for CellWrite<'a, G> {}
 impl<'a, G: GridType> Clone for CellWrite<'a, G> { fn clone(&self) -> Self { *self } }
 
-impl<G: GridType + Default> GridTree<G> {
+impl<G: GridType + Default> GridTree64<G> {
 	pub fn new() -> Self {
 		Self::new_with_type(G::default())
 	}
 }
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	pub fn new_with_type(grid_type: G) -> Self {
 		let raw = raw::RawGridTree::new(grid_type.data_size_bytes());
 		Self { grid_type, raw }
@@ -128,7 +128,7 @@ pub use crate::region::NonZeroVoxelRegion;
 use crate::views::{GridTreeView, GridView};
 pub use reduce::{reduce_grid_trees, GridReducer, SourceOverlap, SourceOverlaps, SourceTree};
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	pub fn len(&self) -> u64 {
 		self.raw.item_count()
 	}
@@ -140,7 +140,7 @@ impl<G: GridType> GridTree<G> {
 	}
 }
 
-impl<'a, G: GridType> IntoIterator for &'a GridTree<G> {
+impl<'a, G: GridType> IntoIterator for &'a GridTree64<G> {
 	type Item = (UVec3, u32, G::Data<'a>);
 	type IntoIter = GridTreeIterator<'a, G>;
 
@@ -150,12 +150,12 @@ impl<'a, G: GridType> IntoIterator for &'a GridTree<G> {
 }
 
 pub struct GridTreeIterator<'a, G: GridType> {
-	leaves: LeafCells<'a, &GridTree<'a, G>>,
+	leaves: LeafCells<'a, GridTree64<G>>,
 }
 
 impl<'a, G: GridType> GridTreeIterator<'a, G> {
-	pub fn new(tree: &'a GridTree<G>) -> Self {
-		Self { leaves: tree.view().leaves() }
+	pub fn new(tree: &'a GridTree64<G>) -> Self {
+		Self { leaves: tree.leaves() }
 	}
 }
 
@@ -231,7 +231,7 @@ mod tests {
 
 	#[test]
 	fn add_area_preserves_large_runs() {
-		let mut tree = GridTree::<U16Cell>::new();
+		let mut tree = GridTree64::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 7);
 		assert_eq!(tree.len(), 16 * 16 * 16);
 		assert_eq!(tree.get(UVec3::new(0, 0, 0)), Some(7));
@@ -240,7 +240,7 @@ mod tests {
 
 	#[test]
 	fn remove_area_clears_bulk_region_without_touching_neighbours() {
-		let mut tree = GridTree::<U16Cell>::new();
+		let mut tree = GridTree64::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(64), 7);
 		tree.remove_area(&UVec3::new(16, 16, 16), UVec3::splat(32));
 		assert_eq!(tree.get(UVec3::new(15, 16, 16)), Some(7));
@@ -249,7 +249,7 @@ mod tests {
 
 	#[test]
 	fn clear_sdf_only_removes_inside_shape() {
-		let mut tree = GridTree::<U16Cell>::new();
+		let mut tree = GridTree64::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 3);
 		let center = Vec3::splat(8.0);
 		let radius = 5.0f32;

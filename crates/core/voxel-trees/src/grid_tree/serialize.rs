@@ -2,7 +2,7 @@ use std::{io::{self, Read, Write}, marker::PhantomData};
 
 use serde::{de::{self, SeqAccess, Visitor}, ser::SerializeTuple, Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{raw::RawGridTree, CellKind, GridTree, GridType, SIZE_CUBED, SIZE_USIZE_CUBED};
+use super::{raw::RawGridTree, CellKind, GridTree64, GridType, SIZE_CUBED, SIZE_USIZE_CUBED};
 
 fn push_u64(out: &mut Vec<u8>, value: u64) { out.extend_from_slice(&value.to_le_bytes()); }
 fn write_u8<W: Write>(writer: &mut W, value: u8) -> io::Result<()> { writer.write_all(&[value]) }
@@ -117,7 +117,7 @@ fn read_node_from<R: Read, G: GridType>(reader: &mut R, raw: &mut RawGridTree, g
 	Ok(node_index)
 }
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	pub fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
 		write_u32(writer, self.raw.root_pos().x)?;
 		write_u32(writer, self.raw.root_pos().y)?;
@@ -128,7 +128,7 @@ impl<G: GridType> GridTree<G> {
 	}
 }
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	pub fn read_from_with_type<R: Read>(grid_type: G, reader: &mut R) -> io::Result<Self> {
 		let root_pos = bevy::math::UVec3::new(read_u32(reader)?, read_u32(reader)?, read_u32(reader)?);
 		let root_depth = read_u8(reader)?;
@@ -145,17 +145,17 @@ impl<G: GridType> GridTree<G> {
 		}
 		raw.set_root(root_pos, root_depth);
 		raw.set_item_count(raw_occupied_count(&raw, 0, root_depth));
-		Ok(GridTree { grid_type, raw })
+		Ok(GridTree64 { grid_type, raw })
 	}
 }
 
-impl<G: GridType + Default> GridTree<G> {
+impl<G: GridType + Default> GridTree64<G> {
 	pub fn read_from<R: Read>(reader: &mut R) -> io::Result<Self> {
 		Self::read_from_with_type(G::default(), reader)
 	}
 }
 
-impl<G> Serialize for GridTree<G>
+impl<G> Serialize for GridTree64<G>
 where
 	G: GridType + Serialize,
 {
@@ -175,7 +175,7 @@ where
 	}
 }
 
-impl<'de, G> Deserialize<'de> for GridTree<G>
+impl<'de, G> Deserialize<'de> for GridTree64<G>
 where
 	G: GridType + Deserialize<'de>,
 {
@@ -189,7 +189,7 @@ where
 		where
 			G: GridType + Deserialize<'de>,
 		{
-			type Value = GridTree<G>;
+			type Value = GridTree64<G>;
 
 			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result { formatter.write_str("a grid tree tuple") }
 
@@ -210,7 +210,7 @@ where
 				if !input.is_empty() { return Err(de::Error::custom("grid tree byte stream has trailing data")); }
 				raw.set_root(root_pos, root_depth);
 				raw.set_item_count(item_count);
-				Ok(GridTree { grid_type, raw })
+				Ok(GridTree64 { grid_type, raw })
 			}
 		}
 

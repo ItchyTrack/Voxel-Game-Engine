@@ -2,6 +2,7 @@ use basic_voxel::MarchingVoxel;
 use bevy::math::{IVec3, Vec3};
 use rustc_hash::FxHashMap;
 use voxel_trees::grid_tree::NonZeroVoxelRegion;
+use voxel_trees::views::GridTreeView;
 use voxel_data::voxels::{VoxelType, Voxels};
 
 use crate::mc33_table::MC33_CASES;

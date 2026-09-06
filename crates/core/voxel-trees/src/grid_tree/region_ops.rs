@@ -26,7 +26,7 @@ fn sdf_relation_for_block(sdf: &(impl Sdf + ?Sized), block_min: UVec3, block_siz
 	}
 }
 
-impl<G: GridType> GridTree<G> {
+impl<G: GridType> GridTree64<G> {
 	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, data: G::Data<'_>) {
 		let (min, max) = shrink_aabb_with_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
 		let Some(region) = voxel_region_from_bounds(min, max) else { return };
@@ -271,9 +271,9 @@ impl<G: GridType> GridTree<G> {
 		let Some(source_bounds) = other.occupied_bounds_in_region(source_region) else { return };
 		let dest_bounds = source_bounds.translated(offset);
 		if !self.make_sure_root_covers_area(dest_bounds.min().as_uvec3(), dest_bounds.max().as_uvec3()) { return; }
-		let leaves: Vec<_> = other.view().leaves().filter_map(|leaf| {
+		let leaves: Vec<_> = other.leaves().filter_map(|leaf| {
 			let leaf_region = NonZeroVoxelRegion::from_min_size(leaf.origin.as_ivec3(), UVec3::splat(leaf.size())).unwrap();
-			leaf_region.intersection(source_region).map(|clipped| (clipped, other.view().cell_data(leaf.child_handle.unwrap(), leaf.child_index)))
+			leaf_region.intersection(source_region).map(|clipped| (clipped, other.cell_data(leaf.child_handle.unwrap(), leaf.child_index)))
 		}).collect();
 		for (clipped, data) in leaves {
 			self.fill_region(clipped.translated(offset), map(data));
@@ -446,7 +446,7 @@ impl<G: GridType> GridTree<G> {
 			return self.raw.item_count();
 		}
 
-		fn recurse<G: GridType>(tree: &GridTree<G>, node_index: u32, node_depth: u8, node_origin: UVec3, region: NonZeroVoxelRegion) -> u64 {
+		fn recurse<G: GridType>(tree: &GridTree64<G>, node_index: u32, node_depth: u8, node_origin: UVec3, region: NonZeroVoxelRegion) -> u64 {
 			if tree.raw.used_cell_count(node_index) == 0 {
 				return 0;
 			}
@@ -611,7 +611,7 @@ impl<G: GridType> GridTree<G> {
 		}
 
 		fn frontier_from_child<G: GridType>(
-			tree: &GridTree<G>,
+			tree: &GridTree64<G>,
 			node_index: u32,
 			child_index: u8,
 			node_depth: u8,
@@ -636,7 +636,7 @@ impl<G: GridType> GridTree<G> {
 		}
 
 		fn frontier<G: GridType>(
-			tree: &GridTree<G>,
+			tree: &GridTree64<G>,
 			node_index: u32,
 			node_depth: u8,
 			node_origin: UVec3,

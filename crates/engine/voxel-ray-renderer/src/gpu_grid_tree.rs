@@ -87,7 +87,7 @@ impl VoxelGpuBlockEncoder for RawVoxelGpuBlockEncoder {
 
 pub fn make_gpu_grid_tree(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo, gpu_data_readers: &VoxelGpuDataReaders) -> (Vec<u8>, Vec<u8>) {
 	let _zone = span!("make GPU grid tree");
-	let view = grid_tree.view();
+	let view = grid_tree;
 	let nodes = view.nodes();
 	let root_depth = view.root_depth();
 	assert!(!nodes.is_empty(), "ERROR: tree must have at least a root node.");
