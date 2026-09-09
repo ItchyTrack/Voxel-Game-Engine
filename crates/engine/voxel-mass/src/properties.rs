@@ -28,18 +28,20 @@ impl MassProperties {
 	}
 
 	pub fn add(self, other: Self) -> Self {
-		Self::sum([self, other])
+		Accum::from(self).fold_in(other, 1).finish()
 	}
 
-	pub fn sum(parts: impl IntoIterator<Item = Self, IntoIter: Clone>) -> Self {
-		Self::combine(parts.into_iter().map(|part| (part, 1)))
+	pub fn sum(parts: impl IntoIterator<Item = Self>) -> Self {
+		parts.into_iter()
+			.fold(Accum::ZERO, |acc, part| acc.fold_in(part, 1))
+			.finish()
 	}
 
 	/// Applies replacements together so source handoffs cannot cause intermediate mass underflow.
-	pub fn replaced(self, updates: impl IntoIterator<Item = (Self, Self), IntoIter: Clone>) -> Self {
-		Self::combine(std::iter::once((self, 1)).chain(
-			updates.into_iter().flat_map(|(before, after)| [(before, -1), (after, 1)]),
-		))
+	pub fn replaced(self, updates: impl IntoIterator<Item = (Self, Self)>) -> Self {
+		updates.into_iter()
+			.fold(Accum::from(self), |acc, (before, after)| acc.fold_in(before, -1).fold_in(after, 1))
+			.finish()
 	}
 
 	fn combine(parts: impl Iterator<Item = (Self, i128)> + Clone) -> Self {
@@ -64,6 +66,44 @@ impl MassProperties {
 			if sign > 0 { inertia += shifted; } else { inertia -= shifted; }
 		}
 		Self { mass: Mass(mass), center_of_mass: CenterOfMass(center), rotational_inertia: RotationalInertia(inertia) }
+	}
+}
+
+struct Accum {
+	mass: i128,
+	center: DVec3,
+	inertia: InertiaTensor,
+}
+
+impl Accum {
+	const ZERO: Self = Self { mass: 0, center: DVec3::ZERO, inertia: InertiaTensor::ZERO };
+	fn fold_in(self, part: MassProperties, sign: i128) -> Self {
+		let part_mass = i128::from(part.mass.0) * sign;
+		let mass = self.mass + part_mass;
+		if mass == 0 {
+			return Self::ZERO;
+		}
+		let center = self.center + (part.center_of_mass.0 - self.center) * (part_mass as f64 / mass as f64);
+		let mut inertia = self.inertia.move_from_center_of_mass(&(self.center - center), self.mass as f64);
+		inertia += part.rotational_inertia.0.move_from_center_of_mass(&(part.center_of_mass.0 - center), part_mass as f64);
+		Self { mass, center, inertia }
+	}
+
+	fn finish(self) -> MassProperties {
+		if self.mass == 0 {
+			return MassProperties::ZERO;
+		}
+		MassProperties {
+			mass: Mass(u64::try_from(self.mass).expect("mass underflow or overflow")),
+			center_of_mass: CenterOfMass(self.center),
+			rotational_inertia: RotationalInertia(self.inertia),
+		}
+	}
+}
+
+impl From<MassProperties> for Accum {
+	fn from(p: MassProperties) -> Self {
+		Self { mass: i128::from(p.mass.0), center: p.center_of_mass.0, inertia: p.rotational_inertia.0 }
 	}
 }
 
