@@ -2,7 +2,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
 
-use bevy::math::Vec3;
+use voxel_math::FixedVec3;
 
 use super::instructions::AudioInstruction;
 use super::mixer::build_output_stream_typed;
@@ -83,7 +83,7 @@ impl AudioEngine {
 		self.push_instruction(AudioInstruction::SpawnVoice(instruction));
 	}
 
-	pub fn play_sound(&mut self, effect: SoundEffect, position: Vec3) {
+	pub fn play_sound(&mut self, effect: SoundEffect, position: FixedVec3) {
 		for instruction in sound_effect_recipe(effect, position) {
 			self.spawn_voice(instruction);
 		}
@@ -105,7 +105,7 @@ impl AudioEngine {
 	}
 }
 
-fn sound_effect_recipe(effect: SoundEffect, position: Vec3) -> [SpawnVoiceInstruction; 2] {
+fn sound_effect_recipe(effect: SoundEffect, position: FixedVec3) -> [SpawnVoiceInstruction; 2] {
 	match effect {
 		SoundEffect::BlockPlace => [
 			SpawnVoiceInstruction {

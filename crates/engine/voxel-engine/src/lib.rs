@@ -7,6 +7,7 @@ use voxel_lightyear::VoxelLightyearPlugins;
 use voxel_mass::VoxelMassPlugin;
 use voxel_physics::VoxelPhysicsPlugin;
 use voxel_streaming::VoxelStreamingPlugin;
+use voxel_transform::VoxelTransformPlugin;
 
 use crate::client_rendering::ClientRenderingPlugins;
 
@@ -27,6 +28,7 @@ impl PluginGroup for VoxelEnginePlugins {
 		let group = PluginGroupBuilder::start::<Self>()
 			.add(GpuVoxelDataPlugin)
 			.add(VoxelDataPlugin)
+			.add(VoxelTransformPlugin)
 			.add(VoxelStreamingPlugin)
 			.add(VoxelMassPlugin { authoritative: self.mode != VoxelEngineMode::Client })
 			.add(VoxelPhysicsPlugin { simulation_enabled: self.mode != VoxelEngineMode::Client });

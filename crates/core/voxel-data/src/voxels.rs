@@ -1,5 +1,6 @@
 use voxel_trees::views::GridView;
-use bevy::math::{IVec2, IVec3, UVec3, Vec3};
+use bevy::math::{IVec2, IVec3, UVec3};
+use voxel_math::FixedVec3;
 use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{io::{self, Read, Write}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
@@ -357,13 +358,13 @@ impl Voxels {
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
-	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, voxel: VoxelRef) {
+	pub fn apply_sdf(&mut self, initial_min: FixedVec3, initial_max: FixedVec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, voxel: VoxelRef) {
 		self.assert_type(voxel.type_id());
 		self.voxels.apply_sdf(initial_min, initial_max, sdf, face_resolution, iterations, voxel);
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
 
-	pub fn clear_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize) {
+	pub fn clear_sdf(&mut self, initial_min: FixedVec3, initial_max: FixedVec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize) {
 		self.voxels.clear_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}

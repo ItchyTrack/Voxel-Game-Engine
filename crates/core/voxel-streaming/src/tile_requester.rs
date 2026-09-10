@@ -4,6 +4,7 @@ use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileBuilderRegistry, TileBuildin
 use voxel_data::grid::GridId;
 use voxel_sources::edit::{GridEditIdManager, GridGeneration};
 use voxel_tasks::CancellationToken;
+use voxel_math::Fixed;
 
 use crate::{GridStreaming, streaming::{TileState, TileStatus, TileRequestType}, tile_building::{TileBuildingCancellationToken, TileBuildingChannel, TileBuildingResult, TileVoxelSourceBridge, session}};
 
@@ -37,7 +38,7 @@ impl<'w, 's> TileRequester<'w, 's> {
 		grid: GridId,
 		requester: Entity,
 		tile_key: TileKey,
-		priority: f32,
+		priority: Fixed,
 		min_latency: bool,
 		context: Option<&TileBuildingParameters>,
 	) -> bool {

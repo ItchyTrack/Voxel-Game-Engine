@@ -1,7 +1,8 @@
-use std::f32::consts::PI;
 use std::sync::OnceLock;
 
-use bevy::{math::DVec2, prelude::*};
+use bevy::prelude::*;
+use voxel_math::{Fixed, FixedVec3};
+use crate::voxel::fixed_math::{FixedVec2, PI, ShapeMath};
 use tracy_client::span;
 use tile_data::{chunk_of, chunk_origin};
 use tile_data::CHUNK_SIZE;
@@ -14,17 +15,17 @@ use super::config::{
 #[derive(Debug, Clone)]
 pub(super) struct Halfspace {
 	// Local tile coordinates are inside when normal.dot(local) + offset >= 0.
-	pub(super) normal: Vec3,
-	pub(super) offset: f32,
+	pub(super) normal: FixedVec3,
+	pub(super) offset: Fixed,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct PlanetTile {
 	pub(super) index: usize,
-	pub(super) normal: Vec3,
-	pub(super) origin: Vec3,
-	pub(super) axis_x: Vec3,
-	pub(super) axis_y: Vec3,
+	pub(super) normal: FixedVec3,
+	pub(super) origin: FixedVec3,
+	pub(super) axis_x: FixedVec3,
+	pub(super) axis_y: FixedVec3,
 	pub(super) halfspaces: Vec<Halfspace>,
 	pub(super) present_chunks: Vec<IVec3>,
 }
@@ -36,30 +37,30 @@ pub(super) fn planet_tiles() -> &'static [PlanetTile] {
 
 fn build_planet_tiles() -> Vec<PlanetTile> {
 	let _zone = span!("planet build tile cache");
-	let normals: Vec<Vec3> = (0..PLANET_TILE_COUNT)
+	let normals: Vec<FixedVec3> = (0..PLANET_TILE_COUNT)
 		.map(|index| fibonacci_sphere_point(index, PLANET_TILE_COUNT))
 		.collect();
 
 	let mut tiles = Vec::with_capacity(PLANET_TILE_COUNT);
 	for (index, &normal) in normals.iter().enumerate() {
-		let axis_x = if normal.x.abs() < 1e-6 && normal.z.abs() < 1e-6 {
-			Vec3::X
+		let axis_x = if normal.x.abs() < Fixed::from_num(1e-6) && normal.z.abs() < Fixed::from_num(1e-6) {
+			FixedVec3::X
 		} else {
-			Vec3::new(-normal.z, 0.0, normal.x).normalize()
+			FixedVec3::new(-normal.z, Fixed::ZERO, normal.x).normalize()
 		};
 		let axis_y = normal.cross(axis_x).normalize();
 
-		let mut neighbor_dots: Vec<(usize, f32)> = normals
+		let mut neighbor_dots: Vec<(usize, Fixed)> = normals
 			.iter()
 			.enumerate()
 			.filter(|&(other, _)| other != index)
 			.map(|(other, &other_normal)| (other, normal.dot(other_normal)))
 			.collect();
 		if neighbor_dots.len() > VORONOI_NEIGHBORS {
-			neighbor_dots.select_nth_unstable_by(VORONOI_NEIGHBORS, |a, b| b.1.total_cmp(&a.1));
+			neighbor_dots.select_nth_unstable_by(VORONOI_NEIGHBORS, |a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 			neighbor_dots.truncate(VORONOI_NEIGHBORS);
 		}
-		neighbor_dots.sort_by(|a, b| b.1.total_cmp(&a.1));
+		neighbor_dots.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
 		// A spherical Voronoi edge between tile A and tile B is the plane where
 		// dot(A, point_dir) == dot(B, point_dir). In a tile's local tangent
@@ -88,24 +89,24 @@ fn build_planet_tiles() -> Vec<PlanetTile> {
 	tiles
 }
 
-fn fibonacci_sphere_point(index: usize, count: usize) -> Vec3 {
-	let i = index as f32 + 0.5;
-	let n = count as f32;
-	let y = 1.0 - 2.0 * i / n;
-	let h = PI * (1.0 + 5.0_f32.sqrt()) * i;
-	let radius = (1.0 - y * y).max(0.0).sqrt();
-	Vec3::new(h.cos() * radius, y, h.sin() * radius).normalize()
+fn fibonacci_sphere_point(index: usize, count: usize) -> FixedVec3 {
+	let i = Fixed::from_num(index) + Fixed::from_num(0.5);
+	let n = Fixed::from_num(count);
+	let y = Fixed::ONE - Fixed::from_num(2) * i / n;
+	let h = PI * (Fixed::ONE + Fixed::from_num(5).sqrt()) * i;
+	let radius = (Fixed::ONE - y * y).max(Fixed::ZERO).sqrt();
+	FixedVec3::new(h.cos() * radius, y, h.sin() * radius).normalize()
 }
 
 fn voronoi_halfspace(
-	tile_normal: Vec3,
-	neighbor_normal: Vec3,
-	axis_x: Vec3,
-	axis_y: Vec3,
+	tile_normal: FixedVec3,
+	neighbor_normal: FixedVec3,
+	axis_x: FixedVec3,
+	axis_y: FixedVec3,
 ) -> Halfspace {
 	let diff = tile_normal - neighbor_normal;
 	Halfspace {
-		normal: Vec3::new(diff.dot(axis_x), diff.dot(axis_y), diff.dot(tile_normal)),
+		normal: FixedVec3::new(diff.dot(axis_x), diff.dot(axis_y), diff.dot(tile_normal)),
 		offset: diff.dot(tile_normal * PLANET_RADIUS),
 	}
 }
@@ -125,24 +126,24 @@ fn remove_redundant_halfspaces(halfspaces: &[Halfspace]) -> Vec<Halfspace> {
 
 fn halfspace_is_active(candidate: usize, halfspaces: &[Halfspace]) -> bool {
 	let candidate_plane = halfspace_z_plane(&halfspaces[candidate]);
-	let extent = PLANET_RADIUS as f64;
+	let extent = PLANET_RADIUS;
 	let mut polygon = vec![
-		DVec2::new(-extent, -extent),
-		DVec2::new(extent, -extent),
-		DVec2::new(extent, extent),
-		DVec2::new(-extent, extent),
+		FixedVec2::new(-extent, -extent),
+		FixedVec2::new(extent, -extent),
+		FixedVec2::new(extent, extent),
+		FixedVec2::new(-extent, extent),
 	];
 
 	// Ignore boundaries which can only be exposed outside the generated Z slab.
 	clip_affine_polygon(
 		&mut polygon,
 		candidate_plane.0,
-		candidate_plane.1 + TILE_INWARD_DEPTH as f64,
+		candidate_plane.1 + Fixed::from_num(TILE_INWARD_DEPTH),
 	);
 	clip_affine_polygon(
 		&mut polygon,
 		-candidate_plane.0,
-		TILE_OUTWARD_HEIGHT as f64 - candidate_plane.1,
+		Fixed::from_num(TILE_OUTWARD_HEIGHT) - candidate_plane.1,
 	);
 
 	// The candidate is active wherever its lower Z bound is at least every
@@ -162,19 +163,19 @@ fn halfspace_is_active(candidate: usize, halfspaces: &[Halfspace]) -> bool {
 	!polygon.is_empty()
 }
 
-fn halfspace_z_plane(halfspace: &Halfspace) -> (DVec2, f64) {
-	debug_assert!(halfspace.normal.z > 1e-6);
-	let inverse_z = (halfspace.normal.z as f64).recip();
+fn halfspace_z_plane(halfspace: &Halfspace) -> (FixedVec2, Fixed) {
+	debug_assert!(halfspace.normal.z > Fixed::from_num(1e-6));
+	let inverse_z = halfspace.normal.z.recip();
 	(
-		DVec2::new(
-			-halfspace.normal.x as f64 * inverse_z,
-			-halfspace.normal.y as f64 * inverse_z,
+		FixedVec2::new(
+			-halfspace.normal.x * inverse_z,
+			-halfspace.normal.y * inverse_z,
 		),
-		(-TILE_SHAPE_EPSILON as f64 - halfspace.offset as f64) * inverse_z,
+		(-TILE_SHAPE_EPSILON - halfspace.offset) * inverse_z,
 	)
 }
 
-fn clip_affine_polygon(polygon: &mut Vec<DVec2>, normal: DVec2, offset: f64) {
+fn clip_affine_polygon(polygon: &mut Vec<FixedVec2>, normal: FixedVec2, offset: Fixed) {
 	if polygon.is_empty() {
 		return;
 	}
@@ -185,8 +186,8 @@ fn clip_affine_polygon(polygon: &mut Vec<DVec2>, normal: DVec2, offset: f64) {
 		let b = polygon[(index + 1) % polygon.len()];
 		let a_value = normal.dot(a) + offset;
 		let b_value = normal.dot(b) + offset;
-		let a_inside = a_value >= 0.0;
-		let b_inside = b_value >= 0.0;
+		let a_inside = a_value >= Fixed::ZERO;
+		let b_inside = b_value >= Fixed::ZERO;
 
 		if a_inside && b_inside {
 			clipped.push(b);
@@ -204,13 +205,13 @@ fn clip_affine_polygon(polygon: &mut Vec<DVec2>, normal: DVec2, offset: f64) {
 fn build_present_chunks(halfspaces: &[Halfspace]) -> Vec<IVec3> {
 	let (min_xy, max_xy) = voronoi_xy_bounds(halfspaces);
 	let min_voxel = IVec3::new(
-		min_xy.x.floor() as i32 - TILE_BOUND_PADDING,
-		min_xy.y.floor() as i32 - TILE_BOUND_PADDING,
+		min_xy.x.floor().to_num::<i32>() - TILE_BOUND_PADDING,
+		min_xy.y.floor().to_num::<i32>() - TILE_BOUND_PADDING,
 		-TILE_INWARD_DEPTH,
 	);
 	let max_voxel_exclusive = IVec3::new(
-		max_xy.x.ceil() as i32 + TILE_BOUND_PADDING,
-		max_xy.y.ceil() as i32 + TILE_BOUND_PADDING,
+		max_xy.x.ceil().to_num::<i32>() + TILE_BOUND_PADDING,
+		max_xy.y.ceil().to_num::<i32>() + TILE_BOUND_PADDING,
 		TILE_OUTWARD_HEIGHT,
 	);
 
@@ -232,10 +233,10 @@ fn build_present_chunks(halfspaces: &[Halfspace]) -> Vec<IVec3> {
 	chunks
 }
 
-fn voronoi_xy_bounds(halfspaces: &[Halfspace]) -> (Vec2, Vec2) {
-	let mut min = Vec2::splat(f32::INFINITY);
-	let mut max = Vec2::splat(f32::NEG_INFINITY);
-	for z in [-TILE_INWARD_DEPTH as f32, TILE_OUTWARD_HEIGHT as f32] {
+fn voronoi_xy_bounds(halfspaces: &[Halfspace]) -> (FixedVec2, FixedVec2) {
+	let mut min = FixedVec2::splat(Fixed::MAX);
+	let mut max = FixedVec2::splat(Fixed::MIN);
+	for z in [Fixed::from_num(-TILE_INWARD_DEPTH), Fixed::from_num(TILE_OUTWARD_HEIGHT)] {
 		let polygon = clipped_voronoi_polygon(halfspaces, z);
 		for p in polygon {
 			min = min.min(p);
@@ -243,22 +244,22 @@ fn voronoi_xy_bounds(halfspaces: &[Halfspace]) -> (Vec2, Vec2) {
 		}
 	}
 
-	if !min.is_finite() || !max.is_finite() {
+	if min == FixedVec2::splat(Fixed::MAX) || max == FixedVec2::splat(Fixed::MIN) {
 		// Extremely defensive fallback; this should never happen unless the
 		// neighbor list is broken.
-		(Vec2::splat(-512.0), Vec2::splat(512.0))
+		(FixedVec2::splat(Fixed::from_num(-512)), FixedVec2::splat(Fixed::from_num(512)))
 	} else {
 		(min, max)
 	}
 }
 
-fn clipped_voronoi_polygon(halfspaces: &[Halfspace], z: f32) -> Vec<Vec2> {
-	let extent = PLANET_RADIUS * 0.25;
+fn clipped_voronoi_polygon(halfspaces: &[Halfspace], z: Fixed) -> Vec<FixedVec2> {
+	let extent = PLANET_RADIUS * Fixed::from_num(0.25);
 	let mut polygon = vec![
-		Vec2::new(-extent, -extent),
-		Vec2::new(extent, -extent),
-		Vec2::new(extent, extent),
-		Vec2::new(-extent, extent),
+		FixedVec2::new(-extent, -extent),
+		FixedVec2::new(extent, -extent),
+		FixedVec2::new(extent, extent),
+		FixedVec2::new(-extent, extent),
 	];
 
 	for halfspace in halfspaces {
@@ -278,7 +279,7 @@ fn clipped_voronoi_polygon(halfspaces: &[Halfspace], z: f32) -> Vec<Vec2> {
 			if a_inside && b_inside {
 				clipped.push(b);
 			} else if a_inside != b_inside {
-				let t = (va / (va - vb)).clamp(0.0, 1.0);
+				let t = (va / (va - vb)).clamp(Fixed::ZERO, Fixed::ONE);
 				clipped.push(a.lerp(b, t));
 				if b_inside {
 					clipped.push(b);
@@ -297,9 +298,9 @@ pub(super) fn tile_has_chunk(tile: &PlanetTile, chunk: IVec3) -> bool {
 }
 
 fn chunk_intersects_tile_shape(halfspaces: &[Halfspace], chunk: IVec3) -> bool {
-	let min = chunk_origin(chunk).as_vec3();
-	let max = (chunk_origin(chunk) + IVec3::splat(CHUNK_SIZE as i32)).as_vec3();
-	if max.z <= -TILE_INWARD_DEPTH as f32 || min.z >= TILE_OUTWARD_HEIGHT as f32 {
+	let min = FixedVec3::from(chunk_origin(chunk));
+	let max = FixedVec3::from(chunk_origin(chunk) + IVec3::splat(CHUNK_SIZE as i32));
+	if max.z <= Fixed::from_num(-TILE_INWARD_DEPTH) || min.z >= Fixed::from_num(TILE_OUTWARD_HEIGHT) {
 		return false;
 	}
 
@@ -307,11 +308,11 @@ fn chunk_intersects_tile_shape(halfspaces: &[Halfspace], chunk: IVec3) -> bool {
 		// If the furthest AABB vertex in a halfspace's direction is still
 		// outside, the whole chunk is outside. This is conservative, so it may
 		// keep a few edge chunks but will never crop a valid Voronoi cell.
-		let p = Vec3::new(
-			if h.normal.x >= 0.0 { max.x } else { min.x },
-			if h.normal.y >= 0.0 { max.y } else { min.y },
-			if h.normal.z >= 0.0 { max.z } else { min.z },
+		let p = FixedVec3::new(
+			if h.normal.x >= Fixed::ZERO { max.x } else { min.x },
+			if h.normal.y >= Fixed::ZERO { max.y } else { min.y },
+			if h.normal.z >= Fixed::ZERO { max.z } else { min.z },
 		);
-		h.normal.dot(p) + h.offset >= -(CHUNK_SIZE as f32)
+		h.normal.dot(p) + h.offset >= -Fixed::from_num(CHUNK_SIZE)
 	})
 }

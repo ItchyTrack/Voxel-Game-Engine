@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use voxel_sources::RequestId;
+use voxel_math::Fixed;
 
 use tile_data::NonZeroChunkRegion;
 use voxel_sources::edit::GridGeneration;
@@ -23,7 +24,7 @@ pub(crate) enum TileRequestType {
 
 #[derive(Debug)]
 pub(crate) struct TileState {
-	pub(crate) requesters: FxHashMap<Entity, f32>,
+	pub(crate) requesters: FxHashMap<Entity, Fixed>,
 	pub(crate) latency_requesters: FxHashSet<Entity>,
 	pub(crate) tile_request_type: TileRequestType,
 	pub(crate) status: TileStatus,

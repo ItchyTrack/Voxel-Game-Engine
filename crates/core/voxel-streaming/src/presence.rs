@@ -1,5 +1,5 @@
 use bevy::math::IVec3;
-use bevy::transform::components::Transform;
+use voxel_math::{Fixed, Transform};
 
 use tile_data::NonZeroChunkRegion;
 use voxel_trees::region::NonZeroVoxelRegion;
@@ -55,8 +55,8 @@ impl ChunkPresence {
 		self.tree.for_each_occupied_tile_cover(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), tile_size, f);
 	}
 
-	/// `transform` rotation maps +Z onto the ray direction (matches the voxel tree).
-	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(IVec3, f32)> {
+	/// Distances are parameters along the transform's ray direction.
+	pub fn raycast(&self, transform: &(impl Transform + ?Sized), max_length: Option<Fixed>) -> Option<(IVec3, Fixed)> {
 		self.tree.raycast(transform, max_length).map(|(pos, _, dist)| (pos, dist))
 	}
 

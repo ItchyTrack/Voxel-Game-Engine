@@ -18,7 +18,8 @@ pub use source::{SourceMass, SourceMassAppExt, apply_source_mass_updates};
 pub use voxel::{VoxelMassAppExt, VoxelMassReaders, VoxelMassValue, mass_properties_of_voxels};
 
 use bevy::prelude::*;
-use voxel_data::{body::Body, grid::Grid};
+use voxel_data::grid::Grid;
+use voxel_transform::Body;
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VoxelMassSet {

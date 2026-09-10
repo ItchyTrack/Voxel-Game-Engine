@@ -8,7 +8,8 @@ use bevy::ecs::system::{Commands, Query, Res};
 use bevy::math::{UVec3, Vec3};
 use bevy::render::Extract;
 use bevy::render::sync_world::RenderEntity;
-use bevy::transform::components::{GlobalTransform, Transform};
+use bevy::transform::components::Transform;
+use voxel_transform::{RenderOrigin, TransformQuery};
 use tile_data::DynamicTileData;
 use voxel_data::voxels::VoxelTypeId;
 use voxel_gpu::packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupBuffer};
@@ -59,7 +60,9 @@ pub fn extract_raster_scene(
 	existing_scenes: Query<Entity, bevy::ecs::query::With<ExtractedRasterScene>>,
 	tile_capabilities: Extract<Res<RasterTileCapabilityRegistry>>,
 	cameras: Extract<Query<(RenderEntity, &VoxelRasterCamera, &Camera, &Frustum)>>,
-	tiles: Extract<Query<(&DynamicTileData, &GlobalTransform)>>,
+	tiles: Extract<Query<&DynamicTileData>>,
+	transforms: Extract<TransformQuery>,
+	render_origin: Extract<Res<RenderOrigin>>,
 	world_gpu: Extract<Res<RasterWorldGpuData>>,
 ) {
 	for entity in &existing_scenes {
@@ -72,10 +75,11 @@ pub fn extract_raster_scene(
 		if !camera.is_active { continue; }
 		let mut candidates = Vec::new();
 		for entity in &raster_camera.tiles_to_render {
-			let Ok((tile_data, tile_global)) = tiles.get(*entity) else { continue };
+			let Ok(tile_data) = tiles.get(*entity) else { continue };
+			let Some(tile_world) = transforms.get_world(*entity) else { continue };
 			let Some(tile) = tile_capabilities.read(tile_data.data()) else { continue };
 			let scale = (1u32 << tile.voxel_lod) as f32;
-			let transform = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
+			let transform = tile_world.relative_to(render_origin.0) * Transform::from_scale(Vec3::splat(scale));
 			if !in_frustum(frustum, tile.bounds_min, tile.bounds_max, &transform) { continue; }
 			candidates.push(RenderItem {
 				entity: *entity,

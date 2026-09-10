@@ -5,6 +5,8 @@ members = [
 	"crates/core/voxel-tasks",
 	"crates/core/voxel-trees",
 	"crates/core/voxel-data",
+	"crates/core/voxel-math",
+	"crates/engine/voxel-transform",
 	"crates/core/tile-data",
 	"crates/core/voxel-sources",
 	"crates/core/voxel-streaming",
@@ -49,6 +51,8 @@ getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"]
 voxel-tasks = { version = "0.1.0", path = "crates/core/voxel-tasks" }
 voxel-trees = { version = "0.1.0", path = "crates/core/voxel-trees" }
 voxel-data = { version = "0.1.0", path = "crates/core/voxel-data" }
+voxel-math = { version = "0.1.0", path = "crates/core/voxel-math" }
+voxel-transform = { version = "0.1.0", path = "crates/engine/voxel-transform" }
 tile-data = { version = "0.1.0", path = "crates/core/tile-data" }
 voxel-sources = { version = "0.1.0", path = "crates/core/voxel-sources" }
 voxel-streaming = { version = "0.1.0", path = "crates/core/voxel-streaming" }

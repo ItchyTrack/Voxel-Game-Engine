@@ -1,15 +1,20 @@
+#[cfg(test)]
+mod tests;
+
 use std::any::Any;
 use std::collections::HashSet;
 
 use bevy::ecs::query::QueryFilter;
 use bevy::ecs::system::SystemParam;
-use bevy::math::{IVec3, Quat, UVec3, Vec3};
+use bevy::math::{IVec3, UVec3};
+use voxel_math::{Fixed, FixedVec3, Ray};
+use voxel_transform::{Transform, TransformQuery};
 use bevy::prelude::*;
 use tile_data::{
 	CHUNK_SIZE, DynamicTileData, LoadedTile, TileAppExt, TileBuilder, TileBuildingSession,
 	TileClassId, TileData,
 };
-use voxel_data::bvh::BVH;
+use voxel_transform::bvh::BVH;
 use voxel_data::grid::{Grid, GridId};
 use voxel_trees::grid_tree::{GridTree64, U16Cell};
 use voxel_trees::views::GridTreeView;
@@ -75,8 +80,8 @@ pub struct VoxelWorldRaycastHit {
 	pub grid: GridId,
 	pub voxel_pos: IVec3,
 	pub normal: IVec3,
-	pub world_position: Vec3,
-	pub distance: f32,
+	pub world_position: FixedVec3,
+	pub distance: Fixed,
 }
 
 #[derive(SystemParam)]
@@ -85,8 +90,9 @@ where
 	GridFilter: QueryFilter + 'static,
 {
 	class: Res<'w, OccupancyTileClass>,
-	grids: Query<'w, 's, (Entity, &'static Grid), GridFilter>,
-	tiles: Query<'w, 's, (&'static LoadedTile, &'static DynamicTileData, &'static GlobalTransform)>,
+	grids: Query<'w, 's, Entity, (With<Grid>, GridFilter)>,
+	tiles: Query<'w, 's, (Entity, &'static LoadedTile, &'static DynamicTileData)>,
+	transforms: TransformQuery<'w, 's>,
 }
 
 struct RaycastCandidate<'a> {
@@ -99,44 +105,36 @@ impl<'w, 's, GridFilter> VoxelWorldQueryParam<'w, 's, GridFilter>
 where
 	GridFilter: QueryFilter + 'static,
 {
-	pub fn raycast(&self, origin: Vec3, direction: Vec3, max_distance: Option<f32>) -> Option<VoxelWorldRaycastHit> {
+	pub fn raycast(&self, origin: FixedVec3, direction: FixedVec3, max_distance: Option<Fixed>) -> Option<VoxelWorldRaycastHit> {
 		let direction = direction.normalize_or_zero();
-		if direction == Vec3::ZERO { return None; }
+		if direction == FixedVec3::ZERO || max_distance.is_some_and(|distance| distance < Fixed::ZERO) { return None; }
 
-		let selected_grids: HashSet<_> = self.grids.iter().map(|(entity, _)| entity).collect();
-		let candidates: Vec<_> = self.tiles.iter().filter_map(|(loaded, data, global)| {
+		let selected_grids: HashSet<_> = self.grids.iter().collect();
+		let candidates: Vec<_> = self.tiles.iter().filter_map(|(entity, loaded, data)| {
 			if loaded.key.class != self.class.0 || !selected_grids.contains(&loaded.grid) { return None; }
 			let occupancy = data.downcast_ref::<OccupancyTileData>()?;
-			let transform = global.compute_transform();
-			if !transform.scale.abs_diff_eq(Vec3::ONE, 1e-5) { return None; }
+			let transform = self.transforms.get_world(entity)?;
 			Some(RaycastCandidate { loaded, occupancy, transform })
 		}).collect();
 
 		let bounds = candidates.iter().enumerate().filter_map(|(index, candidate)| {
 			let bounds = candidate.occupancy.tree.occupied_bounds()?;
-			let lo = bounds.min().as_vec3();
-			let hi = bounds.end().as_vec3();
-			Some((index, voxel_data::aabb::aabb_of_transformed_aabb(&candidate.transform, lo, hi)))
+			let lo = FixedVec3::from(bounds.min());
+			let hi = FixedVec3::from(bounds.end());
+			let world_bounds = voxel_transform::aabb::aabb_of_transformed_aabb(&candidate.transform, lo, hi);
+			Some((index, world_bounds))
 		}).collect();
 		let bvh = BVH::new(bounds);
-		let ray = Transform {
-			translation: origin,
-			rotation: Quat::from_rotation_arc(Vec3::Z, direction),
-			scale: Vec3::ONE,
-		};
+		let ray = Ray { origin, direction };
 		let mut best: Option<VoxelWorldRaycastHit> = None;
 
 		for (index, bounds_distance) in bvh.raycast(&ray, max_distance) {
 			if best.is_some_and(|hit| bounds_distance > hit.distance) { break; }
 			let candidate = &candidates[index];
-			let inverse_rotation = candidate.transform.rotation.inverse();
-			let local_origin = inverse_rotation * (origin - candidate.transform.translation);
-			let local_direction = inverse_rotation * direction;
-			let local_ray = Transform {
-				translation: local_origin,
-				rotation: Quat::from_rotation_arc(Vec3::Z, local_direction),
-				scale: Vec3::ONE,
-			};
+			let local_origin = candidate.transform.inverse_transform_point(origin);
+			// Keep the direction unnormalized so the ray parameter remains world distance.
+			let local_direction = candidate.transform.inverse_transform_vector(direction);
+			let local_ray = Ray { origin: local_origin, direction: local_direction };
 			let Some((tile_voxel, normal, distance)) = candidate.occupancy.tree.raycast(&local_ray, max_distance) else { continue };
 			if best.is_some_and(|hit| hit.distance <= distance) { continue; }
 			let tile_origin = candidate.loaded.key.region.min() * CHUNK_SIZE as i32;

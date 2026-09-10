@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-	use bevy::math::{IVec2, IVec3, UVec3, Vec3};
-	use bevy::transform::components::Transform;
+	use bevy::math::{IVec2, IVec3, UVec3};
+	use voxel_math::{Fixed, FixedVec3, Ray};
 	use std::{collections::{HashMap, HashSet}, io::Cursor};
 	use voxel_trees::{
 		grid_tree::{CellKind, GridTree64, NonZeroVoxelRegion, U16Cell, SIZE},
@@ -199,12 +199,11 @@ mod tests {
 	fn raycast_hits() {
 		let mut t = GridTree64::<U16Cell>::new();
 		t.insert(&UVec3::new(0, 0, 10), 1);
-		let tf = Transform {
-			translation: Vec3::new(0.5, 0.5, -1.0),
-			rotation: bevy::math::Quat::from_rotation_arc(Vec3::Z, Vec3::Z),
-			scale: Vec3::ONE,
+		let ray = Ray {
+			origin: FixedVec3::new(Fixed::from_num(0.5), Fixed::from_num(0.5), Fixed::NEG_ONE),
+			direction: FixedVec3::Z,
 		};
-		let (pos, _, _) = t.raycast(&tf, Some(100.0)).expect("raycast hit");
+		let (pos, _, _) = t.raycast(&ray, Some(Fixed::from_num(100))).expect("raycast hit");
 		assert_eq!(pos, UVec3::new(0, 0, 10));
 	}
 
@@ -257,8 +256,9 @@ mod tests {
 	#[test]
 	fn apply_sdf_fills_single_voxel_from_exact_bounds_on_empty_tree() {
 		let mut t = GridTree64::<U16Cell>::new();
-		let sdf = |q: Vec3| if (q - Vec3::new(16.5, 0.5, 0.5)).length() < 0.1 { -1.0 } else { 1.0 };
-		t.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, 2);
+		let center = FixedVec3::new(Fixed::from_num(16.5), Fixed::from_num(0.5), Fixed::from_num(0.5));
+		let sdf = |q: FixedVec3| if (q - center).length() < Fixed::from_num(0.1) { Fixed::NEG_ONE } else { Fixed::ONE };
+		t.apply_sdf(IVec3::new(16, 0, 0).into(), IVec3::new(17, 1, 1).into(), &sdf, IVec2::splat(3), 2, 2);
 		assert_eq!(t.get(UVec3::new(16, 0, 0)), Some(2));
 	}
 
@@ -266,8 +266,9 @@ mod tests {
 	fn apply_sdf_fills_single_voxel_from_exact_bounds_after_root_growth() {
 		let mut t = GridTree64::<U16Cell>::new();
 		t.insert(&UVec3::new(0, 0, 0), 1);
-		let sdf = |q: Vec3| if (q - Vec3::new(16.5, 0.5, 0.5)).length() < 0.1 { -1.0 } else { 1.0 };
-		t.apply_sdf(Vec3::new(16.0, 0.0, 0.0), Vec3::new(17.0, 1.0, 1.0), &sdf, IVec2::splat(3), 2, 2);
+		let center = FixedVec3::new(Fixed::from_num(16.5), Fixed::from_num(0.5), Fixed::from_num(0.5));
+		let sdf = |q: FixedVec3| if (q - center).length() < Fixed::from_num(0.1) { Fixed::NEG_ONE } else { Fixed::ONE };
+		t.apply_sdf(IVec3::new(16, 0, 0).into(), IVec3::new(17, 1, 1).into(), &sdf, IVec2::splat(3), 2, 2);
 		assert_eq!(t.get(UVec3::new(0, 0, 0)), Some(1));
 		assert_eq!(t.get(UVec3::new(16, 0, 0)), Some(2));
 	}

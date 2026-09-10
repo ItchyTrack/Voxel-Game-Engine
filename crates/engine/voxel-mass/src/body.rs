@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use voxel_data::{body::Body, grid::Grid};
+use voxel_data::grid::Grid;
+use voxel_transform::{Body, Transform};
 
 use crate::{BodyMassError, BodyMassInitialized, CenterOfMass, GridMassProperties, Mass, MassError, MassProperties, RotationalInertia, VoxelMass, VoxelMassAuthority};
 

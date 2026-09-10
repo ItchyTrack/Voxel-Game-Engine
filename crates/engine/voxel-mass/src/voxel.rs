@@ -1,9 +1,14 @@
-use bevy::math::{DVec3, IVec3};
+use bevy::math::IVec3;
+use voxel_math::{Fixed, FixedVec3};
 use bevy::prelude::{App, Resource};
 use rustc_hash::FxHashMap;
 use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeId, Voxels};
 
 use crate::{CenterOfMass, InertiaTensor, Mass, MassProperties, RotationalInertia};
+
+#[cfg(test)]
+#[path = "voxel_tests.rs"]
+mod tests;
 
 pub trait VoxelMassValue: VoxelType {
 	fn voxel_mass(&self) -> u64;
@@ -50,17 +55,18 @@ pub fn mass_properties_of_voxels(
 ) -> Option<MassProperties> {
 	let reader = *readers.readers.get(&voxels.voxel_type_id())?;
 	let mut properties = MassProperties::ZERO;
+	let mut first_moment = [0i128; 3];
 	for (leaf_origin, leaf_size, voxel) in voxels.grid_tree() {
 		let voxel_mass = reader(&voxel);
 		if voxel_mass == 0 { continue; }
 		let size = u64::from(leaf_size);
-		let count = size * size * size;
-		let mass = voxel_mass * count;
-		properties = properties.add(MassProperties {
+		let count = size.checked_pow(3).expect("voxel count overflow");
+		let mass = voxel_mass.checked_mul(count).expect("voxel mass overflow");
+		properties = properties.replaced_tracking([(MassProperties::ZERO, MassProperties {
 			mass: Mass(mass),
-			center_of_mass: CenterOfMass(grid_voxel_origin.as_dvec3() + leaf_origin.as_dvec3() + DVec3::splat(size as f64 * 0.5)),
+			center_of_mass: CenterOfMass(FixedVec3::from(grid_voxel_origin) + FixedVec3::from(leaf_origin) + FixedVec3::splat(Fixed::from_num(size) / Fixed::from_num(2))),
 			rotational_inertia: RotationalInertia(InertiaTensor::get_inertia_tensor_for_cube(mass as f64, size as f64)),
-		});
+		})], &mut first_moment);
 	}
 	(properties.mass.0 != 0).then_some(properties)
 }

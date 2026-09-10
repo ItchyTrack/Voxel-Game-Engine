@@ -4,6 +4,7 @@ use bevy::camera::{Camera, primitives::{Aabb, Frustum}};
 use bevy::prelude::*;
 use bevy::render::{Extract, sync_world::RenderEntity};
 use tile_data::DynamicTileData;
+use voxel_transform::{RenderOrigin, TransformQuery};
 use voxel_gpu::packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupBuffer};
 
 use crate::{
@@ -45,7 +46,9 @@ pub fn extract_marching_scene(
 	existing: Query<Entity, With<ExtractedMarchingScene>>,
 	capabilities: Extract<Res<MarchingTileCapabilityRegistry>>,
 	cameras: Extract<Query<(RenderEntity, &VoxelMarchingCamera, &Camera, &Frustum)>>,
-	tiles: Extract<Query<(&DynamicTileData, &GlobalTransform)>>,
+	tiles: Extract<Query<&DynamicTileData>>,
+	transforms: Extract<TransformQuery>,
+	render_origin: Extract<Res<RenderOrigin>>,
 	world_gpu: Extract<Res<MarchingWorldGpuData>>,
 ) {
 	for entity in &existing { commands.entity(entity).remove::<ExtractedMarchingScene>(); }
@@ -55,10 +58,11 @@ pub fn extract_marching_scene(
 		if !camera.is_active { continue; }
 		let mut candidates = Vec::new();
 		for entity in &marching_camera.tiles_to_render {
-			let Ok((data, tile_global)) = tiles.get(*entity) else { continue };
+			let Ok(data) = tiles.get(*entity) else { continue };
+			let Some(tile_world) = transforms.get_world(*entity) else { continue };
 			let Some(tile) = capabilities.read(data.data()) else { continue };
 			let scale = (1u32 << tile.voxel_lod) as f32;
-			let transform = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
+			let transform = tile_world.relative_to(render_origin.0) * Transform::from_scale(Vec3::splat(scale));
 			let aabb = Aabb::from_min_max(tile.bounds_min, tile.bounds_max);
 			if !frustum.intersects_obb(&aabb, &transform.compute_affine(), true, true) { continue; }
 			candidates.push(RenderItem {

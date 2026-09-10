@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+use voxel_math::FixedVec3;
 use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeInfo, Voxels};
 use tile_data::chunk_of;
 use tile_data::CHUNK_SIZE;
@@ -49,10 +50,10 @@ impl StreamingVoxels {
 					}
 
 					let mut chunk_voxels = Voxels::new_with_type(self.voxel_type_info);
-					let local_sdf = |p: Vec3| sdf.sample(p + chunk_origin.as_vec3());
+					let local_sdf = |p: FixedVec3| sdf.sample(p + FixedVec3::from(chunk_origin));
 					chunk_voxels.apply_sdf(
-						local_min.as_vec3(),
-						local_max.as_vec3(),
+						local_min.into(),
+						local_max.into(),
 						&local_sdf,
 						IVec2::splat(9),
 						8,

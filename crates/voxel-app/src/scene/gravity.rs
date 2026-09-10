@@ -1,10 +1,11 @@
 use bevy::prelude::*;
+use voxel_math::{Fixed, FixedVec3};
 
 use voxel_physics::{Accelerations, IsStatic, RigidBody, VoxelPhysicsAppExt};
 
 pub struct GravityPlugin;
 
-const GRAVITY_ACCELERATION: Vec3 = Vec3::new(0.0, -150.0, 0.0);
+const GRAVITY_ACCELERATION: FixedVec3 = FixedVec3::new(Fixed::ZERO, Fixed::from_bits(-150 << 24), Fixed::ZERO);
 
 impl Plugin for GravityPlugin {
 	fn build(&self, app: &mut App) {

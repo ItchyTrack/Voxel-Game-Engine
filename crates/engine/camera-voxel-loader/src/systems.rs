@@ -1,6 +1,8 @@
 use bevy::{ecs::message::MessageReader, prelude::*};
 use tile_data::{CHUNK_SIZE, TileBuildingParameters};
 use voxel_data::grid::GridId;
+use voxel_math::{Fixed, FixedVec3};
+use voxel_transform::TransformQuery;
 use voxel_streaming::{
 	ChunkAvailabilityChangeKind, ChunkAvailabilityChanged, GridStreaming, TileLoadStatus, TileLoadUpdate, TileRequester, tile_requester::TileReleaser,
 };
@@ -19,7 +21,7 @@ fn acquire_tile(
 	lifecycle: &mut crate::tile_lifecycle::TileLifecycle,
 	requester_entity: Entity,
 	key: GridTileKey,
-	priority: f32,
+	priority: Fixed,
 	context: Option<&TileBuildingParameters>,
 ) {
 	if requester.fetch_tile(key.grid, requester_entity, key.tile_key, priority, true, context) { return; }
@@ -29,13 +31,14 @@ fn acquire_tile(
 
 pub(crate) fn update_camera_voxel_loader_requests(
 	freeze: Res<FreezeCameraVoxelLoader>,
-	mut cameras: Query<(Entity, &Camera, &GlobalTransform, &CameraVoxelTileClass, &mut CameraVoxelLoader), With<Camera3d>>,
+	mut cameras: Query<(Entity, &Camera, &CameraVoxelTileClass, &mut CameraVoxelLoader), With<Camera3d>>,
+	transforms: TransformQuery,
 	mut streaming: ParamSet<(
 		TileRequester,
-		Query<(GridId, &GlobalTransform, &GridStreaming, Option<&TileBuildingParameters>)>,
+		Query<(GridId, &GridStreaming, Option<&TileBuildingParameters>)>,
 	)>,
 ) {
-	for (camera_entity, camera, camera_global, tile_class, mut loader) in &mut cameras {
+	for (camera_entity, camera, tile_class, mut loader) in &mut cameras {
 		if !camera.is_active {
 			let release: Vec<_> = loader.tiles.entries().map(|(key, _)| key).collect();
 			loader.bands.clear();
@@ -47,7 +50,7 @@ pub(crate) fn update_camera_voxel_loader_requests(
 		}
 		if freeze.0 { continue; }
 
-		let camera_world = camera_global.translation();
+		let Some(camera_world) = transforms.get_world(camera_entity) else { continue };
 		let settings = loader.settings.clone();
 		let mut acquisitions = Vec::new();
 		let mut releases = Vec::new();
@@ -55,8 +58,10 @@ pub(crate) fn update_camera_voxel_loader_requests(
 			let grids = streaming.p1();
 			let mut acquire = Vec::new();
 			let mut release = Vec::new();
-			for (grid_id, grid_global, grid_streaming, context) in &grids {
-				let camera_local = grid_global.affine().inverse().transform_point3(camera_world);
+			for (grid_id, grid_streaming, context) in &grids {
+				let Some(grid_world) = transforms.get_world(grid_id) else { continue };
+				let camera_offset = camera_world.translation - grid_world.translation;
+				let camera_local = (grid_world.rotation.inverse() * camera_offset) / grid_world.scale.to_fixed();
 				let delta = update_desired_sources_delta(
 					&mut loader,
 					grid_id,
@@ -68,8 +73,8 @@ pub(crate) fn update_camera_voxel_loader_requests(
 				loader.tiles.apply_delta(&delta.added, &delta.removed, &mut acquire, &mut release);
 				releases.extend(release.drain(..));
 				for key in acquire.drain(..) {
-					let center_local = ((key.tile_key.region.min() + key.tile_key.region.size().as_ivec3() / 2) * CHUNK_SIZE as i32).as_vec3();
-					let priority = -camera_world.distance(grid_global.transform_point(center_local));
+					let center_local = FixedVec3::from(key.tile_key.region.min() + key.tile_key.region.size().as_ivec3() / 2) * Fixed::from_num(CHUNK_SIZE);
+					let priority = -camera_offset.distance(grid_world.transform_vector(center_local));
 					acquisitions.push((key, priority, context.cloned()));
 				}
 			}
@@ -150,7 +155,7 @@ pub(crate) fn refresh_camera_voxel_loader_visibility(
 		for key in releases { requester.release_tile(key.grid, camera_entity, key.tile_key); }
 		for (key, context) in acquisitions {
 			if !loader.tiles.contains_source(key) { continue; }
-			acquire_tile(&mut requester, &mut loader.tiles, camera_entity, key, 0.0, context.as_ref());
+			acquire_tile(&mut requester, &mut loader.tiles, camera_entity, key, Fixed::ZERO, context.as_ref());
 		}
 	}
 }

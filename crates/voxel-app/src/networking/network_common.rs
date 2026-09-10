@@ -4,6 +4,8 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 use voxel_lightyear::ReplicateVoxels;
+use voxel_math::FixedVec3;
+use voxel_transform::{Scale, Transform};
 use voxel_mass::{BodyMassError, BodyMassInitialized, CenterOfMass, Mass, RotationalInertia};
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 
@@ -21,9 +23,9 @@ pub const REPLICATION_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NetworkTransform {
-	pub translation: Vec3,
+	pub translation: FixedVec3,
 	pub rotation: Quat,
-	pub scale: Vec3,
+	pub scale: Scale,
 }
 
 impl From<Transform> for NetworkTransform {

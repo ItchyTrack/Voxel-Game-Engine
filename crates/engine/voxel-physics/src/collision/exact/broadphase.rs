@@ -1,11 +1,11 @@
 use bevy::tasks::ComputeTaskPool;
 use tracy_client::span;
 
-use bevy::transform::components::Transform;
-use voxel_data::bvh::BVH;
+use voxel_transform::Transform;
+use voxel_math::FixedVec3;
+use voxel_transform::bvh::BVH;
 use voxel_data::subgrid::{SubGridId, SubGridRef};
 
-use crate::transform_ext::TransformExt;
 use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
 
@@ -65,7 +65,7 @@ fn collide_subgrid_a(
 	let physics_body_a = bodies.get(&body_a_id).unwrap();
 	let grid_local_transform_a = grid_col_a.local_transform;
 	let grid_transform_a = physics_body_a.transform * *grid_local_transform_a;
-	let sub_grid_transform_a = grid_transform_a * Transform::from_translation(sub_grid_a.sub_grid_pos().as_vec3());
+	let sub_grid_transform_a = grid_transform_a * Transform::from_translation(FixedVec3::from(sub_grid_a.sub_grid_pos()));
 	let bound = match sub_grid_a.aabb(&sub_grid_transform_a) { Some(aabb) => aabb, None => return vec![] };
 
 	let mut collisions: Vec<Collision> = vec![];
@@ -82,8 +82,8 @@ fn collide_subgrid_a(
 			else { (physics_body_b, grid_local_transform_b, sub_grid_b, physics_body_a, grid_local_transform_a, sub_grid_a) }
 		};
 		let transform_of_1_in_2 = {
-			Transform::from_translation(-sub_grid_2.sub_grid_pos().as_vec3()) * grid_local_transform_2.inverse() * physics_body2.transform.inverse() *
-			physics_body1.transform * *grid_local_transform_1 * Transform::from_translation(sub_grid_1.sub_grid_pos().as_vec3())
+			Transform::from_translation(-FixedVec3::from(sub_grid_2.sub_grid_pos())) * grid_local_transform_2.inverse() * physics_body2.transform.inverse() *
+			physics_body1.transform * *grid_local_transform_1 * Transform::from_translation(FixedVec3::from(sub_grid_1.sub_grid_pos()))
 		};
 		collisions.extend(get_collisions_between_subgrids(
 			sub_grid_1.voxels(),
@@ -98,16 +98,16 @@ fn collide_subgrid_a(
 					grid_id: if no_swap { grid_id_a } else { grid_id_b },
 					voxel_pos: collision_grid_pos_1,
 					feature: c.1,
-					collision: physics_body2.transform * *grid_local_transform_2 * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.0,
-					local_collision: physics_body1.transform.inverse() * physics_body2.transform * *grid_local_transform_2 * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.0,
+					collision: physics_body2.transform * *grid_local_transform_2 * Transform::from_translation(FixedVec3::from(sub_grid_2.sub_grid_pos())) * c.0,
+					local_collision: physics_body1.transform.inverse() * physics_body2.transform * *grid_local_transform_2 * Transform::from_translation(FixedVec3::from(sub_grid_2.sub_grid_pos())) * c.0,
 				},
 				part2: HalfCollision {
 					body_id: if no_swap { body_b_id } else { body_a_id },
 					grid_id: if no_swap { grid_id_b } else { grid_id_a },
 					voxel_pos: collision_grid_pos_2,
 					feature: c.3,
-					collision: physics_body2.transform * *grid_local_transform_2 * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.2,
-					local_collision: *grid_local_transform_2 * Transform::from_translation(sub_grid_2.sub_grid_pos().as_vec3()) * c.2,
+					collision: physics_body2.transform * *grid_local_transform_2 * Transform::from_translation(FixedVec3::from(sub_grid_2.sub_grid_pos())) * c.2,
+					local_collision: *grid_local_transform_2 * Transform::from_translation(FixedVec3::from(sub_grid_2.sub_grid_pos())) * c.2,
 				},
 			}
 		}));
