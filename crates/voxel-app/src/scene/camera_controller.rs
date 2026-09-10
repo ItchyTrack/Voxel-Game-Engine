@@ -5,10 +5,12 @@ use bevy::math::{Quat, Vec3};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use bevy_egui::input::EguiWantsInput;
+use voxel_math::{Fixed, FixedVec3};
+use voxel_transform::Transform;
 
 #[derive(Component)]
 pub struct FlyCamera {
-	pub speed: f32,
+	pub speed: Fixed,
 	pub rotation_speed: f32,
 	pub mouse_sensitivity: f32,
 	pub yaw: f32,
@@ -18,7 +20,7 @@ pub struct FlyCamera {
 impl Default for FlyCamera {
 	fn default() -> Self {
 		Self {
-			speed: 30.0,
+			speed: Fixed::from_num(30),
 			rotation_speed: 1.5,
 			mouse_sensitivity: 0.0015,
 			yaw: 0.0,
@@ -45,7 +47,8 @@ fn fly_camera_system(
 	cursor_options: Query<&CursorOptions, With<PrimaryWindow>>,
 	mut cams: Query<(&mut Transform, &mut FlyCamera)>,
 ) {
-	let dt = time.delta_secs();
+	let dt = Fixed::from_num(time.delta().as_nanos()) / Fixed::from_num(1_000_000_000);
+	let rotation_dt = dt.to_num::<f32>();
 
 	let mouse_delta = if cfg!(target_arch = "wasm32") {
 		mouse_motion.delta
@@ -61,24 +64,24 @@ fn fly_camera_system(
 		cam.yaw   -= mouse_delta.x * cam.mouse_sensitivity;
 		cam.pitch -= mouse_delta.y * cam.mouse_sensitivity;
 
-		if keys.pressed(KeyCode::ArrowLeft)  { cam.yaw   += cam.rotation_speed * dt; }
-		if keys.pressed(KeyCode::ArrowRight) { cam.yaw   -= cam.rotation_speed * dt; }
-		if keys.pressed(KeyCode::ArrowUp)	{ cam.pitch += cam.rotation_speed * dt; }
-		if keys.pressed(KeyCode::ArrowDown)  { cam.pitch -= cam.rotation_speed * dt; }
+		if keys.pressed(KeyCode::ArrowLeft)  { cam.yaw   += cam.rotation_speed * rotation_dt; }
+		if keys.pressed(KeyCode::ArrowRight) { cam.yaw   -= cam.rotation_speed * rotation_dt; }
+		if keys.pressed(KeyCode::ArrowUp)	{ cam.pitch += cam.rotation_speed * rotation_dt; }
+		if keys.pressed(KeyCode::ArrowDown)  { cam.pitch -= cam.rotation_speed * rotation_dt; }
 
 		cam.pitch = cam.pitch.clamp(-PITCH_LIMIT, PITCH_LIMIT);
 
 		transform.rotation = Quat::from_axis_angle(Vec3::Y, cam.yaw)
 			* Quat::from_axis_angle(Vec3::X, cam.pitch);
 
-		let forward = transform.forward().as_vec3();
-		let right = transform.right().as_vec3();
-		let up = transform.up().as_vec3();
+		let forward = transform.rotation * FixedVec3::NEG_Z;
+		let right = transform.rotation * FixedVec3::X;
+		let up = transform.rotation * FixedVec3::Y;
 
 		let sprint = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-		let speed = cam.speed * if sprint { 16.0 } else { 1.0 };
+		let speed = cam.speed * Fixed::from_num(if sprint { 16 } else { 1 });
 
-		let mut move_dir = Vec3::ZERO;
+		let mut move_dir = FixedVec3::ZERO;
 		if keys.pressed(KeyCode::KeyW) { move_dir += forward; }
 		if keys.pressed(KeyCode::KeyS) { move_dir -= forward; }
 		if keys.pressed(KeyCode::KeyD) { move_dir += right; }
@@ -86,7 +89,7 @@ fn fly_camera_system(
 		if keys.pressed(KeyCode::KeyE) { move_dir += up; }
 		if keys.pressed(KeyCode::KeyQ) { move_dir -= up; }
 
-		if move_dir != Vec3::ZERO {
+		if move_dir != FixedVec3::ZERO {
 			transform.translation += move_dir * speed * dt;
 		}
 	}

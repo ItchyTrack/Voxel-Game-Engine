@@ -8,13 +8,15 @@ use std::{
 };
 
 use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
+use voxel_math::{Fixed, FixedVec3};
+use voxel_transform::Transform;
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileAppExt, TileBuilder, TileBuildingSession, TileClassId, TileData, chunk_of};
 use voxel_data::{
 	grid::Grid,
-	region::NonZeroVoxelRegion,
 	voxels::{VoxelTypeId, VoxelTypeInfo},
 };
 use voxel_sources::edit::{GridEditId, GridEditIdManager, GridEditMessage, GridGeneration, RemoveArea};
+use voxel_trees::grid_tree::NonZeroVoxelRegion;
 use voxel_streaming::{
 	ChunkAvailabilityChangeKind,
 	ChunkAvailabilityChanged,
@@ -74,14 +76,14 @@ fn test_app() -> App {
 }
 
 fn spawn_grid(app: &mut App, streaming: GridStreaming) -> Entity {
-	app.world_mut().spawn((test_grid(), GridEditIdManager::default(), streaming, GlobalTransform::default())).id()
+	app.world_mut().spawn((test_grid(), GridEditIdManager::default(), streaming, Transform::default())).id()
 }
 
 fn spawn_camera(app: &mut App, settings: CameraVoxelLoaderSettings, center: IVec3) -> Entity {
 	app.world_mut()
 		.spawn((
 			Camera3d::default(),
-			GlobalTransform::from_translation((center * CHUNK_SIZE as i32).as_vec3()),
+			Transform::from_translation(FixedVec3::from(center) * Fixed::from_num(CHUNK_SIZE)),
 			CameraVoxelTileClass(TEST_CLASS),
 			CameraVoxelLoader::with_settings(settings),
 		))
@@ -89,8 +91,8 @@ fn spawn_camera(app: &mut App, settings: CameraVoxelLoaderSettings, center: IVec
 }
 
 fn move_camera(app: &mut App, camera: Entity, center: IVec3) {
-	*app.world_mut().entity_mut(camera).get_mut::<GlobalTransform>().unwrap() =
-		GlobalTransform::from_translation((center * CHUNK_SIZE as i32).as_vec3());
+	*app.world_mut().entity_mut(camera).get_mut::<Transform>().unwrap() =
+		Transform::from_translation(FixedVec3::from(center) * Fixed::from_num(CHUNK_SIZE));
 }
 
 fn mark_present(app: &mut App, grid: Entity, chunk: IVec3) {
@@ -648,19 +650,19 @@ fn smooth_orbit_path(min: IVec3, max: IVec3) -> Vec<IVec3> {
 }
 
 fn load_church_chunks() -> HashSet<IVec3> {
-	let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../res/Church_Of_St_Sophia.vox");
+	let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../res/Church_Of_St_Sophia.vox");
 	let bytes = std::fs::read(&path).unwrap_or_else(|err| panic!("failed to read {path:?}: {err}"));
 	let data = dot_vox::load_bytes(&bytes).expect("failed to parse church vox");
 	let mut chunks = HashSet::new();
 
 	#[derive(Clone, Copy)]
 	struct Frame {
-		translation: Vec3,
+		translation: FixedVec3,
 		rotation: Quat,
 		flip: IVec3,
 	}
 
-	let mut stack = vec![(0u32, Frame { translation: Vec3::ZERO, rotation: Quat::IDENTITY, flip: IVec3::new(1, 1, -1) })];
+	let mut stack = vec![(0u32, Frame { translation: FixedVec3::ZERO, rotation: Quat::IDENTITY, flip: IVec3::new(1, 1, -1) })];
 	while let Some((scene_id, pose)) = stack.pop() {
 		let Some(node) = data.scenes.get(scene_id as usize) else { continue };
 		match node {
@@ -672,13 +674,13 @@ fn load_church_chunks() -> HashSet<IVec3> {
 					.map(|q| {
 						let (qarr, varr) = q.to_quat_scale();
 						let q = Quat::from_array(qarr);
-						(Quat::from_xyzw(q.x, q.z, -q.y, q.w), Vec3::from_array(varr).as_ivec3())
+						(Quat::from_xyzw(q.x, q.z, -q.y, q.w), IVec3::new(varr[0] as i32, varr[1] as i32, varr[2] as i32))
 					})
 					.unwrap_or((Quat::IDENTITY, IVec3::ONE));
 				stack.push((
 					*child,
 					Frame {
-						translation: pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32),
+						translation: pose.translation + pose.rotation * FixedVec3::new(Fixed::from_num(pos.x), Fixed::from_num(pos.z), -Fixed::from_num(pos.y)),
 						rotation: pose.rotation * rot,
 						flip: pose.flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y),
 					},
@@ -692,12 +694,12 @@ fn load_church_chunks() -> HashSet<IVec3> {
 			dot_vox::SceneNode::Shape { models, .. } => {
 				for shape_model in models {
 					let Some(model) = data.models.get(shape_model.model_id as usize) else { continue };
-					let size = Vec3::new(model.size.x as f32, model.size.z as f32, model.size.y as f32);
-					let pose_transform = Transform { translation: pose.translation, rotation: pose.rotation, scale: Vec3::ONE };
-					let half_offset = Transform::from_translation(-(size / 2.0).floor() * pose.flip.as_vec3());
+					let half = FixedVec3::from(UVec3::new(model.size.x / 2, model.size.z / 2, model.size.y / 2));
+					let pose_transform = Transform::from_translation(pose.translation).with_rotation(pose.rotation);
+					let half_offset = Transform::from_translation(-half * FixedVec3::from(pose.flip));
 					for voxel in &model.voxels {
 						let local = IVec3::new(voxel.x as i32, voxel.z as i32, voxel.y as i32) * pose.flip + pose.flip.min(IVec3::ZERO);
-						chunks.insert(chunk_of((pose_transform * half_offset).transform_point(local.as_vec3()).as_ivec3()));
+						chunks.insert(chunk_of((pose_transform * half_offset).transform_point(local.into()).as_ivec3()));
 					}
 				}
 			}

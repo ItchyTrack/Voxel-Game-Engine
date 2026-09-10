@@ -9,6 +9,9 @@ tracy = ["tracy-client/enable"]
 gpu_profiling = []
 
 [dependencies]
+fixed = "1.30"
+voxel-math = { workspace = true }
+voxel-transform = { workspace = true }
 bevy = { workspace = true }
 rustc-hash = { workspace = true }
 num = { workspace = true }

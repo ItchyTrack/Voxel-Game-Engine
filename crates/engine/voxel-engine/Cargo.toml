@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 bevy = { workspace = true }
 voxel-data = { workspace = true }
+voxel-transform = { workspace = true }
 voxel-streaming = { workspace = true }
 voxel-lightyear = { workspace = true }
 voxel-physics = { workspace = true }

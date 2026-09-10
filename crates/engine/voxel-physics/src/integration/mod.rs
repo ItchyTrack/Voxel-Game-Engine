@@ -1,3 +1,4 @@
+use voxel_transform::Transform;
 pub mod semi_implicit_euler;
 
 pub use semi_implicit_euler::SemiImplicitEulerPlugin;

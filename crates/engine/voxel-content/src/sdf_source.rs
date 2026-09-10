@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use bevy::math::{IVec2, IVec3, Vec3};
+use bevy::math::{IVec2, IVec3};
+use voxel_math::{Fixed, FixedVec3};
 
 use voxel_data::{grid::GridId, voxels::{VoxelRef, VoxelTypeId, Voxels}};
 use voxel_trees::sdf::Sdf;
@@ -20,7 +21,7 @@ pub trait VoxelSdf: Sdf + Send + Sync + 'static {
 		self.voxel()
 	}
 
-	fn bounds(&self) -> Option<(Vec3, Vec3)> {
+	fn bounds(&self) -> Option<(FixedVec3, FixedVec3)> {
 		None
 	}
 }
@@ -28,12 +29,12 @@ pub trait VoxelSdf: Sdf + Send + Sync + 'static {
 #[derive(Clone, Copy, Debug)]
 pub struct SdfSourceOptions {
 	pub cost: u32,
-	pub sample_radius_scale: f32,
+	pub sample_radius_scale: Fixed,
 }
 
 impl Default for SdfSourceOptions {
 	fn default() -> Self {
-		Self { cost: 10, sample_radius_scale: 0.0 }
+		Self { cost: 10, sample_radius_scale: Fixed::ZERO }
 	}
 }
 
@@ -73,9 +74,9 @@ impl SdfSource {
 		self.bindings.get(&grid).cloned()
 	}
 
-	fn region_bounds(min: IVec3, size: IVec3) -> (Vec3, Vec3) {
-		let lo = chunk_origin(min).as_vec3();
-		let hi = chunk_origin(min + size).as_vec3();
+	fn region_bounds(min: IVec3, size: IVec3) -> (FixedVec3, FixedVec3) {
+		let lo = chunk_origin(min).into();
+		let hi = chunk_origin(min + size).into();
 		(lo, hi)
 	}
 
@@ -139,11 +140,11 @@ impl ChunkSource for SdfSource {
 
 		let handle = self.handle.as_ref().expect("SDF source was not initialized").clone();
 		let cancellation = cancellation.clone();
-		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+		AsyncPriorityTaskPool::get().spawn(Fixed::ONE, async move {
 			let _span = bevy::log::info_span!("SdfSource build").entered();
 			let step = step_for_lod(lod);
 			let sample_radius = sample_radius(binding.options, step);
-			let step_f32 = step as f32;
+			let step_fixed = Fixed::from_num(step);
 			let voxel = match voxel_type {
 				Some(id) if binding.sdf.voxel().type_id() == id => binding.sdf.voxel(),
 				Some(id) if binding.sdf.lod_voxel().type_id() == id => binding.sdf.lod_voxel(),
@@ -157,18 +158,18 @@ impl ChunkSource for SdfSource {
 				if cancellation.is_cancelled() {
 					break;
 				}
-				let origin = chunk_origin(chunk).as_vec3();
-				let local_sdf = |p: Vec3| {
+				let origin = FixedVec3::from(chunk_origin(chunk));
+				let local_sdf = |p: FixedVec3| {
 					if cancellation.is_cancelled() {
-						f32::MAX
+						Fixed::MAX
 					} else {
-						(binding.sdf.sample(origin + p * step_f32) - sample_radius) / step_f32
+						(binding.sdf.sample(origin + p * step_fixed) - sample_radius) / step_fixed
 					}
 				};
 				let mut voxels = Voxels::new_with_type(voxel.type_info());
 				voxels.apply_sdf(
-					Vec3::ZERO,
-					chunk_extent.as_vec3(),
+					FixedVec3::ZERO,
+					chunk_extent.into(),
 					&local_sdf,
 					IVec2::splat(9),
 					8,
@@ -219,12 +220,12 @@ pub fn sdf_source() -> SdfSource {
 	SdfSource::new()
 }
 
-fn sample_radius(options: SdfSourceOptions, step: u32) -> f32 {
-	let scale = options.sample_radius_scale.max(0.0);
-	if scale == 0.0 {
-		0.0
+fn sample_radius(options: SdfSourceOptions, step: u32) -> Fixed {
+	let scale = options.sample_radius_scale.max(Fixed::ZERO);
+	if scale == Fixed::ZERO {
+		Fixed::ZERO
 	} else {
-		Vec3::splat(step as f32).length() * 0.5 * scale
+		FixedVec3::splat(Fixed::from_num(step)).length() / Fixed::from_num(2) * scale
 	}
 }
 

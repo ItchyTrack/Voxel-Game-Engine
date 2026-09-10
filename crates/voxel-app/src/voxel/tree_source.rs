@@ -4,6 +4,9 @@ use std::{
 };
 
 use bevy::prelude::*;
+use voxel_math::{Fixed, FixedVec3};
+use voxel_transform::Transform;
+use super::fixed_math::ShapeMath;
 use basic_voxel::{BasicVoxel, LodVoxel, downsample_region};
 use voxel_data::{
 	grid::{Grid, GridId},
@@ -25,17 +28,17 @@ const LEAF_COLORS: [[u8; 4]; 4] = [[42, 112, 48, 255], [52, 132, 55, 255], [65, 
 pub struct TreeSettings {
 	pub seed: u64,
 	pub attraction_points: usize,
-	pub canopy_center: Vec3,
-	pub canopy_radius: Vec3,
-	pub trunk_height: f32,
-	pub influence_distance: f32,
-	pub kill_distance: f32,
-	pub segment_length: f32,
+	pub canopy_center: FixedVec3,
+	pub canopy_radius: FixedVec3,
+	pub trunk_height: Fixed,
+	pub influence_distance: Fixed,
+	pub kill_distance: Fixed,
+	pub segment_length: Fixed,
 	pub max_iterations: usize,
-	pub tip_radius: f32,
-	pub pipe_exponent: f32,
-	pub leaf_radius: f32,
-	pub leaf_pipe_threshold: f32,
+	pub tip_radius: Fixed,
+	pub pipe_exponent: Fixed,
+	pub leaf_radius: Fixed,
+	pub leaf_pipe_threshold: Fixed,
 }
 
 impl Default for TreeSettings {
@@ -43,28 +46,28 @@ impl Default for TreeSettings {
 		Self {
 			seed: 0x5eed_7aee,
 			attraction_points: 1700,
-			canopy_center: Vec3::new(0.0, 70.0, 0.0),
-			canopy_radius: Vec3::new(71.0, 49.0, 71.0),
-			trunk_height: 5.0,
-			influence_distance: 45.0,
-			kill_distance: 3.5,
-			segment_length: 2.25,
+			canopy_center: FixedVec3::from(IVec3::new(0, 70, 0)),
+			canopy_radius: FixedVec3::from(IVec3::new(71, 49, 71)),
+			trunk_height: Fixed::from_num(5),
+			influence_distance: Fixed::from_num(45),
+			kill_distance: Fixed::from_num(3.5),
+			segment_length: Fixed::from_num(2.25),
 			max_iterations: 1000,
-			tip_radius: 0.3,
-			pipe_exponent: 2.0,
-			leaf_radius: 4.25,
-			leaf_pipe_threshold: 3.0,
+			tip_radius: Fixed::from_num(0.3),
+			pipe_exponent: Fixed::from_num(2),
+			leaf_radius: Fixed::from_num(4.25),
+			leaf_pipe_threshold: Fixed::from_num(3),
 		}
 	}
 }
 
 pub struct TreeSourcePlugin {
 	pub settings: TreeSettings,
-	pub position: Vec3,
+	pub position: FixedVec3,
 }
 
 impl Default for TreeSourcePlugin {
-	fn default() -> Self { Self { settings: TreeSettings::default(), position: Vec3::new(0.0, 642.0, -2000.0) } }
+	fn default() -> Self { Self { settings: TreeSettings::default(), position: FixedVec3::from(IVec3::new(0, 642, -2000)) } }
 }
 
 impl Plugin for TreeSourcePlugin {
@@ -97,7 +100,7 @@ impl Plugin for TreeSourcePlugin {
 struct TreeGrid {
 	grid: Arc<OnceLock<GridId>>,
 	bounds: NonZeroChunkRegion,
-	position: Vec3,
+	position: FixedVec3,
 }
 
 struct TreeSource {
@@ -158,7 +161,7 @@ impl ChunkSource for TreeSource {
 		let chunks = self.chunks.clone();
 		let handle = self.handle.get().expect("tree source was not initialized").clone();
 		let cancellation = cancellation.clone();
-		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+		AsyncPriorityTaskPool::get().spawn(Fixed::ONE, async move {
 			let _span = bevy::log::info_span!("TreeSource build").entered();
 			let voxels = if use_raw {
 				let mut merged: Option<Voxels> = None;
@@ -173,7 +176,7 @@ impl ChunkSource for TreeSource {
 			} else {
 				// Skipping the fetch keeps the hole exact at every LOD, unlike punching the result.
 				let owned_chunks: HashSet<_> = owned_chunks.into_iter().collect();
-				downsample_region(region, lod as f32, |chunk| {
+				downsample_region(region, Fixed::from_num(lod), |chunk| {
 					owned_chunks.contains(&chunk)
 						.then(|| chunks.get(&chunk).cloned())
 						.flatten()
@@ -229,20 +232,20 @@ impl SourceMass for TreeSource {
 
 #[derive(Clone, Copy, Debug)]
 struct BranchNode {
-	position: Vec3,
+	position: FixedVec3,
 	parent: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug)]
 struct BranchSegment {
-	start: Vec3,
-	end: Vec3,
-	radius: f32,
+	start: FixedVec3,
+	end: FixedVec3,
+	radius: Fixed,
 }
 
 struct TreeModel {
 	branches: Vec<BranchSegment>,
-	leaves: Vec<Vec3>,
+	leaves: Vec<FixedVec3>,
 	settings: TreeSettings,
 }
 
@@ -250,19 +253,19 @@ fn estimated_chunk_bounds(settings: TreeSettings) -> NonZeroChunkRegion {
 	let segment_length = settings.segment_length.abs();
 	let influence_distance = settings.influence_distance.abs();
 	let canopy_radius = settings.canopy_radius.abs();
-	let growth_padding = Vec3::splat(influence_distance + segment_length);
+	let growth_padding = FixedVec3::splat(influence_distance + segment_length);
 	let canopy_min = settings.canopy_center - canopy_radius - growth_padding;
 	let canopy_max = settings.canopy_center + canopy_radius + growth_padding;
 
-	let trunk_segments = (settings.trunk_height / settings.segment_length).ceil().max(0.0) as usize;
-	let trunk_end = Vec3::Y * (trunk_segments as f32 * settings.segment_length);
-	let tree_min = canopy_min.min(Vec3::ZERO).min(trunk_end);
-	let tree_max = canopy_max.max(Vec3::ZERO).max(trunk_end);
+	let trunk_segments = (settings.trunk_height / settings.segment_length).ceil().max(Fixed::ZERO).to_num::<usize>();
+	let trunk_end = FixedVec3::Y * (Fixed::from_num(trunk_segments) * settings.segment_length);
+	let tree_min = canopy_min.min(FixedVec3::ZERO).min(trunk_end);
+	let tree_max = canopy_max.max(FixedVec3::ZERO).max(trunk_end);
 
-	let estimated_pipe_radius = pipe_radius(settings.attraction_points.max(1) as f32, settings);
-	let raster_padding = estimated_pipe_radius.max(settings.leaf_radius.abs()).max(1.0) + 2.0;
-	let voxel_min = (tree_min - Vec3::splat(raster_padding)).floor().as_ivec3();
-	let voxel_max = (tree_max + Vec3::splat(raster_padding)).ceil().as_ivec3();
+	let estimated_pipe_radius = pipe_radius(Fixed::from_num(settings.attraction_points.max(1)), settings);
+	let raster_padding = estimated_pipe_radius.max(settings.leaf_radius.abs()).max(Fixed::ONE) + Fixed::from_num(2);
+	let voxel_min = (tree_min - FixedVec3::splat(raster_padding)).floor().as_ivec3();
+	let voxel_max = (tree_max + FixedVec3::splat(raster_padding)).ceil().as_ivec3();
 	let min = chunk_of(voxel_min);
 	let max = chunk_of(voxel_max) + IVec3::ONE;
 	NonZeroChunkRegion::from_min_end(min, max).unwrap()
@@ -278,7 +281,7 @@ fn build_tree_model(settings: TreeSettings) -> TreeModel {
 		branches.push(BranchSegment { start: nodes[parent].position, end: node.position, radius: pipe_radius(pipe_areas[index], settings) });
 	}
 
-	let leaf_floor = settings.canopy_center.y - settings.canopy_radius.y * 0.75;
+	let leaf_floor = settings.canopy_center.y - settings.canopy_radius.y * Fixed::from_num(0.75);
 	let leaves = nodes
 		.iter()
 		.enumerate()
@@ -320,7 +323,7 @@ fn rasterize_tree_voxels(model: &TreeModel) -> HashMap<IVec3, BasicVoxel> {
 	voxels
 }
 
-fn branch_pipe_areas(nodes: &[BranchNode]) -> (Vec<usize>, Vec<f32>) {
+fn branch_pipe_areas(nodes: &[BranchNode]) -> (Vec<usize>, Vec<Fixed>) {
 	let mut child_counts = vec![0usize; nodes.len()];
 	for node in nodes.iter().skip(1) {
 		if let Some(parent) = node.parent {
@@ -328,31 +331,32 @@ fn branch_pipe_areas(nodes: &[BranchNode]) -> (Vec<usize>, Vec<f32>) {
 		}
 	}
 
-	let mut areas: Vec<f32> = child_counts.iter().map(|&children| if children == 0 { 1.0 } else { 0.0 }).collect();
+	let mut areas: Vec<Fixed> = child_counts.iter().map(|&children| if children == 0 { Fixed::ONE } else { Fixed::ZERO }).collect();
 	for index in (1..nodes.len()).rev() {
 		if let Some(parent) = nodes[index].parent {
-			areas[parent] += areas[index];
+			let area = areas[index];
+			areas[parent] += area;
 		}
 	}
 	(child_counts, areas)
 }
 
-fn pipe_radius(area: f32, settings: TreeSettings) -> f32 { settings.tip_radius * area.max(1.0).powf(1.0 / settings.pipe_exponent.max(0.1)) }
+fn pipe_radius(area: Fixed, settings: TreeSettings) -> Fixed { settings.tip_radius * area.max(Fixed::ONE).powf(Fixed::ONE / settings.pipe_exponent.max(Fixed::from_num(0.1))) }
 
 fn grow_branches(settings: TreeSettings) -> Vec<BranchNode> {
 	let mut rng = SmallRng::new(settings.seed);
 	let mut attractors = Vec::with_capacity(settings.attraction_points);
 	while attractors.len() < settings.attraction_points {
-		let point = Vec3::new(rng.signed(), rng.signed(), rng.signed());
-		if point.length_squared() <= 1.0 {
+		let point = FixedVec3::new(rng.signed(), rng.signed(), rng.signed());
+		if point.length_squared() <= Fixed::ONE {
 			attractors.push(settings.canopy_center + point * settings.canopy_radius);
 		}
 	}
 
-	let trunk_segments = (settings.trunk_height / settings.segment_length).ceil() as usize;
+	let trunk_segments = (settings.trunk_height / settings.segment_length).ceil().to_num::<usize>();
 	let mut nodes = Vec::with_capacity(settings.attraction_points * 2);
 	for segment in 0..=trunk_segments {
-		nodes.push(BranchNode { position: Vec3::Y * (segment as f32 * settings.segment_length), parent: segment.checked_sub(1) });
+		nodes.push(BranchNode { position: FixedVec3::Y * (Fixed::from_num(segment) * settings.segment_length), parent: segment.checked_sub(1) });
 	}
 
 	let influence_squared = settings.influence_distance.powi(2);
@@ -364,7 +368,7 @@ fn grow_branches(settings: TreeSettings) -> Vec<BranchNode> {
 		}
 
 		let node_count = nodes.len();
-		let mut directions = vec![Vec3::ZERO; node_count];
+		let mut directions = vec![FixedVec3::ZERO; node_count];
 		let mut influences = vec![0u32; node_count];
 		for attractor in &attractors {
 			let nearest = nodes
@@ -372,7 +376,7 @@ fn grow_branches(settings: TreeSettings) -> Vec<BranchNode> {
 				.enumerate()
 				.map(|(index, node)| (index, node.position.distance_squared(*attractor)))
 				.filter(|(_, distance)| *distance <= influence_squared)
-				.min_by(|a, b| a.1.total_cmp(&b.1));
+				.min_by(|a, b| a.1.cmp(&b.1));
 			let Some((index, _)) = nearest else { continue };
 			directions[index] += (*attractor - nodes[index].position).normalize_or_zero();
 			influences[index] += 1;
@@ -383,13 +387,13 @@ fn grow_branches(settings: TreeSettings) -> Vec<BranchNode> {
 			if influences[index] == 0 {
 				continue;
 			}
-			let incoming = nodes[index].parent.map(|parent| (nodes[index].position - nodes[parent].position).normalize_or_zero()).unwrap_or(Vec3::Y);
-			let direction = (directions[index] / influences[index] as f32 + incoming * 0.3 + Vec3::Y * 0.08).normalize_or_zero();
+			let incoming = nodes[index].parent.map(|parent| (nodes[index].position - nodes[parent].position).normalize_or_zero()).unwrap_or(FixedVec3::Y);
+			let direction = (directions[index] / Fixed::from_num(influences[index]) + incoming * Fixed::from_num(0.3) + FixedVec3::Y * Fixed::from_num(0.08)).normalize_or_zero();
 			let position = nodes[index].position + direction * settings.segment_length;
 			let too_close = nodes
 				.iter()
 				.chain(additions.iter())
-				.any(|other: &BranchNode| other.position.distance_squared(position) < (settings.segment_length * 0.55).powi(2));
+				.any(|other: &BranchNode| other.position.distance_squared(position) < (settings.segment_length * Fixed::from_num(0.55)).powi(2));
 			if !too_close {
 				additions.push(BranchNode { position, parent: Some(index) });
 			}
@@ -403,31 +407,31 @@ fn grow_branches(settings: TreeSettings) -> Vec<BranchNode> {
 	nodes
 }
 
-fn rasterize_segment(voxels: &mut HashMap<IVec3, BasicVoxel>, start: Vec3, end: Vec3, radius: f32) {
+fn rasterize_segment(voxels: &mut HashMap<IVec3, BasicVoxel>, start: FixedVec3, end: FixedVec3, radius: Fixed) {
 	let delta = end - start;
-	let steps = (delta.length() * 2.0).ceil().max(1.0) as usize;
+	let steps = (delta.length() * Fixed::from_num(2)).ceil().max(Fixed::ONE).to_num::<usize>();
 	for step in 0..=steps {
-		let center = start.lerp(end, step as f32 / steps as f32);
-		rasterize_sphere(voxels, center, radius.max(1.0), |position| BasicVoxel {
+		let center = start.lerp(end, Fixed::from_num(step) / Fixed::from_num(steps));
+		rasterize_sphere(voxels, center, radius.max(Fixed::ONE), |position| BasicVoxel {
 			color: WOOD_COLORS[(point_hash(position, 0) % WOOD_COLORS.len() as u64) as usize],
 			mass: 100,
 		});
 	}
 }
 
-fn rasterize_leaves(voxels: &mut HashMap<IVec3, BasicVoxel>, center: Vec3, radius: f32, seed: u64) {
-	let extent = radius.ceil() as i32;
+fn rasterize_leaves(voxels: &mut HashMap<IVec3, BasicVoxel>, center: FixedVec3, radius: Fixed, seed: u64) {
+	let extent = radius.ceil().to_num::<i32>();
 	let center_voxel = center.round().as_ivec3();
 	for z in -extent..=extent {
 		for y in -extent..=extent {
 			for x in -extent..=extent {
 				let position = center_voxel + IVec3::new(x, y, z);
-				let distance = position.as_vec3().distance(center);
+				let distance = FixedVec3::from(position).distance(center);
 				if distance > radius {
 					continue;
 				}
 				let hash = point_hash(position, seed);
-				if distance > radius - 1.0 && hash.is_multiple_of(5) {
+				if distance > radius - Fixed::ONE && hash.is_multiple_of(5) {
 					continue;
 				}
 				voxels.entry(position).or_insert(BasicVoxel { color: LEAF_COLORS[(hash % LEAF_COLORS.len() as u64) as usize], mass: 10 });
@@ -436,14 +440,14 @@ fn rasterize_leaves(voxels: &mut HashMap<IVec3, BasicVoxel>, center: Vec3, radiu
 	}
 }
 
-fn rasterize_sphere(voxels: &mut HashMap<IVec3, BasicVoxel>, center: Vec3, radius: f32, voxel: impl Fn(IVec3) -> BasicVoxel) {
-	let extent = radius.ceil() as i32;
+fn rasterize_sphere(voxels: &mut HashMap<IVec3, BasicVoxel>, center: FixedVec3, radius: Fixed, voxel: impl Fn(IVec3) -> BasicVoxel) {
+	let extent = radius.ceil().to_num::<i32>();
 	let center_voxel = center.round().as_ivec3();
 	for z in -extent..=extent {
 		for y in -extent..=extent {
 			for x in -extent..=extent {
 				let position = center_voxel + IVec3::new(x, y, z);
-				if position.as_vec3().distance_squared(center) <= radius * radius {
+				if FixedVec3::from(position).distance_squared(center) <= radius * radius {
 					voxels.insert(position, voxel(position));
 				}
 			}
@@ -477,7 +481,7 @@ impl SmallRng {
 		(value >> 32) as u32
 	}
 
-	fn signed(&mut self) -> f32 { self.next_u32() as f32 / u32::MAX as f32 * 2.0 - 1.0 }
+	fn signed(&mut self) -> Fixed { Fixed::from_num(self.next_u32()) / Fixed::from_num(u32::MAX) * Fixed::from_num(2) - Fixed::ONE }
 }
 
 #[cfg(test)]
@@ -502,15 +506,15 @@ mod tests {
 	#[test]
 	fn pipe_area_is_preserved_at_forks() {
 		let nodes = [
-			BranchNode { position: Vec3::ZERO, parent: None },
-			BranchNode { position: Vec3::X, parent: Some(0) },
-			BranchNode { position: Vec3::Z, parent: Some(0) },
+			BranchNode { position: FixedVec3::ZERO, parent: None },
+			BranchNode { position: FixedVec3::X, parent: Some(0) },
+			BranchNode { position: FixedVec3::Z, parent: Some(0) },
 		];
 		let (_, areas) = branch_pipe_areas(&nodes);
 		let settings = TreeSettings::default();
 		let parent = pipe_radius(areas[0], settings).powf(settings.pipe_exponent);
 		let children = pipe_radius(areas[1], settings).powf(settings.pipe_exponent) + pipe_radius(areas[2], settings).powf(settings.pipe_exponent);
-		assert!((parent - children).abs() < 0.0001);
+		assert!((parent - children).abs() < Fixed::from_num(0.0001));
 	}
 
 	#[test]

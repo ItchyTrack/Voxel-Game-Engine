@@ -2,8 +2,12 @@ use bevy::prelude::*;
 
 use crate::voxels::{VoxelType, VoxelTypeInfo};
 
-/// A [`Grid`] entity. A [`Body`](crate::body::Body) can own multiple grids.
+/// A [`Grid`] entity.
 pub type GridId = Entity;
+
+/// An integer offset in the parent grid's voxel coordinates.
+#[derive(Component, serde::Serialize, serde::Deserialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GridLocalTransform(pub IVec3);
 
 #[derive(Debug, Component)]
 pub struct Grid {

@@ -9,6 +9,7 @@ use voxel_sources::{
 	SourceResult, SourceResultData, edit::{GridEdit, GridGeneration},
 };
 use voxel_tasks::AsyncPriorityTaskPool;
+use voxel_math::Fixed;
 
 use super::grid_store::{ChunkOwnership, GridStore, ServingRequest};
 
@@ -169,7 +170,7 @@ impl VoxelStoreSource {
 
 	fn dispatch(&self, grid: GridId, request: ServingRequest) {
 		let handle = self.handle.as_ref().expect("voxel store source was not initialized").clone();
-		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+		AsyncPriorityTaskPool::get().spawn(Fixed::ONE, async move {
 			let _span = bevy::log::info_span!("VoxelStoreSource build").entered();
 			for (chunk, version) in request.chunks {
 				if request.cancellation.is_cancelled() { break; }

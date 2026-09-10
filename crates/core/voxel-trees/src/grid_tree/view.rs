@@ -1,16 +1,14 @@
 use super::{GridTree64, GridType, LOG_SIZE};
 use crate::views::{GridTreeView, NodeRef, CellKind};
-use bevy::math::{I8Vec3, Vec3, UVec3};
-use bevy::prelude::*;
+use bevy::math::{I8Vec3, UVec3};
+use voxel_math::{Fixed, FixedVec3, Transform, ray_aabb_intersection};
 
 impl<G: GridType> GridTreeView for GridTree64<G> {
 	type NodeHandle = u32;
 	type Data<'d> = G::Data<'d> where Self: 'd;
 	const BRANCH_LOG2: u8 = LOG_SIZE;
 
-	fn is_empty(&self) -> bool {
-		self.raw.is_empty()
-	}
+	fn is_empty(&self) -> bool { self.raw.is_empty() }
 	fn root_depth(&self) -> u8 { self.raw.root_depth() }
 	fn root_pos(&self) -> UVec3 { self.raw.root_pos() }
 	fn root(&self) -> NodeRef<u32> {
@@ -21,122 +19,121 @@ impl<G: GridType> GridTreeView for GridTree64<G> {
 	fn cell_data<'tree>(&'tree self, node: u32, i: u8) -> G::Data<'tree> {
 		self.grid_type.read_data(self.raw.cell_bytes(node, i))
 	}
-	fn occupancy_mask(&self, node: u32) -> u64 {
-		self.raw.data_mask(node) | self.raw.node_mask(node)
-	}
-	fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(UVec3, I8Vec3, f32)> {
-		let max_length = max_length.unwrap_or(f32::MAX);
+	fn occupancy_mask(&self, node: u32) -> u64 { self.raw.data_mask(node) | self.raw.node_mask(node) }
+
+	fn raycast(&self, transform: &(impl Transform + ?Sized), max_length: Option<Fixed>) -> Option<(UVec3, I8Vec3, Fixed)> {
+		if self.is_empty() { return None; }
+		let max_length = max_length.unwrap_or(Fixed::MAX);
+		let origin = transform.translation();
+		let dir = transform.direction();
+		if dir == FixedVec3::ZERO || max_length < Fixed::ZERO { return None; }
 		let root_pos = self.root_pos();
 		let root_depth = self.root_depth();
-
-		let origin = transform.translation;
-		let dir = transform.rotation * Vec3::Z;
-		let root_min = root_pos.as_vec3();
-		let root_max = root_min + Vec3::splat(Self::size(root_depth) as f32);
-		let distance_to_aabb = ray_aabb_intersection(&origin, &dir, &(root_min, root_max))?;
-		let post_aabb_origin_pre_shift = origin + dir * distance_to_aabb;
-		let post_aabb_origin = post_aabb_origin_pre_shift.min(root_pos.as_vec3() + Vec3::splat((Self::size(root_depth) as f32) - 0.00001)).max(root_pos.as_vec3());
-		let post_aabb_origin = post_aabb_origin.move_towards(post_aabb_origin.floor() + 0.5, 0.001);
-		let root_relative_post_aabb_origin = post_aabb_origin - root_pos.as_vec3();
-		let delta = dir.recip().abs();
+		let root_size = Self::size(root_depth);
+		let root_min = FixedVec3::from(root_pos);
+		let root_max = root_min + FixedVec3::splat(Fixed::from_num(root_size));
+		let mut last_distance = ray_aabb_intersection(&origin, &dir, &(root_min, root_max))?;
+		if last_distance > max_length { return None; }
 		let step = dir.signum().as_i8vec3();
-		let mut axis_distances = dir.recip()
-			* Vec3::new(
-				if step.x > 0 { root_relative_post_aabb_origin.x.ceil() } else { root_relative_post_aabb_origin.x.floor() } - root_relative_post_aabb_origin.x,
-				if step.y > 0 { root_relative_post_aabb_origin.y.ceil() } else { root_relative_post_aabb_origin.y.floor() } - root_relative_post_aabb_origin.y,
-				if step.z > 0 { root_relative_post_aabb_origin.z.ceil() } else { root_relative_post_aabb_origin.z.floor() } - root_relative_post_aabb_origin.z,
-			)
-			+ distance_to_aabb;
-		let mut root_relative_grid_pos = root_relative_post_aabb_origin.as_uvec3();
-		let mut last_step_axis = (post_aabb_origin_pre_shift - post_aabb_origin).abs().max_position() as u8;
+		let mut entry = None;
+		for axis in 0..3 {
+			if step[axis] == 0 { continue; }
+			let boundary = if step[axis] > 0 { root_min[axis] } else { root_max[axis] };
+			let ratio = plane_ratio(boundary, origin[axis], dir[axis]);
+			if ratio.0 >= 0 && entry.is_none_or(|(_, previous)| ratio_cmp(ratio, previous).is_gt()) {
+				entry = Some((axis, ratio));
+			}
+		}
+		let mut last_axis = entry.map_or(dir.abs().max_position(), |(axis, _)| axis);
+		let mut grid = [0i64; 3];
+		for axis in 0..3 {
+			let (n, d) = if let Some((_, ratio)) = entry {
+				coordinate_ratio(origin[axis], dir[axis], ratio)
+			} else { (origin[axis].to_bits() as i128, 1) };
+			// At an integer boundary, start in the voxel ahead of the ray.
+			let denominator = d.checked_mul(Fixed::ONE.to_bits() as i128).expect("ray coordinate overflow");
+			let coordinate = if step[axis] < 0 { div_ceil(n, denominator) - 1 } else { n.div_euclid(denominator) };
+			grid[axis] = i64::try_from(coordinate - root_pos[axis] as i128).ok()?;
+			if grid[axis] < 0 || grid[axis] >= root_size as i64 { return None; }
+		}
 		let mut current_node_index = 0u32;
 		let mut current_depth = root_depth;
-		let mut last_distance = distance_to_aabb;
-		if max_length < last_distance { return None; }
 		loop {
-			let node_relative_grid_pos = root_relative_grid_pos % Self::size(current_depth);
-			let contents_pos = (node_relative_grid_pos / Self::child_size(current_depth)).as_u8vec3();
-			let contents_index = Self::child_index_of(contents_pos);
+			let pos = UVec3::new(grid[0] as u32, grid[1] as u32, grid[2] as u32);
+			let node_relative = pos % Self::size(current_depth);
+			let cell_size = Self::child_size(current_depth);
+			let contents_index = Self::child_index_of((node_relative / cell_size).as_u8vec3());
 			match self.raw.cell_kind(current_node_index, contents_index) {
-				CellKind::Empty => {
-					if Self::child_size(current_depth) != 1 {
-						let node_cell_relative_grid_pos = node_relative_grid_pos % Self::child_size(current_depth);
-						let mut step_amount = UVec3::select(
-							step.cmpgt(I8Vec3::ZERO),
-							UVec3::splat(Self::child_size(current_depth) - 1) - node_cell_relative_grid_pos,
-							node_cell_relative_grid_pos,
-						);
-						let distance_to_edge_of_cell = axis_distances + step_amount.as_vec3() * delta;
-						match distance_to_edge_of_cell.min_position() {
-							0 => { step_amount.y = ((distance_to_edge_of_cell.x - axis_distances.y + delta.y) / delta.y).abs() as u32; step_amount.z = ((distance_to_edge_of_cell.x - axis_distances.z + delta.z) / delta.z).abs() as u32; }
-							1 => { step_amount.x = ((distance_to_edge_of_cell.y - axis_distances.x + delta.x) / delta.x).abs() as u32; step_amount.z = ((distance_to_edge_of_cell.y - axis_distances.z + delta.z) / delta.z).abs() as u32; }
-							2 => { step_amount.x = ((distance_to_edge_of_cell.z - axis_distances.x + delta.x) / delta.x).abs() as u32; step_amount.y = ((distance_to_edge_of_cell.z - axis_distances.y + delta.y) / delta.y).abs() as u32; }
-							_ => unreachable!(),
-						}
-						axis_distances += delta * step_amount.as_vec3();
-						root_relative_grid_pos = (root_relative_grid_pos.as_ivec3() + step_amount.as_ivec3() * step.as_ivec3()).as_uvec3();
-					}
-					match axis_distances.min_position() {
-						0 => {
-							if max_length < axis_distances.x { return None; }
-							let next = root_relative_grid_pos.x as i64 + step.x as i64;
-							if next < 0 || next >= Self::size(root_depth) as i64 { return None; }
-							let next = next as u32;
-							loop {
-								if root_relative_grid_pos.x / Self::size(current_depth) == next / Self::size(current_depth) { break; }
-								let parent_offset = self.raw.parent_offset(current_node_index);
-								if parent_offset == 0 { return None; }
-								current_depth += 1;
-								current_node_index -= parent_offset;
-							}
-							root_relative_grid_pos.x = next; last_distance = axis_distances.x; axis_distances.x += delta.x; last_step_axis = 0;
-						}
-						1 => {
-							if max_length < axis_distances.y { return None; }
-							let next = root_relative_grid_pos.y as i64 + step.y as i64;
-							if next < 0 || next >= Self::size(root_depth) as i64 { return None; }
-							let next = next as u32;
-							loop {
-								if root_relative_grid_pos.y / Self::size(current_depth) == next / Self::size(current_depth) { break; }
-								let parent_offset = self.raw.parent_offset(current_node_index);
-								if parent_offset == 0 { return None; }
-								current_depth += 1;
-								current_node_index -= parent_offset;
-							}
-							root_relative_grid_pos.y = next; last_distance = axis_distances.y; axis_distances.y += delta.y; last_step_axis = 1;
-						}
-						2 => {
-							if max_length < axis_distances.z { return None; }
-							let next = root_relative_grid_pos.z as i64 + step.z as i64;
-							if next < 0 || next >= Self::size(root_depth) as i64 { return None; }
-							let next = next as u32;
-							loop {
-								if root_relative_grid_pos.z / Self::size(current_depth) == next / Self::size(current_depth) { break; }
-								let parent_offset = self.raw.parent_offset(current_node_index);
-								if parent_offset == 0 { return None; }
-								current_depth += 1;
-								current_node_index -= parent_offset;
-							}
-							root_relative_grid_pos.z = next; last_distance = axis_distances.z; axis_distances.z += delta.z; last_step_axis = 2;
-						}
-						_ => unreachable!(),
-					}
+				CellKind::Data => return Some((pos + root_pos, -step[last_axis] * I8Vec3::AXES[last_axis], last_distance)),
+				CellKind::Node => {
+					current_depth -= 1;
+					current_node_index = self.raw.child_index(current_node_index, contents_index);
 				}
-				CellKind::Data => return Some((root_relative_grid_pos + root_pos, -step.to_array()[last_step_axis as usize] * I8Vec3::AXES[last_step_axis as usize], last_distance)),
-				CellKind::Node => { current_depth -= 1; current_node_index = self.raw.child_index(current_node_index, contents_index); }
+				CellKind::Empty => {
+					let mut exit = None;
+					for axis in 0..3 {
+						if step[axis] == 0 { continue; }
+						let cell_min = grid[axis] / cell_size as i64 * cell_size as i64;
+						let boundary = cell_min + if step[axis] > 0 { cell_size as i64 } else { 0 };
+						let ratio = plane_ratio(Fixed::from_num(boundary + root_pos[axis] as i64), origin[axis], dir[axis]);
+						if exit.is_none_or(|(_, previous, _)| ratio_cmp(ratio, previous).is_lt()) {
+							exit = Some((axis, ratio, boundary));
+						}
+					}
+					let (axis, ratio, boundary) = exit?;
+					last_distance = ratio_distance(ratio)?;
+					if last_distance > max_length { return None; }
+					let old_pos = pos;
+					for other in 0..3 {
+						if other == axis {
+							grid[other] = boundary - i64::from(step[other] < 0);
+						} else if step[other] != 0 {
+							let (n, d) = coordinate_ratio(origin[other], dir[other], ratio);
+							let denominator = d.checked_mul(Fixed::ONE.to_bits() as i128).expect("ray coordinate overflow");
+							// Tied crossings visit X, then Y, then Z, without skipping touched cells.
+							let coordinate = if step[other] > 0 { div_ceil(n, denominator) - 1 } else { n.div_euclid(denominator) };
+							let next = i64::try_from(coordinate - root_pos[other] as i128).ok()?;
+							grid[other] = if step[other] > 0 { grid[other].max(next) } else { grid[other].min(next) };
+						}
+						if grid[other] < 0 || grid[other] >= root_size as i64 { return None; }
+					}
+					let next = UVec3::new(grid[0] as u32, grid[1] as u32, grid[2] as u32);
+					while old_pos / Self::size(current_depth) != next / Self::size(current_depth) {
+						let parent_offset = self.raw.parent_offset(current_node_index);
+						if parent_offset == 0 { return None; }
+						current_depth += 1;
+						current_node_index -= parent_offset;
+					}
+					last_axis = axis;
+				}
 			}
 		}
 	}
 }
 
-fn ray_aabb_intersection(start: &Vec3, direction: &Vec3, aabb: &(Vec3, Vec3)) -> Option<f32> {
-	let (min, max) = aabb;
-	if start.cmpge(*min).all() && start.cmple(*max).all() { return Some(0.0); }
-	let inv = Vec3::ONE / *direction;
-	let t1 = (*min - *start) * inv;
-	let t2 = (*max - *start) * inv;
-	let tmin = t1.min(t2).max_element();
-	let tmax = t1.max(t2).min_element();
-	if tmax < 0.0 || tmin > tmax { return None; }
-	Some(tmin)
+fn plane_ratio(plane: Fixed, origin: Fixed, direction: Fixed) -> (i128, i128) {
+	let numerator = plane.to_bits() as i128 - origin.to_bits() as i128;
+	let denominator = direction.to_bits() as i128;
+	if denominator < 0 { (-numerator, -denominator) } else { (numerator, denominator) }
+}
+
+fn ratio_cmp(a: (i128, i128), b: (i128, i128)) -> std::cmp::Ordering {
+	a.0.checked_mul(b.1).expect("ray comparison overflow").cmp(&b.0.checked_mul(a.1).expect("ray comparison overflow"))
+}
+
+fn coordinate_ratio(origin: Fixed, direction: Fixed, time: (i128, i128)) -> (i128, i128) {
+	let numerator = (origin.to_bits() as i128).checked_mul(time.1)
+		.and_then(|n| (direction.to_bits() as i128).checked_mul(time.0).and_then(|offset| n.checked_add(offset)))
+		.expect("ray coordinate overflow");
+	(numerator, time.1)
+}
+
+fn div_ceil(n: i128, d: i128) -> i128 { n.div_euclid(d) + i128::from(n.rem_euclid(d) != 0) }
+
+fn ratio_distance((n, d): (i128, i128)) -> Option<Fixed> {
+	let numerator = n.checked_mul(Fixed::ONE.to_bits() as i128)?;
+	let q = numerator / d;
+	let r = numerator % d;
+	let rounded = q + i128::from(r * 2 > d || (r * 2 == d && q & 1 != 0));
+	Some(Fixed::from_bits(i64::try_from(rounded).ok()?))
 }

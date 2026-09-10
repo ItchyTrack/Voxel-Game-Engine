@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use bevy::prelude::*;
+use voxel_transform::{Scale, Transform};
 use basic_voxel::{BasicVoxel, LodVoxel};
 use tile_data::NonZeroChunkRegion;
 use voxel_data::voxels::VoxelType;
@@ -98,7 +99,7 @@ impl ChunkSource for ProceduralPlanetSource {
 
 		let handle = self.handle.get().expect("planet source was not initialized").clone();
 		let cancellation = cancellation.clone();
-		AsyncPriorityTaskPool::get().spawn(1.0, async move {
+		AsyncPriorityTaskPool::get().spawn(voxel_math::Fixed::ONE, async move {
 			let _span = bevy::log::info_span!("PlanetSource build").entered();
 			let voxels = if use_basic_voxel {
 				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_voxel)
@@ -154,11 +155,11 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 			streaming.mark_present_area(NonZeroChunkRegion::from_single(chunk));
 		}
 
-		let rotation = Quat::from_mat3(&Mat3::from_cols(tile.axis_x, tile.axis_y, tile.normal));
+		let rotation = Quat::from_mat3(&Mat3::from_cols(tile.axis_x.as_vec3(), tile.axis_y.as_vec3(), tile.normal.as_vec3()));
 		let transform = Transform {
 			translation: tile.origin,
 			rotation,
-			scale: Vec3::ONE,
+			scale: Scale::ONE,
 		};
 
 		let grid_entity = commands

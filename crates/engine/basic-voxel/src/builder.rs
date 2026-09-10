@@ -1,4 +1,5 @@
 use bevy::math::{IVec3, UVec3};
+use voxel_math::Fixed;
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileVoxelReducer, VoxelRegionResult};
 use voxel_trees::grid_tree::{NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps};
 use voxel_data::voxel_grid_tree::VoxelGridType;
@@ -50,11 +51,11 @@ impl TileVoxelReducer for MarchingToMarchingVoxelReducer {
 	}
 }
 
-pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
+pub fn downsample_region(region: NonZeroChunkRegion, lod: Fixed, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 	let min = region.min();
 	let size = region.size();
-	let scale_down = lod.max(0.0).floor() as u8;
-	let step = 1i32 << scale_down as u32;
+	let scale_down = lod.max(Fixed::ZERO).floor().to_num::<u8>();
+	let step = 1i32.checked_shl(u32::from(scale_down)).filter(|step| *step > 0)?;
 
 	let mut loaded = Vec::new();
 	for chunk_z in 0..size.z {
@@ -244,33 +245,27 @@ impl VoxelReducer for MarchingVoxelReducer {
 }
 
 fn octant_for_region(output_region: NonZeroVoxelRegion, source: SourceInfo, source_region: NonZeroVoxelRegion) -> usize {
-	let center = [
-		(source_region.min().x + source_region.end().x) as f32 * 0.5,
-		(source_region.min().y + source_region.end().y) as f32 * 0.5,
-		(source_region.min().z + source_region.end().z) as f32 * 0.5,
-	];
+	let center = std::array::from_fn(|axis| {
+		(i128::from(source_region.min()[axis]) + i128::from(source_region.end()[axis])) * 2
+	});
 	octant_for_source_point(output_region, source, center)
 }
 
 fn octant_for_child_region(output_region: NonZeroVoxelRegion, source: SourceInfo, source_region: NonZeroVoxelRegion, child: usize) -> usize {
 	let size = source_region.size();
-	let center = [
-		source_region.min().x as f32 + size.x as f32 * if (child & 1) != 0 { 0.75 } else { 0.25 },
-		source_region.min().y as f32 + size.y as f32 * if (child & 2) != 0 { 0.75 } else { 0.25 },
-		source_region.min().z as f32 + size.z as f32 * if (child & 4) != 0 { 0.75 } else { 0.25 },
-	];
+	let center = std::array::from_fn(|axis| {
+		i128::from(source_region.min()[axis]) * 4 + i128::from(size[axis]) * if child & (1 << axis) != 0 { 3 } else { 1 }
+	});
 	octant_for_source_point(output_region, source, center)
 }
 
-fn octant_for_source_point(output_region: NonZeroVoxelRegion, source: SourceInfo, source_point: [f32; 3]) -> usize {
-	let step = 1i32 << source.scale_down as u32;
-	let preimage_min = (output_region.min() - source.output_offset) * step;
-	let preimage_size = output_region.size() * step as u32;
-	let threshold = [
-		preimage_min.x as f32 + preimage_size.x as f32 * 0.5,
-		preimage_min.y as f32 + preimage_size.y as f32 * 0.5,
-		preimage_min.z as f32 + preimage_size.z as f32 * 0.5,
-	];
+// Positions are measured in quarter voxels to keep every octant center exact.
+fn octant_for_source_point(output_region: NonZeroVoxelRegion, source: SourceInfo, source_point: [i128; 3]) -> usize {
+	let step = 1i128.checked_shl(u32::from(source.scale_down)).expect("voxel scale overflow");
+	let threshold: [i128; 3] = std::array::from_fn(|axis| {
+		let min = i128::from(output_region.min()[axis]) - i128::from(source.output_offset[axis]);
+		(min * 4 + i128::from(output_region.size()[axis]) * 2) * step
+	});
 	((source_point[0] >= threshold[0]) as usize)
 		| (((source_point[1] >= threshold[1]) as usize) << 1)
 		| (((source_point[2] >= threshold[2]) as usize) << 2)

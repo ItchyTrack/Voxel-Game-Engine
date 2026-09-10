@@ -11,7 +11,7 @@ pub mod tile_requester;
 mod tile_building;
 pub mod systems;
 
-use tile_data::{LoadedTile, TileKey};
+use tile_data::TileKey;
 pub use edit_interest::ChunkEditInterest;
 pub use presence::ChunkPresence;
 pub use tile_requester::{TileLoadStatus, TileLoadUpdate, TileRequester};
@@ -104,11 +104,6 @@ impl Plugin for VoxelStreamingPlugin {
 						.in_set(StreamingPhase::Receive),
 				),
 			)
-			.add_systems(PreUpdate, run_streaming)
-			.add_systems(
-				PostUpdate,
-				bevy::transform::systems::propagate_transforms_for::<Added<LoadedTile>>
-					.after(bevy::transform::TransformSystems::Propagate),
-			);
+			.add_systems(PreUpdate, run_streaming);
 	}
 }

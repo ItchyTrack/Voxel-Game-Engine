@@ -1,14 +1,16 @@
-use core::f32;
+use crate::math::Mat3;
+use voxel_math::Fixed;
+use voxel_math::FixedVec3;
 use std::collections::HashMap;
 
 use bevy::ecs::change_detection::Mut;
-use bevy::math::{IVec3, Mat3, Quat, Vec3};
+use bevy::math::{IVec3, Quat};
 use bevy::prelude::{Entity, Query};
 use bevy::tasks::{ComputeTaskPool, ParallelSliceMut};
 use tracy_client::span;
 
-use bevy::transform::components::Transform;
-use crate::math::{Mat6, Vec6};
+use voxel_transform::{Scale, Transform};
+use crate::math::{Mat6, Vec6, Wide, WideVec3, solve_symmetric};
 use super::body::SolverBody;
 use crate::sparse_set::SparseSet;
 use crate::{GridId, PhysicsBodyId};
@@ -21,7 +23,7 @@ use super::physics_constraint::PhysicsConstraint;
 type CollisionKlMapKey = (PhysicsBodyId, GridId, IVec3, collision::CubeFeature, PhysicsBodyId, GridId, IVec3, collision::CubeFeature);
 
 pub struct Solver {
-	collisions_kl_map: HashMap<CollisionKlMapKey, (Vec3, Vec3)>,
+	collisions_kl_map: HashMap<CollisionKlMapKey, (WideVec3, WideVec3)>,
 }
 
 // fn mat6_outer(a: Vec6, b: Vec6) -> Mat6 {
@@ -35,10 +37,10 @@ impl Solver {
 		}
 	}
 
-	pub fn sub_quat(q1: &Quat, q2: &Quat) -> Vec3 { (q1 * q2.inverse()).xyz() * 2.0 }
+	pub fn sub_quat(q1: &Quat, q2: &Quat) -> FixedVec3 { crate::math::rotation_delta(*q1, *q2) }
 
 	pub fn sub_state(state_a: &Transform, state_b: &Transform) -> Vec6 {
-		Vec6::from_vec3(state_a.translation - state_b.translation, Self::sub_quat(&state_a.rotation, &state_b.rotation))
+		Vec6::from_vec3((state_a.translation - state_b.translation).into(), Self::sub_quat(&state_a.rotation, &state_b.rotation).into())
 	}
 
 	pub fn solve(
@@ -46,9 +48,10 @@ impl Solver {
 		physics_bodies: &mut SparseSet<PhysicsBodyId, SolverBody>,
 		collisions: &[collision::Collision],
 		constraints: &mut Query<(Entity, &BallJoint, &mut AvbdBallJointConstraint)>,
-		dt: f32,
+		dt: Fixed,
 	) {
 		let _zone = span!("Solve Collisions");
+		if !crate::math::usable_timestep(dt) { return; }
 		let mut constraint_map: HashMap<Entity, ((PhysicsBodyId, PhysicsBodyId), Mut<'_, AvbdBallJointConstraint>)> = HashMap::new();
 		for (entity, joint, avbd_constraint) in constraints.iter_mut() {
 			if let Some(physics_body_1) = physics_bodies.get(&joint.body_1) {
@@ -62,9 +65,12 @@ impl Solver {
 		let initial_all: SparseSet<PhysicsBodyId, Transform> = SparseSet::from_iter(
 			physics_bodies.iter().map(|(physics_body_id, physics_body)| (
 				*physics_body_id,
-				Transform { translation: physics_body.global_rotated_center_of_mass(), rotation: Quat::IDENTITY, scale: Vec3::ONE } * physics_body.transform
+				Transform { translation: physics_body.global_rotated_center_of_mass(), rotation: Quat::IDENTITY, scale: Scale::ONE } * physics_body.transform
 			))
 		);
+		for ((body_1, body_2), constraint) in constraint_map.values_mut() {
+			constraint.init(&initial_all[body_1], &initial_all[body_2]);
+		}
 		let mut collision_constraints: Vec<CollisionConstraint> = collisions.iter().map(
 			|c| {
 				let body1 = &physics_bodies.get(&c.part1.body_id).unwrap();
@@ -89,7 +95,7 @@ impl Solver {
 						collision.part2.body_id, collision.part2.grid_id, collision.part2.voxel_pos, collision.part2.feature,
 						collision.part1.body_id, collision.part1.grid_id, collision.part1.voxel_pos, collision.part1.feature
 					)
-				}).unwrap_or(&(Vec3::ZERO, Vec3::ZERO));
+				}).unwrap_or(&(WideVec3::ZERO, WideVec3::ZERO));
 				let mut collision_constraint = CollisionConstraint::new(collision, old_penalty, old_lambda);
 				collision_constraint.init(initial_all.get(&c.part1.body_id).unwrap(), &initial_all.get(&c.part2.body_id).unwrap());
 				collision_constraint
@@ -190,7 +196,7 @@ impl Solver {
 		let total_iterations = iterations + 1; // because post stabilize
 		for iteration in 0..total_iterations {
 			let _zone = span!("Solve Iteration");
-			let alpha = (iteration < iterations) as i32 as f32 * 0.999;
+			let alpha = if iteration < iterations { Wide::from_num(999) / Wide::from_num(1000) } else { Wide::ZERO };
 
 			// Primal step. Colors run sequentially; bodies within a color run in parallel
 			// against the current `x_guess`, then their results are committed before the
@@ -212,8 +218,8 @@ impl Solver {
 							let _zone = span!("Primal Chunk");
 							bucket.iter().map(|physics_body_id| {
 								let physics_body = bodies.get(physics_body_id).unwrap();
-							let m = Mat6::from_mat3(physics_body.mass() * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, physics_body.rotational_inertia().mat.as_mat3());
-							let mut h: Mat6 = m / (dt * dt);
+							let m = Mat6::from_mat3(Wide::from_num(physics_body.mass()) * Mat3::IDENTITY, Mat3::ZERO, Mat3::ZERO, Mat3::from_inertia(physics_body.rotational_inertia().mat));
+							let mut h: Mat6 = m / (Wide::from(dt) * Wide::from(dt));
 							let mut f: Vec6 = h * Self::sub_state(&x_guess_ref[physics_body_id], &y_all[physics_body_id]);
 
 							if let Some(touching) = body_collisions.get(physics_body_id) {
@@ -247,15 +253,10 @@ impl Solver {
 								}
 							}
 
-							let mats = h.to_mat3();
-							let solved = solve(mats[0], mats[3], mats[1], -f.upper_vec3(), -f.lower_vec3());
-							let x_change = Vec6::from_vec3(solved.0, solved.1);
+							let x_change = solve_symmetric(h, -f);
 							let mut state = x_guess_ref[physics_body_id];
-							state.translation += x_change.upper_vec3();
-							state.rotation = (
-								state.rotation +
-								Quat::from_xyzw(x_change.get(3) * 0.5, x_change.get(4) * 0.5, x_change.get(5) * 0.5, 0.0) * state.rotation
-							).normalize();
+							state.translation += x_change.upper_vec3().to_fixed();
+							state.rotation = crate::math::rotation_correction(state.rotation, x_change.lower_vec3().to_fixed());
 							(*physics_body_id, state)
 						}).collect::<Vec<_>>()
 							});
@@ -294,7 +295,7 @@ impl Solver {
 			if iteration == iterations - 1 { // before post stabilize
 				for (physics_body_id, physics_body) in physics_bodies.iter_mut() {
 					physics_body.velocity = (x_guess[physics_body_id].translation - initial_all[physics_body_id].translation) / dt;
-					physics_body.angular_velocity = (x_guess[physics_body_id].rotation * initial_all[physics_body_id].rotation.inverse()).normalize().to_scaled_axis() / dt;
+					physics_body.angular_velocity = crate::math::rotation_difference(x_guess[physics_body_id].rotation, initial_all[physics_body_id].rotation) / dt;
 				}
 			}
 		}
@@ -319,90 +320,4 @@ impl Solver {
 			}, (collision_constraint.penalty, collision_constraint.lambda));
 		}
 	}
-}
-
-/// From https://github.com/savant117/avbd-demo3d
-fn solve(a_lin: Mat3, a_ang: Mat3, a_cross: Mat3, b_lin: Vec3, b_ang: Vec3) -> (Vec3, Vec3) {
-	// Extract elements from lower triangle storage
-	let a11 = a_lin.col(0).to_array()[0];
-	let a21 = a_lin.col(1).to_array()[0];
-	let a22 = a_lin.col(1).to_array()[1];
-	let a31 = a_lin.col(2).to_array()[0];
-	let a32 = a_lin.col(2).to_array()[1];
-	let a33 = a_lin.col(2).to_array()[2];
-	let a41 = a_cross.col(0).to_array()[0];
-	let a42 = a_cross.col(0).to_array()[1];
-	let a43 = a_cross.col(0).to_array()[2];
-	let a44 = a_ang.col(0).to_array()[0];
-	let a51 = a_cross.col(1).to_array()[0];
-	let a52 = a_cross.col(1).to_array()[1];
-	let a53 = a_cross.col(1).to_array()[2];
-	let a54 = a_ang.col(1).to_array()[0];
-	let a55 = a_ang.col(1).to_array()[1];
-	let a61 = a_cross.col(2).to_array()[0];
-	let a62 = a_cross.col(2).to_array()[1];
-	let a63 = a_cross.col(2).to_array()[2];
-	let a64 = a_ang.col(2).to_array()[0];
-	let a65 = a_ang.col(2).to_array()[1];
-	let a66 = a_ang.col(2).to_array()[2];
-
-	// Step 1: LDL^T decomposition
-	let l21 = a21 / a11;
-	let l31 = a31 / a11;
-	let l41 = a41 / a11;
-	let l51 = a51 / a11;
-	let l61 = a61 / a11;
-
-	let d1 = a11;
-
-	let d2 = a22 - l21 * l21 * d1;
-
-	let l32 = (a32 - l21 * l31 * d1) / d2;
-	let l42 = (a42 - l21 * l41 * d1) / d2;
-	let l52 = (a52 - l21 * l51 * d1) / d2;
-	let l62 = (a62 - l21 * l61 * d1) / d2;
-
-	let d3 = a33 - (l31 * l31 * d1 + l32 * l32 * d2);
-
-	let l43 = (a43 - l31 * l41 * d1 - l32 * l42 * d2) / d3;
-	let l53 = (a53 - l31 * l51 * d1 - l32 * l52 * d2) / d3;
-	let l63 = (a63 - l31 * l61 * d1 - l32 * l62 * d2) / d3;
-
-	let d4 = a44 - (l41 * l41 * d1 + l42 * l42 * d2 + l43 * l43 * d3);
-
-	let l54 = (a54 - l41 * l51 * d1 - l42 * l52 * d2 - l43 * l53 * d3) / d4;
-	let l64 = (a64 - l41 * l61 * d1 - l42 * l62 * d2 - l43 * l63 * d3) / d4;
-
-	let d5 = a55 - (l51 * l51 * d1 + l52 * l52 * d2 + l53 * l53 * d3 + l54 * l54 * d4);
-
-	let l65 = (a65 - l51 * l61 * d1 - l52 * l62 * d2 - l53 * l63 * d3 - l54 * l64 * d4) / d5;
-
-	let d6 = a66 - (l61 * l61 * d1 + l62 * l62 * d2 + l63 * l63 * d3 + l64 * l64 * d4 + l65 * l65 * d5);
-
-	// Step 2: Forward substitution: Solve Ly = b
-	let y1 = b_lin[0];
-	let y2 = b_lin[1] - l21 * y1;
-	let y3 = b_lin[2] - l31 * y1 - l32 * y2;
-	let y4 = b_ang[0] - l41 * y1 - l42 * y2 - l43 * y3;
-	let y5 = b_ang[1] - l51 * y1 - l52 * y2 - l53 * y3 - l54 * y4;
-	let y6 = b_ang[2] - l61 * y1 - l62 * y2 - l63 * y3 - l64 * y4 - l65 * y5;
-
-	// Step 3: Diagonal solve: Solve Dz = y
-	let z1 = y1 / d1;
-	let z2 = y2 / d2;
-	let z3 = y3 / d3;
-	let z4 = y4 / d4;
-	let z5 = y5 / d5;
-	let z6 = y6 / d6;
-
-	// Step 4: Backward substitution: Solve L^T x = z
-	let mut x_ang = Vec3::ZERO;
-	x_ang[2] = z6;
-	x_ang[1] = z5 - l65 * x_ang[2];
-	x_ang[0] = z4 - l54 * x_ang[1] - l64 * x_ang[2];
-	let mut x_lin = Vec3::ZERO;
-	x_lin[2] = z3 - l43 * x_ang[0] - l53 * x_ang[1] - l63 * x_ang[2];
-	x_lin[1] = z2 - l32 * x_lin[2] - l42 * x_ang[0] - l52 * x_ang[1] - l62 * x_ang[2];
-	x_lin[0] = z1 - l21 * x_lin[1] - l31 * x_lin[2] - l41 * x_ang[0] - l51 * x_ang[1] - l61 * x_ang[2];
-	(x_lin, x_ang)
 }

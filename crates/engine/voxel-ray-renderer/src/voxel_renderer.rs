@@ -1,7 +1,7 @@
 use bevy::ecs::entity::Entity;
 use bevy::render::renderer::WgpuWrapper;
 use rustc_hash::FxHashMap;
-use voxel_data::bvh;
+use crate::render_bvh as bvh;
 
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
 type GpuBindGroupLayout = WgpuWrapper<wgpu::BindGroupLayout>;

@@ -11,8 +11,9 @@ use rustc_hash::FxHashMap;
 use crate::residency::{ResidentVoxels, ResidencyBuffers, ResidencyDirections};
 use crate::gpu_data::RayWorldGpuData;
 use voxel_data::voxels::VoxelTypeInfo;
-use voxel_data::bvh::BVH;
-use voxel_data::aabb::aabb_of_transformed_aabb;
+use crate::render_bvh::BVH;
+use crate::render_aabb::aabb_of_transformed_aabb;
+use voxel_transform::{RenderOrigin, TransformQuery};
 use tile_data::DynamicTileData;
 use voxel_gpu::PackedBufferAllocation;
 
@@ -60,7 +61,9 @@ pub fn extract_voxel_scene(
 	direction_feedback: Query<&DirectionFeedback>,
 	tile_capabilities: Extract<Res<RayTileCapabilityRegistry>>,
 	cameras: Extract<Query<(RenderEntity, &VoxelCamera, &Camera, &GlobalTransform)>>,
-	tiles: Extract<Query<(&DynamicTileData, &GlobalTransform)>>,
+	tiles: Extract<Query<&DynamicTileData>>,
+	transforms: Extract<TransformQuery>,
+	render_origin: Extract<Res<RenderOrigin>>,
 	world_gpu: Extract<Res<RayWorldGpuData>>,
 ) {
 	extracted_scenes.0.clear();
@@ -70,10 +73,11 @@ pub fn extract_voxel_scene(
 		if !camera.is_active { continue; }
 		let mut items = Vec::new();
 		for entity in &voxel_camera.tiles_to_render {
-			let Ok((tile_data, tile_global)) = tiles.get(*entity) else { continue };
+			let Ok(tile_data) = tiles.get(*entity) else { continue };
+			let Some(tile_world) = transforms.get_world(*entity) else { continue };
 			let Some(tile) = tile_capabilities.read(tile_data.data()) else { continue };
 			let scale = (1u32 << tile.voxel_lod) as f32;
-			let transform = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
+			let transform = tile_world.relative_to(render_origin.0) * Transform::from_scale(Vec3::splat(scale));
 			let placement = tile.placement;
 			let aabb = aabb_of_transformed_aabb(&transform, placement.bounds_min.as_vec3(), placement.bounds_max.as_vec3() + Vec3::ONE);
 			let tree_transform = transform * Transform::from_translation(placement.tree_root_pos.as_vec3());

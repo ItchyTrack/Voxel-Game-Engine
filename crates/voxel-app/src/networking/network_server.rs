@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use lightyear::prelude::server::{NetcodeServer, ServerPlugins, ServerUdpIo, Start};
-use voxel_data::body::Body;
+use voxel_transform::{Body, Transform};
 
 use crate::networking::network_common::{NetworkBody, NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, REPLICATION_INTERVAL, SERVER_ADDR, replicate_grid_bundle};
 
@@ -10,7 +10,7 @@ pub struct NetworkServerPlugin;
 impl Plugin for NetworkServerPlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(ServerPlugins {
-			tick_duration: std::time::Duration::from_secs_f64(1.0 / 120.0),
+			tick_duration: std::time::Duration::from_nanos(1_000_000_000 / 120),
 		})
 			.add_plugins(NetworkProtocolPlugin)
 			.add_observer(configure_connected_client)

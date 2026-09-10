@@ -1,3 +1,4 @@
+use voxel_math::FixedVec3;
 pub mod chunk_requests;
 pub mod exact;
 
@@ -20,8 +21,8 @@ pub struct HalfCollision {
 	pub grid_id: GridId,
 	pub voxel_pos: IVec3,
 	pub feature: CubeFeature,
-	pub collision: Vec3,
-	pub local_collision: Vec3,
+	pub collision: FixedVec3,
+	pub local_collision: FixedVec3,
 }
 
 #[derive(Copy, Clone)]

@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use voxel_math::FixedVec3;
+use voxel_transform::Transform;
 
 use bevy::prelude::*;
 use num::Zero;
-use voxel_data::bvh::BVH;
+use voxel_transform::bvh::BVH;
 use voxel_data::grid::Grid;
 use voxel_data::subgrid::{SubGrid, SubGridId};
 use voxel_mass::Mass;
@@ -22,6 +24,7 @@ pub fn detect_collisions(
 ) {
 	let mut body_views: SparseSet<PhysicsBodyId, BodyView> = SparseSet::with_capacity(bodies.iter().count());
 	for (entity, transform, mass, is_static) in bodies.iter() {
+		crate::math::require_unit_scale(transform);
 		body_views.insert(entity, BodyView { transform: *transform, is_static: is_static || mass.0.is_zero() });
 	}
 
@@ -32,6 +35,7 @@ pub fn detect_collisions(
 
 	let mut grids: SparseSet<GridId, GridCollider> = SparseSet::with_capacity(grid_entities.iter().count());
 	for (grid_entity, transform, child_of, grid) in grid_entities.iter() {
+		crate::math::require_unit_scale(transform);
 		let body = child_of.parent();
 		if !body_views.contains_key(&body) { continue; }
 		let sub_grids = subgrids_by_grid
@@ -48,7 +52,7 @@ pub fn detect_collisions(
 		let body = body_views.get(&grid_col.body).unwrap();
 		let grid_transform = body.transform * *grid_col.local_transform;
 		for (sub_grid_id, sub_grid) in grid_col.sub_grids.iter() {
-			let sub_grid_transform = grid_transform * Transform::from_translation(sub_grid.sub_grid_pos().as_vec3());
+			let sub_grid_transform = grid_transform * Transform::from_translation(FixedVec3::from(sub_grid.sub_grid_pos()));
 			if let Some(aabb) = sub_grid.aabb(&sub_grid_transform) {
 				bounds.push(((grid_col.body, *grid_id, *sub_grid_id), aabb));
 			}

@@ -1,5 +1,6 @@
 use bevy::math::{UVec3, I8Vec3, U8Vec3};
 use bevy::prelude::*;
+use voxel_math::{Fixed, Transform};
 use std::fmt::Debug;
 use crate::region::NonZeroVoxelRegion;
 use super::GridView;
@@ -167,7 +168,7 @@ pub trait GridTreeView: Sized + Debug {
 		occupied_tile_cover_recurse(self, self.root(), min, max, tile_size, &mut seen, &mut f);
 	}
 
-	fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(UVec3, I8Vec3, f32)>;
+	fn raycast(&self, transform: &(impl Transform + ?Sized), max_length: Option<Fixed>) -> Option<(UVec3, I8Vec3, Fixed)>;
 }
 
 fn region_recurse<'tree, View: GridTreeView, F>(view: &'tree View, node: NodeRef<View::NodeHandle>, min: UVec3, max: UVec3, f: &mut F)

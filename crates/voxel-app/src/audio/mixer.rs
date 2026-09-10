@@ -1,6 +1,7 @@
 use cpal::traits::DeviceTrait;
 use cpal::{FromSample, Sample, SizedSample, Stream, StreamConfig};
 use bevy::math::Vec3;
+use voxel_math::FixedVec3;
 use rtrb::Consumer;
 
 use super::instructions::{AudioInstruction, ListenerState, SpawnVoiceInstruction};
@@ -98,15 +99,15 @@ impl AudioMixer {
 }
 
 impl ListenerState {
-	fn stereo_gains(&self, emitter_position: Vec3, source_gain: f32, max_volume_distance: f32, distance_falloff: f32) -> (f32, f32) {
-		let offset = emitter_position - self.position;
+	fn stereo_gains(&self, emitter_position: FixedVec3, source_gain: f32, max_volume_distance: f32, distance_falloff: f32) -> (f32, f32) {
+		let offset = (emitter_position - self.position).as_vec3();
 		let distance = offset.length();
 		if distance <= f32::EPSILON {
 			return (source_gain, source_gain);
 		}
 
 		let direction = offset / distance;
-		let pan = spatial_pan(direction, self.right, distance, max_volume_distance);
+		let pan = spatial_pan(direction, self.right.as_vec3(), distance, max_volume_distance);
 		let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
 		let attenuation = attenuated_gain(source_gain, distance, max_volume_distance, distance_falloff);
 
@@ -115,7 +116,7 @@ impl ListenerState {
 }
 
 struct ActiveVoice {
-	position: Vec3,
+	position: FixedVec3,
 	gain: f32,
 	max_volume_distance: f32,
 	distance_falloff: f32,
