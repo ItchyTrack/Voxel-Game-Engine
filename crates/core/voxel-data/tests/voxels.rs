@@ -1,8 +1,6 @@
 use bevy::math::{IVec3, UVec3};
-use voxel_data::{
-	grid_tree::NonZeroVoxelRegion,
-	voxels::{Voxel, VoxelTypeInfo, Voxels},
-};
+use voxel_data::voxels::{Voxel, VoxelTypeInfo, Voxels};
+use voxel_trees::region::NonZeroVoxelRegion;
 
 fn test_type_info() -> VoxelTypeInfo {
 	VoxelTypeInfo { id: voxel_data::voxels::VoxelTypeId(1), size_bytes: 8 }

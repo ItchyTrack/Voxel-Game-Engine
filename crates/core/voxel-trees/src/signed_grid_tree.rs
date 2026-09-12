@@ -4,15 +4,9 @@ use bevy::transform::components::Transform;
 use crate::grid_tree::{NonZeroVoxelRegion, GridTree64, GridType};
 use crate::views::{GridTreeView, GridView};
 
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct SignedGridTree<G: GridType> {
 	trees: [GridTree64<G>; 8],
-}
-
-impl<G: GridType + Default> Default for SignedGridTree<G> {
-	fn default() -> Self {
-		Self { trees: std::array::from_fn(|_| GridTree64::new()) }
-	}
 }
 
 impl<G: GridType + Default> SignedGridTree<G> {
@@ -201,7 +195,7 @@ fn split_region(region: NonZeroVoxelRegion) -> Vec<(usize, NonZeroVoxelRegion)> 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use voxel_trees::grid_tree::U16Cell;
+	use crate::grid_tree::U16Cell;
 	use std::collections::HashMap;
 
 	#[test]

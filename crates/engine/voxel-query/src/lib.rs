@@ -50,7 +50,7 @@ impl TileBuilder for OccupancyTileBuilder {
 		}
 
 		if areas.is_empty() { return None; }
-		let mut tree = OccupancyTree::new();
+		let mut tree = OccupancyTree::default();
 		tree.add_areas(&areas);
 		Some(Box::new(OccupancyTileData { tree }))
 	}

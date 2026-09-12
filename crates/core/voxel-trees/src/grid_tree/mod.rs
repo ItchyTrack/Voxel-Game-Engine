@@ -57,8 +57,8 @@ enum CellWrite<'a, G: GridType> {
 impl<'a, G: GridType> Copy for CellWrite<'a, G> {}
 impl<'a, G: GridType> Clone for CellWrite<'a, G> { fn clone(&self) -> Self { *self } }
 
-impl<G: GridType + Default> GridTree64<G> {
-	pub fn new() -> Self {
+impl<G: GridType + Default> Default for GridTree64<G> {
+	fn default() -> Self {
 		Self::new_with_type(G::default())
 	}
 }
@@ -231,7 +231,7 @@ mod tests {
 
 	#[test]
 	fn add_area_preserves_large_runs() {
-		let mut tree = GridTree64::<U16Cell>::new();
+		let mut tree = GridTree64::<U16Cell>::default();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 7);
 		assert_eq!(tree.len(), 16 * 16 * 16);
 		assert_eq!(tree.get(UVec3::new(0, 0, 0)), Some(7));
@@ -240,7 +240,7 @@ mod tests {
 
 	#[test]
 	fn remove_area_clears_bulk_region_without_touching_neighbours() {
-		let mut tree = GridTree64::<U16Cell>::new();
+		let mut tree = GridTree64::<U16Cell>::default();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(64), 7);
 		tree.remove_area(&UVec3::new(16, 16, 16), UVec3::splat(32));
 		assert_eq!(tree.get(UVec3::new(15, 16, 16)), Some(7));
@@ -249,7 +249,7 @@ mod tests {
 
 	#[test]
 	fn clear_sdf_only_removes_inside_shape() {
-		let mut tree = GridTree64::<U16Cell>::new();
+		let mut tree = GridTree64::<U16Cell>::default();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 3);
 		let center = Vec3::splat(8.0);
 		let radius = 5.0f32;

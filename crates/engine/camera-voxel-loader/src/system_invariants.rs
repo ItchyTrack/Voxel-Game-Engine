@@ -11,7 +11,6 @@ use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileAppExt, TileBuilder, TileBuildingSession, TileClassId, TileData, chunk_of};
 use voxel_data::{
 	grid::Grid,
-	region::NonZeroVoxelRegion,
 	voxels::{VoxelTypeId, VoxelTypeInfo},
 };
 use voxel_sources::edit::{GridEditId, GridEditIdManager, GridEditMessage, GridGeneration, RemoveArea};
@@ -23,6 +22,7 @@ use voxel_streaming::{
 	TileLoadUpdate,
 	VoxelStreamingPlugin,
 };
+use voxel_trees::region::NonZeroVoxelRegion;
 
 use crate::{
 	CameraVoxelLoader,

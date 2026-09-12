@@ -488,7 +488,7 @@ fn set_axis(v: &mut IVec3, axis: usize, value: i32) {
 
 #[cfg(test)]
 mod tests {
-	use voxel_trees::grid_tree::U16Cell;
+	use crate::grid_tree::U16Cell;
 
 	use super::*;
 
@@ -519,7 +519,7 @@ mod tests {
 
 	#[test]
 	fn reduce_unit_region_sees_all_downsampled_cells_from_one_source() {
-		let mut source = GridTree64::<U16Cell>::new();
+		let mut source = GridTree64::<U16Cell>::default();
 		source.insert(&UVec3::new(0, 0, 0), 10);
 		source.insert(&UVec3::new(1, 0, 0), 20);
 
@@ -532,9 +532,9 @@ mod tests {
 
 	#[test]
 	fn reduce_unit_region_sees_all_active_sources() {
-		let mut first = GridTree64::<U16Cell>::new();
+		let mut first = GridTree64::<U16Cell>::default();
 		first.insert(&UVec3::new(0, 0, 0), 11);
-		let mut second = GridTree64::<U16Cell>::new();
+		let mut second = GridTree64::<U16Cell>::default();
 		second.insert(&UVec3::new(1, 0, 0), 22);
 
 		let sources = [
@@ -549,7 +549,7 @@ mod tests {
 
 	#[test]
 	fn reduce_preserves_leaf_boundaries_across_a_larger_region() {
-		let mut source = GridTree64::<U16Cell>::new();
+		let mut source = GridTree64::<U16Cell>::default();
 		source.add_area(&UVec3::ZERO, UVec3::new(4, 8, 8), 7);
 		source.add_area(&UVec3::new(4, 0, 0), UVec3::new(4, 8, 8), 9);
 
@@ -586,7 +586,7 @@ mod tests {
 
 	#[test]
 	fn reduce_keeps_source_region_clipping_when_reusing_overlaps() {
-		let mut source = GridTree64::<U16Cell>::new();
+		let mut source = GridTree64::<U16Cell>::default();
 		source.add_area(&UVec3::ZERO, UVec3::splat(8), 1);
 
 		let sources = [SourceTree { tree: &source, scale_down: 1, output_offset: IVec3::ZERO }];

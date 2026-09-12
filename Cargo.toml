@@ -5,8 +5,10 @@ members = [
 	"crates/core/voxel-tasks",
 	"crates/core/voxel-trees",
 	"crates/core/voxel-data",
+	"crates/core/voxel-data",
 	"crates/core/tile-data",
 	"crates/core/voxel-sources",
+	"crates/core/voxel-tracking",
 	"crates/core/voxel-streaming",
 	"crates/engine/voxel-gpu",
 	"crates/engine/voxel-query",
@@ -51,6 +53,7 @@ voxel-trees = { version = "0.1.0", path = "crates/core/voxel-trees" }
 voxel-data = { version = "0.1.0", path = "crates/core/voxel-data" }
 tile-data = { version = "0.1.0", path = "crates/core/tile-data" }
 voxel-sources = { version = "0.1.0", path = "crates/core/voxel-sources" }
+voxel-tracking = { version = "0.1.0", path = "crates/core/voxel-tracking" }
 voxel-streaming = { version = "0.1.0", path = "crates/core/voxel-streaming" }
 voxel-gpu = { version = "0.1.0", path = "crates/engine/voxel-gpu" }
 voxel-query = { version = "0.1.0", path = "crates/engine/voxel-query" }
