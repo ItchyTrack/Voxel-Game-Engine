@@ -6,15 +6,14 @@ use std::{
 
 use async_priority_queue::PriorityQueue;
 use bevy::tasks::AsyncComputeTaskPool;
-use voxel_math::Fixed;
 
 pub struct PriorityTask {
-	priority: Fixed,
+	priority: f32,
 	task_func: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
 }
 
 impl PriorityTask {
-	pub fn new<F>(priority: Fixed, function: F) -> Self
+	pub fn new<F>(priority: f32, function: F) -> Self
 	where
 		F: Future<Output = ()> + Send + 'static,
 	{
@@ -36,7 +35,7 @@ impl PartialOrd for PriorityTask {
 }
 
 impl Ord for PriorityTask {
-	fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.priority.cmp(&other.priority) }
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.priority.total_cmp(&other.priority) }
 }
 
 struct State {
@@ -98,7 +97,7 @@ impl AsyncPriorityTaskPool {
 	/// Spawns a future with the given priority.
 	///
 	/// Higher priority values are executed before lower priority values.
-	pub fn spawn<F>(&'static self, priority: Fixed, future: F)
+	pub fn spawn<F>(&'static self, priority: f32, future: F)
 	where
 		F: Future<Output = ()> + Send + 'static,
 	{

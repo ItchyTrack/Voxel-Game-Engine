@@ -1,7 +1,7 @@
 use bevy::ecs::message::{Message, MessageReader};
+use bevy::math::Vec3;
 use bevy::prelude::*;
-use voxel_math::FixedVec3;
-use voxel_transform::TransformQuery;
+use bevy::transform::components::GlobalTransform;
 
 use crate::audio::audio_engine::{AudioEngine, ListenerState, SoundEffect};
 
@@ -14,12 +14,12 @@ impl Default for AudioEngineResource {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct PlaySfx {
 	pub effect: SoundEffect,
-	pub position: FixedVec3,
+	pub position: Vec3,
 }
 
 impl PlaySfx {
-	pub fn block_place(position: FixedVec3) -> Self { Self { effect: SoundEffect::BlockPlace, position } }
-	pub fn block_break(position: FixedVec3) -> Self { Self { effect: SoundEffect::BlockBreak, position } }
+	pub fn block_place(position: Vec3) -> Self { Self { effect: SoundEffect::BlockPlace, position } }
+	pub fn block_break(position: Vec3) -> Self { Self { effect: SoundEffect::BlockBreak, position } }
 }
 
 pub struct VoxelAudioPlugin;
@@ -33,16 +33,15 @@ impl Plugin for VoxelAudioPlugin {
 }
 
 fn update_listener(
-	cameras: Query<(Entity, &Camera), With<Camera3d>>,
-	transforms: TransformQuery,
+	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	mut audio: NonSendMut<AudioEngineResource>,
 ) {
-	let Some((entity, _)) = cameras.iter().find(|(_, c)| c.is_active) else { return };
-	let Some(t) = transforms.get_world(entity) else { return };
+	let Some((_, global_transform)) = cameras.iter().find(|(c, _)| c.is_active) else { return };
+	let t = global_transform.compute_transform();
 	audio.0.set_listener(ListenerState {
 		position: t.translation,
-		forward: t.forward(),
-		right: t.right(),
+		forward: t.forward().as_vec3(),
+		right: t.right().as_vec3(),
 	});
 }
 

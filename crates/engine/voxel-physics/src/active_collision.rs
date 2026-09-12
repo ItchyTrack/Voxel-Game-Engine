@@ -1,15 +1,14 @@
-use voxel_math::FixedVec3;
-use voxel_transform::Transform;
 use bevy::prelude::*;
 use tile_data::{CHUNK_SIZE, DynamicTileData, LoadedTile};
-use voxel_transform::aabb::aabb_of_transformed_aabb;
-use voxel_transform::bvh::BVH;
+use voxel_data::aabb::aabb_of_transformed_aabb;
+use voxel_data::bvh::BVH;
 use voxel_query::OccupancyTileData;
 
 use crate::collision::{Collision, Collisions, HalfCollision};
 use crate::GridId;
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
 use crate::narrowphase::get_collisions_between_tiles;
+use crate::transform_ext::TransformExt;
 
 struct TileCollider<'a> {
 	body: Entity,
@@ -32,10 +31,13 @@ pub(crate) fn detect_collisions(
 		let Some(occupancy) = data.downcast_ref::<OccupancyTileData>() else { continue };
 		let Ok((grid_transform, parent)) = grids.get(loaded.grid) else { continue };
 		let Ok((body, body_transform, is_static)) = bodies.get(parent.parent()) else { continue };
-		crate::math::require_unit_scale(body_transform);
-		crate::math::require_unit_scale(grid_transform);
+		if !body_transform.scale.abs_diff_eq(Vec3::ONE, 1e-5)
+			|| !grid_transform.scale.abs_diff_eq(Vec3::ONE, 1e-5)
+		{
+			continue;
+		}
 		let tile_origin = loaded.key.region.min() * CHUNK_SIZE as i32;
-		let transform = *body_transform * *grid_transform * Transform::from_translation(FixedVec3::from(tile_origin));
+		let transform = *body_transform * *grid_transform * Transform::from_translation(tile_origin.as_vec3());
 		colliders.push(TileCollider {
 			body,
 			body_transform: *body_transform,
@@ -49,7 +51,7 @@ pub(crate) fn detect_collisions(
 
 	let bounds = colliders.iter().enumerate().filter_map(|(index, collider)| {
 		let bounds = collider.tree.occupied_bounds()?;
-		Some((index, aabb_of_transformed_aabb(&collider.transform, FixedVec3::from(bounds.min()), FixedVec3::from(bounds.end()))))
+		Some((index, aabb_of_transformed_aabb(&collider.transform, bounds.min().as_vec3(), bounds.end().as_vec3())))
 	}).collect();
 	let bvh = BVH::new(bounds);
 	let mut detected = Vec::new();
@@ -57,7 +59,7 @@ pub(crate) fn detect_collisions(
 	for (index_a, collider_a) in colliders.iter().enumerate() {
 		if collider_a.is_static { continue; }
 		let Some(bounds_a) = collider_a.tree.occupied_bounds() else { continue };
-		let world_bounds_a = aabb_of_transformed_aabb(&collider_a.transform, FixedVec3::from(bounds_a.min()), FixedVec3::from(bounds_a.end()));
+		let world_bounds_a = aabb_of_transformed_aabb(&collider_a.transform, bounds_a.min().as_vec3(), bounds_a.end().as_vec3());
 		for index_b in bvh.collisions(&world_bounds_a) {
 			let collider_b = &colliders[index_b];
 			if collider_a.body == collider_b.body { continue; }

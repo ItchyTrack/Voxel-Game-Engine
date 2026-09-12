@@ -12,7 +12,6 @@ use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
 use tile_data::CHUNK_SIZE;
 use voxel_streaming::GridStreaming;
-use voxel_transform::{RenderOrigin, TransformQuery, TransformSystems};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
@@ -50,10 +49,10 @@ impl Plugin for DebugUiPlugin {
 				store.config_mut::<ChunkGizmos>().0.line.width = 4.0;
 			})
 			.add_systems(EguiPrimaryContextPass, debug_window)
-			.add_systems(PostUpdate, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0).after(TransformSystems::PrepareRender))
-			.add_systems(PostUpdate, draw_ball_joint_constraints.run_if(|b: Res<ConstraintDebugRender>| b.0).after(TransformSystems::PrepareRender))
-			.add_systems(PostUpdate, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0).after(TransformSystems::PrepareRender))
-			.add_systems(PostUpdate, draw_coverage.run_if(|b: Res<CoverageBoxes>| b.0).after(TransformSystems::PrepareRender));
+			.add_systems(Update, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0))
+			.add_systems(Update, draw_ball_joint_constraints.run_if(|b: Res<ConstraintDebugRender>| b.0))
+			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0))
+			.add_systems(Update, draw_coverage.run_if(|b: Res<CoverageBoxes>| b.0));
 	}
 }
 
@@ -135,20 +134,18 @@ fn debug_window(
 fn draw_inertia_boxes(
 	mut gizmos: Gizmos,
 	bodies: Query<
-		(Entity, &Mass, &CenterOfMass, &RotationalInertia),
+		(&GlobalTransform, &Mass, &CenterOfMass, &RotationalInertia),
 		(With<RigidBody>, Without<IsStatic>),
 	>,
-	transforms: TransformQuery,
-	render_origin: Res<RenderOrigin>,
 ) {
 	use nalgebra::{Matrix3, SymmetricEigen};
 
 	let color = Color::srgba(1.0, 0.2, 0.2, 0.6);
 
-	for (entity, mass, com, inertia) in bodies.iter() {
+	for (gt, mass, com, inertia) in bodies.iter() {
 		if mass.0 == 0 { continue; }
-		let Some(world) = transforms.get_world(entity) else { continue };
-		let body_t = world.relative_to(render_origin.0);
+
+		let body_t = gt.compute_transform();
 		let world_inertia = inertia.0.get_rotated(body_t.rotation.as_dquat());
 		let m = world_inertia.mat;
 
@@ -195,18 +192,17 @@ fn draw_inertia_boxes(
 fn draw_ball_joint_constraints(
 	mut gizmos: Gizmos,
 	joints: Query<&BallJoint>,
-	bodies: TransformQuery,
-	render_origin: Res<RenderOrigin>,
+	bodies: Query<&GlobalTransform>,
 ) {
 	const HALF_EXTENT: f32 = 0.75;
 	let color = Color::srgba(0.2, 0.8, 1.0, 0.9);
 
 	for joint in joints.iter() {
-		let Some(body_1_gt) = bodies.get_world(joint.body_1) else { continue; };
-		let Some(body_2_gt) = bodies.get_world(joint.body_2) else { continue; };
+		let Ok(body_1_gt) = bodies.get(joint.body_1) else { continue; };
+		let Ok(body_2_gt) = bodies.get(joint.body_2) else { continue; };
 
-		let attachment_1 = (body_1_gt.transform_point(joint.body_1_attachment.translation) - render_origin.0).as_vec3();
-		let attachment_2 = (body_2_gt.transform_point(joint.body_2_attachment.translation) - render_origin.0).as_vec3();
+		let attachment_1 = body_1_gt.transform_point(joint.body_1_attachment.translation);
+		let attachment_2 = body_2_gt.transform_point(joint.body_2_attachment.translation);
 		let center = (attachment_1 + attachment_2) * 0.5;
 
 		draw_axis_aligned_box_edges(&mut gizmos, center - Vec3::splat(HALF_EXTENT), center + Vec3::splat(HALF_EXTENT), color);
@@ -254,19 +250,15 @@ fn draw_box_edges<C: GizmoConfigGroup>(gizmos: &mut Gizmos<C>, gt: &GlobalTransf
 
 fn draw_chunk_presence(
 	mut gizmos: Gizmos<ChunkGizmos>,
-	grids: Query<(Entity, &GridStreaming)>,
-	transforms: TransformQuery,
-	render_origin: Res<RenderOrigin>,
+	grids: Query<(&GlobalTransform, &GridStreaming)>,
 ) {
 	const INSET: f32 = 0.75;
 	let color = Color::srgb(0.1, 0.8, 0.1);
-	for (entity, streaming) in grids.iter() {
-		let Some(world) = transforms.get_world(entity) else { continue };
-		let gt = GlobalTransform::from(world.relative_to(render_origin.0));
+	for (gt, streaming) in grids.iter() {
 		for (origin, size) in streaming.presence().iter_present() {
 			let lo = (origin * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
 			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
-			draw_box_edges(&mut gizmos, &gt, lo, hi, color);
+			draw_box_edges(&mut gizmos, gt, lo, hi, color);
 		}
 	}
 }
@@ -274,14 +266,12 @@ fn draw_chunk_presence(
 fn draw_coverage(
 	mut gizmos: Gizmos<ChunkGizmos>,
 	loaders: Query<&CameraVoxelLoader>,
-	transforms: TransformQuery,
-	render_origin: Res<RenderOrigin>,
+	transforms: Query<&GlobalTransform>,
 ) {
 	const INSET: f32 = 1.5;
 	for loader in &loaders {
 		for tile in loader.coverage_debug_tiles() {
-			let Some(world) = transforms.get_world(tile.grid) else { continue };
-			let gt = GlobalTransform::from(world.relative_to(render_origin.0));
+			let Ok(gt) = transforms.get(tile.grid) else { continue };
 			let lo = (tile.region.min() * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
 			let hi = (tile.region.end() * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
 			let color = match tile.state {
@@ -290,7 +280,7 @@ fn draw_coverage(
 				CoverageDebugState::Empty => Color::srgb(0.2, 0.2, 0.2),
 				CoverageDebugState::Waiting => Color::srgb(0.9, 0.1, 0.1),
 			};
-			draw_box_edges(&mut gizmos, &gt, lo, hi, color);
+			draw_box_edges(&mut gizmos, gt, lo, hi, color);
 		}
 	}
 }

@@ -11,8 +11,6 @@ pub mod tile_data;
 pub mod voxel_renderer_resource;
 
 mod extract;
-mod render_aabb;
-pub mod render_bvh;
 pub mod render_node;
 mod shader_asset;
 mod shader_sources;

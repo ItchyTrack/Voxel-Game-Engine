@@ -1,4 +1,4 @@
-use voxel_math::FixedVec3;
+use bevy::math::Vec3;
 
 #[derive(Clone, Copy, Debug)]
 pub enum SoundEffect {
@@ -9,24 +9,24 @@ pub enum SoundEffect {
 
 #[derive(Clone, Copy)]
 pub struct ListenerState {
-	pub position: FixedVec3,
-	pub forward: FixedVec3,
-	pub right: FixedVec3,
+	pub position: Vec3,
+	pub forward: Vec3,
+	pub right: Vec3,
 }
 
 impl Default for ListenerState {
 	fn default() -> Self {
 		Self {
-			position: FixedVec3::ZERO,
-			forward: FixedVec3::Z,
-			right: FixedVec3::X
+			position: Vec3::ZERO,
+			forward: Vec3::Z,
+			right: Vec3::X
 		}
 	}
 }
 
 #[derive(Clone, Copy)]
 pub struct SpawnVoiceInstruction {
-	pub position: FixedVec3,
+	pub position: Vec3,
 	pub frequency_hz: f32,
 	pub gain: f32,
 	pub max_volume_distance: f32,

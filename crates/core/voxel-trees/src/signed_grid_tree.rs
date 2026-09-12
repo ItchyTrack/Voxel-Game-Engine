@@ -1,5 +1,5 @@
-use bevy::math::{I8Vec3, IVec3, UVec3};
-use voxel_math::{Fixed, FixedVec3, Ray, Transform};
+use bevy::math::{I8Vec3, IVec3, UVec3, Vec3};
+use bevy::transform::components::Transform;
 
 use crate::grid_tree::{NonZeroVoxelRegion, GridTree64, GridType};
 use crate::views::{GridTreeView, GridView};
@@ -88,21 +88,14 @@ impl<G: GridType + Default> SignedGridTree<G> {
 		}
 	}
 
-	pub fn raycast(&self, transform: &(impl Transform + ?Sized), max_length: Option<Fixed>) -> Option<(IVec3, I8Vec3, Fixed)> {
-		let world_dir = transform.direction();
+	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(IVec3, I8Vec3, f32)> {
+		let world_dir = transform.rotation * Vec3::Z;
 		self.trees.iter().enumerate().filter_map(|(oct, tree)| {
-			if tree.is_empty() { return None; }
-			let mut local_origin = world_to_local_point(oct, transform.translation());
+			let local_origin = world_to_local_point(oct, transform.translation);
 			let local_dir = world_to_local_vector(oct, world_dir);
-			for axis in 0..3 {
-				// Reflection reverses the ownership of stationary integer boundaries.
-				if oct & (1 << axis) == 0 && local_dir[axis].is_zero() && local_origin[axis].fract().is_zero() {
-					local_origin[axis] -= Fixed::EPSILON;
-				}
-			}
-			let local_transform = Ray { origin: local_origin, direction: local_dir };
+			let local_transform = Transform::from_translation(local_origin).looking_to(local_dir, Vec3::Y);
 			tree.raycast(&local_transform, max_length).map(|(pos, normal, dist)| (join_pos(oct, pos), local_to_world_normal(oct, normal), dist))
-		}).min_by_key(|hit| hit.2)
+		}).min_by(|a, b| a.2.total_cmp(&b.2))
 	}
 
 	pub fn iter(&self) -> std::vec::IntoIter<(IVec3, u32, G::Data<'_>)> {
@@ -136,16 +129,16 @@ fn join_region_origin(oct: usize, pos: UVec3, size: u32) -> IVec3 {
 	)
 }
 
-fn world_to_local_point(oct: usize, point: FixedVec3) -> FixedVec3 {
-	FixedVec3::new(
+fn world_to_local_point(oct: usize, point: Vec3) -> Vec3 {
+	Vec3::new(
 		if (oct & 1) != 0 { point.x } else { -point.x },
 		if (oct & 2) != 0 { point.y } else { -point.y },
 		if (oct & 4) != 0 { point.z } else { -point.z },
 	)
 }
 
-fn world_to_local_vector(oct: usize, vector: FixedVec3) -> FixedVec3 {
-	FixedVec3::new(
+fn world_to_local_vector(oct: usize, vector: Vec3) -> Vec3 {
+	Vec3::new(
 		if (oct & 1) != 0 { vector.x } else { -vector.x },
 		if (oct & 2) != 0 { vector.y } else { -vector.y },
 		if (oct & 4) != 0 { vector.z } else { -vector.z },
@@ -162,12 +155,12 @@ fn local_to_world_normal(oct: usize, normal: I8Vec3) -> I8Vec3 {
 
 #[inline]
 fn axis_to_local(v: i32) -> u32 {
-	if v >= 0 { v as u32 } else { (-(v as i64) - 1) as u32 }
+	if v >= 0 { v as u32 } else { (-v - 1) as u32 }
 }
 
 #[inline]
 fn axis_from_local(non_negative: bool, v: u32) -> i32 {
-	i32::try_from(if non_negative { v as i64 } else { -(v as i64) - 1 }).expect("signed voxel coordinate overflow")
+	if non_negative { v as i32 } else { -(v as i32) - 1 }
 }
 
 fn split_axis(min: i32, end: i32) -> [(bool, u32, u32); 2] {
@@ -176,7 +169,7 @@ fn split_axis(min: i32, end: i32) -> [(bool, u32, u32); 2] {
 	if min < 0 {
 		let neg_end = end.min(0);
 		if min < neg_end {
-			out[n] = (false, (-(neg_end as i64)) as u32, (-(min as i64)) as u32);
+			out[n] = (false, (-neg_end) as u32, (-min) as u32);
 			n += 1;
 		}
 	}
@@ -208,15 +201,15 @@ fn split_region(region: NonZeroVoxelRegion) -> Vec<(usize, NonZeroVoxelRegion)> 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::grid_tree::U16Cell;
+	use voxel_trees::grid_tree::U16Cell;
 	use std::collections::HashMap;
 
 	#[test]
 	fn raycast_hits_negative_space() {
 		let mut t = SignedGridTree::<U16Cell>::new();
 		t.insert(IVec3::new(-1, 0, 0), 1);
-		let tf = Ray { origin: FixedVec3::new(Fixed::from_num(1.5), Fixed::from_num(0.5), Fixed::from_num(0.5)), direction: FixedVec3::NEG_X };
-		let hit = t.raycast(&tf, Some(Fixed::from_num(10))).map(|(pos, _, _)| pos);
+		let tf = Transform::from_translation(Vec3::new(1.5, 0.5, 0.5)).looking_to(Vec3::NEG_X, Vec3::Y);
+		let hit = t.raycast(&tf, Some(10.0)).map(|(pos, _, _)| pos);
 		assert_eq!(hit, Some(IVec3::new(-1, 0, 0)));
 	}
 

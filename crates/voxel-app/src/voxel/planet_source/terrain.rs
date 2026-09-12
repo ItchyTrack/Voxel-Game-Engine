@@ -1,26 +1,26 @@
-use voxel_math::{Fixed, FixedVec3};
+use bevy::prelude::*;
 
 use super::config::TERRAIN_HEIGHT;
 
 #[derive(Clone, Copy)]
 pub(super) struct TerrainSample {
-	pub(super) height: Fixed,
-	pub(super) shade: Fixed,
+	pub(super) height: f32,
+	pub(super) shade: f32,
 }
 
-pub(super) fn terrain_sample(unit: FixedVec3) -> TerrainSample {
+pub(super) fn terrain_sample(unit: Vec3) -> TerrainSample {
 	let height = terrain_height(unit);
 	TerrainSample {
 		height,
-		shade: Fixed::ONE,
+		shade: 1.0,
 	}
 }
 
-fn terrain_height(unit: FixedVec3) -> Fixed {
-	Fixed::ZERO
+fn terrain_height(unit: Vec3) -> f32 {
+	0.0
 }
 
-pub(super) fn terrain_color(column: TerrainSample, altitude: Fixed) -> [u8; 4] {
+pub(super) fn terrain_color(column: TerrainSample, altitude: f32) -> [u8; 4] {
 	[
 		200,
 		100,
@@ -29,14 +29,14 @@ pub(super) fn terrain_color(column: TerrainSample, altitude: Fixed) -> [u8; 4] {
 	]
 }
 
-fn hsv_to_rgb(h: Fixed, s: Fixed, v: Fixed) -> FixedVec3 {
-	let h = h * Fixed::from_num(6);
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Vec3 {
+	let h = h * 6.0;
 	let i = h.floor();
 	let f = h - i;
-	let p = v * (Fixed::ONE - s);
-	let q = v * (Fixed::ONE - s * f);
-	let t = v * (Fixed::ONE - s * (Fixed::ONE - f));
-	let (r, g, b) = match i.to_num::<i32>() % 6 {
+	let p = v * (1.0 - s);
+	let q = v * (1.0 - s * f);
+	let t = v * (1.0 - s * (1.0 - f));
+	let (r, g, b) = match i as i32 % 6 {
 		0 => (v, t, p),
 		1 => (q, v, p),
 		2 => (p, v, t),
@@ -44,9 +44,9 @@ fn hsv_to_rgb(h: Fixed, s: Fixed, v: Fixed) -> FixedVec3 {
 		4 => (t, p, v),
 		_ => (v, p, q),
 	};
-	FixedVec3::new(r, g, b) * Fixed::from_num(255)
+	Vec3::new(r * 255.0, g * 255.0, b * 255.0)
 }
 
-fn fract(value: Fixed) -> Fixed {
+fn fract(value: f32) -> f32 {
 	value - value.floor()
 }

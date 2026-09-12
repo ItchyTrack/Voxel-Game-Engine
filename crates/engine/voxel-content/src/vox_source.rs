@@ -3,8 +3,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use bevy::math::{IVec3, Quat, UVec3};
-use voxel_math::{Fixed, FixedVec3};
+use bevy::math::{IVec3, Quat, UVec3, Vec3};
 use voxel_data::{
 	compressed_voxels::CompressedVoxels,
 	grid::GridId,
@@ -72,7 +71,7 @@ impl<T: VoxMaterialVoxel> VoxFileSource<T> {
 		}
 	}
 
-	pub fn set_grid_vox_file(&self, grid: GridId, pos: FixedVec3, path: impl Into<PathBuf>) {
+	pub fn set_grid_vox_file(&self, grid: GridId, pos: Vec3, path: impl Into<PathBuf>) {
 		self.inner.bindings.write().unwrap().insert(grid, GridBinding {
 			path: path.into(),
 			offset: pos.as_ivec3(),
@@ -105,7 +104,7 @@ impl<T: VoxMaterialVoxel> VoxFileSourceInner<T> {
 
 		#[derive(Clone, Copy)]
 		struct Frame {
-			translation: FixedVec3,
+			translation: Vec3,
 			rotation: Quat,
 			flip: IVec3,
 		}
@@ -115,7 +114,7 @@ impl<T: VoxMaterialVoxel> VoxFileSourceInner<T> {
 		let mut current_points = Vec::new();
 		let mut touched_bounds: Option<(IVec3, IVec3)> = None;
 		let mut stack: Vec<(u32, Frame)> = vec![(0, Frame {
-			translation: FixedVec3::ZERO,
+			translation: Vec3::ZERO,
 			rotation: Quat::IDENTITY,
 			flip: IVec3::new(1, 1, -1),
 		})];
@@ -138,10 +137,10 @@ impl<T: VoxMaterialVoxel> VoxFileSourceInner<T> {
 						let (qarr, varr) = q.to_quat_scale();
 						let q = Quat::from_array(qarr);
 						let q = Quat::from_xyzw(q.x, q.z, -q.y, q.w);
-						(q, IVec3::new(varr[0] as i32, varr[1] as i32, varr[2] as i32))
+						(q, Vec3::from_array(varr).as_ivec3())
 					}).unwrap_or((Quat::IDENTITY, IVec3::ONE));
 					stack.push((*child, Frame {
-						translation: pose.translation + pose.rotation * FixedVec3::new(Fixed::from_num(pos.x), Fixed::from_num(pos.z), -Fixed::from_num(pos.y)),
+						translation: pose.translation + pose.rotation * Vec3::new(pos.x as f32, pos.z as f32, -pos.y as f32),
 						rotation: pose.rotation * rot,
 						flip: pose.flip * IVec3::new(flip_vec.x, flip_vec.z, flip_vec.y),
 					}));
@@ -154,12 +153,16 @@ impl<T: VoxMaterialVoxel> VoxFileSourceInner<T> {
 				dot_vox::SceneNode::Shape { models, .. } => {
 					for shape_model in models {
 						let Some(model) = dot_vox_data.models.get(shape_model.model_id as usize) else { continue };
-						let half = FixedVec3::from(UVec3::new(model.size.x / 2, model.size.z / 2, model.size.y / 2));
-						let base = pose.translation - pose.rotation * (half * FixedVec3::from(pose.flip));
+						let half = Vec3::new(
+							model.size.x as f32 / 2.0,
+							model.size.z as f32 / 2.0,
+							model.size.y as f32 / 2.0,
+						).floor();
+						let base = pose.translation - pose.rotation * (half * pose.flip.as_vec3());
 						let flip_min = pose.flip.min(IVec3::ZERO);
 						for voxel in &model.voxels {
 							let local = IVec3::new(voxel.x as i32, voxel.z as i32, voxel.y as i32) * pose.flip + flip_min;
-							let source_pos = (base + pose.rotation * FixedVec3::from(local)).as_ivec3();
+							let source_pos = (base + pose.rotation * local.as_vec3()).as_ivec3();
 							let chunk = chunk_of(source_pos);
 							if current_chunk != Some(chunk) {
 								flush_current_chunk(&mut chunk_points, &mut current_chunk, &mut current_points);
@@ -284,7 +287,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		let source = self.inner.clone();
 		let handle = self.inner.handle.get().expect("VOX source was not initialized").clone();
 		let cancellation = cancellation.clone();
-		AsyncPriorityTaskPool::get().spawn(Fixed::ONE, async move {
+		AsyncPriorityTaskPool::get().spawn(1.0, async move {
 			let _span = bevy::log::info_span!("VoxSource build").entered();
 			for chunk in owned_chunks {
 				if cancellation.is_cancelled() { break; }
@@ -386,7 +389,7 @@ mod tests {
 	}
 
 	fn church_path() -> PathBuf {
-		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../res/Church_Of_St_Sophia.vox")
+		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../res/Church_Of_St_Sophia.vox")
 	}
 
 	#[test]

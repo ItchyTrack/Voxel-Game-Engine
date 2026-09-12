@@ -8,8 +8,6 @@ default = []
 tracy = ["tracy-client/enable"]
 
 [dependencies]
-voxel-math = { workspace = true }
-voxel-transform = { workspace = true }
 bevy = { workspace = true }
 tracy-client = { workspace = true }
 voxel-trees = { workspace = true }

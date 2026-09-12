@@ -2,8 +2,7 @@ use bevy::prelude::*;
 use basic_voxel::BasicVoxel;
 use lightyear::prelude::*;
 use lightyear::prelude::client::{ClientPlugins, Connect, NetcodeClient};
-use voxel_data::grid::Grid;
-use voxel_transform::{Body, Transform};
+use voxel_data::{body::Body, grid::Grid};
 use voxel_sources::edit::GridEditIdManager;
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
@@ -15,7 +14,7 @@ pub struct NetworkClientPlugin;
 impl Plugin for NetworkClientPlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(ClientPlugins {
-			tick_duration: std::time::Duration::from_nanos(1_000_000_000 / 120),
+			tick_duration: std::time::Duration::from_secs_f64(1.0 / 120.0),
 		})
 			.add_plugins(NetworkProtocolPlugin)
 			.add_systems(Startup, start_client)

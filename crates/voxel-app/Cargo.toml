@@ -39,8 +39,6 @@ serde = { version = "1.0", features = ["derive"] }
 voxel-tasks = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
-voxel-math = { workspace = true }
-voxel-transform = { workspace = true }
 tile-data = { workspace = true }
 voxel-sources = { workspace = true }
 voxel-streaming = { workspace = true }

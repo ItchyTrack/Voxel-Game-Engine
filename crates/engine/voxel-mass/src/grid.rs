@@ -30,14 +30,13 @@ impl SourceMassUpdate {
 #[derive(Component, Clone, Debug, Default)]
 pub struct GridMassProperties {
 	nominal: MassProperties,
-	first_moment: [i128; 3],
 	source_errors: FxHashMap<SourceId, MassError>,
 	initialized: bool,
 }
 
 impl GridMassProperties {
 	pub fn new(nominal: MassProperties) -> Self {
-		Self { nominal, first_moment: nominal.first_moment(), source_errors: FxHashMap::default(), initialized: true }
+		Self { nominal, source_errors: FxHashMap::default(), initialized: true }
 	}
 
 	pub const fn nominal(&self) -> &MassProperties { &self.nominal }
@@ -55,7 +54,7 @@ impl GridMassProperties {
 
 	pub fn apply_batch<'a>(&mut self, changes: impl IntoIterator<Item = &'a SourceMassUpdate>) {
 		let changes: Vec<_> = changes.into_iter().collect();
-		self.nominal = self.nominal.replaced_tracking(changes.iter().map(|change| (change.before, change.after)), &mut self.first_moment);
+		self.nominal = self.nominal.replaced(changes.iter().map(|change| (change.before, change.after)));
 		for change in changes {
 			self.source_errors.insert(change.source_id, change.new_error);
 		}

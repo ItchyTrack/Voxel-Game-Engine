@@ -3,8 +3,6 @@ use bevy::math::{IVec3, U8Vec3, UVec3};
 mod data;
 mod raw;
 mod view;
-#[cfg(test)]
-mod raycast_tests;
 pub use crate::views::CellKind;
 pub use data::{GridData, GridType};
 pub use raw::GridTreeNode;
@@ -229,7 +227,7 @@ impl GridType for U64Cell {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use voxel_math::{Fixed, FixedVec3};
+	use bevy::math::Vec3;
 
 	#[test]
 	fn add_area_preserves_large_runs() {
@@ -253,10 +251,10 @@ mod tests {
 	fn clear_sdf_only_removes_inside_shape() {
 		let mut tree = GridTree64::<U16Cell>::new();
 		tree.add_area(&UVec3::ZERO, UVec3::splat(16), 3);
-		let center = FixedVec3::splat(Fixed::from_num(8));
-		let radius = Fixed::from_num(5);
-		let sdf = |p: FixedVec3| (p - center).length() - radius;
-		tree.clear_sdf(FixedVec3::ZERO, FixedVec3::splat(Fixed::from_num(16)), &sdf, bevy::math::IVec2::splat(9), 6);
+		let center = Vec3::splat(8.0);
+		let radius = 5.0f32;
+		let sdf = |p: Vec3| (p - center).length() - radius;
+		tree.clear_sdf(Vec3::ZERO, Vec3::splat(16.0), &sdf, bevy::math::IVec2::splat(9), 6);
 		assert_eq!(tree.get(UVec3::new(8, 8, 8)), None);
 	}
 }

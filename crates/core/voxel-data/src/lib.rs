@@ -1,3 +1,6 @@
+pub mod aabb;
+pub mod body;
+pub mod bvh;
 pub mod compressed_voxels;
 pub mod grid;
 pub mod voxel_grid_tree;

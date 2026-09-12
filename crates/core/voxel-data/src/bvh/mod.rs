@@ -1,10 +1,11 @@
-//! Float BVH data in render-origin-relative coordinates.
-
 use std::fmt::Debug;
 
 use bevy::math::Vec3;
 
 mod building;
+mod query;
+
+pub use query::BVHRaycastIterator;
 
 #[derive(Debug)]
 pub enum BVHInternal {
@@ -29,10 +30,4 @@ pub struct BVHNode {
 pub struct BVH<Index: Copy + Debug + PartialEq> {
 	nodes: Vec<BVHNode>,
 	items: Vec<(Index, (Vec3, Vec3))>,
-}
-
-impl<Index: Copy + Debug + PartialEq> BVH<Index> {
-	pub fn internals(&self) -> (&Vec<BVHNode>, &Vec<(Index, (Vec3, Vec3))>) {
-		(&self.nodes, &self.items)
-	}
 }

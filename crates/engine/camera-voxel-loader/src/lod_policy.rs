@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use tracy_client::span;
 use voxel_data::grid::GridId;
-use voxel_math::{Fixed, FixedVec3};
 use tile_data::{CHUNK_SIZE, ChunkRegion, TileClassId};
 use voxel_streaming::GridStreaming;
 
@@ -14,17 +13,8 @@ pub(crate) struct DesiredSourceDelta {
 	pub(crate) removed: Vec<GridTileKey>,
 }
 
-pub(crate) fn nearest_chunk_center(local_voxels: FixedVec3) -> IVec3 {
-	let chunk_bits = Fixed::from_num(CHUNK_SIZE).to_bits();
-	let round = |value: Fixed| {
-		let bits = value.to_bits();
-		let quotient = bits / chunk_bits;
-		let remainder = bits % chunk_bits;
-		// Preserve ties away from zero without rounding the quotient first.
-		let rounded = quotient + if remainder.abs() * 2 >= chunk_bits { bits.signum() } else { 0 };
-		i32::try_from(rounded).expect("chunk center overflow")
-	};
-	IVec3::new(round(local_voxels.x), round(local_voxels.y), round(local_voxels.z))
+pub(crate) fn nearest_chunk_center(local_voxels: Vec3) -> IVec3 {
+	(local_voxels / CHUNK_SIZE as f32).round().as_ivec3()
 }
 
 pub(crate) fn update_desired_sources_delta(
@@ -118,17 +108,17 @@ mod tests {
 	// centered on the camera rather than biased toward the origin-side chunk.
 	#[test]
 	fn nearest_chunk_center_snaps_to_the_nearest_chunk_at_the_half_chunk_point() {
-		assert_eq!(nearest_chunk_center(FixedVec3::ZERO), IVec3::ZERO);
-		assert_eq!(nearest_chunk_center(FixedVec3::X * Fixed::from_num(CHUNK_SIZE / 2 - 1)), IVec3::ZERO);
-		assert_eq!(nearest_chunk_center(FixedVec3::X * Fixed::from_num(CHUNK_SIZE / 2)), IVec3::new(1, 0, 0));
-		assert_eq!(nearest_chunk_center(FixedVec3::X * Fixed::from_num(CHUNK_SIZE - 1)), IVec3::new(1, 0, 0));
+		assert_eq!(nearest_chunk_center(Vec3::new(0.0, 0.0, 0.0)), IVec3::ZERO);
+		assert_eq!(nearest_chunk_center(Vec3::new((CHUNK_SIZE / 2 - 1) as f32, 0.0, 0.0)), IVec3::ZERO);
+		assert_eq!(nearest_chunk_center(Vec3::new((CHUNK_SIZE / 2) as f32, 0.0, 0.0)), IVec3::new(1, 0, 0));
+		assert_eq!(nearest_chunk_center(Vec3::new((CHUNK_SIZE - 1) as f32, 0.0, 0.0)), IVec3::new(1, 0, 0));
 	}
 
 	#[test]
 	fn nearest_chunk_center_rounds_symmetrically_for_negative_positions() {
-		assert_eq!(nearest_chunk_center(FixedVec3::X * Fixed::from_num(-0.1)), IVec3::ZERO);
-		assert_eq!(nearest_chunk_center(FixedVec3::NEG_X * Fixed::from_num(CHUNK_SIZE / 2)), IVec3::new(-1, 0, 0));
-		assert_eq!(nearest_chunk_center(FixedVec3::NEG_X * Fixed::from_num(CHUNK_SIZE)), IVec3::new(-1, 0, 0));
+		assert_eq!(nearest_chunk_center(Vec3::new(-0.1, 0.0, 0.0)), IVec3::ZERO);
+		assert_eq!(nearest_chunk_center(Vec3::new(-(CHUNK_SIZE as f32) * 0.5, 0.0, 0.0)), IVec3::new(-1, 0, 0));
+		assert_eq!(nearest_chunk_center(Vec3::new(-(CHUNK_SIZE as f32), 0.0, 0.0)), IVec3::new(-1, 0, 0));
 	}
 
 	fn policy_settings() -> CameraVoxelLoaderSettings {

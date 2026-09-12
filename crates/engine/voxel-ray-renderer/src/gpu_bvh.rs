@@ -3,7 +3,7 @@ use bevy::math::Vec3;
 use bevy::transform::components::Transform;
 use bevy::render::renderer::WgpuWrapper;
 use rustc_hash::FxHashMap;
-use crate::render_bvh as bvh;
+use voxel_data::bvh;
 use voxel_data::voxels::VoxelTypeInfo;
 use wgpu::{util::DeviceExt, Device};
 

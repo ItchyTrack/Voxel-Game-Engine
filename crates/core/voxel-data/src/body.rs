@@ -1,5 +1,4 @@
-use bevy::prelude::{Component, Entity};
-use crate::Transform;
+use bevy::prelude::*;
 
 /// A [`Body`] entity.
 pub type BodyId = Entity;

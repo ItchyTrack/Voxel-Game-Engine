@@ -1,7 +1,5 @@
+use bevy::math::Vec3;
 use bevy::prelude::*;
-use voxel_math::{Fixed, FixedVec3};
-use voxel_transform::Transform;
-use super::fixed_math::ShapeMath;
 
 use voxel_data::grid::Grid;
 use voxel_trees::sdf::Sdf;
@@ -14,13 +12,13 @@ use voxel_streaming::{GridStreaming, RequestChunkPresence};
 use basic_voxel::{BasicVoxel, LodVoxel};
 use voxel_content::{SdfSource, SdfSourceOptions, VoxelSdf};
 
-const POWER: Fixed = Fixed::from_bits(8 << 24);
+const POWER: f32 = 8.0;
 const ITERATIONS: u32 = 8;
-const BAILOUT: Fixed = Fixed::from_bits(8 << 24);
-const SCALE: Fixed = Fixed::from_bits(480 << 24);
+const BAILOUT: f32 = 8.0;
+const SCALE: f32 = 480.0;
 /// Grid-local presence radius in voxels. Keep this tied to SCALE so making the
 /// Mandelbulb larger also expands the claimed chunk-presence area.
-const BOUNDS_RADIUS: Fixed = Fixed::from_bits(SCALE.to_bits() * 7 / 4);
+const BOUNDS_RADIUS: f32 = SCALE * 1.75;
 const COST: u32 = 20;
 
 #[derive(Clone, Debug)]
@@ -39,16 +37,15 @@ impl Default for MandelbulbSdf {
 }
 
 impl MandelbulbSdf {
-	fn local(pos: FixedVec3) -> FixedVec3 {
+	fn local(pos: Vec3) -> Vec3 {
 		pos / SCALE
 	}
 
-	fn estimate(pos: FixedVec3) -> (Fixed, u32) {
+	fn estimate(pos: Vec3) -> (f32, u32) {
 		let c = Self::local(pos);
 		let mut z = c;
-		// Store the reciprocal derivative to avoid overflow near the surface.
-		let mut inverse_dr = Fixed::ONE;
-		let mut r = Fixed::ZERO;
+		let mut dr = 1.0f32;
+		let mut r = 0.0f32;
 		let mut escaped_at = ITERATIONS;
 
 		for i in 0..ITERATIONS {
@@ -58,33 +55,30 @@ impl MandelbulbSdf {
 				break;
 			}
 
-			let safe_r = r.max(Fixed::from_num(1.0e-6));
-			let theta = (z.z / safe_r).clamp(Fixed::NEG_ONE, Fixed::ONE).acos() * POWER;
+			let safe_r = r.max(1.0e-6);
+			let theta = (z.z / safe_r).clamp(-1.0, 1.0).acos() * POWER;
 			let phi = z.y.atan2(z.x) * POWER;
-			let zr = safe_r.powi(8);
-			let derivative_factor = POWER * safe_r.powi(7);
-			if inverse_dr != Fixed::ZERO {
-				inverse_dr /= derivative_factor + inverse_dr;
-			}
+			let zr = safe_r.powf(POWER);
+			dr = POWER * safe_r.powf(POWER - 1.0) * dr + 1.0;
 
 			let sin_theta = theta.sin();
-			z = zr * FixedVec3::new(sin_theta * phi.cos(), sin_theta * phi.sin(), theta.cos()) + c;
+			z = zr * Vec3::new(sin_theta * phi.cos(), sin_theta * phi.sin(), theta.cos()) + c;
 		}
 
 		if escaped_at == ITERATIONS {
 			// The classic Mandelbulb distance estimator is unsigned for interior
 			// points. Return a small negative distance so the lazy voxel source's
 			// `sample <= 0` rule treats non-escaped samples as solid.
-			(Fixed::from_num(-0.5), escaped_at)
+			(-0.5, escaped_at)
 		} else {
-			let distance = Fixed::from_num(0.5) * r.ln() * r * inverse_dr;
-			((distance * SCALE).max(Fixed::EPSILON), escaped_at)
+			let distance = 0.5 * r.ln() * r / dr;
+			(distance * SCALE, escaped_at)
 		}
 	}
 }
 
 impl Sdf for MandelbulbSdf {
-	fn sample(&self, pos: FixedVec3) -> Fixed {
+	fn sample(&self, pos: Vec3) -> f32 {
 		Self::estimate(pos).0
 	}
 }
@@ -98,15 +92,15 @@ impl VoxelSdf for MandelbulbSdf {
 		self.lod_voxel.get_ref()
 	}
 
-	fn bounds(&self) -> Option<(FixedVec3, FixedVec3)> {
-		Some((FixedVec3::splat(-BOUNDS_RADIUS), FixedVec3::splat(BOUNDS_RADIUS)))
+	fn bounds(&self) -> Option<(Vec3, Vec3)> {
+		Some((Vec3::splat(-BOUNDS_RADIUS), Vec3::splat(BOUNDS_RADIUS)))
 	}
 }
 
 pub fn spawn_mandelbulb_grid(mut commands: Commands, mut source: ResMut<SourceManager>) {
 	let entity = commands
 		.spawn((
-			Transform::from_xyz(0, 0, -1000),
+			Transform::from_translation(Vec3::new(0.0, 0.0, -1000.0)),
 			Grid::new::<BasicVoxel>(),
 			GridEditIdManager::default(),
 			GridStreaming::default(),
@@ -116,6 +110,6 @@ pub fn spawn_mandelbulb_grid(mut commands: Commands, mut source: ResMut<SourceMa
 		.id();
 	source.get_source_mut::<SdfSource>().unwrap().set_grid_sdf_with_options(entity, MandelbulbSdf::default(), SdfSourceOptions {
 		cost: COST,
-		sample_radius_scale: Fixed::ONE,
+		sample_radius_scale: 1.0,
 	});
 }

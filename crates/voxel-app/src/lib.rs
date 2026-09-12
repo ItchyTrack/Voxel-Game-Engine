@@ -6,8 +6,6 @@ mod ui;
 mod voxel;
 
 use std::time::Duration;
-use voxel_math::FixedVec3;
-use voxel_transform::Transform;
 
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::app::TaskPoolThreadAssignmentPolicy;
@@ -105,7 +103,7 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 			}),
 			..Default::default()
 		});
-	app.add_plugins(default_plugins.disable::<bevy::transform::TransformPlugin>())
+	app.add_plugins(default_plugins)
 		.insert_resource(Time::<Virtual>::from_max_delta(Duration::from_millis(16)));
 
 	#[cfg(not(target_arch = "wasm32"))]
@@ -229,7 +227,7 @@ fn setup(mut commands: Commands) {
 		}),
 		Hdr,
 		Msaa::Off,
-		Transform::from_xyz(0.0, 0.0, 200.0).looking_at(FixedVec3::ZERO, FixedVec3::Y),
+		Transform::from_xyz(0.0, 0.0, 200.0).looking_at(Vec3::ZERO, Vec3::Y),
 		FlyCamera::default(),
 	));
 }

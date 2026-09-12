@@ -9,6 +9,7 @@ pub mod integration;
 pub mod math;
 pub mod solving;
 pub mod sparse_set;
+pub mod transform_ext;
 
 use bevy::prelude::*;
 use voxel_mass::{BodyMassError, BodyMassInitialized, Mass};
@@ -20,7 +21,7 @@ pub use integration::PhysicsIntegratedCenterOfMassTransform;
 pub use solving::{Accelerations, Impulses};
 pub use voxel_data::grid::GridId;
 
-pub type PhysicsBodyId = voxel_transform::BodyId;
+pub type PhysicsBodyId = voxel_data::body::BodyId;
 
 /// When set to `true`, the solver is skipped each tick.
 #[derive(Resource, Debug, Clone, Copy)]
@@ -34,7 +35,6 @@ impl Default for FreezePhysics {
 pub struct PhysicsSimulationEnabled(pub bool);
 
 /// System sets used by [`VoxelPhysicsPlugin`] inside `FixedUpdate`, run in order.
-/// Bevy runs this schedule before the `PostUpdate` render snapshot.
 ///
 /// Game systems that push impulses, drag held bodies, etc. should run in
 /// [`PhysicsSet::Apply`] so their effects are picked up the same step.
@@ -82,10 +82,6 @@ pub fn physics_mass_ready(
 }
 
 pub fn physics_simulation_enabled(enabled: Res<PhysicsSimulationEnabled>) -> bool { enabled.0 }
-
-fn physics_timestep_ready(time: Res<Time>) -> bool {
-	crate::math::usable_timestep(crate::math::fixed_duration(time.delta()))
-}
 
 impl VoxelPhysicsAppExt for App {
 	fn add_physics_apply_systems<M>(
@@ -139,7 +135,7 @@ impl Plugin for VoxelPhysicsPlugin {
 		}
 		app.init_resource::<FreezePhysics>()
 			.insert_resource(PhysicsSimulationEnabled(self.simulation_enabled))
-			.insert_resource(Time::<Fixed>::from_duration(std::time::Duration::from_nanos(1_000_000_000 / 120)))
+			.insert_resource(Time::<Fixed>::from_hz(120.0))
 			.configure_sets(
 				FixedUpdate,
 				(
@@ -153,8 +149,7 @@ impl Plugin for VoxelPhysicsPlugin {
 					.run_if(physics_simulation_enabled)
 					.run_if(collision::chunk_requests::collision_tiles_ready)
 					.run_if(physics_not_frozen)
-					.run_if(physics_mass_ready)
-					.run_if(physics_timestep_ready),
+					.run_if(physics_mass_ready),
 			)
 			.add_plugins((
 				collision::exact::ExactPlugin,

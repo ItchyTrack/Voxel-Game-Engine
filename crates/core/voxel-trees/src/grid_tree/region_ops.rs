@@ -1,5 +1,4 @@
-use bevy::math::{IVec2, IVec3, UVec3};
-use voxel_math::{Fixed, FixedVec3};
+use bevy::math::{IVec2, IVec3, UVec3, Vec3};
 
 use crate::sdf::{shrink_aabb_with_sdf, voxel_center, voxel_region_from_bounds, Sdf};
 
@@ -13,10 +12,10 @@ enum BlockSdfRelation {
 }
 
 fn sdf_relation_for_block(sdf: &(impl Sdf + ?Sized), block_min: UVec3, block_size: u32) -> BlockSdfRelation {
-	let min = FixedVec3::from(block_min);
-	let size = FixedVec3::splat(Fixed::from_num(block_size));
-	let center = min + size * Fixed::from_num(0.5);
-	let radius = size.length() * Fixed::from_num(0.5);
+	let min = block_min.as_vec3();
+	let size = Vec3::splat(block_size as f32);
+	let center = min + size * 0.5;
+	let radius = size.length() * 0.5;
 	let d = sdf.sample(center);
 	if d > radius {
 		BlockSdfRelation::Outside
@@ -28,13 +27,13 @@ fn sdf_relation_for_block(sdf: &(impl Sdf + ?Sized), block_min: UVec3, block_siz
 }
 
 impl<G: GridType> GridTree64<G> {
-	pub fn apply_sdf(&mut self, initial_min: FixedVec3, initial_max: FixedVec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, data: G::Data<'_>) {
+	pub fn apply_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize, data: G::Data<'_>) {
 		let (min, max) = shrink_aabb_with_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
 		let Some(region) = voxel_region_from_bounds(min, max) else { return };
 		self.fill_sdf_region(region, sdf, data);
 	}
 
-	pub fn clear_sdf(&mut self, initial_min: FixedVec3, initial_max: FixedVec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize) {
+	pub fn clear_sdf(&mut self, initial_min: Vec3, initial_max: Vec3, sdf: &(impl Sdf + ?Sized), face_resolution: IVec2, iterations: usize) {
 		let (min, max) = shrink_aabb_with_sdf(initial_min, initial_max, sdf, face_resolution, iterations);
 		let Some(region) = voxel_region_from_bounds(min, max) else { return };
 		self.clear_sdf_region(region, sdf);
@@ -113,7 +112,7 @@ impl<G: GridType> GridTree64<G> {
 						BlockSdfRelation::Inside | BlockSdfRelation::Intersecting => {}
 					}
 					if node_depth == 0 {
-						if sdf.sample(voxel_center(child_origin.as_ivec3())) <= Fixed::ZERO {
+						if sdf.sample(voxel_center(child_origin.as_ivec3())) <= 0.0 {
 							self.set_voxel_child_to_data(node_index, child_index, data);
 						}
 						continue;
@@ -186,7 +185,7 @@ impl<G: GridType> GridTree64<G> {
 						BlockSdfRelation::Inside | BlockSdfRelation::Intersecting => {}
 					}
 					if node_depth == 0 {
-						if sdf.sample(voxel_center(child_origin.as_ivec3())) <= Fixed::ZERO {
+						if sdf.sample(voxel_center(child_origin.as_ivec3())) <= 0.0 {
 							self.set_child_area_to_empty(node_index, node_depth, child_index);
 						}
 						continue;

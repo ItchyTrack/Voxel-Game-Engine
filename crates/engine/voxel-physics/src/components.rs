@@ -1,7 +1,6 @@
-use voxel_math::FixedVec3;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use voxel_transform::Body;
+use voxel_data::body::Body;
 
 use crate::integration::PhysicsIntegratedCenterOfMassTransform;
 
@@ -17,10 +16,10 @@ pub struct VoxelCollider;
 pub struct RigidBody;
 
 #[derive(Component, Default, Debug, Clone, Copy)]
-pub struct Velocity(pub FixedVec3);
+pub struct Velocity(pub Vec3);
 
 #[derive(Component, Default, Debug, Clone, Copy)]
-pub struct AngularVelocity(pub FixedVec3);
+pub struct AngularVelocity(pub Vec3);
 
 #[derive(Component, Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct IsStatic;

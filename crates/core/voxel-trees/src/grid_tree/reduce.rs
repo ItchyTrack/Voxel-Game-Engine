@@ -488,22 +488,15 @@ fn set_axis(v: &mut IVec3, axis: usize, value: i32) {
 
 #[cfg(test)]
 mod tests {
-	use crate::grid_tree::U16Cell;
+	use voxel_trees::grid_tree::U16Cell;
 
 	use super::*;
-
-	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-	struct ReducedValue(u16);
-
-	impl From<&ReducedValue> for u16 {
-		fn from(value: &ReducedValue) -> Self { value.0 }
-	}
 
 	#[derive(Clone, Copy, Debug)]
 	struct SumReducer;
 
 	impl GridReducer<U16Cell> for SumReducer {
-		type Output = ReducedValue;
+		type Output = u16;
 
 		fn output_grid_type(&self) -> U16Cell {
 			U16Cell
@@ -520,7 +513,7 @@ mod tests {
 				seen = true;
 				sum += overlap.data;
 			}
-			seen.then_some(ReducedValue(sum))
+			seen.then_some(sum)
 		}
 	}
 
@@ -572,7 +565,7 @@ mod tests {
 	struct SourceVolumeReducer;
 
 	impl GridReducer<U16Cell> for SourceVolumeReducer {
-		type Output = ReducedValue;
+		type Output = u16;
 
 		fn output_grid_type(&self) -> U16Cell { U16Cell }
 
@@ -587,7 +580,7 @@ mod tests {
 				let size = overlap.source_region.size();
 				volume += (size.x * size.y * size.z) as u16;
 			}
-			(volume != 0).then_some(ReducedValue(volume))
+			(volume != 0).then_some(volume)
 		}
 	}
 

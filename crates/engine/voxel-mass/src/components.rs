@@ -1,6 +1,4 @@
-use bevy::prelude::*;
-use voxel_math::FixedVec3;
-use voxel_transform::{Scale, Transform};
+use bevy::{math::DVec3, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use crate::InertiaTensor;
@@ -21,11 +19,10 @@ pub struct RotationalInertia(pub InertiaTensor);
 
 /// Local-space offset from the transform origin to the center of mass.
 #[derive(Component, Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct CenterOfMass(pub FixedVec3);
+pub struct CenterOfMass(pub DVec3);
 
 impl CenterOfMass {
 	pub fn get_transformed(self, transform: &Transform) -> Self {
-		assert_eq!(transform.scale, Scale::ONE, "mass transform must have unit scale");
-		Self(transform.transform_point(self.0))
+		Self(transform.rotation.as_dquat() * self.0 + transform.translation.as_dvec3())
 	}
 }

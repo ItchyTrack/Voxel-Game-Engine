@@ -20,7 +20,6 @@ tracy-client = { workspace = true }
 anyhow = "1.0"
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
-voxel-transform = { workspace = true }
 tile-data = { workspace = true }
 voxel-gpu = { workspace = true }
 

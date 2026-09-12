@@ -7,18 +7,11 @@ use voxel_trees::grid_tree::{GridReducer, GridTree64, NonZeroVoxelRegion, Source
 const SOURCE_SIZE: u32 = 16;
 const OUTPUT_SIZE: u32 = 16;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct ReducedValue(u16);
-
-impl From<&ReducedValue> for u16 {
-	fn from(value: &ReducedValue) -> Self { value.0 }
-}
-
 #[derive(Clone, Copy)]
 struct SumReducer;
 
 impl GridReducer<U16Cell> for SumReducer {
-	type Output = ReducedValue;
+	type Output = u16;
 
 	fn output_grid_type(&self) -> U16Cell { U16Cell }
 
@@ -33,7 +26,7 @@ impl GridReducer<U16Cell> for SumReducer {
 			seen = true;
 			sum = sum.wrapping_add(overlap.data);
 		}
-		seen.then_some(ReducedValue(sum))
+		seen.then_some(sum)
 	}
 }
 

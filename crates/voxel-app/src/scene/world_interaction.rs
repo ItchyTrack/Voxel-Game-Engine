@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use bevy::ecs::message::MessageWriter;
 use bevy::input::ButtonInput;
+use bevy::math::Vec3;
 use bevy::prelude::*;
-use voxel_math::{Fixed, FixedVec3};
-use voxel_transform::TransformQuery;
+use bevy::transform::components::{GlobalTransform, Transform};
 use bevy_egui::input::EguiWantsInput;
 
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileKey};
@@ -60,18 +60,18 @@ struct RayOccupancyRequest {
 #[derive(Debug, Clone, Copy)]
 struct PlayerRay {
 	requester: Entity,
-	origin: FixedVec3,
-	direction: FixedVec3,
+	origin: Vec3,
+	direction: Vec3,
 }
 
-const RAY_OCCUPANCY_DISTANCE: Fixed = Fixed::from_bits(200 << 24);
-const HOLD_DISTANCE: Fixed = Fixed::from_bits(40 << 24);
-const PUSH_IMPULSE: Fixed = Fixed::from_bits(1_600_000 << 24);
-const MAX_GRAB_ACCEL: Fixed = Fixed::from_bits(8_000 << 24);
+const RAY_OCCUPANCY_DISTANCE: f32 = 200.0;
+const HOLD_DISTANCE: f32 = 40.0;
+const PUSH_IMPULSE: f32 = 1_600_000.0;
+const MAX_GRAB_ACCEL: f32 = 8_000.0;
 
 const PLACE_VOXEL: BasicVoxel = BasicVoxel { color: [180, 180, 180, 255], mass: 100 };
 const PLACE_SDF_VOXEL: BasicVoxel = BasicVoxel { color: [80, 180, 255, 255], mass: 100 };
-const PLACE_SDF_RADIUS: Fixed = Fixed::from_bits(5 << 24);
+const PLACE_SDF_RADIUS: f32 = 5.0;
 
 fn edit_voxel_for_grid(grid: &Grid, voxel: BasicVoxel) -> Option<Voxel> {
 	let voxel_type = grid.voxel_type_info().id;
@@ -86,24 +86,25 @@ fn edit_voxel_for_grid(grid: &Grid, voxel: BasicVoxel) -> Option<Voxel> {
 }
 
 fn update_ray_occupancy_requests(
-	cameras: Query<(Entity, &Camera), With<Camera3d>>,
-	transforms: TransformQuery,
+	cameras: Query<(Entity, &Camera, &GlobalTransform), With<Camera3d>>,
 	class: Res<OccupancyTileClass>,
 	mut requested: ResMut<RayOccupancyRequests>,
 	mut streaming: ParamSet<(
 		TileRequester,
-		Query<(GridId, &GridStreaming)>,
+		Query<(GridId, &GlobalTransform, &GridStreaming)>,
 	)>,
 ) {
 	let mut desired = HashSet::new();
-	if let Some(ray) = player_ray(&cameras, &transforms) {
+	if let Some(ray) = player_ray(&cameras) {
 		let grids = streaming.p1();
-		for (grid, grid_streaming) in &grids {
-			let Some(grid_transform) = transforms.get_world(grid) else { continue };
-			let local_origin = grid_transform.inverse_transform_point(ray.origin);
-			let local_direction = grid_transform.inverse_transform_vector(ray.direction);
-			let local_distance = RAY_OCCUPANCY_DISTANCE / grid_transform.scale.to_fixed();
-			for_each_ray_chunk(local_origin, local_direction, local_distance, |chunk| {
+		for (grid, grid_global, grid_streaming) in &grids {
+			let grid_transform = grid_global.compute_transform();
+			if !grid_transform.scale.abs_diff_eq(Vec3::ONE, 1e-5) { continue; }
+
+			let inverse_rotation = grid_transform.rotation.inverse();
+			let local_origin = inverse_rotation * (ray.origin - grid_transform.translation);
+			let local_direction = inverse_rotation * ray.direction;
+			for_each_ray_chunk(local_origin, local_direction, RAY_OCCUPANCY_DISTANCE, |chunk| {
 				if !grid_streaming.presence().is_present(chunk) { return; }
 				desired.insert(RayOccupancyRequest {
 					requester: ray.requester,
@@ -121,7 +122,7 @@ fn update_ray_occupancy_requests(
 
 	// Acquire first so shared tiles survive an active-camera switch.
 	for request in acquisitions {
-		if requester.fetch_tile(request.grid, request.requester, request.key, Fixed::ZERO, false, None) {
+		if requester.fetch_tile(request.grid, request.requester, request.key, 0.0, false, None) {
 			retained.insert(request);
 		}
 	}
@@ -131,31 +132,35 @@ fn update_ray_occupancy_requests(
 	requested.0 = retained;
 }
 
-fn for_each_ray_chunk(origin: FixedVec3, direction: FixedVec3, max_distance: Fixed, mut visit: impl FnMut(IVec3)) {
+fn for_each_ray_chunk(origin: Vec3, direction: Vec3, max_distance: f32, mut visit: impl FnMut(IVec3)) {
 	let direction = direction.normalize_or_zero();
-	if direction == FixedVec3::ZERO { return; }
+	if direction == Vec3::ZERO { return; }
 
-	let chunk_size = Fixed::from_num(CHUNK_SIZE);
+	let chunk_size = CHUNK_SIZE as f32;
 	let mut chunk = (origin / chunk_size).floor().as_ivec3();
-	let step = direction.signum().as_ivec3();
-	let next_boundary = FixedVec3::from(IVec3::new(
-		if step.x > 0 { chunk.x + 1 } else { chunk.x },
-		if step.y > 0 { chunk.y + 1 } else { chunk.y },
-		if step.z > 0 { chunk.z + 1 } else { chunk.z },
-	)) * chunk_size;
-	let mut boundary_distance = FixedVec3::new(
-		if step.x == 0 { Fixed::MAX } else { (next_boundary.x - origin.x) / direction.x },
-		if step.y == 0 { Fixed::MAX } else { (next_boundary.y - origin.y) / direction.y },
-		if step.z == 0 { Fixed::MAX } else { (next_boundary.z - origin.z) / direction.z },
+	let step = IVec3::new(
+		if direction.x > 0.0 { 1 } else if direction.x < 0.0 { -1 } else { 0 },
+		if direction.y > 0.0 { 1 } else if direction.y < 0.0 { -1 } else { 0 },
+		if direction.z > 0.0 { 1 } else if direction.z < 0.0 { -1 } else { 0 },
 	);
-	let boundary_interval = FixedVec3::new(
-		if step.x == 0 { Fixed::MAX } else { chunk_size / direction.x.abs() },
-		if step.y == 0 { Fixed::MAX } else { chunk_size / direction.y.abs() },
-		if step.z == 0 { Fixed::MAX } else { chunk_size / direction.z.abs() },
+	let next_boundary = Vec3::new(
+		(if step.x > 0 { chunk.x + 1 } else { chunk.x }) as f32 * chunk_size,
+		(if step.y > 0 { chunk.y + 1 } else { chunk.y }) as f32 * chunk_size,
+		(if step.z > 0 { chunk.z + 1 } else { chunk.z }) as f32 * chunk_size,
 	);
-	let origin_boundary_mask = u8::from(origin.x == Fixed::from_num(chunk.x) * chunk_size)
-		| (u8::from(origin.y == Fixed::from_num(chunk.y) * chunk_size) << 1)
-		| (u8::from(origin.z == Fixed::from_num(chunk.z) * chunk_size) << 2);
+	let mut boundary_distance = Vec3::new(
+		if step.x == 0 { f32::INFINITY } else { (next_boundary.x - origin.x) / direction.x },
+		if step.y == 0 { f32::INFINITY } else { (next_boundary.y - origin.y) / direction.y },
+		if step.z == 0 { f32::INFINITY } else { (next_boundary.z - origin.z) / direction.z },
+	);
+	let boundary_interval = Vec3::new(
+		if step.x == 0 { f32::INFINITY } else { chunk_size / direction.x.abs() },
+		if step.y == 0 { f32::INFINITY } else { chunk_size / direction.y.abs() },
+		if step.z == 0 { f32::INFINITY } else { chunk_size / direction.z.abs() },
+	);
+	let origin_boundary_mask = u8::from(origin.x == chunk.x as f32 * chunk_size)
+		| (u8::from(origin.y == chunk.y as f32 * chunk_size) << 1)
+		| (u8::from(origin.z == chunk.z as f32 * chunk_size) << 2);
 	let stationary_boundary_mask = origin_boundary_mask & (
 		u8::from(step.x == 0)
 			| (u8::from(step.y == 0) << 1)
@@ -209,10 +214,9 @@ fn visit_chunk_boundary_neighbors(chunk: IVec3, negative_axis_mask: u8, visit: &
 fn voxel_place_break_system(
 	keys: Res<ButtonInput<KeyCode>>,
 	egui_wants: Option<Res<EguiWantsInput>>,
-	cameras: Query<(Entity, &Camera), With<Camera3d>>,
-	transforms: TransformQuery,
+	cameras: Query<(Entity, &Camera, &GlobalTransform), With<Camera3d>>,
 	voxel_world: VoxelWorldQueryParam,
-	grids: Query<&Grid>,
+	grids: Query<(&GlobalTransform, &Grid)>,
 	mut edits: GridStoreEditApi,
 	mut sfx: Option<MessageWriter<PlaySfx>>,
 ) {
@@ -221,22 +225,22 @@ fn voxel_place_break_system(
 	let destroy = keys.just_pressed(KeyCode::KeyX) || keys.pressed(KeyCode::KeyZ);
 	if !place && !destroy { return; }
 
-	let Some(ray) = player_ray(&cameras, &transforms) else { return };
+	let Some(ray) = player_ray(&cameras) else { return };
 	let Some(hit) = voxel_world.raycast(ray.origin, ray.direction, None) else { return };
 
-	let (Some(grid_global_transform), Ok(grid)) = (transforms.get_world(hit.grid), grids.get(hit.grid)) else { return };
+	let Ok((grid_global_transform, grid)) = grids.get(hit.grid) else { return };
 
 	if place {
 		let Some(voxel) = edit_voxel_for_grid(grid, PLACE_VOXEL) else { return };
 		let pos = hit.voxel_pos + hit.normal;
 		edits.apply(hit.grid, AddArea::new(NonZeroVoxelRegion::from_single(pos), voxel));
 		if let Some(sfx) = &mut sfx {
-			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(FixedVec3::from(pos) + FixedVec3::splat(Fixed::from_num(0.5)))));
+			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 		}
 	} else {
 		edits.apply(hit.grid, RemoveArea::new(NonZeroVoxelRegion::from_single(hit.voxel_pos)));
 		if let Some(sfx) = &mut sfx {
-			sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(FixedVec3::from(hit.voxel_pos) + FixedVec3::splat(Fixed::from_num(0.5)))));
+			sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
 		}
 	}
 }
@@ -295,21 +299,20 @@ fn voxel_place_break_system(
 // 	}
 // }
 
-fn player_ray(cameras: &Query<(Entity, &Camera), With<Camera3d>>, transforms: &TransformQuery) -> Option<PlayerRay> {
-	let (requester, _) = cameras.iter().find(|(_, camera)| camera.is_active)?;
-	let transform = transforms.get_world(requester)?;
+fn player_ray(cameras: &Query<(Entity, &Camera, &GlobalTransform), With<Camera3d>>) -> Option<PlayerRay> {
+	let (requester, _, camera_global_transform) = cameras.iter().find(|(_, camera, _)| camera.is_active)?;
+	let transform = camera_global_transform.compute_transform();
 	Some(PlayerRay {
 		requester,
 		origin: transform.translation,
-		direction: transform.forward(),
+		direction: transform.forward().as_vec3(),
 	})
 }
 
 fn pickup_toggle_system(
 	keys: Res<ButtonInput<KeyCode>>,
 	egui_wants: Option<Res<EguiWantsInput>>,
-	cameras: Query<(Entity, &Camera), With<Camera3d>>,
-	transforms: TransformQuery,
+	cameras: Query<(Entity, &Camera, &GlobalTransform), With<Camera3d>>,
 	voxel_world: VoxelWorldQueryParam,
 	parents: Query<&ChildOf>,
 	bodies: Query<Has<IsStatic>, With<voxel_physics::RigidBody>>,
@@ -319,7 +322,7 @@ fn pickup_toggle_system(
 	if !keys.just_pressed(KeyCode::KeyF) { return; }
 	if held.0.is_some() { held.0 = None; return; }
 
-	let Some(ray) = player_ray(&cameras, &transforms) else { return };
+	let Some(ray) = player_ray(&cameras) else { return };
 	let Some(hit) = voxel_world.raycast(ray.origin, ray.direction, None) else { return };
 	let Ok(child_of) = parents.get(hit.grid) else { return };
 	let body = child_of.parent();
@@ -331,8 +334,7 @@ fn pickup_toggle_system(
 fn push_system(
 	keys: Res<ButtonInput<KeyCode>>,
 	egui_wants: Option<Res<EguiWantsInput>>,
-	cameras: Query<(Entity, &Camera), With<Camera3d>>,
-	transforms: TransformQuery,
+	cameras: Query<(Entity, &Camera, &GlobalTransform), With<Camera3d>>,
 	voxel_world: VoxelWorldQueryParam,
 	parents: Query<&ChildOf>,
 	bodies: Query<(), (With<voxel_physics::RigidBody>, Without<IsStatic>)>,
@@ -340,7 +342,7 @@ fn push_system(
 ) {
 	if egui_wants.is_some_and(|e| e.wants_any_keyboard_input()) { return; }
 	if !keys.just_pressed(KeyCode::KeyR) { return; }
-	let Some(ray) = player_ray(&cameras, &transforms) else { return };
+	let Some(ray) = player_ray(&cameras) else { return };
 	let Some(hit) = voxel_world.raycast(ray.origin, ray.direction, None) else { return };
 	let Ok(child_of) = parents.get(hit.grid) else { return };
 	let body = child_of.parent();
@@ -351,25 +353,22 @@ fn push_system(
 fn hold_held_body_system(
 	held: Res<HeldBody>,
 	time: Res<Time>,
-	cameras: Query<(Entity, &Camera), With<Camera3d>>,
-	transforms: TransformQuery,
-	bodies: Query<(&Velocity, &Mass, &CenterOfMass), (With<voxel_physics::RigidBody>, Without<IsStatic>)>,
+	cameras: Query<(Entity, &Camera, &GlobalTransform), With<Camera3d>>,
+	bodies: Query<(&Transform, &Velocity, &Mass, &CenterOfMass), (With<voxel_physics::RigidBody>, Without<IsStatic>)>,
 	mut impulses: ResMut<Impulses>,
 ) {
 	let Some(body_entity) = held.0 else { return };
-	let Ok((velocity, mass, com)) = bodies.get(body_entity) else { return };
-	let Some(transform) = transforms.get_world(body_entity) else { return };
-	let Some(ray) = player_ray(&cameras, &transforms) else { return };
+	let Ok((transform, velocity, mass, com)) = bodies.get(body_entity) else { return };
+	let Some(ray) = player_ray(&cameras) else { return };
 
 	let target = ray.origin + ray.direction * HOLD_DISTANCE;
-	let body_com_world = transform * com.0;
+	let body_com_world = *transform * com.0.as_vec3();
 	let offset = target - body_com_world;
-	if offset.length_squared() < Fixed::from_num(1e-6) { return; }
+	if offset.length_squared() < 1e-6 { return; }
 	let dir = offset.normalize();
 	let velocity_in_dir = velocity.0.dot(dir);
-	let delta_v = dir * (offset.length() * Fixed::from_num(4) - velocity_in_dir * Fixed::from_num(0.5))
+	let delta_v = dir * (offset.length() * 4.0 - velocity_in_dir * 0.5)
 		- (velocity.0 - dir * velocity_in_dir);
-	let dt = Fixed::from_num(time.delta().as_nanos()) / Fixed::from_num(1_000_000_000);
-	let delta_v = FixedVec3::ZERO.move_towards(delta_v, MAX_GRAB_ACCEL * dt);
-	impulses.apply_central_impulse(body_entity, Fixed::from_num(mass.0) * delta_v);
+	let delta_v = delta_v.clamp_length_max(MAX_GRAB_ACCEL * time.delta_secs());
+	impulses.apply_central_impulse(body_entity, mass.0 as f32 * delta_v);
 }

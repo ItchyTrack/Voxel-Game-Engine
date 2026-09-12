@@ -13,7 +13,6 @@ log = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 voxel-data = { workspace = true }
-voxel-transform = { workspace = true }
 tile-data = { workspace = true }
 voxel-gpu = { workspace = true }
 

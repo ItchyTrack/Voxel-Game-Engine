@@ -1,6 +1,5 @@
-use voxel_math::Fixed;
 use bevy::prelude::*;
-use voxel_transform::Transform;
+use bevy::transform::components::Transform;
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BallJoint {
@@ -8,9 +7,8 @@ pub struct BallJoint {
 	pub body_2: Entity,
 	pub body_1_attachment: Transform,
 	pub body_2_attachment: Transform,
-	/// Use `Fixed::MAX` for a hard constraint.
-	pub stiffness_linear: Fixed,
-	pub stiffness_angular: Fixed,
+	pub stiffness_linear: f32,
+	pub stiffness_angular: f32,
 }
 
 impl BallJoint {
@@ -19,11 +17,9 @@ impl BallJoint {
 		body_2: Entity,
 		body_1_attachment: &Transform,
 		body_2_attachment: &Transform,
-		stiffness_linear: Fixed,
-		stiffness_angular: Fixed,
+		stiffness_linear: f32,
+		stiffness_angular: f32,
 	) -> Self {
-		crate::math::require_unit_scale(body_1_attachment);
-		crate::math::require_unit_scale(body_2_attachment);
 		Self {
 			body_1,
 			body_2,

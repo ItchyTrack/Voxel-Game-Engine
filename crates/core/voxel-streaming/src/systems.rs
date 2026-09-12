@@ -3,7 +3,7 @@ use bevy::math::IVec3;
 use bevy::prelude::*;
 
 use voxel_sources::{SourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
-use voxel_data::grid::{GridId, GridLocalTransform};
+use voxel_data::grid::GridId;
 use tile_data::{CHUNK_SIZE, chunks_covering_nonzero_voxel_region};
 use crate::{tile_building::TileBuildingChannel, tile_requester::TileRequester};
 use crate::streaming::{TileRequestType, TileStatus};
@@ -145,7 +145,7 @@ pub(crate) fn receive_tile_results(
 			commands.spawn((
 				DynamicTileData::new(data),
 				LoadedTile { grid: result.grid, key },
-				GridLocalTransform(key.min() * CHUNK_SIZE as i32),
+				Transform::from_translation((key.min() * CHUNK_SIZE as i32).as_vec3()),
 				ChildOf(result.grid),
 			)).id()
 		});

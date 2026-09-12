@@ -1,19 +1,17 @@
-use voxel_math::Fixed;
-use voxel_math::FixedVec3;
-use bevy::math::{Quat, UVec3, U8Vec3};
+use bevy::math::{Quat, UVec3, U8Vec3, Vec3};
 
-use voxel_transform::{Scale, Transform};
+use bevy::transform::components::Transform;
 use voxel_trees::grid_tree::{CellKind, GridTree64, GridType, SIZE, SIZE_CUBED, SIZE_USIZE_CUBED, get_child_contents_pos};
 use voxel_trees::views::{GridTreeView, NodeRef};
 use voxel_query::OccupancyTree;
 
+use crate::transform_ext::TransformExt;
 use crate::CubeFeature;
-use crate::math::FixedVec3Ext;
 
 /// ((min_a, max_a), (min_b, max_b), axis, index)
-type SeparatingAxes = Vec<((Fixed, Fixed), (Fixed, Fixed), FixedVec3, u8)>;
+type SeparatingAxes = Vec<((f32, f32), (f32, f32), Vec3, u8)>;
 
-pub(crate) type TileContact = (FixedVec3, CubeFeature, FixedVec3, CubeFeature, UVec3, UVec3);
+pub(crate) type TileContact = (Vec3, CubeFeature, Vec3, CubeFeature, UVec3, UVec3);
 
 fn get_bit(num: u8, bit: u8) -> u8 {
 	((num & (1 << bit)) != 0) as u8
@@ -37,7 +35,6 @@ pub(crate) fn get_collisions_between_tiles(
 	tree_2: &OccupancyTree,
 	transform_of_1_in_2: &Transform,
 ) -> Vec<TileContact> {
-	crate::math::require_unit_scale(transform_of_1_in_2);
 	let mut collisions = vec![];
 	if tree_1.is_empty() || tree_2.is_empty() { return collisions; }
 	let separating_axes = compute_1x1x1_cube_separating_axes(transform_of_1_in_2.rotation);
@@ -60,9 +57,9 @@ fn descend<G1: GridType, G2: GridType>(
 	view_2: &GridTree64<G2>,
 	box_2: DescendBox,
 ) {
-	let center_1 = *transform_of_1_in_2 * (FixedVec3::from(box_1.origin) + FixedVec3::splat(Fixed::from_num(box_1.size) * Fixed::from_num(0.5)));
-	let center_2 = FixedVec3::from(box_2.origin) + FixedVec3::splat(Fixed::from_num(box_2.size) * Fixed::from_num(0.5));
-	if !boxes_overlap(separating_axes, center_1 - center_2, Fixed::from_num(box_1.size), Fixed::from_num(box_2.size)) { return; }
+	let center_1 = *transform_of_1_in_2 * (box_1.origin.as_vec3() + Vec3::splat(box_1.size as f32 * 0.5));
+	let center_2 = box_2.origin.as_vec3() + Vec3::splat(box_2.size as f32 * 0.5);
+	if !boxes_overlap(separating_axes, center_1 - center_2, box_1.size as f32, box_2.size as f32) { return; }
 
 	if box_1.size == 1 && box_2.size == 1 {
 		collisions.extend(get_collision_1x1x1_voxel_pair(separating_axes, transform_of_1_in_2, box_1.origin, box_2.origin));
@@ -112,13 +109,13 @@ fn collect_children<G: GridType>(parent: &DescendBox, view: &GridTree64<G>, out:
 }
 
 /// Separating-axis overlap test. rel_center is in box 2's frame
-fn boxes_overlap(separating_axes: &SeparatingAxes, rel_center: FixedVec3, size_1: Fixed, size_2: Fixed) -> bool {
+fn boxes_overlap(separating_axes: &SeparatingAxes, rel_center: Vec3, size_1: f32, size_2: f32) -> bool {
 	for ((min_a, max_a), (min_b, max_b), axis, _) in separating_axes {
 		let shift = rel_center.dot(*axis);
-		let min_1 = size_1 * *min_a + shift;
-		let max_1 = size_1 * *max_a + shift;
-		let min_2 = size_2 * *min_b;
-		let max_2 = size_2 * *max_b;
+		let min_1 = size_1 * min_a + shift;
+		let max_1 = size_1 * max_a + shift;
+		let min_2 = size_2 * min_b;
+		let max_2 = size_2 * max_b;
 		if max_1 <= min_2 || min_1 >= max_2 { return false; }
 	}
 	true
@@ -130,8 +127,8 @@ fn get_collision_1x1x1_voxel_pair(
 	pos_1: UVec3,
 	pos_2: UVec3,
 ) -> Vec<TileContact> {
-	let shift = Transform { translation: FixedVec3::from(pos_2) + FixedVec3::splat(Fixed::from_num(0.5)), rotation: Quat::IDENTITY, scale: Scale::ONE };
-	let local = shift.inverse() * *transform_of_1_in_2 * Transform::from_translation(FixedVec3::from(pos_1) + FixedVec3::splat(Fixed::from_num(0.5)));
+	let shift = Transform { translation: pos_2.as_vec3() + Vec3::splat(0.5), rotation: Quat::IDENTITY, scale: Vec3::ONE };
+	let local = shift.inverse() * *transform_of_1_in_2 * Transform::from_translation(pos_1.as_vec3() + Vec3::splat(0.5));
 	get_collision_1x1x1_voxel(&local, separating_axes)
 		.into_iter()
 		.map(|c| (shift * c.0, c.1, shift * c.2, c.3, pos_1, pos_2))
@@ -141,18 +138,18 @@ fn get_collision_1x1x1_voxel_pair(
 fn get_collision_1x1x1_voxel(
 	transform: &Transform,
 	separating_axes: &SeparatingAxes,
-) -> Vec<(FixedVec3, CubeFeature, FixedVec3, CubeFeature)> {
-	if transform.translation.length_squared() >= Fixed::from_num(3.0) { return vec![]; }
+) -> Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> {
+	if transform.translation.length_squared() >= 3.0 { return vec![]; }
 	let mut bests = vec![];
-	let mut best_dis = Fixed::from_num(10.0);
+	let mut best_dis = 10.0;
 	for ((unshifted_min_1, unshifted_max_1), (min_2, max_2), axis, index) in separating_axes {
 		let shift = transform.translation.dot(*axis);
-		let min_1 = *unshifted_min_1 + shift;
-		let max_1 = *unshifted_max_1 + shift;
+		let min_1 = unshifted_min_1 + shift;
+		let max_1 = unshifted_max_1 + shift;
 		if max_1 <= *min_2 || min_1 >= *max_2 { return vec![]; }
 		if min_1 > *min_2 {
-			let overlap = *max_2 - min_1;
-			if (overlap - best_dis).abs() < Fixed::from_num(0.001) {
+			let overlap = max_2 - min_1;
+			if (overlap - best_dis).abs() < 0.001 {
 				bests.push(((min_1, *max_2), *axis, *index));
 			} else if overlap < best_dis {
 				best_dis = overlap;
@@ -161,7 +158,7 @@ fn get_collision_1x1x1_voxel(
 			}
 		} else {
 			let overlap = max_1 - *min_2;
-			if (overlap - best_dis).abs() < Fixed::from_num(0.001) {
+			if (overlap - best_dis).abs() < 0.001 {
 				bests.push(((max_1, *min_2), *axis, *index));
 			} else if overlap < best_dis {
 				best_dis = overlap;
@@ -171,30 +168,30 @@ fn get_collision_1x1x1_voxel(
 		}
 	}
 
-	let mut collisions: Vec<(FixedVec3, CubeFeature, FixedVec3, CubeFeature)> = vec![];
+	let mut collisions: Vec<(Vec3, CubeFeature, Vec3, CubeFeature)> = vec![];
 
 	for best in bests {
-		let axis_neg = if best.0.1 < Fixed::ZERO { Fixed::NEG_ONE } else { Fixed::ONE };
+		let axis_neg = if best.0.1 < 0.0 { -1.0 } else { 1.0 };
 		if best.2 < 3 {
-			assert!((best.1 - FixedVec3::X).length() < Fixed::from_num(0.0001) || (best.1 - FixedVec3::Y).length() < Fixed::from_num(0.0001) || (best.1 - FixedVec3::Z).length() < Fixed::from_num(0.0001));
+			assert!((best.1 - Vec3::X).length() < 0.0001 || (best.1 - Vec3::Y).length() < 0.0001 || (best.1 - Vec3::Z).length() < 0.0001);
 			let mut best_vertices = vec![];
-			let mut best_dis = Fixed::from_num(10.0);
+			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
-				let v = *transform * (FixedVec3::from(U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2))) - Fixed::from_num(0.5));
+				let v = *transform * (U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5);
 				let dis = v.dot(best.1) * axis_neg;
 				let surface_pos = v - v.project_onto(best.1);
 				if
-					surface_pos.x > Fixed::from_num(0.5) || surface_pos.x < Fixed::from_num(-0.5) ||
-					surface_pos.y > Fixed::from_num(0.5) || surface_pos.y < Fixed::from_num(-0.5) ||
-					surface_pos.z > Fixed::from_num(0.5) || surface_pos.z < Fixed::from_num(-0.5)
+					surface_pos.x > 0.5 || surface_pos.x < -0.5 ||
+					surface_pos.y > 0.5 || surface_pos.y < -0.5 ||
+					surface_pos.z > 0.5 || surface_pos.z < -0.5
 				{
-					if (best_dis - dis).abs() >= Fixed::from_num(0.001) && best_dis > dis {
+					if (best_dis - dis).abs() >= 0.001 && best_dis > dis {
 						best_vertices.clear();
 						best_dis = dis;
 					}
 					return;
 				}
-				if (best_dis - dis).abs() < Fixed::from_num(0.001) {
+				if (best_dis - dis).abs() < 0.001 {
 					best_vertices.push((v, CubeFeature::Vertex { xyz: i }));
 				} else if best_dis > dis {
 					best_vertices.clear();
@@ -202,7 +199,7 @@ fn get_collision_1x1x1_voxel(
 					best_vertices.push((v, CubeFeature::Vertex { xyz: i }));
 				}
 			});
-			let face_vec = best.1.round().as_i8vec3() * axis_neg.to_num::<i8>();
+			let face_vec = best.1.round().as_i8vec3() * axis_neg as i8;
 			collisions.extend(best_vertices.into_iter().map(|v| (
 				v.0,
 				v.1,
@@ -210,25 +207,25 @@ fn get_collision_1x1x1_voxel(
 				CubeFeature::Face { xyzs: face_vec.abs().as_u8vec3().dot(U8Vec3::new(1, 2, 4)) + 8 * (face_vec.element_sum().signum() == -1) as u8 },
 			)));
 		} else if best.2 < 6 {
-			assert!((best.1 - transform.rotation * FixedVec3::X).length() < Fixed::from_num(0.0001) || (best.1 - transform.rotation * FixedVec3::Y).length() < Fixed::from_num(0.0001) || (best.1 - transform.rotation * FixedVec3::Z).length() < Fixed::from_num(0.0001));
+			assert!((best.1 - transform.rotation * Vec3::X).length() < 0.0001 || (best.1 - transform.rotation * Vec3::Y).length() < 0.0001 || (best.1 - transform.rotation * Vec3::Z).length() < 0.0001);
 			let mut best_vertices = vec![];
-			let mut best_dis = Fixed::from_num(10.0);
+			let mut best_dis = 10.0;
 			(0..8).for_each(|i| {
-				let v = FixedVec3::from(U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2))) - Fixed::from_num(0.5);
+				let v = U8Vec3::new(get_bit(i, 0), get_bit(i, 1), get_bit(i, 2)).as_vec3() - 0.5;
 				let dis = (v - transform.translation).dot(best.1) * -axis_neg;
 				let surface_pos = transform.rotation.inverse() * ((v - transform.translation) - (v - transform.translation).project_onto(best.1));
 				if
-					surface_pos.x > Fixed::from_num(0.5) || surface_pos.x < Fixed::from_num(-0.5) ||
-					surface_pos.y > Fixed::from_num(0.5) || surface_pos.y < Fixed::from_num(-0.5) ||
-					surface_pos.z > Fixed::from_num(0.5) || surface_pos.z < Fixed::from_num(-0.5)
+					surface_pos.x > 0.5 || surface_pos.x < -0.5 ||
+					surface_pos.y > 0.5 || surface_pos.y < -0.5 ||
+					surface_pos.z > 0.5 || surface_pos.z < -0.5
 				{
-					if (best_dis - dis).abs() >= Fixed::from_num(0.001) && best_dis > dis {
+					if (best_dis - dis).abs() >= 0.001 && best_dis > dis {
 						best_vertices.clear();
 						best_dis = dis;
 					}
 					return;
 				}
-				if (best_dis - dis).abs() < Fixed::from_num(0.001) {
+				if (best_dis - dis).abs() < 0.001 {
 					best_vertices.push((v, CubeFeature::Vertex { xyz: i }));
 				} else if best_dis > dis {
 					best_vertices.clear();
@@ -236,7 +233,7 @@ fn get_collision_1x1x1_voxel(
 					best_vertices.push((v, CubeFeature::Vertex { xyz: i }));
 				}
 			});
-			let face_vec = (transform.rotation.inverse() * best.1).round().as_i8vec3() * (-axis_neg).to_num::<i8>();
+			let face_vec = (transform.rotation.inverse() * best.1).round().as_i8vec3() * -axis_neg as i8;
 			collisions.extend(best_vertices.into_iter().map(|v| (
 				best.1 * best.0.0 + v.0 - v.0.project_onto(best.1),
 				CubeFeature::Face { xyzs: face_vec.abs().as_u8vec3().dot(U8Vec3::new(1, 2, 4)) + 8 * (face_vec.element_sum().signum() == -1) as u8 },
@@ -244,8 +241,8 @@ fn get_collision_1x1x1_voxel(
 				v.1,
 			)));
 		} else {
-			let axes = [FixedVec3::X, FixedVec3::Y, FixedVec3::Z];
-			let not_axes = [(FixedVec3::Y, FixedVec3::Z), (FixedVec3::X, FixedVec3::Z), (FixedVec3::X, FixedVec3::Y)];
+			let axes = [Vec3::X, Vec3::Y, Vec3::Z];
+			let not_axes = [(Vec3::Y, Vec3::Z), (Vec3::X, Vec3::Z), (Vec3::X, Vec3::Y)];
 			let not_axes_xyz_u8 = [(2, 4), (1, 4), (1, 2)];
 
 			let index_1 = (best.2 - 6) % 3;
@@ -260,13 +257,13 @@ fn get_collision_1x1x1_voxel(
 			let not_axes_xyz_u8_2 = not_axes_xyz_u8[index_2 as usize];
 
 			(0..4).for_each(|i| {
-				let edge_1 = *transform * ((if i & 1 == 0 { -not_axes_1.0 } else { not_axes_1.0 } + if i & 2 == 0 { -not_axes_1.1 } else { not_axes_1.1 }) * Fixed::from_num(0.5));
+				let edge_1 = *transform * ((if i & 1 == 0 { -not_axes_1.0 } else { not_axes_1.0 } + if i & 2 == 0 { -not_axes_1.1 } else { not_axes_1.1 }) * 0.5);
 				(0..4).for_each(|j| {
-					let edge_2 = (if j & 1 == 0 { -not_axes_2.0 } else { not_axes_2.0 } + if j & 2 == 0 { -not_axes_2.1 } else { not_axes_2.1 }) * Fixed::from_num(0.5);
+					let edge_2 = (if j & 1 == 0 { -not_axes_2.0 } else { not_axes_2.0 } + if j & 2 == 0 { -not_axes_2.1 } else { not_axes_2.1 }) * 0.5;
 					let result = points_with_direction(edge_1, axis1, edge_2, axis2, best.1 * axis_neg);
 					if result.is_none() { return; }
 					let (v1, v2) = result.unwrap();
-					if (v2 - v1).normalize_or_zero().dot(best.1) * axis_neg < Fixed::from_num(0.9) { return; }
+					if (v2 - v1).normalize().dot(best.1) * axis_neg < 0.9 { return; }
 					collisions.push((
 						v1,
 						CubeFeature::Edge { vertex_vertex: (1 << index_1) + (get_bit(i, 0) * not_axes_xyz_u8_1.0 + get_bit(i, 1) * not_axes_xyz_u8_1.1) * 9 },
@@ -280,14 +277,14 @@ fn get_collision_1x1x1_voxel(
 	collisions
 }
 
-fn points_with_direction(p1: FixedVec3, d1: FixedVec3, p2: FixedVec3, d2: FixedVec3, u: FixedVec3) -> Option<(FixedVec3, FixedVec3)> {
+fn points_with_direction(p1: Vec3, d1: Vec3, p2: Vec3, d2: Vec3, u: Vec3) -> Option<(Vec3, Vec3)> {
 	let r = p2 - p1;
 	let denom = d1.dot((-d2).cross(u));
-	if denom.abs() < Fixed::from_num(1e-6) { return None; }
+	if denom.abs() < 1e-6 { return None; }
 
 	let s = r.dot((-d2).cross(u)) / denom;
 	let t = d1.dot(r.cross(u)) / denom;
-	if s != s.clamp(Fixed::from_num(-0.5), Fixed::from_num(0.5)) || t != t.clamp(Fixed::from_num(-0.5), Fixed::from_num(0.5)) { return None; }
+	if s != s.clamp(-0.5, 0.5) || t != t.clamp(-0.5, 0.5) { return None; }
 
 	Some((p1 + d1 * s, p2 + d2 * t))
 }
@@ -295,43 +292,43 @@ fn points_with_direction(p1: FixedVec3, d1: FixedVec3, p2: FixedVec3, d2: FixedV
 // assumes other cube has no rotation and both are centered at (0,0,0)
 pub(super) fn compute_1x1x1_cube_separating_axes(orientation: Quat) -> SeparatingAxes {
 	let axes_6 = [
-		FixedVec3::X,
-		FixedVec3::Y,
-		FixedVec3::Z,
-		orientation * FixedVec3::X,
-		orientation * FixedVec3::Y,
-		orientation * FixedVec3::Z,
+		Vec3::X,
+		Vec3::Y,
+		Vec3::Z,
+		orientation * Vec3::X,
+		orientation * Vec3::Y,
+		orientation * Vec3::Z,
 	];
 	let axes_9 = (0..9).map(|i| axes_6[i / 3].cross(axes_6[3 + i % 3]));
 
 	let corners = [
-		FixedVec3::new(Fixed::ZERO, Fixed::ZERO, Fixed::ZERO) - FixedVec3::splat(Fixed::from_num(0.5)),
-		FixedVec3::new(Fixed::ONE, Fixed::ZERO, Fixed::ZERO) - FixedVec3::splat(Fixed::from_num(0.5)),
-		FixedVec3::new(Fixed::ZERO, Fixed::ONE, Fixed::ZERO) - FixedVec3::splat(Fixed::from_num(0.5)),
-		FixedVec3::new(Fixed::ZERO, Fixed::ZERO, Fixed::ONE) - FixedVec3::splat(Fixed::from_num(0.5)),
-		FixedVec3::new(Fixed::ONE, Fixed::ONE, Fixed::ZERO) - FixedVec3::splat(Fixed::from_num(0.5)),
-		FixedVec3::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE) - FixedVec3::splat(Fixed::from_num(0.5)),
-		FixedVec3::new(Fixed::ZERO, Fixed::ONE, Fixed::ONE) - FixedVec3::splat(Fixed::from_num(0.5)),
-		FixedVec3::new(Fixed::ONE, Fixed::ONE, Fixed::ONE) - FixedVec3::splat(Fixed::from_num(0.5)),
+		Vec3::new(0.0, 0.0, 0.0) - Vec3::splat(0.5),
+		Vec3::new(1.0, 0.0, 0.0) - Vec3::splat(0.5),
+		Vec3::new(0.0, 1.0, 0.0) - Vec3::splat(0.5),
+		Vec3::new(0.0, 0.0, 1.0) - Vec3::splat(0.5),
+		Vec3::new(1.0, 1.0, 0.0) - Vec3::splat(0.5),
+		Vec3::new(1.0, 0.0, 1.0) - Vec3::splat(0.5),
+		Vec3::new(0.0, 1.0, 1.0) - Vec3::splat(0.5),
+		Vec3::new(1.0, 1.0, 1.0) - Vec3::splat(0.5),
 	];
 
 	(axes_6.into_iter().chain(axes_9)).zip(0..15).filter_map(|(axis, index)| {
-		if axis.length_squared() < Fixed::from_num(1e-6) { return None; }
+		if axis.length_squared() < 1e-6 { return None; }
 		let norm_axis = axis.normalize();
-		let mut min_a: Fixed = Fixed::ZERO; // cube 1
-		let mut max_a: Fixed = Fixed::ZERO;
+		let mut min_a: f32 = 0.0; // cube 1
+		let mut max_a: f32 = 0.0;
 		for l in corners.map(|c| (orientation * c).dot(norm_axis)) {
 			min_a = min_a.min(l);
 			max_a = max_a.max(l);
 		}
-		let mut min_b: Fixed = Fixed::ZERO; // cube 2
-		let mut max_b: Fixed = Fixed::ZERO;
+		let mut min_b: f32 = 0.0; // cube 2
+		let mut max_b: f32 = 0.0;
 		for l in corners.map(|c| c.dot(norm_axis)) {
 			min_b = min_b.min(l);
 			max_b = max_b.max(l);
 		}
-		assert!(min_b + max_b < Fixed::from_num(0.0001)); // should be true
-		assert!(min_a + max_a < Fixed::from_num(0.0001));
+		assert!(min_b + max_b < 0.0001); // should be true
+		assert!(min_a + max_a < 0.0001);
 
 		Some(((min_a, max_a), (min_b, max_b), norm_axis, index))
 	}).collect()

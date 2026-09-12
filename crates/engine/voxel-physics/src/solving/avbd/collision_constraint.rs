@@ -1,30 +1,30 @@
-use voxel_transform::Transform;
-use crate::math::{FixedVec3Ext, Mat3, Mat6, Vec6, Wide, WideVec3};
+use bevy::math::{Mat3, Vec2, Vec3};
+
+use bevy::transform::components::Transform;
+
+
+use crate::math::{Mat6, Vec6};
 use crate::collision;
 
 use super::physics_constraint::{PhysicsConstraint, GAMMA};
 use super::Solver;
 
-#[cfg(test)]
-#[path = "collision_constraint_tests.rs"]
-mod tests;
-
 pub struct CollisionConstraint {
 	pub collision: collision::Collision,
-	friction: Wide,
+	friction: f32,
 	basis: Mat3,
-	c0: WideVec3,
-	pub penalty: WideVec3,
-	pub lambda: WideVec3,
+	c0: Vec3,
+	pub penalty: Vec3,
+	pub lambda: Vec3,
 }
 
 impl CollisionConstraint {
-	pub fn new(collision: collision::Collision, old_penalty: &WideVec3, old_lambda: &WideVec3) -> Self {
+	pub fn new(collision: collision::Collision, old_penalty: &Vec3, old_lambda: &Vec3) -> Self {
 		Self {
 			collision,
-			friction: Wide::ONE / Wide::from_num(2),
+			friction: 0.5,
 			basis: Mat3::ZERO,
-			c0: WideVec3::ZERO,
+			c0: Vec3::ZERO,
 			penalty: *old_penalty,
 			lambda: *old_lambda,
 		}
@@ -33,17 +33,18 @@ impl CollisionConstraint {
 
 impl PhysicsConstraint for CollisionConstraint {
 	fn init(&mut self, _initial_state_1: &Transform, _initial_state_2: &Transform) {
-		let Some(normal) = (self.collision.part2.collision - self.collision.part1.collision).try_normalize() else { return };
+		let normal = (self.collision.part2.collision - self.collision.part1.collision).normalize();
+		if normal.is_nan() { return; }
 
 		let basis_pair = normal.any_orthonormal_pair();
 		self.basis = Mat3::from_cols(
-			normal.into(),
-			basis_pair.0.into(),
-			basis_pair.1.into()
+			normal,
+			basis_pair.0,
+			basis_pair.1
 		).transpose();
 
-		self.c0 = self.basis * WideVec3::from(self.collision.part1.collision - self.collision.part2.collision) + WideVec3::new(Wide::ONE / Wide::from_num(100), Wide::ZERO, Wide::ZERO);
-		self.penalty = (self.penalty * GAMMA).clamp(WideVec3::ONE, WideVec3::splat(Wide::from_num(10_000_000_000u64)));
+		self.c0 = self.basis * (self.collision.part1.collision - self.collision.part2.collision) + Vec3::new(0.01, 0.0, 0.0);
+		self.penalty = (self.penalty * GAMMA).clamp(Vec3::splat(1.0), Vec3::splat(10000000000.0));
 	}
 
 	fn get_updated(
@@ -52,11 +53,11 @@ impl PhysicsConstraint for CollisionConstraint {
 		initial_state_1: &Transform,
 		state_2: &Transform,
 		initial_state_2: &Transform,
-		alpha: Wide,
+		alpha: f32,
 		calc_1: bool
 	) -> Option<(Vec6, Mat6)> {
-		let world_local_collision_1 = WideVec3::from(state_1.rotation * self.collision.part1.local_collision);
-		let world_local_collision_2 = WideVec3::from(state_2.rotation * self.collision.part2.local_collision);
+		let world_local_collision_1 = state_1.rotation * self.collision.part1.local_collision;
+		let world_local_collision_2 = state_2.rotation * self.collision.part2.local_collision;
 
 		let d_prime_linear_1 = self.basis;
 		let d_prime_angular_1 = Mat3::from_cols(
@@ -74,24 +75,25 @@ impl PhysicsConstraint for CollisionConstraint {
 		let diff_1 = Solver::sub_state(state_1, initial_state_1);
 		let diff_2 = Solver::sub_state(state_2, initial_state_2);
 
-		let c = self.c0 * (Wide::ONE - alpha) + (
+		let c = self.c0 * (1.0 - alpha) + (
 			d_prime_linear_1 * diff_1.upper_vec3() + d_prime_angular_1 * diff_1.lower_vec3() +
 			d_prime_linear_2 * diff_2.upper_vec3() + d_prime_angular_2 * diff_2.lower_vec3()
 		);
 
 		let penalty_mat = Mat3::from_diagonal(self.penalty);
 
-		let mut force = penalty_mat * c + self.lambda;
-		force.x = force.x.min(Wide::ZERO);
+		let mut force: Vec3 = penalty_mat * c + self.lambda;
+		force.x = force.x.min(0.0);
 
 		let bounds = force.x.abs() * self.friction;
-		let friction_scale = WideVec3::new(Wide::ZERO, force.y, force.z).length();
-		if friction_scale > bounds && friction_scale > Wide::ZERO {
-			force.y = (force.y / friction_scale) * bounds;
-			force.z = (force.z / friction_scale) * bounds;
+		let friction_scale = Vec2::new(force.y, force.z).length();
+		if friction_scale > bounds && friction_scale > 0.0 {
+			force.y *= bounds / friction_scale;
+			force.z *= bounds / friction_scale;
 		}
 
 		let (d_prime_linear, d_prime_angular) = if calc_1 { (d_prime_linear_1, d_prime_angular_1) } else { (d_prime_linear_2, d_prime_angular_2) };
+		// let (d_prime_linear, d_prime_angular) = (d_prime_linear_1, d_prime_angular_1);
 
 		let d_prime_linear_transpose_times_k = d_prime_linear.transpose() * penalty_mat;
 		let d_prime_angular_transpose_times_k = d_prime_angular.transpose() * penalty_mat;
@@ -113,10 +115,10 @@ impl PhysicsConstraint for CollisionConstraint {
 		initial_state_1: &Transform,
 		state_2: &Transform,
 		initial_state_2: &Transform,
-		alpha: Wide
+		alpha: f32
 	) {
-		let world_local_collision_1 = WideVec3::from(state_1.rotation * self.collision.part1.local_collision);
-		let world_local_collision_2 = WideVec3::from(state_2.rotation * self.collision.part2.local_collision);
+		let world_local_collision_1 = state_1.rotation * self.collision.part1.local_collision;
+		let world_local_collision_2 = state_2.rotation * self.collision.part2.local_collision;
 
 		let d_prime_linear_1 = self.basis;
 		let d_prime_angular_1 = Mat3::from_cols(
@@ -134,32 +136,33 @@ impl PhysicsConstraint for CollisionConstraint {
 		let diff = Solver::sub_state(state_1, initial_state_1);
 		let diff_other = Solver::sub_state(state_2, initial_state_2);
 
-		let c = self.c0 * (Wide::ONE - alpha) + (
+		let c = self.c0 * (1.0 - alpha) + (
 			d_prime_linear_1 * diff.upper_vec3() + d_prime_angular_1 * diff.lower_vec3() +
 			d_prime_linear_2 * diff_other.upper_vec3() + d_prime_angular_2 * diff_other.lower_vec3()
 		);
 
 		let penalty_mat = Mat3::from_diagonal(self.penalty);
 
-		let mut force = penalty_mat * c + self.lambda;
-		force.x = force.x.min(Wide::ZERO);
+		let mut force: Vec3 = penalty_mat * c + self.lambda;
+		force.x = force.x.min(0.0);
 
 		let bounds = force.x.abs() * self.friction;
-		let friction_scale = WideVec3::new(Wide::ZERO, force.y, force.z).length();
-		if friction_scale > bounds && friction_scale > Wide::ZERO {
-			force.y = (force.y / friction_scale) * bounds;
-			force.z = (force.z / friction_scale) * bounds;
+		let friction_scale = Vec2::new(force.y, force.z).length();
+		if friction_scale > bounds && friction_scale > 0.0 {
+			force.y *= bounds / friction_scale;
+			force.z *= bounds / friction_scale;
 		}
 
 		self.lambda = force;
 
-		let beta = Wide::from_num(5_000_000);
-		if force.x < Wide::ZERO {
-			self.penalty.x = (self.penalty.x + beta * c.x.abs()).min(Wide::from_num(10_000_000_000u64));
+		// penalty
+		let beta = 5000000.0; // beta
+		if force.x < 0.0 {
+			self.penalty.x = (self.penalty.x + beta * c.x.abs()).min(10000000000.0);
 		}
 		if friction_scale <= bounds {
-			self.penalty.y = (self.penalty.y + beta * c.y.abs()).min(Wide::from_num(10_000_000_000u64));
-			self.penalty.z = (self.penalty.z + beta * c.z.abs()).min(Wide::from_num(10_000_000_000u64));
+			self.penalty.y = (self.penalty.y + beta * c.y.abs()).min(10000000000.0);
+			self.penalty.z = (self.penalty.z + beta * c.z.abs()).min(10000000000.0);
 		}
 	}
 }

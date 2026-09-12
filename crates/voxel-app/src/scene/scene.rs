@@ -1,9 +1,7 @@
 use std::f32::consts::PI;
 
-use bevy::math::{IVec3, Quat};
+use bevy::math::{IVec3, Quat, Vec3};
 use bevy::prelude::*;
-use voxel_math::{Fixed, FixedVec3};
-use voxel_transform::{Scale, Transform, TransformQuery};
 use voxel_sources::edit::GridEditIdManager;
 use std::path::PathBuf;
 
@@ -45,31 +43,29 @@ impl Plugin for ScenePlugin {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Orientation {
 	pub target: Quat,
-	pub gain: Fixed,
-	pub damping: Fixed,
+	pub gain: f32,
+	pub damping: f32,
 }
 
 impl Default for Orientation {
 	fn default() -> Self {
-		Self { target: Quat::IDENTITY, gain: Fixed::from_num(10), damping: Fixed::from_num(2) }
+		Self { target: Quat::IDENTITY, gain: 10.0, damping: 2.0 }
 	}
 }
 
 fn drive_orientation(
-	bodies: Query<(Entity, &AngularVelocity, &RotationalInertia, &Orientation), With<RigidBody>>,
-	transforms: TransformQuery,
+	bodies: Query<(Entity, &Transform, &AngularVelocity, &RotationalInertia, &Orientation), With<RigidBody>>,
 	mut impulses: ResMut<Impulses>,
 ) {
-	for (entity, angular_velocity, inertia, orientation) in bodies.iter() {
-		let Some(transform) = transforms.get_world(entity) else { continue };
+	for (entity, transform, angular_velocity, inertia, orientation) in bodies.iter() {
 		let error = transform.rotation * orientation.target.inverse();
 		let (axis, angle) = error.to_axis_angle();
 		if !axis.is_finite() || angle.abs() < 1e-6 { continue; }
-		let axis = FixedVec3::from_vec3(axis);
 		let angular_in_dir = angular_velocity.0.dot(axis);
-		let correction = axis * (-Fixed::from_num(angle) * orientation.gain - angular_in_dir * orientation.damping)
-			- (angular_velocity.0 - axis * angular_in_dir);
-		let impulse = FixedVec3::from_dvec3(inertia.0.mat * correction.as_dvec3());
+		let impulse = inertia.0.mat.as_mat3() * (
+			axis * (-angle * orientation.gain - angular_in_dir * orientation.damping)
+			- (angular_velocity.0 - axis * angular_in_dir)
+		);
 		impulses.apply_rotational_impulse(entity, impulse);
 	}
 }
@@ -90,8 +86,8 @@ fn setup_scene(
 		// spawn_ball_cluster(&mut commands, &store);
 		// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
 		let store = source_manager.get_source_mut::<VoxelStoreSource>().unwrap();
-		spawn_bb8(&mut commands, store, FixedVec3::from(IVec3::new(30, 120, 0)));
-		spawn_bb8(&mut commands, store, FixedVec3::from(IVec3::new(-30, 120, 0)));
+		spawn_bb8(&mut commands, store, Vec3::new(30.0, 120.0, 0.0));
+		spawn_bb8(&mut commands, store, Vec3::new(-30.0, 120.0, 0.0));
 		// for x in 0..3 {
 		// 	for y in 0..2 {
 		// 		for z in 0..3 {
@@ -122,7 +118,7 @@ fn spawn_sponza(commands: &mut Commands, vox_source: &mut MarchingVoxFileSource)
 		VoxelCollider,
 	)).id();
 	commands.entity(parent).add_child(grid);
-	vox_source.set_grid_vox_file(grid, FixedVec3::ZERO, path);
+	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
 }
 
 fn spawn_church(commands: &mut Commands, vox_source: &mut SceneVoxFileSource) {
@@ -146,7 +142,7 @@ fn spawn_church(commands: &mut Commands, vox_source: &mut SceneVoxFileSource) {
 		))
 		.id();
 	commands.entity(parent).add_child(grid);
-	vox_source.set_grid_vox_file(grid, FixedVec3::ZERO, path);
+	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -182,15 +178,15 @@ fn spawn_ball_cluster(
 	store: &mut VoxelStoreSource,
 ) {
 	let r = 5;
-	let base_y = 80;
-	let base_z = -20;
+	let base_y = 80.0;
+	let base_z = -20.0;
 
-	let main = spawn_ball(commands, store, FixedVec3::from(IVec3::new(0, base_y, base_z)), 2);
+	let main = spawn_ball(commands, store, Vec3::new(0.0, base_y, base_z), 2);
 	let satellites = [
-		(spawn_ball(commands, store, FixedVec3::from(IVec3::new(0, base_y, base_z + 10)), r), FixedVec3::Z * Fixed::from_num(10)),
-		(spawn_ball(commands, store, FixedVec3::from(IVec3::new(0, base_y, base_z - 10)), r), FixedVec3::NEG_Z * Fixed::from_num(10)),
-		(spawn_ball(commands, store, FixedVec3::from(IVec3::new(10, base_y, base_z)), r), FixedVec3::X * Fixed::from_num(10)),
-		(spawn_ball(commands, store, FixedVec3::from(IVec3::new(-10, base_y, base_z)), r), FixedVec3::NEG_X * Fixed::from_num(10)),
+		(spawn_ball(commands, store, Vec3::new(0.0, base_y, base_z + 10.0), r), Vec3::new(0.0, 0.0, 10.0)),
+		(spawn_ball(commands, store, Vec3::new(0.0, base_y, base_z - 10.0), r), Vec3::new(0.0, 0.0, -10.0)),
+		(spawn_ball(commands, store, Vec3::new(10.0, base_y, base_z), r), Vec3::new(10.0, 0.0, 0.0)),
+		(spawn_ball(commands, store, Vec3::new(-10.0, base_y, base_z), r), Vec3::new(-10.0, 0.0, 0.0)),
 	];
 
 	for (satellite, attachment) in satellites {
@@ -199,8 +195,8 @@ fn spawn_ball_cluster(
 			satellite,
 			&Transform::from_translation(attachment),
 			&Transform::IDENTITY,
-			Fixed::MAX,
-			Fixed::ZERO,
+			f32::INFINITY,
+			0.0,
 		));
 	}
 }
@@ -212,7 +208,7 @@ fn voxel(color: [u8; 4], mass: u32) -> BasicVoxel {
 fn spawn_bb8(
 	commands: &mut Commands,
 	store: &mut VoxelStoreSource,
-	position: FixedVec3,
+	position: Vec3,
 ) {
 	let mut base_grid = StreamingVoxels::new::<BasicVoxel>();
 	for x in -6..=6 { for y in 0..3 { for z in -6..=6 {
@@ -227,28 +223,27 @@ fn spawn_bb8(
 	)).id();
 	spawn_grid(commands, store, Some(base), Transform::IDENTITY, base_grid, (VoxelCollider, VoxelMass));
 
-	let ball = spawn_ball(commands, store, position - FixedVec3::Y * Fixed::from_num(12), 10);
+	let ball = spawn_ball(commands, store, position - Vec3::new(0.0, 12.0, 0.0), 10);
 
 	commands.spawn(BallJoint::new(
 		base,
 		ball,
-		&Transform::from_translation(FixedVec3::NEG_Y * Fixed::from_num(12)),
+		&Transform::from_translation(Vec3::new(0.0, -12.0, 0.0)),
 		&Transform::IDENTITY,
-		Fixed::MAX,
-		Fixed::ZERO,
+		f32::INFINITY,
+		0.0,
 	));
 }
 
-fn spawn_ball(commands: &mut Commands, store: &mut VoxelStoreSource, position: FixedVec3, radius: i32) -> Entity {
-	let r = Fixed::from_num(radius) - Fixed::from_num(0.5);
-	let radius_sq = r * r;
+fn spawn_ball(commands: &mut Commands, store: &mut VoxelStoreSource, position: Vec3, radius: i32) -> Entity {
+	let radius_sq = (radius as f32 - 0.5).powi(2);
 
 	let mut top = StreamingVoxels::new::<BasicVoxel>();
 	for x in -radius..=radius {
 		for y in 0..=radius {
 			for z in -radius..=radius {
 				let p = IVec3::new(x, y, z);
-				if FixedVec3::from(p).length_squared() > radius_sq { continue; }
+				if p.as_vec3().length_squared() > radius_sq { continue; }
 				top.add_voxel(p, voxel([(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], 100).get_ref());
 			}
 		}
@@ -259,7 +254,7 @@ fn spawn_ball(commands: &mut Commands, store: &mut VoxelStoreSource, position: F
 		for y in -radius..0 {
 			for z in -radius..=radius {
 				let p = IVec3::new(x, y, z);
-				if FixedVec3::from(p).length_squared() > radius_sq { continue; }
+				if p.as_vec3().length_squared() > radius_sq { continue; }
 				bottom.add_voxel(p, voxel([(x as u8 / 10) * 10, (y as u8 / 10) * 10, (z as u8 / 10) * 10, 255], 100).get_ref());
 			}
 		}
@@ -269,11 +264,11 @@ fn spawn_ball(commands: &mut Commands, store: &mut VoxelStoreSource, position: F
 		RigidBody,
 		Transform::from_translation(position),
 	)).id();
-	spawn_grid(commands, store, Some(body), Transform::from_translation(FixedVec3::splat(Fixed::from_num(-0.5))), top, (VoxelCollider, VoxelMass));
+	spawn_grid(commands, store, Some(body), Transform::from_translation(Vec3::new(-0.5, -0.5, -0.5)), top, (VoxelCollider, VoxelMass));
 	spawn_grid(commands, store, Some(body), Transform {
-			translation: FixedVec3::new(-Fixed::from_num(0.5).sqrt(), Fixed::from_num(-0.5), Fixed::ZERO),
+			translation: Vec3::new(-std::f32::consts::FRAC_1_SQRT_2, -0.5, 0.0),
 			rotation: Quat::from_rotation_y(PI / 4.0),
-			scale: Scale::ONE,
+			scale: Vec3::ONE,
 		}, bottom, (VoxelCollider, VoxelMass));
 	body
 }

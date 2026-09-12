@@ -1,4 +1,3 @@
-use voxel_transform::Transform;
 use bevy::prelude::*;
 use num::Zero;
 use voxel_data::grid::Grid;
@@ -20,9 +19,6 @@ pub(crate) mod physics_constraint;
 mod solver;
 
 use self::body::SolverBody;
-
-#[cfg(test)]
-mod tests;
 
 /// Cross-frame solver state (warm-started K/L values for collision constraints).
 #[derive(Resource)]
@@ -79,21 +75,19 @@ fn solve_physics(
 	), (With<RigidBody>, Without<Grid>)>,
 	mut constraints: Query<(Entity, &BallJoint, &mut AvbdBallJointConstraint)>,
 ) {
-	let dt = crate::math::fixed_duration(time.delta());
-	if !crate::math::usable_timestep(dt) { return; }
+	let dt = time.delta_secs();
+	if dt <= 0.0 { return; }
 
 	let mut solver_bodies: SparseSet<PhysicsBodyId, SolverBody> = SparseSet::with_capacity(bodies.iter().count());
 	for (entity, transform, integrated_center_of_mass_transform, velocity, angular_velocity, mass, inertia, com, is_static) in bodies.iter() {
-		crate::math::require_unit_scale(transform);
-		crate::math::require_unit_scale(&integrated_center_of_mass_transform.0);
 		let mut body = SolverBody::new();
 		body.transform = *transform;
 		body.integrated_center_of_mass_transform = integrated_center_of_mass_transform.0;
 		body.velocity = velocity.0;
 		body.angular_velocity = angular_velocity.0;
-		body.mass = mass.0;
+		body.mass = mass.0 as f32;
 		body.rotational_inertia = inertia.0;
-		body.center_of_mass = com.0;
+		body.center_of_mass = com.0.as_vec3();
 		body.is_static = is_static || mass.0.is_zero();
 		solver_bodies.insert(entity, body);
 	}

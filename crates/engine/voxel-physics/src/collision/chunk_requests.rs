@@ -1,14 +1,12 @@
-use voxel_math::Fixed;
-use voxel_transform::Transform;
-use voxel_math::FixedVec3;
 use std::collections::HashSet;
 
+use bevy::math::Affine3A;
 use bevy::prelude::*;
 
 use rustc_hash::FxHashMap;
-use voxel_transform::aabb::{aabb_corners, aabb_of_transformed_aabb};
-use voxel_transform::bvh::BVH;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileKey, chunks_covering_nonzero_voxel_region};
+use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
+use voxel_data::bvh::BVH;
+use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileKey, chunk_origin, chunks_covering_nonzero_voxel_region};
 use voxel_query::OccupancyTileClass;
 use voxel_sources::edit::GridEditMessage;
 use voxel_streaming::{GridStreaming, TileLoadUpdate, TileRequester};
@@ -23,15 +21,15 @@ pub struct PhysicsConsumer {
 #[derive(Component, Default)]
 pub struct WantedChunks(HashSet<IVec3>);
 
-fn overlap(a: (FixedVec3, FixedVec3), b: (FixedVec3, FixedVec3)) -> bool {
+fn overlap(a: (Vec3, Vec3), b: (Vec3, Vec3)) -> bool {
 	a.0.cmple(b.1).all() && b.0.cmple(a.1).all()
 }
 
 /// Cached grid-local AABB of a grid's present chunks.
 #[derive(Component)]
 pub struct PresenceAabb {
-	lo: FixedVec3,
-	hi: FixedVec3,
+	lo: Vec3,
+	hi: Vec3,
 }
 
 pub fn cache_presence_aabb(
@@ -52,8 +50,8 @@ pub fn cache_presence_aabb(
 		}
 		commands.entity(entity).insert((
 			PresenceAabb {
-				lo: FixedVec3::from(min) * Fixed::from_num(CHUNK_SIZE),
-				hi: FixedVec3::from(max) * Fixed::from_num(CHUNK_SIZE),
+				lo: (chunk_origin(min)).as_vec3(),
+				hi: (chunk_origin(max)).as_vec3(),
 			},
 			WantedChunks::default(),
 		));
@@ -64,9 +62,9 @@ struct GridReq {
 	entity: Entity,
 	body: Entity,
 	is_static: bool,
-	grid_transform: Transform,
-	grid_inverse: Transform,
-	chunk_world_half: FixedVec3,
+	grid_affine: Affine3A,
+	grid_inv_affine: Affine3A,
+	chunk_world_half: Vec3,
 }
 
 /// Expand a grid's present chunks into a flat list (a tree node covers `size^3`).
@@ -101,13 +99,12 @@ pub fn request_collision_chunks(
 
 	// Pass 1: accumulate each body's world AABB from its grids' cached extents.
 	let mut reqs: Vec<GridReq> = Vec::new();
-	let mut body_aabb: FxHashMap<Entity, (FixedVec3, FixedVec3)> = FxHashMap::default();
+	let mut body_aabb: FxHashMap<Entity, (Vec3, Vec3)> = FxHashMap::default();
 	for (entity, child_of, local_tf, _, aabb, _) in grids.iter() {
 		let body = child_of.parent();
 		let Ok((body_tf, is_static)) = bodies.get(body) else { continue };
-		crate::math::require_unit_scale(body_tf);
-		crate::math::require_unit_scale(local_tf);
 		let grid_tf = *body_tf * *local_tf;
+		let grid_affine = grid_tf.compute_affine();
 		let (gmin, gmax) = aabb_of_transformed_aabb(&grid_tf, aabb.lo, aabb.hi);
 		body_aabb
 			.entry(body)
@@ -116,15 +113,17 @@ pub fn request_collision_chunks(
 				a.1 = a.1.max(gmax);
 			})
 			.or_insert((gmin, gmax));
-		let chunk_half = Fixed::from_num(CHUNK_SIZE) / Fixed::from_num(2);
-		let rotation = grid_tf.rotation;
-		let chunk_world_half = ((rotation * FixedVec3::X).abs() + (rotation * FixedVec3::Y).abs() + (rotation * FixedVec3::Z).abs()) * chunk_half;
+		let chunk_half = Vec3::splat(CHUNK_SIZE as f32 * 0.5);
+		let chunk_world_half = (grid_affine.matrix3.x_axis.abs() * chunk_half.x
+			+ grid_affine.matrix3.y_axis.abs() * chunk_half.y
+			+ grid_affine.matrix3.z_axis.abs() * chunk_half.z)
+			.into();
 		reqs.push(GridReq {
 			entity,
 			body,
 			is_static,
-			grid_inverse: grid_tf.inverse(),
-			grid_transform: grid_tf,
+			grid_inv_affine: grid_affine.inverse(),
+			grid_affine,
 			chunk_world_half,
 		});
 	}
@@ -141,7 +140,7 @@ pub fn request_collision_chunks(
 		}
 
 		let mine = body_aabb[&req.body];
-		let partners: Vec<(FixedVec3, FixedVec3)> = body_bvh
+		let partners: Vec<(Vec3, Vec3)> = body_bvh
 			.collisions(&mine)
 			.into_iter()
 			.filter(|body| *body != req.body)
@@ -157,13 +156,13 @@ pub fn request_collision_chunks(
 		let mut cmax = IVec3::splat(i32::MIN);
 		for (pmin, pmax) in &partners {
 			for corner in aabb_corners(*pmin, *pmax) {
-				let chunk = (req.grid_inverse.transform_point(corner) / Fixed::from_num(CHUNK_SIZE)).floor().as_ivec3();
+				let chunk = (req.grid_inv_affine.transform_point3(corner) / CHUNK_SIZE as f32).floor().as_ivec3();
 				cmin = cmin.min(chunk);
 				cmax = cmax.max(chunk);
 			}
 		}
 
-		let chunk_local_center_offset = FixedVec3::splat(Fixed::from_num(CHUNK_SIZE) / Fixed::from_num(2));
+		let chunk_local_center_offset = Vec3::splat(CHUNK_SIZE as f32 * 0.5);
 		let mut skipped_regions: Vec<(IVec3, u32)> = Vec::new();
 		streaming.presence().for_each_node_in_region(cmin, cmax, |origin, size, is_leaf| {
 			let node_end = origin + IVec3::splat(size as i32);
@@ -178,9 +177,9 @@ pub fn request_collision_chunks(
 				return;
 			}
 
-			let local_center = FixedVec3::from(origin) * Fixed::from_num(CHUNK_SIZE) + FixedVec3::splat(Fixed::from_num(CHUNK_SIZE) * Fixed::from_num(size) / Fixed::from_num(2));
-			let world_center = req.grid_transform.transform_point(local_center);
-			let node_world_half = req.chunk_world_half * Fixed::from_num(size);
+			let local_center = (origin * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 * size as f32 * 0.5);
+			let world_center = req.grid_affine.transform_point3(local_center);
+			let node_world_half = req.chunk_world_half * size as f32;
 			let node_box = (world_center - node_world_half, world_center + node_world_half);
 			if !partners.iter().any(|p| overlap(node_box, *p)) {
 				if !is_leaf {
@@ -201,8 +200,8 @@ pub fn request_collision_chunks(
 				for y in origin.y..origin.y + size as i32 {
 					for z in origin.z..origin.z + size as i32 {
 						let chunk = IVec3::new(x, y, z);
-						let local_center = FixedVec3::from(chunk) * Fixed::from_num(CHUNK_SIZE) + chunk_local_center_offset;
-						let world_center = req.grid_transform.transform_point(local_center);
+						let local_center = (chunk * CHUNK_SIZE as i32).as_vec3() + chunk_local_center_offset;
+						let world_center = req.grid_affine.transform_point3(local_center);
 						let chunk_box = (world_center - req.chunk_world_half, world_center + req.chunk_world_half);
 						if partners.iter().any(|p| overlap(chunk_box, *p)) {
 							want.insert(chunk);
@@ -235,7 +234,7 @@ pub fn request_collision_chunks(
 		requester.release_tile(grid, consumer_entity, key);
 	}
 	for (grid, key) in acquisitions {
-		if requester.fetch_tile(grid, consumer_entity, key, Fixed::ZERO, true, None) {
+		if requester.fetch_tile(grid, consumer_entity, key, 0.0, true, None) {
 			consumer.pending.insert((grid, key));
 		}
 	}
