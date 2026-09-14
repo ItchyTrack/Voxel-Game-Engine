@@ -173,12 +173,9 @@ void light_direct(uint3 id : SV_DispatchThreadID) {
 	let face = gi_reference_face(gi_load(gi_params.offsets.x + slot) - 1u);
 	let geometry = gi_face_geometry(face);
 	let sun_dir = normalize(float3(0.5, 1.0, 0.2));
-	float direct = 0.75 * max(dot(geometry.normal, sun_dir), 0.0);
-	if (direct > 0.0) {
-		if (occlusion_raycast_conservative(geometry.center + geometry.normal * geometry.bias, sun_dir, 1e38)) {
-			direct = 0.0;
-		}
-	}
+	let sample_count = render_settings.values.z;
+	let visibility = float(face_sun_visible_samples(face, geometry, sample_count)) / float(sample_count);
+	let direct = (0.75 * max(dot(geometry.normal, sun_dir), 0.0)) * visibility;
 	let item = bvh_items[face.y];
 	let albedo = voxel_sampler_color(item.voxel_type_id, item.aabb_size >> 24u, item.item_index_2,
 		face.z & 0xffffu, face.z >> 16u, geometry.surface_pos).xyz;

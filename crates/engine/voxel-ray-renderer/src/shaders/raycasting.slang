@@ -102,9 +102,8 @@ void raycast_primary(uint3 global_invocation_id, bool fallback) {
 		return;
 	}
 
-	uint visibility_mask = 0u;
+	uint shadow_counts = 0u;
 	if (fallback) {
-		let sun_dir = normalize(float3(0.5, 1.0, 0.2));
 		let hit_axis = (hit.normal >> 3u) & 3u;
 		let occluded = (hit.normal >> 11u) & 7u;
 		for (uint axis = 0u; axis < 3u; axis++) {
@@ -112,16 +111,15 @@ void raycast_primary(uint3 global_invocation_id, bool fallback) {
 			let face = uint3(gi_canonical_normal(hit.normal, axis), hit.bvh_item_idx,
 				hit.voxel_data_index | (hit.voxel_index << 16u));
 			let geometry = gi_face_geometry(face);
-			if (dot(geometry.normal, sun_dir) > 0.0
-				&& !occlusion_raycast_conservative(geometry.center + geometry.normal * geometry.bias, sun_dir, 1e38)) {
-				visibility_mask |= 1u << axis;
-			}
+			shadow_counts |= face_sun_visible_samples(face, geometry, render_settings.values.z) << (4u * axis);
 		}
 	}
+	// Four bits per face preserve exact counts up to nine for AA fallback.
+	// X uses normal bits 5..8; Y/Z use material bits 24..31 (voxel_index is at most 63).
 	intermediate_textured.Store(pixel, uint4(
-		(hit.normal & ~0xe0u) | (visibility_mask << 5u),
+		(hit.normal & ~0x1e0u) | ((shadow_counts & 0xfu) << 5u),
 		hit.bvh_item_idx,
-		hit.voxel_data_index + (hit.voxel_index << 16u),
+		hit.voxel_data_index | (hit.voxel_index << 16u) | ((shadow_counts >> 4u) << 24u),
 		asuint(hit.total_dist + beam_min_dist)
 	));
 }

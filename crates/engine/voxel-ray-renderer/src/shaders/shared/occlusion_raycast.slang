@@ -4,6 +4,7 @@
 #include "direction_feedback.slang"
 #include "dda/raycast.slang"
 #include "helpers/quat.slang"
+#include "face_geometry.slang"
 
 bool occlusion_raycast_impl(float3 ray_pos, float3 ray_dir, float max_dist, bool unknown_blocks) {
 	BVH::ExactRaycastPolicy bvh_policy;
@@ -49,4 +50,23 @@ bool occlusion_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 
 bool occlusion_raycast_conservative(float3 ray_pos, float3 ray_dir, float max_dist) {
 	return occlusion_raycast_impl(ray_pos, ray_dir, max_dist, true);
+}
+
+uint face_sun_visible_samples(uint3 face, GiFaceGeometry geometry, uint sample_count) {
+	let sun_dir = normalize(float3(0.5, 1.0, 0.2));
+	if (dot(geometry.normal, sun_dir) <= 0.0) { return 0u; }
+	let width = sample_count == 9u ? 3u : (sample_count == 4u ? 2u : 1u);
+	let axis = (face.x >> 3u) & 3u;
+	let scale = bvh_items[face.y].scale;
+	uint visible = 0u;
+	for (uint sample = 0u; sample < sample_count; sample++) {
+		// Cell centers in a fixed 1x1, 2x2, or 3x3 grid on the voxel face.
+		float3 offset = float3(0.0);
+		offset[(axis + 1u) % 3u] = (float(sample % width) + 0.5) / float(width) - 0.5;
+		offset[(axis + 2u) % 3u] = (float(sample / width) + 0.5) / float(width) - 0.5;
+		let origin = geometry.center + Quat::rotate(geometry.rotation, offset * scale)
+			+ geometry.normal * geometry.bias;
+		if (!occlusion_raycast_conservative(origin, sun_dir, 1e38)) { visible++; }
+	}
+	return visible;
 }

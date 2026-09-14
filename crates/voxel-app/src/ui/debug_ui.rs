@@ -7,7 +7,7 @@ use voxel_tasks::AsyncPriorityTaskPool;
 use voxel_mass::{CenterOfMass, Mass, RotationalInertia};
 use voxel_physics::{BallJoint, FreezePhysics, IsStatic, RigidBody};
 use crate::voxel::rendering::VoxelRenderMode;
-use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::{GiRayCount, GraphicsSettings, LightingMode}};
+use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::{DirectRayCount, GiRayCount, GraphicsSettings, LightingMode}};
 use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
 use tile_data::CHUNK_SIZE;
@@ -119,6 +119,15 @@ fn debug_window(
 					ui.selectable_value(&mut graphics_settings.lighting, LightingMode::Indirect, "1-bounce indirect");
 				});
 			ui.checkbox(&mut graphics_settings.anti_aliasing, "ray anti-aliasing");
+			ui.add_enabled_ui(graphics_settings.lighting != LightingMode::None, |ui| {
+				egui::ComboBox::from_label("Direct rays per face")
+					.selected_text(graphics_settings.direct_rays.count().to_string())
+					.show_ui(ui, |ui| {
+						for rays in [DirectRayCount::One, DirectRayCount::Four, DirectRayCount::Nine] {
+							ui.selectable_value(&mut graphics_settings.direct_rays, rays, rays.count().to_string());
+						}
+					});
+			});
 			ui.add_enabled_ui(graphics_settings.lighting == LightingMode::Indirect, |ui| {
 				egui::ComboBox::from_label("GI rays per face")
 					.selected_text(graphics_settings.gi_rays.count().to_string())

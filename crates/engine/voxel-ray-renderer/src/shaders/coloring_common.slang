@@ -49,6 +49,7 @@ struct VoxelContribution {
 	bool hit;
 	uint normal;
 	uint packed_hit_data;
+	uint shadow_counts;
 	uint camera_face_occlusion_mask;
 	uint bvh_item_idx;
 	uint voxel_data_index;
@@ -65,10 +66,11 @@ VoxelContribution calculate_voxel_contribution(uint4 data, float2 texture_positi
 	contribution.hit = true;
 	contribution.normal = data.x & 0x1Fu;
 	contribution.packed_hit_data = data.x;
+	contribution.shadow_counts = ((data.x >> 5u) & 0xfu) | ((data.z >> 24u) << 4u);
 	contribution.camera_face_occlusion_mask = (data.x >> 11u) & 7u;
 	contribution.bvh_item_idx = data.y;
 	contribution.voxel_data_index = data.z & 0xFFFFu;
-	contribution.voxel_index = data.z >> 16u;
+	contribution.voxel_index = (data.z >> 16u) & 0xffu;
 
 	let item = bvh_items[contribution.bvh_item_idx];
 	let distance = asfloat(data.w);
@@ -131,8 +133,9 @@ float3 color_voxel_surface(VoxelContribution contribution, float3 surface_pos, f
 		return float3(0.0);
 	}
 	let axis = (contribution.normal >> 3u) & 3u;
-	let visible = (contribution.packed_hit_data & (1u << (5u + axis))) != 0u;
-	return base_color * (ambient + (visible ? unshadowed_sun : 0.0));
+	let visible = (contribution.shadow_counts >> (4u * axis)) & 0xfu;
+	let visibility = float(visible) / float(render_settings.values.z);
+	return base_color * (ambient + unshadowed_sun * visibility);
 }
 
 float3 voxel_contribution_world_normal(VoxelContribution contribution) {

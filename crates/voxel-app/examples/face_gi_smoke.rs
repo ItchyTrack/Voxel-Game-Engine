@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, time::Instant};
+use std::{collections::{HashMap, HashSet}, path::PathBuf, time::Instant};
 
 use basic_voxel::{BasicVoxel, BasicVoxelPlugin};
 use bevy::{camera::{Hdr, RenderTarget}, prelude::*, render::{Render, RenderApp, RenderSystems, renderer::RenderQueue, view::{Msaa, screenshot::{Screenshot, ScreenshotCaptured, save_to_disk}}}, window::WindowResolution};
@@ -7,7 +7,7 @@ use voxel_content::{StreamingVoxels, VoxelStoreSource, VoxelStoreSourcePlugin};
 use voxel_data::{grid::Grid, voxels::VoxelType};
 use voxel_engine::{VoxelEngineMode, VoxelEnginePlugins};
 use voxel_gpu::RenderingContext;
-use voxel_ray_renderer::{RayRenderingType, direction_feedback::RenderStats, graphics_settings::{GiRayCount, GraphicsSettings, LightingMode}, render_node::prepare_voxel_view_bind_groups, voxel_renderer_resource::VoxelViewResources};
+use voxel_ray_renderer::{RayRenderingType, direction_feedback::RenderStats, graphics_settings::{DirectRayCount, GiRayCount, GraphicsSettings, LightingMode}, render_node::prepare_voxel_view_bind_groups, voxel_renderer_resource::VoxelViewResources};
 use voxel_sources::{SourceManager, edit::GridEditIdManager};
 use voxel_streaming::GridStreaming;
 
@@ -135,6 +135,17 @@ fn capture(commands: &mut Commands, smoke: &Smoke, label: &'static str, equal_to
 					println!("GI_SMOKE color bleed: {tinted} neutral-surface pixels");
 					assert!(!pixels.chunks_exact(4).any(|pixel| pixel[..3] == [0, 0, 0]), "Direct lost its ambient fill");
 				},
+				"direct-4" | "direct-9" => {
+					let colors = smoke.images["direct"].chunks_exact(4)
+						.map(|pixel| [pixel[0], pixel[1], pixel[2]]).collect::<HashSet<_>>();
+					let partial = pixels.chunks_exact(4)
+						.filter(|pixel| !colors.contains(&[pixel[0], pixel[1], pixel[2]])).count();
+					assert!(partial > 100, "extra direct rays did not produce partial shadow coverage");
+					if label == "direct-9" { assert!(pixels != &smoke.images["direct-4"], "nine rays matched four"); }
+					println!("GI_SMOKE {label}: {partial} partial-shadow pixels");
+				},
+				"gi-direct-4" | "gi-direct-9" => assert!(pixels != &smoke.images["gi-on"], "direct ray count had no effect in GI"),
+				"gi-direct-9-aa" => assert!(pixels != &smoke.images["gi-direct-9"], "AA had no effect with nine direct rays"),
 				"normal-shading" => {
 					assert!(pixels != &smoke.images["direct"], "Nothing still includes shadows");
 					// The gray block has the same material on its top and front faces.
@@ -216,46 +227,65 @@ fn advance_app(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<Rend
 	assert_mode(&stats, &settings);
 	match smoke.phase {
 		0 | 2 | 4 | 6 | 8 => {
-			let label = match smoke.phase { 0 => "app-gi-on", 2 => "app-direct", 4 => "app-normal-shading", 6 => "app-gi-aa", _ => "app-gi64-aa" };
+			let label = match smoke.phase { 0 => "app-gi-on", 2 => "app-direct-4", 4 => "app-normal-shading", 6 => "app-gi-aa", _ => "app-gi64-direct9-aa" };
 			commands.spawn(Screenshot::primary_window()).observe(save_to_disk(smoke.output.join(format!("{label}.png"))));
 		},
-		1 => settings.lighting = LightingMode::Direct,
+		1 => { settings.lighting = LightingMode::Direct; settings.direct_rays = DirectRayCount::Four; },
 		3 => settings.lighting = LightingMode::None,
 		5 => { settings.lighting = LightingMode::Indirect; settings.anti_aliasing = true; },
-		7 => settings.gi_rays = GiRayCount::SixtyFour,
-		9 => { println!("GI_APP PASS: all lighting modes, AA, and 64 rays"); exit.write(AppExit::Success); },
+		7 => { settings.gi_rays = GiRayCount::SixtyFour; settings.direct_rays = DirectRayCount::Nine; },
+		9 => { println!("GI_APP PASS: all lighting modes, AA, 64 GI rays, and 1/4/9 direct rays"); exit.write(AppExit::Success); },
 		_ => {},
 	}
 	smoke.phase += 1;
 	smoke.ticks = 0;
 }
 
-fn advance_overflow(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderStats>, mut settings: ResMut<GraphicsSettings>, mut exit: MessageWriter<AppExit>) {
+fn advance_overflow(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderStats>, mut settings: ResMut<GraphicsSettings>, mut rooms: Query<&mut Transform, With<TestRoom>>, mut exit: MessageWriter<AppExit>) {
 	assert!(smoke.started.elapsed().as_secs() < 180, "overflow smoke test timed out");
 	let gi = stats.inner.lock().unwrap().face_gi;
 	smoke.ticks += 1;
-	if smoke.phase == 0 && gi.overflow_flags == 0 { smoke.ticks = 0; return; }
+	let batch = smoke.phase / 11;
+	let phase = smoke.phase % 11;
+	if phase == 0 && gi.overflow_flags == 0 { smoke.ticks = 0; return; }
 	if smoke.ticks < 60 { return; }
-	println!("GI_OVERFLOW phase {}: {gi:?}", smoke.phase);
+	println!("GI_OVERFLOW phase {}, direct rays {}: {gi:?}", smoke.phase, settings.direct_rays.count());
+	let labels = [
+		["overflow", "overflow-direct", "overflow-aa", "overflow-direct-aa"],
+		["overflow-4", "overflow-direct-4", "overflow-4-aa", "overflow-direct-4-aa"],
+		["overflow-9", "overflow-direct-9", "overflow-9-aa", "overflow-direct-9-aa"],
+		["moved-overflow", "moved-direct", "moved-overflow-aa", "moved-direct-aa"],
+		["moved-overflow-4", "moved-direct-4", "moved-overflow-4-aa", "moved-direct-4-aa"],
+		["moved-overflow-9", "moved-direct-9", "moved-overflow-9-aa", "moved-direct-9-aa"],
+	][batch as usize];
 	if settings.lighting == LightingMode::Indirect {
 		assert_eq!(gi.visible_capacity, 1024);
 		assert_ne!(gi.overflow_flags & 2, 0);
 	} else { assert_mode(&stats, &settings); }
-	match smoke.phase {
-		0 => capture(&mut commands, &smoke, "overflow", None),
+	match phase {
+		0 => capture(&mut commands, &smoke, labels[0], None),
 		1 => settings.lighting = LightingMode::Direct,
-		2 => capture(&mut commands, &smoke, "overflow-direct", Some("overflow")),
+		2 => capture(&mut commands, &smoke, labels[1], Some(labels[0])),
 		3 => settings.lighting = LightingMode::None,
 		4 => {},
 		5 => { settings.lighting = LightingMode::Indirect; settings.anti_aliasing = true; },
-		6 => capture(&mut commands, &smoke, "overflow-aa", None),
+		6 => capture(&mut commands, &smoke, labels[2], None),
 		7 => settings.lighting = LightingMode::Direct,
-		8 => capture(&mut commands, &smoke, "overflow-direct-aa", Some("overflow-aa")),
+		8 => capture(&mut commands, &smoke, labels[3], Some(labels[2])),
 		9 => settings.lighting = LightingMode::Indirect,
 		10 => {
-			assert_eq!(smoke.captures, 4);
-			println!("GI_OVERFLOW PASS: fallback matches per-face Direct byte-for-byte, with and without AA");
-			exit.write(AppExit::Success);
+			assert_eq!(smoke.captures, (batch + 1) * 4);
+			if batch == 5 {
+				println!("GI_OVERFLOW PASS: fallback matches Direct byte-for-byte for 1/4/9 rays, with AA and grid transforms");
+				exit.write(AppExit::Success);
+			} else {
+				settings.direct_rays = [DirectRayCount::One, DirectRayCount::Four, DirectRayCount::Nine][(batch as usize + 1) % 3];
+				settings.anti_aliasing = false;
+				if batch == 2 {
+					*rooms.single_mut().unwrap() = Transform::from_xyz(0.75, 0.0, 0.0)
+						.with_rotation(Quat::from_euler(EulerRot::YXZ, 0.25, 0.15, -0.1)).with_scale(Vec3::splat(1.25));
+				}
+			}
 		},
 		_ => {},
 	}
@@ -306,9 +336,28 @@ fn advance(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderSt
 			images.get_mut(&smoke.target).unwrap().resize(wgpu::Extent3d { width: 800, height: 600, depth_or_array_layers: 1 });
 		},
 		23 => capture(&mut commands, &smoke, "gi-restored", Some("gi-on")),
-		24 => {
-			assert_eq!(smoke.captures, 13);
-			println!("GI_SMOKE PASS: lighting modes, all ray counts, color bleed, 2D dispatches, AA, resize, transforms, and frame-local output");
+		24 => { settings.lighting = LightingMode::Direct; settings.direct_rays = DirectRayCount::Four; },
+		25 => capture(&mut commands, &smoke, "direct-4", None),
+		26 => capture(&mut commands, &smoke, "direct-4-repeat", Some("direct-4")),
+		27 => settings.direct_rays = DirectRayCount::Nine,
+		28 => capture(&mut commands, &smoke, "direct-9", None),
+		29 => capture(&mut commands, &smoke, "direct-9-repeat", Some("direct-9")),
+		30 => settings.lighting = LightingMode::None,
+		31 => capture(&mut commands, &smoke, "normal-shading-rays9", Some("normal-shading")),
+		32 => settings.lighting = LightingMode::Indirect,
+		33 => capture(&mut commands, &smoke, "gi-direct-9", None),
+		34 => capture(&mut commands, &smoke, "gi-direct-9-repeat", Some("gi-direct-9")),
+		35 => settings.anti_aliasing = true,
+		36 => capture(&mut commands, &smoke, "gi-direct-9-aa", None),
+		37 => { settings.anti_aliasing = false; settings.direct_rays = DirectRayCount::Four; },
+		38 => capture(&mut commands, &smoke, "gi-direct-4", None),
+		39 => settings.direct_rays = DirectRayCount::One,
+		40 => capture(&mut commands, &smoke, "gi-direct-1-restored", Some("gi-on")),
+		41 => settings.lighting = LightingMode::Direct,
+		42 => capture(&mut commands, &smoke, "direct-1-restored", Some("direct")),
+		43 => {
+			assert_eq!(smoke.captures, 24);
+			println!("GI_SMOKE PASS: lighting modes, all GI/direct ray counts, partial shadows, color bleed, 2D dispatches, AA, resize, transforms, and frame-local output");
 			exit.write(AppExit::Success);
 		},
 		_ => {},
