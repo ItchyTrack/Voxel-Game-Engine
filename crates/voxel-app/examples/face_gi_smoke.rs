@@ -38,12 +38,15 @@ fn main() {
 	std::fs::create_dir_all(&output).unwrap();
 	let smoke = Smoke { phase: 0, ticks: 0, captures: 0, started: Instant::now(), images: default(), output, target: default() };
 	let settings = GraphicsSettings { lighting: LightingMode::Indirect, ..default() };
-	if args.iter().any(|arg| arg == "--app") {
+	if args.iter().any(|arg| arg == "--app" || arg == "--angles") {
+		let angles = args.iter().any(|arg| arg == "--angles");
 		let mut app = voxel_app::build_app(Window { resolution: WindowResolution::new(800, 600), ..default() });
 		app.insert_resource(settings)
 			.insert_resource(voxel_physics::FreezePhysics(true))
-			.insert_resource(smoke)
-			.add_systems(Update, advance_app);
+			.insert_resource(smoke);
+		if angles {
+			app.add_systems(PostStartup, setup_angle_target).add_systems(Update, advance_angles);
+		} else { app.add_systems(Update, advance_app); }
 		app.run();
 		return;
 	}
@@ -130,8 +133,15 @@ fn capture(commands: &mut Commands, smoke: &Smoke, label: &'static str, equal_to
 					}).count();
 					assert!(tinted > 100, "colored bounce lighting did not reach neutral surfaces");
 					println!("GI_SMOKE color bleed: {tinted} neutral-surface pixels");
+					assert!(!pixels.chunks_exact(4).any(|pixel| pixel[..3] == [0, 0, 0]), "Direct lost its ambient fill");
 				},
-				"unlit" => assert!(pixels != &smoke.images["direct"], "Nothing still looks directly lit"),
+				"normal-shading" => {
+					assert!(pixels != &smoke.images["direct"], "Nothing still includes shadows");
+					// The gray block has the same material on its top and front faces.
+					let top = pixels[(288 * 800 + 400) * 4];
+					let front = pixels[(340 * 800 + 400) * 4];
+					assert!(top > front.saturating_add(10), "Nothing did not shade by sun normal");
+				},
 				"gi-aa" => assert!(pixels != &smoke.images["gi-on"], "AA had no visible effect"),
 				"gi-moved" => assert!(pixels != &smoke.images["gi-resized"], "grid transform had no visible effect"),
 				"gi-8" | "gi-16" | "gi-64" => assert!(pixels != &smoke.images["gi-on"], "ray count had no visible effect"),
@@ -163,6 +173,39 @@ fn assert_mode(stats: &RenderStats, settings: &GraphicsSettings) {
 	}
 }
 
+fn setup_angle_target(mut commands: Commands, mut smoke: ResMut<Smoke>, mut images: ResMut<Assets<Image>>, cameras: Query<Entity, With<Camera3d>>) {
+	smoke.target = images.add(Image::new_target_texture(1686, 948, wgpu::TextureFormat::Rgba8UnormSrgb, None));
+	for camera in &cameras { commands.entity(camera).insert(RenderTarget::Image(smoke.target.clone().into())); }
+}
+
+fn advance_angles(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderStats>, mut cameras: Query<&mut Transform, With<Camera3d>>, mut exit: MessageWriter<AppExit>) {
+	assert!(smoke.started.elapsed().as_secs() < 180, "angle check timed out");
+	if smoke.phase == 24 {
+		smoke.ticks += 1;
+		if smoke.ticks >= 30 {
+			println!("GI_ANGLE finished: {} views overflowed", smoke.captures);
+			exit.write(AppExit::Success);
+		}
+		return;
+	}
+	let yaw = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0][smoke.phase as usize % 8];
+	let pitch = [-0.35, -0.5, -0.7][(smoke.phase as usize / 8) % 3];
+	let position = Vec3::new(0.0, 150.0, 400.0);
+	for mut camera in &mut cameras {
+		*camera = Transform::from_translation(position).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0));
+	}
+	smoke.ticks += 1;
+	let gi = stats.inner.lock().unwrap().face_gi;
+	if gi.visible_faces == 0 && smoke.phase == 0 { smoke.ticks = 0; return; }
+	if smoke.ticks < 90 { return; }
+	println!("GI_ANGLE position={position:?} yaw={yaw} pitch={pitch}: {gi:?}");
+	if gi.overflow_flags != 0 { smoke.captures += 1; }
+	commands.spawn(Screenshot::image(smoke.target.clone()))
+		.observe(save_to_disk(smoke.output.join(format!("angle-{}.png", smoke.phase))));
+	smoke.phase += 1;
+	smoke.ticks = 0;
+}
+
 fn advance_app(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderStats>, mut settings: ResMut<GraphicsSettings>, mut exit: MessageWriter<AppExit>) {
 	assert!(smoke.started.elapsed().as_secs() < 180, "application smoke test timed out");
 	let gi = stats.inner.lock().unwrap().face_gi;
@@ -173,7 +216,7 @@ fn advance_app(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<Rend
 	assert_mode(&stats, &settings);
 	match smoke.phase {
 		0 | 2 | 4 | 6 | 8 => {
-			let label = match smoke.phase { 0 => "app-gi-on", 2 => "app-direct", 4 => "app-unlit", 6 => "app-gi-aa", _ => "app-gi64-aa" };
+			let label = match smoke.phase { 0 => "app-gi-on", 2 => "app-direct", 4 => "app-normal-shading", 6 => "app-gi-aa", _ => "app-gi64-aa" };
 			commands.spawn(Screenshot::primary_window()).observe(save_to_disk(smoke.output.join(format!("{label}.png"))));
 		},
 		1 => settings.lighting = LightingMode::Direct,
@@ -238,7 +281,7 @@ fn advance(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderSt
 		2 => settings.lighting = LightingMode::Direct,
 		3 => capture(&mut commands, &smoke, "direct", None),
 		4 => settings.lighting = LightingMode::None,
-		5 => capture(&mut commands, &smoke, "unlit", None),
+		5 => capture(&mut commands, &smoke, "normal-shading", None),
 		6 => { settings.lighting = LightingMode::Indirect; settings.gi_rays = GiRayCount::Eight; },
 		7 => capture(&mut commands, &smoke, "gi-8", None),
 		8 => settings.gi_rays = GiRayCount::Sixteen,

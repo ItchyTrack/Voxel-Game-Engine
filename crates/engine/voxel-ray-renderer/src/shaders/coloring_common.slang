@@ -111,7 +111,10 @@ float3 color_voxel_surface(VoxelContribution contribution, float3 surface_pos, f
 			surface_pos
 		).xyz;
 	}
-	if (render_settings.values.x == 0u) { return base_color; }
+	let ambient = 0.25;
+	let sun_dir = normalize(float3(0.5, 1.0, 0.2));
+	let unshadowed_sun = 0.75 * max(dot(world_normal, sun_dir), 0.0);
+	if (render_settings.values.x == 0u) { return base_color * (ambient + unshadowed_sun); }
 	if (gi_load(2u) == 0u) {
 		let axis = (contribution.normal >> 3u) & 3u;
 		let packed = (contribution.packed_hit_data & 0xffffc000u) | contribution.normal;
@@ -120,15 +123,16 @@ float3 color_voxel_surface(VoxelContribution contribution, float3 surface_pos, f
 		if (slot < gi_params.sizes.x) {
 			let offset = gi_params.offsets.w + slot * 7u;
 			let direct = asfloat(gi_load(offset + 3u));
-			return base_color * (float3(direct) + gi_load_rgb(offset + 4u));
+			// Ambient is display fill for Direct, never radiance to bounce in GI.
+			let fill = render_settings.values.x == 1u ? ambient : 0.0;
+			return base_color * (float3(direct + fill) + gi_load_rgb(offset + 4u));
 		}
 		// A missing face has no traced lighting.
 		return float3(0.0);
 	}
 	let axis = (contribution.normal >> 3u) & 3u;
 	let visible = (contribution.packed_hit_data & (1u << (5u + axis))) != 0u;
-	let sun_dir = normalize(float3(0.5, 1.0, 0.2));
-	return base_color * (visible ? 0.75 * max(dot(world_normal, sun_dir), 0.0) : 0.0);
+	return base_color * (ambient + (visible ? unshadowed_sun : 0.0));
 }
 
 float3 voxel_contribution_world_normal(VoxelContribution contribution) {

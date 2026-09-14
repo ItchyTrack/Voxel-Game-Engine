@@ -2,11 +2,11 @@
 
 Run `cargo run --release -p voxel-app`. **Debug → Graphics → Lighting** selects:
 
-- **Nothing:** unlit material colors; no lighting passes.
-- **Direct:** shadowed sunlight, computed once per visible voxel face.
-- **1-bounce indirect:** the same direct lighting plus one diffuse bounce and visible sky light.
+- **Nothing:** sun-normal shading with ambient fill, without shadow or GI passes.
+- **Direct:** shadowed sunlight, computed once per visible voxel face, plus ambient fill.
+- **1-bounce indirect:** shadowed sunlight plus one diffuse bounce and visible sky light.
 
-Lighting defaults to Nothing. **GI rays per face** selects 8, 16, 32, or 64 rays, defaulting to 32. The ray-count dropdown is enabled only for indirect lighting. Both lit modes include shadows; there is no separate shadows toggle or artificial ambient floor.
+Lighting defaults to Nothing. **GI rays per face** selects 8, 16, 32, or 64 rays, defaulting to 32. The ray-count dropdown is enabled only for indirect lighting. Direct and indirect modes include shadows; there is no separate shadows toggle. Nothing and Direct retain the old 0.25 ambient fill. GI uses sampled sky and bounced sunlight instead; the fill is never added to contributor radiance.
 
 ## Frame-local lighting
 
@@ -25,7 +25,7 @@ Only the table and counters need clearing. Other data is overwritten before use.
 - Known unavailable geometry contributes no indirect light and blocks shadow rays. Geometry absent from the render BVH cannot be detected.
 - Rasterized and marching-renderer surfaces do not contribute to this lighting.
 - At full face capacity, the arena uses about 104, 136, 200, or 328 MiB per view for 8, 16, 32, or 64 rays. Smaller device limits reduce face capacity. Buffers remain allocated when lighting is disabled; changing ray count rebuilds them.
-- Capacity or bounded-hash-probe failure falls back to direct-only lighting for the whole frame. Fallback samples shadows at the same face centers, including faces reconstructed by AA, but may repeat work per pixel.
+- Capacity or bounded-hash-probe failure falls back to Direct with ambient fill for the whole frame. This can occur as the camera angle changes the face count. A warning appears outside the collapsed stats panel. Fallback samples shadows at the same face centers, including faces reconstructed by AA, but may repeat work per pixel.
 
 **Face lighting stats** shows the last view's mode, ray count, face counts, secondary hits, sky misses, incomplete rays, memory, and overflow flags. Direct mode needs no indirect-hit records and can use the full face-table capacity.
 
@@ -36,6 +36,7 @@ cargo test --release -p voxel-ray-renderer --lib
 cargo run --release -p voxel-app --example face_gi_smoke
 cargo run --release -p voxel-app --example face_gi_smoke -- --overflow
 cargo run --release -p voxel-app --example face_gi_smoke -- --app
+cargo run --release -p voxel-app --example face_gi_smoke -- --angles
 ```
 
-The smoke example saves images under the system temporary directory. It checks all lighting modes and ray counts, color bleed, repeated frames, two-dimensional dispatches, AA, render-target resizing, and grid transforms. The overflow run deliberately limits visible-face capacity and checks that fallback matches Direct byte-for-byte, with and without AA. The `--app` run captures the normal application in all modes, including 64-ray GI with AA.
+The smoke example saves images under the system temporary directory. It checks sun-normal shading, ambient fill, all ray counts, color bleed, repeated frames, two-dimensional dispatches, AA, render-target resizing, and grid transforms. The overflow run deliberately limits visible-face capacity and checks that fallback matches Direct with ambient byte-for-byte, with and without AA. The `--app` run captures the normal application in all modes, including 64-ray GI with AA. The `--angles` diagnostic captures a camera sweep at 1686×948 and logs overflow flags.

@@ -128,6 +128,10 @@ fn debug_window(
 						}
 					});
 			});
+			if gi.enabled && gi.overflow_flags != 0 {
+				ui.colored_label(egui::Color32::YELLOW, "Lighting fallback: Direct + ambient");
+				if gi.overflow_flags & 2 != 0 { ui.label("Too many visible faces for GI"); }
+			}
 			ui.collapsing("Face lighting stats (last view)", |ui| {
 				ui.label(format!("Last frame: {}", if !gi.enabled { "Nothing" } else if gi.indirect { "1-bounce indirect" } else { "Direct" }));
 				ui.label(format!("GI rays per face: {}", gi.rays_per_face));
@@ -138,7 +142,7 @@ fn debug_window(
 				ui.label(format!("Incomplete rays: {}", gi.incomplete_rays));
 				ui.label(format!("Sky misses: {}", gi.sky_misses));
 				ui.label(format!("Overflow flags: {:#x}", gi.overflow_flags));
-				if gi.enabled && gi.overflow_flags != 0 { ui.label("Direct-only lighting fallback"); }
+				if gi.enabled && gi.overflow_flags != 0 { ui.label("Direct + ambient lighting fallback"); }
 			});
 			ui.horizontal(|ui| {
 				ui.label("grid renderer");
