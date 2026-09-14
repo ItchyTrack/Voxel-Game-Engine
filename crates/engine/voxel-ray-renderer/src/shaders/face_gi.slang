@@ -23,7 +23,7 @@ struct RenderSettings {
 ConstantBuffer<RenderSettings> render_settings : register(b1, space0);
 
 bool gi_active() {
-	return render_settings.values.z != 0u && gi_load(2u) == 0u;
+	return render_settings.values.x != 0u && gi_load(2u) == 0u;
 }
 
 uint gi_insert_face(uint reference, uint2 key) {
@@ -61,8 +61,11 @@ void gi_store_rgb(uint offset, float3 value) {
 }
 
 void gi_dispatch_args(uint offset, uint count) {
-	gi_words[offset].store((count + 63u) / 64u);
-	gi_words[offset + 1u].store(1u);
+	let groups = (count + 63u) / 64u;
+	let x = min(groups, gi_params.settings.y);
+	let y = groups == 0u ? 1u : (groups + x - 1u) / x;
+	gi_words[offset].store(x);
+	gi_words[offset + 1u].store(y);
 	gi_words[offset + 2u].store(1u);
 }
 
@@ -89,12 +92,13 @@ void discover_visible(uint3 id : SV_DispatchThreadID) {
 [numthreads(1, 1, 1)]
 void prepare_visible(uint3 id : SV_DispatchThreadID) {
 	let count = gi_load(0u);
-	let visible = min(count, gi_params.sizes.y);
+	let indirect = render_settings.values.x == 2u;
+	let visible = indirect ? min(count, gi_params.sizes.y) : count;
 	gi_words[1u].store(visible);
-	if (count > gi_params.sizes.y) { gi_words[2u].or(2u); }
-	let work = gi_active() ? visible : 0u;
+	if (indirect && count > gi_params.sizes.y) { gi_words[2u].or(2u); }
+	let work = gi_active() && indirect ? visible : 0u;
 	gi_dispatch_args(4u, work);
-	gi_dispatch_args(7u, work * GI_SAMPLE_COUNT);
+	gi_dispatch_args(7u, work * gi_params.settings.x);
 }
 
 float3 gi_sample_direction(uint packed_normal, uint sample_index, float4 rotation) {
@@ -102,9 +106,9 @@ float3 gi_sample_direction(uint packed_normal, uint sample_index, float4 rotatio
 	let negative = (packed_normal & (1u << axis)) != 0u;
 	// Rotate a fixed cosine-weighted pattern using only the local face identity.
 	let phase = float(gi_hash(packed_normal) & 0x00ffffffu) / 16777216.0;
-	let reversed = ((sample_index & 1u) << 2u) | (sample_index & 2u) | ((sample_index & 4u) >> 2u);
-	let u = (float(sample_index) + 0.5) / float(GI_SAMPLE_COUNT);
-	let angle = 6.28318530718 * frac(float(reversed) / float(GI_SAMPLE_COUNT) + phase);
+	let reversed = float(reversebits(sample_index)) * 2.3283064365386963e-10;
+	let u = (float(sample_index) + 0.5) / float(gi_params.settings.x);
+	let angle = 6.28318530718 * frac(reversed + phase);
 	float3 local_dir = float3(0.0);
 	local_dir[axis] = (negative ? -1.0 : 1.0) * sqrt(1.0 - u);
 	local_dir[(axis + 1u) % 3u] = sqrt(u) * cos(angle);
@@ -115,10 +119,12 @@ float3 gi_sample_direction(uint packed_normal, uint sample_index, float4 rotatio
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void trace_indirect(uint3 id : SV_DispatchThreadID) {
-	if (!gi_active() || id.x >= gi_load(1u) * GI_SAMPLE_COUNT) { return; }
-	let face = gi_list_face(id.x / GI_SAMPLE_COUNT);
+	let linear = id.x + id.y * gi_load(7u) * 64u;
+	let sample_count = gi_params.settings.x;
+	if (!gi_active() || render_settings.values.x != 2u || linear >= gi_load(1u) * sample_count) { return; }
+	let face = gi_list_face(linear / sample_count);
 	let geometry = gi_face_geometry(face);
-	let direction = gi_sample_direction(face.x, id.x % GI_SAMPLE_COUNT, geometry.rotation);
+	let direction = gi_sample_direction(face.x, linear % sample_count, geometry.rotation);
 	let hit = full_raycast(geometry.center + geometry.normal * geometry.bias, direction, 1e38);
 	uint3 record = uint3(0u, GI_UNKNOWN, 0u);
 	if (hit.unknown_dist < hit.total_dist) {
@@ -131,7 +137,7 @@ void trace_indirect(uint3 id : SV_DispatchThreadID) {
 			hit.voxel_data_index | (hit.voxel_index << 16u));
 		gi_words[13u].add(1u);
 	}
-	let offset = gi_params.offsets.z + id.x * 4u;
+	let offset = gi_params.offsets.z + linear * 4u;
 	gi_words[offset].store(record.x);
 	gi_words[offset + 1u].store(record.y);
 	gi_words[offset + 2u].store(record.z);
@@ -140,13 +146,14 @@ void trace_indirect(uint3 id : SV_DispatchThreadID) {
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void discover_contributors(uint3 id : SV_DispatchThreadID) {
-	if (!gi_active() || id.x >= gi_load(1u) * GI_SAMPLE_COUNT) { return; }
-	let offset = gi_params.offsets.z + id.x * 4u;
+	let linear = id.x + id.y * gi_load(7u) * 64u;
+	if (!gi_active() || render_settings.values.x != 2u || linear >= gi_load(1u) * gi_params.settings.x) { return; }
+	let offset = gi_params.offsets.z + linear * 4u;
 	let normal = gi_load(offset);
 	let item = gi_load(offset + 1u);
 	uint slot = item;
 	if (normal != 0u) {
-		slot = gi_insert_face(gi_primary_reference_count() + id.x, uint2(normal, item));
+		slot = gi_insert_face(gi_primary_reference_count() + linear, uint2(normal, item));
 	}
 	gi_words[offset + 3u].store(slot);
 }
@@ -160,13 +167,14 @@ void prepare_all(uint3 id : SV_DispatchThreadID) {
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void light_direct(uint3 id : SV_DispatchThreadID) {
-	if (!gi_active() || id.x >= min(gi_load(0u), gi_params.sizes.x)) { return; }
-	let slot = gi_load(gi_params.offsets.y + id.x);
+	let linear = id.x + id.y * gi_load(10u) * 64u;
+	if (!gi_active() || linear >= min(gi_load(0u), gi_params.sizes.x)) { return; }
+	let slot = gi_load(gi_params.offsets.y + linear);
 	let face = gi_reference_face(gi_load(gi_params.offsets.x + slot) - 1u);
 	let geometry = gi_face_geometry(face);
 	let sun_dir = normalize(float3(0.5, 1.0, 0.2));
 	float direct = 0.75 * max(dot(geometry.normal, sun_dir), 0.0);
-	if (direct > 0.0 && render_settings.values.x != 0u) {
+	if (direct > 0.0) {
 		if (occlusion_raycast_conservative(geometry.center + geometry.normal * geometry.bias, sun_dir, 1e38)) {
 			direct = 0.0;
 		}
@@ -183,10 +191,12 @@ void light_direct(uint3 id : SV_DispatchThreadID) {
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void gather_indirect(uint3 id : SV_DispatchThreadID) {
-	if (!gi_active() || id.x >= gi_load(1u)) { return; }
+	let linear = id.x + id.y * gi_load(4u) * 64u;
+	if (!gi_active() || render_settings.values.x != 2u || linear >= gi_load(1u)) { return; }
+	let sample_count = gi_params.settings.x;
 	float3 incoming = float3(0.0);
-	for (uint sample = 0u; sample < GI_SAMPLE_COUNT; sample++) {
-		let hit_offset = gi_params.offsets.z + (id.x * GI_SAMPLE_COUNT + sample) * 4u;
+	for (uint sample = 0u; sample < sample_count; sample++) {
+		let hit_offset = gi_params.offsets.z + (linear * sample_count + sample) * 4u;
 		let contributor = gi_load(hit_offset + 3u);
 		if (contributor == GI_SKY) {
 			incoming += float3(0.25);
@@ -194,6 +204,6 @@ void gather_indirect(uint3 id : SV_DispatchThreadID) {
 			incoming += gi_load_rgb(gi_params.offsets.w + contributor * 7u);
 		}
 	}
-	let slot = gi_load(gi_params.offsets.y + id.x);
-	gi_store_rgb(gi_params.offsets.w + slot * 7u + 4u, incoming / float(GI_SAMPLE_COUNT));
+	let slot = gi_load(gi_params.offsets.y + linear);
+	gi_store_rgb(gi_params.offsets.w + slot * 7u + 4u, incoming / float(sample_count));
 }

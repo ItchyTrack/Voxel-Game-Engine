@@ -1,4 +1,4 @@
-#include "bvh/data.slang"
+#include "face_geometry.slang"
 #include "combined_raycast.slang"
 #include "occlusion_raycast.slang"
 
@@ -30,7 +30,7 @@ struct RenderSettings {
 };
 ConstantBuffer<RenderSettings> render_settings : register(b1, space0);
 
-void raycast_primary(uint3 global_invocation_id) {
+void raycast_primary(uint3 global_invocation_id, bool fallback) {
 	uint texture_width;
 	uint texture_height;
 	intermediate_textured.GetDimensions(texture_width, texture_height);
@@ -96,22 +96,30 @@ void raycast_primary(uint3 global_invocation_id) {
 	}
 
 	let hit = full_raycast(ray_start + ray_dir * beam_min_dist, ray_dir, max_dist - beam_min_dist);
-	let sun_dir = normalize(float3(0.5, 1.0, 0.2));
 
 	if (hit.normal == 0u) {
 		intermediate_textured.Store(pixel, uint4(0, 0, 0, 0));
 		return;
 	}
 
-	bool light_visible = true;
-	if (render_settings.values.x != 0u && (render_settings.values.z == 0u || gi_words[2u] != 0u)) {
-		let item = bvh_items[hit.bvh_item_idx];
-		let hit_pos = ray_start + (hit.total_dist + beam_min_dist) * ray_dir;
-		let shadow_bias = max(0.01, item.scale * 0.01);
-		light_visible = !occlusion_raycast(hit_pos + sun_dir * shadow_bias, sun_dir, 1e38);
+	uint visibility_mask = 0u;
+	if (fallback) {
+		let sun_dir = normalize(float3(0.5, 1.0, 0.2));
+		let hit_axis = (hit.normal >> 3u) & 3u;
+		let occluded = (hit.normal >> 11u) & 7u;
+		for (uint axis = 0u; axis < 3u; axis++) {
+			if (anti_aliasing ? (occluded & (1u << axis)) != 0u : axis != hit_axis) { continue; }
+			let face = uint3(gi_canonical_normal(hit.normal, axis), hit.bvh_item_idx,
+				hit.voxel_data_index | (hit.voxel_index << 16u));
+			let geometry = gi_face_geometry(face);
+			if (dot(geometry.normal, sun_dir) > 0.0
+				&& !occlusion_raycast_conservative(geometry.center + geometry.normal * geometry.bias, sun_dir, 1e38)) {
+				visibility_mask |= 1u << axis;
+			}
+		}
 	}
 	intermediate_textured.Store(pixel, uint4(
-		hit.normal + 256u * (light_visible ? 1u : 0u),
+		(hit.normal & ~0xe0u) | (visibility_mask << 5u),
 		hit.bvh_item_idx,
 		hit.voxel_data_index + (hit.voxel_index << 16u),
 		asuint(hit.total_dist + beam_min_dist)
@@ -121,13 +129,13 @@ void raycast_primary(uint3 global_invocation_id) {
 [shader("compute")]
 [numthreads(8, 4, 1)]
 void main(uint3 global_invocation_id : SV_DispatchThreadID) {
-	raycast_primary(global_invocation_id);
+	raycast_primary(global_invocation_id, false);
 }
 
 [shader("compute")]
 [numthreads(8, 4, 1)]
 void fallback_main(uint3 global_invocation_id : SV_DispatchThreadID) {
-	if (render_settings.values.z != 0u && gi_words[2u] != 0u) {
-		raycast_primary(global_invocation_id);
+	if (render_settings.values.x != 0u && gi_words[2u] != 0u) {
+		raycast_primary(global_invocation_id, true);
 	}
 }

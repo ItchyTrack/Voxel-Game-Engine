@@ -12,6 +12,7 @@ type GpuTexture = WgpuWrapper<wgpu::Texture>;
 
 use crate::face_gi::{FaceGi, params_entry, storage_entry};
 use crate::gpu_bvh::GpuBvh;
+use crate::graphics_settings::{GiRayCount, LightingMode};
 use crate::shader_sources::VoxelShaderSources;
 
 pub const BVH_BEAM_TEXTURE_FACTOR: u32 = 8;
@@ -61,12 +62,13 @@ impl VoxelRenderer {
 		color_format: wgpu::TextureFormat,
 		camera_bind_group_layout: &GpuBindGroupLayout,
 		shader_sources: &VoxelShaderSources,
+		gi_rays: GiRayCount,
 	) -> anyhow::Result<Self> {
 		struct Cfg { width: u32, height: u32 }
 		let config = Cfg { width, height };
 		let intermediate_width = width.checked_add(1).ok_or_else(|| anyhow::anyhow!("intermediate width overflow"))?;
 		let intermediate_height = height.checked_add(1).ok_or_else(|| anyhow::anyhow!("intermediate height overflow"))?;
-		crate::face_gi::GiArenaLayout::new(intermediate_width, intermediate_height, &device.limits())?;
+		crate::face_gi::GiArenaLayout::new(intermediate_width, intermediate_height, gi_rays, &device.limits())?;
 		let tree_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[
 				wgpu::BindGroupLayoutEntry {
@@ -216,7 +218,7 @@ impl VoxelRenderer {
 			view_formats: &[],
 		}));
 		let gpu_bvh_layout = GpuBvh::bind_group_layout(device);
-		let face_gi = FaceGi::new(device, &intermediate_textured, camera_bind_group_layout, &gpu_bvh_layout, shader_sources)?;
+		let face_gi = FaceGi::new(device, &intermediate_textured, camera_bind_group_layout, &gpu_bvh_layout, shader_sources, gi_rays)?;
 		let intermediate_textured_read_bind_group = {
 			let view = texture_view(&intermediate_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&intermediate_textured);
 			WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -373,10 +375,10 @@ impl VoxelRenderer {
 		main_voxel_buffer: &GpuBuffer,
 		depth_view: &wgpu::TextureView,
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
-		face_gi_enabled: bool,
+		lighting: LightingMode,
 	) -> GpuBvh {
 		let mut gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
-		self.face_gi.clear(encoder, face_gi_enabled);
+		self.face_gi.clear(encoder, lighting);
 		let beam_storage_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.bvh_beam_textured);
 		let beam_read_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&self.bvh_beam_textured);
 		let intermediate_view = texture_view(&self.intermediate_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.intermediate_textured);
@@ -425,10 +427,10 @@ impl VoxelRenderer {
 			compute_pass.set_pipeline(&self.ray_marching_pipeline);
 			compute_pass.dispatch_workgroups(self.intermediate_textured.width().div_ceil(8), self.intermediate_textured.height().div_ceil(4), 1);
 		}
-		if face_gi_enabled {
+		if lighting != LightingMode::None {
 			self.face_gi.dispatch(
 				device, encoder, view_bind_group, view_uniform_offset, &gpu_bvh.bind_group,
-				[tree_buffer, main_tree_buffer, voxel_buffer, main_voxel_buffer],
+				[tree_buffer, main_tree_buffer, voxel_buffer, main_voxel_buffer], lighting,
 			);
 			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
 				label: Some("GI Fallback Ray Pass"), timestamp_writes: None,
@@ -473,7 +475,7 @@ impl VoxelRenderer {
 			gpu_bvh.item_direction_mask_buffer.size(),
 		);
 
-		gpu_bvh.face_gi_readback = Some(self.face_gi.copy_stats(device, encoder, face_gi_enabled));
+		gpu_bvh.face_gi_readback = Some(self.face_gi.copy_stats(device, encoder, lighting));
 		gpu_bvh
 	}
 }

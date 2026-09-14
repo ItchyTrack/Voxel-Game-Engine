@@ -24,14 +24,6 @@ struct ViewUniform {
 };
 ConstantBuffer<ViewUniform> view : register(b0, space0);
 
-float3 shade(float3 base_color, float3 world_normal, bool light_visible) {
-	let light_dir = normalize(float3(0.5, 1.0, 0.2));
-	let ndotl = max(dot(world_normal, light_dir), 0.0);
-	let shadow = light_visible ? ndotl : ndotl * 0.1;
-	let ambient = 0.25;
-	return base_color * (ambient + (1.0 - ambient) * shadow);
-}
-
 uint hash_uint(uint x) {
 	uint h = x;
 	h ^= h >> 16u;
@@ -55,7 +47,6 @@ uint3 decode_voxel_coordinate(uint packed_hit_data) {
 
 struct VoxelContribution {
 	bool hit;
-	bool light_visible;
 	uint normal;
 	uint packed_hit_data;
 	uint camera_face_occlusion_mask;
@@ -72,9 +63,8 @@ VoxelContribution calculate_voxel_contribution(uint4 data, float2 texture_positi
 	if (data.x == 0u) { return contribution; }
 
 	contribution.hit = true;
-	contribution.normal = data.x & 0xFFu;
+	contribution.normal = data.x & 0x1Fu;
 	contribution.packed_hit_data = data.x;
-	contribution.light_visible = (data.x & 256u) != 0u;
 	contribution.camera_face_occlusion_mask = (data.x >> 11u) & 7u;
 	contribution.bvh_item_idx = data.y;
 	contribution.voxel_data_index = data.z & 0xFFFFu;
@@ -121,7 +111,8 @@ float3 color_voxel_surface(VoxelContribution contribution, float3 surface_pos, f
 			surface_pos
 		).xyz;
 	}
-	if (render_settings.values.z != 0u && gi_load(2u) == 0u) {
+	if (render_settings.values.x == 0u) { return base_color; }
+	if (gi_load(2u) == 0u) {
 		let axis = (contribution.normal >> 3u) & 3u;
 		let packed = (contribution.packed_hit_data & 0xffffc000u) | contribution.normal;
 		let key = uint2(gi_canonical_normal(packed, axis), contribution.bvh_item_idx);
@@ -131,10 +122,13 @@ float3 color_voxel_surface(VoxelContribution contribution, float3 surface_pos, f
 			let direct = asfloat(gi_load(offset + 3u));
 			return base_color * (float3(direct) + gi_load_rgb(offset + 4u));
 		}
-		// A missing face must not use a primary shadow that GI skipped.
+		// A missing face has no traced lighting.
 		return float3(0.0);
 	}
-	return shade(base_color, world_normal, contribution.light_visible);
+	let axis = (contribution.normal >> 3u) & 3u;
+	let visible = (contribution.packed_hit_data & (1u << (5u + axis))) != 0u;
+	let sun_dir = normalize(float3(0.5, 1.0, 0.2));
+	return base_color * (visible ? 0.75 * max(dot(world_normal, sun_dir), 0.0) : 0.0);
 }
 
 float3 voxel_contribution_world_normal(VoxelContribution contribution) {

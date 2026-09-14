@@ -73,12 +73,14 @@ pub fn prepare_voxel_view_bind_groups(
 		if let Some(mut prepared) = prepared {
 			prepared.ready = false;
 			prepared.view_uniform_offset = view_offset.offset;
-			prepared.ensure(device, width, height, format, &voxel_resource.view_bind_group_layout, shader);
-			prepared.ready = prepared.voxel_renderer.is_some();
+			prepared.ensure(device, width, height, format, &voxel_resource.view_bind_group_layout, shader, graphics_settings.gi_rays);
+			prepared.ready = prepared.voxel_renderer.is_some()
+				&& prepared.size == (width, height) && prepared.format == Some(format)
+				&& prepared.gi_rays == graphics_settings.gi_rays;
 		} else {
 			let mut prepared = VoxelViewResources::new();
 			prepared.view_uniform_offset = view_offset.offset;
-			prepared.ensure(device, width, height, format, &voxel_resource.view_bind_group_layout, shader);
+			prepared.ensure(device, width, height, format, &voxel_resource.view_bind_group_layout, shader, graphics_settings.gi_rays);
 			prepared.ready = prepared.voxel_renderer.is_some();
 			commands.entity(entity).insert(prepared);
 		}
@@ -134,7 +136,7 @@ pub fn voxel_render_pass(
 		&extracted.main_voxel_buffer,
 		&depth_sample_view,
 		color_attachment,
-		graphics_settings.face_gi,
+		graphics_settings.lighting,
 	);
 
 	if let Ok(mut stats) = render_stats.inner.lock() {

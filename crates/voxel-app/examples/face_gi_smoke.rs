@@ -1,13 +1,13 @@
-use std::{path::PathBuf, time::Instant};
+use std::{collections::HashMap, path::PathBuf, time::Instant};
 
 use basic_voxel::{BasicVoxel, BasicVoxelPlugin};
-use bevy::{camera::{Hdr, RenderTarget}, prelude::*, render::{RenderPlugin, settings::{RenderCreation, WgpuSettings}, view::{Msaa, screenshot::{Screenshot, ScreenshotCaptured, save_to_disk}}}, window::WindowResolution};
+use bevy::{camera::{Hdr, RenderTarget}, prelude::*, render::{Render, RenderApp, RenderSystems, renderer::RenderQueue, view::{Msaa, screenshot::{Screenshot, ScreenshotCaptured, save_to_disk}}}, window::WindowResolution};
 use tile_data::{NonZeroChunkRegion, TileBuildingParameters};
 use voxel_content::{StreamingVoxels, VoxelStoreSource, VoxelStoreSourcePlugin};
 use voxel_data::{grid::Grid, voxels::VoxelType};
 use voxel_engine::{VoxelEngineMode, VoxelEnginePlugins};
 use voxel_gpu::RenderingContext;
-use voxel_ray_renderer::{RayRenderingType, direction_feedback::RenderStats, graphics_settings::GraphicsSettings};
+use voxel_ray_renderer::{RayRenderingType, direction_feedback::RenderStats, graphics_settings::{GiRayCount, GraphicsSettings, LightingMode}, render_node::prepare_voxel_view_bind_groups, voxel_renderer_resource::VoxelViewResources};
 use voxel_sources::{SourceManager, edit::GridEditIdManager};
 use voxel_streaming::GridStreaming;
 
@@ -20,11 +20,13 @@ struct Smoke {
 	ticks: u32,
 	captures: u32,
 	started: Instant,
-	reference: Option<Vec<u8>>,
-	resized: Option<Vec<u8>>,
+	images: HashMap<&'static str, Vec<u8>>,
 	output: PathBuf,
 	target: Handle<Image>,
 }
+
+#[derive(Resource)]
+struct ForceVisibleLimit(Option<u32>);
 
 fn main() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -34,37 +36,47 @@ fn main() {
 	let output = args.iter().find(|arg| !arg.starts_with("--")).map(PathBuf::from)
 		.unwrap_or_else(|| std::env::temp_dir().join(if overflow { "face-gi-overflow" } else { "face-gi-smoke" }));
 	std::fs::create_dir_all(&output).unwrap();
+	let smoke = Smoke { phase: 0, ticks: 0, captures: 0, started: Instant::now(), images: default(), output, target: default() };
+	let settings = GraphicsSettings { lighting: LightingMode::Indirect, ..default() };
 	if args.iter().any(|arg| arg == "--app") {
 		let mut app = voxel_app::build_app(Window { resolution: WindowResolution::new(800, 600), ..default() });
-		app.insert_resource(GraphicsSettings { shadows: true, anti_aliasing: false, face_gi: true })
+		app.insert_resource(settings)
 			.insert_resource(voxel_physics::FreezePhysics(true))
-			.insert_resource(Smoke { phase: 0, ticks: 0, captures: 0, started: Instant::now(), reference: None, resized: None, output, target: default() })
+			.insert_resource(smoke)
 			.add_systems(Update, advance_app);
 		app.run();
 		return;
 	}
-	let constrained_limits = overflow.then(|| wgpu::Limits {
-		max_compute_workgroups_per_dimension: 192,
-		max_binding_array_elements_per_shader_stage: u32::MAX,
-		max_binding_array_sampler_elements_per_shader_stage: u32::MAX,
-		..default()
-	});
 	let mut app = App::new();
 	app.add_plugins(DefaultPlugins.set(WindowPlugin {
-			primary_window: Some(Window { title: "Face GI smoke test".into(), resolution: WindowResolution::new(800, 600), ..default() }),
-			..default()
-		}).set(RenderPlugin {
-			render_creation: RenderCreation::Automatic(Box::new(WgpuSettings { constrained_limits, ..default() })),
+			primary_window: Some(Window { title: "Face lighting smoke test".into(), resolution: WindowResolution::new(800, 600), ..default() }),
 			..default()
 		}))
 		.add_plugins(VoxelEnginePlugins { mode: VoxelEngineMode::Host })
 		.add_plugins((BasicVoxelPlugin, VoxelStoreSourcePlugin))
-		.insert_resource(GraphicsSettings { shadows: true, anti_aliasing: false, face_gi: true })
-		.insert_resource(Smoke { phase: 0, ticks: 0, captures: 0, started: Instant::now(), reference: None, resized: None, output, target: default() })
+		.insert_resource(settings)
+		.insert_resource(smoke)
 		.add_systems(Startup, setup);
+	app.sub_app_mut(RenderApp)
+		.insert_resource(ForceVisibleLimit(overflow.then_some(1024)))
+		.add_systems(Render, limit_test_arena.after(prepare_voxel_view_bind_groups).in_set(RenderSystems::PrepareBindGroups));
 	if overflow { app.add_systems(Update, advance_overflow); }
 	else { app.add_systems(Update, advance); }
 	app.run();
+}
+
+fn limit_test_arena(limit: Res<ForceVisibleLimit>, queue: Res<RenderQueue>, mut views: Query<&mut VoxelViewResources>) {
+	for mut view in &mut views {
+		let Some(renderer) = view.voxel_renderer.as_mut() else { continue; };
+		let gi = &mut renderer.face_gi;
+		// Exercise 2D dispatches, and optionally overflow, without huge test scenes.
+		gi.arena.params.settings[1] = gi.arena.params.settings[1].min(192);
+		if let Some(capacity) = limit.0 { gi.arena.params.sizes[1] = gi.arena.params.sizes[1].min(capacity); }
+		let params = gi.arena.params;
+		let bytes = params.sizes.into_iter().chain(params.offsets).chain(params.settings)
+			.flat_map(u32::to_le_bytes).collect::<Vec<_>>();
+		queue.write_buffer(&gi.params, 0, &bytes);
+	}
 }
 
 fn setup(mut commands: Commands, mut sources: ResMut<SourceManager>, ray: Res<RayRenderingType>, mut images: ResMut<Assets<Image>>, mut smoke: ResMut<Smoke>) {
@@ -97,7 +109,7 @@ fn setup(mut commands: Commands, mut sources: ResMut<SourceManager>, ray: Res<Ra
 	sources.get_source_mut::<VoxelStoreSource>().unwrap().insert_chunk_data(grid, voxels.into_chunk_data());
 }
 
-fn capture(commands: &mut Commands, smoke: &Smoke, label: &'static str) {
+fn capture(commands: &mut Commands, smoke: &Smoke, label: &'static str, equal_to: Option<&'static str>) {
 	commands.spawn(Screenshot::image(smoke.target.clone()))
 		.observe(save_to_disk(smoke.output.join(format!("{label}.png"))))
 		.observe(move |event: On<ScreenshotCaptured>, mut smoke: ResMut<Smoke>| {
@@ -105,12 +117,12 @@ fn capture(commands: &mut Commands, smoke: &Smoke, label: &'static str) {
 			assert!(pixels.chunks_exact(4).any(|pixel| pixel != &pixels[..4]), "blank screenshot");
 			let expected_size = if matches!(label, "gi-resized" | "gi-moved" | "gi-unmoved") { (640, 480) } else { (800, 600) };
 			assert_eq!((event.image.width(), event.image.height()), expected_size, "render target did not resize");
+			if let Some(reference) = equal_to {
+				assert!(pixels == &smoke.images[reference], "{label} did not match {reference}");
+			}
 			match label {
-				"gi-on" | "overflow" => smoke.reference = Some(pixels.clone()),
-				"gi-repeat" | "gi-restored" | "overflow-legacy" => assert!(pixels == smoke.reference.as_ref().unwrap(), "rendered output did not match reference"),
-				"gi-off" => {
-					let lit = smoke.reference.as_ref().unwrap();
-					assert!(pixels != lit, "GI toggle had no visible effect");
+				"direct" => {
+					let lit = &smoke.images["gi-on"];
 					let tinted = pixels.chunks_exact(4).zip(lit.chunks_exact(4)).filter(|(direct, bounced)| {
 						let gray = direct[..3].iter().max().unwrap() - direct[..3].iter().min().unwrap() <= 1;
 						let color = bounced[..3].iter().max().unwrap() - bounced[..3].iter().min().unwrap() >= 5;
@@ -119,77 +131,87 @@ fn capture(commands: &mut Commands, smoke: &Smoke, label: &'static str) {
 					assert!(tinted > 100, "colored bounce lighting did not reach neutral surfaces");
 					println!("GI_SMOKE color bleed: {tinted} neutral-surface pixels");
 				},
-				"gi-aa" => assert!(pixels != smoke.reference.as_ref().unwrap(), "AA had no visible effect"),
-				"gi-resized" => smoke.resized = Some(pixels.clone()),
-				"gi-moved" => assert!(pixels != smoke.resized.as_ref().unwrap(), "grid transform had no visible effect"),
-				"gi-unmoved" => assert!(pixels == smoke.resized.as_ref().unwrap(), "lighting stayed stale after restoring the grid without resizing"),
+				"unlit" => assert!(pixels != &smoke.images["direct"], "Nothing still looks directly lit"),
+				"gi-aa" => assert!(pixels != &smoke.images["gi-on"], "AA had no visible effect"),
+				"gi-moved" => assert!(pixels != &smoke.images["gi-resized"], "grid transform had no visible effect"),
+				"gi-8" | "gi-16" | "gi-64" => assert!(pixels != &smoke.images["gi-on"], "ray count had no visible effect"),
 				_ => {},
 			}
+			smoke.images.insert(label, pixels.clone());
 			smoke.captures += 1;
 			println!("GI_SMOKE capture {label}: {} bytes", pixels.len());
 		});
 }
 
-fn advance_app(
-	mut commands: Commands,
-	mut smoke: ResMut<Smoke>,
-	stats: Res<RenderStats>,
-	mut settings: ResMut<GraphicsSettings>,
-	mut exit: MessageWriter<AppExit>,
-) {
+fn assert_mode(stats: &RenderStats, settings: &GraphicsSettings) {
+	let gi = stats.inner.lock().unwrap().face_gi;
+	assert_eq!(gi.enabled, settings.lighting != LightingMode::None);
+	assert_eq!(gi.indirect, settings.lighting == LightingMode::Indirect);
+	assert_eq!(gi.rays_per_face, settings.gi_rays.count());
+	assert_eq!(gi.overflow_flags, 0, "small test scene overflowed");
+	match settings.lighting {
+		LightingMode::None => assert_eq!((gi.total_faces, gi.visible_faces, gi.secondary_hits, gi.sky_misses, gi.incomplete_rays), (0, 0, 0, 0, 0)),
+		LightingMode::Direct => {
+			assert!(gi.visible_faces > 0);
+			assert_eq!(gi.total_faces, gi.visible_faces);
+			assert_eq!((gi.secondary_hits, gi.sky_misses, gi.incomplete_rays), (0, 0, 0));
+		},
+		LightingMode::Indirect => {
+			assert!(gi.visible_faces > 0 && gi.total_faces >= gi.visible_faces && gi.total_faces <= gi.table_capacity);
+			assert_eq!(gi.secondary_hits + gi.sky_misses + gi.incomplete_rays, gi.visible_faces * settings.gi_rays.count());
+		},
+	}
+}
+
+fn advance_app(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderStats>, mut settings: ResMut<GraphicsSettings>, mut exit: MessageWriter<AppExit>) {
 	assert!(smoke.started.elapsed().as_secs() < 180, "application smoke test timed out");
 	let gi = stats.inner.lock().unwrap().face_gi;
 	smoke.ticks += 1;
 	if smoke.phase == 0 && gi.visible_faces == 0 { smoke.ticks = 0; return; }
 	if smoke.ticks < 120 { return; }
 	println!("GI_APP phase {} after {:.2}s: {gi:?}", smoke.phase, smoke.started.elapsed().as_secs_f32());
+	assert_mode(&stats, &settings);
 	match smoke.phase {
-		0 | 2 | 4 => {
-			let label = match smoke.phase { 0 => "app-gi-on", 2 => "app-gi-aa", _ => "app-gi-off" };
+		0 | 2 | 4 | 6 | 8 => {
+			let label = match smoke.phase { 0 => "app-gi-on", 2 => "app-direct", 4 => "app-unlit", 6 => "app-gi-aa", _ => "app-gi64-aa" };
 			commands.spawn(Screenshot::primary_window()).observe(save_to_disk(smoke.output.join(format!("{label}.png"))));
-			assert_eq!(gi.enabled, settings.face_gi);
-			if gi.enabled { assert!(gi.visible_faces > 0); }
-			else { assert_eq!((gi.visible_faces, gi.total_faces, gi.overflow_flags), (0, 0, 0)); }
 		},
-		1 => settings.anti_aliasing = true,
-		3 => settings.face_gi = false,
-		5 => { println!("GI_APP PASS: application rendered GI on, AA, and GI off"); exit.write(AppExit::Success); },
+		1 => settings.lighting = LightingMode::Direct,
+		3 => settings.lighting = LightingMode::None,
+		5 => { settings.lighting = LightingMode::Indirect; settings.anti_aliasing = true; },
+		7 => settings.gi_rays = GiRayCount::SixtyFour,
+		9 => { println!("GI_APP PASS: all lighting modes, AA, and 64 rays"); exit.write(AppExit::Success); },
 		_ => {},
 	}
 	smoke.phase += 1;
 	smoke.ticks = 0;
 }
 
-fn advance_overflow(
-	mut commands: Commands,
-	mut smoke: ResMut<Smoke>,
-	stats: Res<RenderStats>,
-	mut settings: ResMut<GraphicsSettings>,
-	mut exit: MessageWriter<AppExit>,
-) {
+fn advance_overflow(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderStats>, mut settings: ResMut<GraphicsSettings>, mut exit: MessageWriter<AppExit>) {
 	assert!(smoke.started.elapsed().as_secs() < 180, "overflow smoke test timed out");
 	let gi = stats.inner.lock().unwrap().face_gi;
 	smoke.ticks += 1;
 	if smoke.phase == 0 && gi.overflow_flags == 0 { smoke.ticks = 0; return; }
 	if smoke.ticks < 60 { return; }
 	println!("GI_OVERFLOW phase {}: {gi:?}", smoke.phase);
+	if settings.lighting == LightingMode::Indirect {
+		assert_eq!(gi.visible_capacity, 1024);
+		assert_ne!(gi.overflow_flags & 2, 0);
+	} else { assert_mode(&stats, &settings); }
 	match smoke.phase {
-		0 => {
-			assert_eq!(gi.visible_capacity, 1024);
-			assert_ne!(gi.overflow_flags & 2, 0);
-			capture(&mut commands, &smoke, "overflow");
-		},
-		1 => settings.face_gi = false,
-		2 => {
-			assert!(!gi.enabled);
-			assert_eq!(gi.overflow_flags, 0);
-			capture(&mut commands, &smoke, "overflow-legacy");
-		},
-		3 => settings.face_gi = true,
-		4 => {
-			assert_ne!(gi.overflow_flags & 2, 0);
-			assert_eq!(smoke.captures, 2);
-			println!("GI_OVERFLOW PASS: capacity fallback matches legacy rendering byte-for-byte");
+		0 => capture(&mut commands, &smoke, "overflow", None),
+		1 => settings.lighting = LightingMode::Direct,
+		2 => capture(&mut commands, &smoke, "overflow-direct", Some("overflow")),
+		3 => settings.lighting = LightingMode::None,
+		4 => {},
+		5 => { settings.lighting = LightingMode::Indirect; settings.anti_aliasing = true; },
+		6 => capture(&mut commands, &smoke, "overflow-aa", None),
+		7 => settings.lighting = LightingMode::Direct,
+		8 => capture(&mut commands, &smoke, "overflow-direct-aa", Some("overflow-aa")),
+		9 => settings.lighting = LightingMode::Indirect,
+		10 => {
+			assert_eq!(smoke.captures, 4);
+			println!("GI_OVERFLOW PASS: fallback matches per-face Direct byte-for-byte, with and without AA");
 			exit.write(AppExit::Success);
 		},
 		_ => {},
@@ -198,15 +220,7 @@ fn advance_overflow(
 	smoke.ticks = 0;
 }
 
-fn advance(
-	mut commands: Commands,
-	mut smoke: ResMut<Smoke>,
-	stats: Res<RenderStats>,
-	mut settings: ResMut<GraphicsSettings>,
-	mut images: ResMut<Assets<Image>>,
-	mut rooms: Query<&mut Transform, With<TestRoom>>,
-	mut exit: MessageWriter<AppExit>,
-) {
+fn advance(mut commands: Commands, mut smoke: ResMut<Smoke>, stats: Res<RenderStats>, mut settings: ResMut<GraphicsSettings>, mut images: ResMut<Assets<Image>>, mut rooms: Query<&mut Transform, With<TestRoom>>, mut exit: MessageWriter<AppExit>) {
 	assert!(smoke.started.elapsed().as_secs() < 180, "GI smoke test timed out");
 	let gi = stats.inner.lock().unwrap().face_gi;
 	smoke.ticks += 1;
@@ -214,43 +228,44 @@ fn advance(
 		smoke.ticks = 0;
 		return;
 	}
-	let delay = if matches!(smoke.phase, 0 | 11 | 13) { 60 } else { 20 };
+	let delay = if matches!(smoke.phase, 0 | 21 | 23) { 60 } else { 20 };
 	if smoke.ticks < delay { return; }
-	if settings.face_gi {
-		assert!(gi.enabled && gi.visible_faces > 0, "GI did not render");
-		assert_eq!(gi.overflow_flags, 0, "small test scene overflowed");
-		assert!(gi.total_faces >= gi.visible_faces && gi.total_faces <= gi.table_capacity);
-		assert_eq!(gi.secondary_hits + gi.sky_misses + gi.incomplete_rays, gi.visible_faces * 8);
-	}
+	assert_mode(&stats, &settings);
 	println!("GI_SMOKE phase {} after {:.2}s: {gi:?}", smoke.phase, smoke.started.elapsed().as_secs_f32());
 	match smoke.phase {
-		0 => capture(&mut commands, &smoke, "gi-on"),
-		1 => capture(&mut commands, &smoke, "gi-repeat"),
-		2 => settings.face_gi = false,
-		3 => {
-			assert!(!gi.enabled);
-			assert_eq!((gi.total_faces, gi.visible_faces, gi.overflow_flags), (0, 0, 0));
-			capture(&mut commands, &smoke, "gi-off");
-		},
-		4 => { settings.face_gi = true; settings.anti_aliasing = true; },
-		5 => capture(&mut commands, &smoke, "gi-aa"),
-		6 => images.get_mut(&smoke.target).unwrap().resize(wgpu::Extent3d { width: 640, height: 480, depth_or_array_layers: 1 }),
-		7 => capture(&mut commands, &smoke, "gi-resized"),
-		8 => {
+		0 => capture(&mut commands, &smoke, "gi-on", None),
+		1 => capture(&mut commands, &smoke, "gi-repeat", Some("gi-on")),
+		2 => settings.lighting = LightingMode::Direct,
+		3 => capture(&mut commands, &smoke, "direct", None),
+		4 => settings.lighting = LightingMode::None,
+		5 => capture(&mut commands, &smoke, "unlit", None),
+		6 => { settings.lighting = LightingMode::Indirect; settings.gi_rays = GiRayCount::Eight; },
+		7 => capture(&mut commands, &smoke, "gi-8", None),
+		8 => settings.gi_rays = GiRayCount::Sixteen,
+		9 => capture(&mut commands, &smoke, "gi-16", None),
+		10 => settings.gi_rays = GiRayCount::SixtyFour,
+		11 => capture(&mut commands, &smoke, "gi-64", None),
+		12 => settings.gi_rays = GiRayCount::ThirtyTwo,
+		13 => capture(&mut commands, &smoke, "gi-32-restored", Some("gi-on")),
+		14 => settings.anti_aliasing = true,
+		15 => capture(&mut commands, &smoke, "gi-aa", None),
+		16 => images.get_mut(&smoke.target).unwrap().resize(wgpu::Extent3d { width: 640, height: 480, depth_or_array_layers: 1 }),
+		17 => capture(&mut commands, &smoke, "gi-resized", None),
+		18 => {
 			*rooms.single_mut().unwrap() = Transform::from_xyz(0.75, 0.0, 0.0)
 				.with_rotation(Quat::from_rotation_y(0.25)).with_scale(Vec3::splat(1.25));
 		},
-		9 => capture(&mut commands, &smoke, "gi-moved"),
-		10 => *rooms.single_mut().unwrap() = Transform::IDENTITY,
-		11 => capture(&mut commands, &smoke, "gi-unmoved"),
-		12 => {
+		19 => capture(&mut commands, &smoke, "gi-moved", None),
+		20 => *rooms.single_mut().unwrap() = Transform::IDENTITY,
+		21 => capture(&mut commands, &smoke, "gi-unmoved", Some("gi-resized")),
+		22 => {
 			settings.anti_aliasing = false;
 			images.get_mut(&smoke.target).unwrap().resize(wgpu::Extent3d { width: 800, height: 600, depth_or_array_layers: 1 });
 		},
-		13 => capture(&mut commands, &smoke, "gi-restored"),
-		14 => {
-			assert_eq!(smoke.captures, 8);
-			println!("GI_SMOKE PASS: color bleed, GI toggle, AA, resize, transforms, and repeatable frame-local output");
+		23 => capture(&mut commands, &smoke, "gi-restored", Some("gi-on")),
+		24 => {
+			assert_eq!(smoke.captures, 13);
+			println!("GI_SMOKE PASS: lighting modes, all ray counts, color bleed, 2D dispatches, AA, resize, transforms, and frame-local output");
 			exit.write(AppExit::Success);
 		},
 		_ => {},

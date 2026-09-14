@@ -117,6 +117,7 @@ impl Plugin for VoxelRayRendererPlugin {
 		bevy::asset::embedded_asset!(app, "shaders/shared/dda/data.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/dda/raycast.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/direction_feedback.slang");
+		bevy::asset::embedded_asset!(app, "shaders/shared/face_geometry.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/helpers/aabb.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/helpers/quat.slang");
 		bevy::asset::embedded_asset!(app, "shaders/shared/voxel_reader.slang");

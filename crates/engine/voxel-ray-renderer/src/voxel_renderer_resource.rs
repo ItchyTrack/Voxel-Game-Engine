@@ -6,7 +6,7 @@ use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 use bevy::render::view::ViewUniform;
 
 use crate::direction_feedback::DirectionFeedback;
-use crate::graphics_settings::RenderSettingsUniform;
+use crate::graphics_settings::{GiRayCount, RenderSettingsUniform};
 use crate::shader_sources::VoxelShaderSources;
 use crate::voxel_renderer::VoxelRenderer;
 use voxel_gpu::LoadedSlangShader;
@@ -28,6 +28,7 @@ pub struct VoxelViewResources {
 	pub voxel_renderer: Option<VoxelRenderer>,
 	pub size: (u32, u32),
 	pub format: Option<wgpu::TextureFormat>,
+	pub gi_rays: GiRayCount,
 	pub view_uniform_offset: u32,
 }
 
@@ -78,6 +79,7 @@ impl VoxelViewResources {
 			voxel_renderer: None,
 			size: (0, 0),
 			format: None,
+			gi_rays: GiRayCount::default(),
 			view_uniform_offset: 0,
 		}
 	}
@@ -90,11 +92,13 @@ impl VoxelViewResources {
 		format: wgpu::TextureFormat,
 		view_bind_group_layout: &GpuBindGroupLayout,
 		shader: &LoadedSlangShader<'_>,
+		gi_rays: GiRayCount,
 	) {
 		if width == 0 || height == 0 { return; }
 		let need_rebuild = self.voxel_renderer.is_none()
 			|| self.size != (width, height)
 			|| self.format != Some(format)
+			|| self.gi_rays != gi_rays
 			|| shader.changed();
 		if !need_rebuild { return; }
 		let shader_sources = match VoxelShaderSources::from_compiled(&shader.shader().shaders) {
@@ -105,11 +109,12 @@ impl VoxelViewResources {
 			}
 		};
 
-		match VoxelRenderer::new(device, width, height, format, view_bind_group_layout, &shader_sources) {
+		match VoxelRenderer::new(device, width, height, format, view_bind_group_layout, &shader_sources, gi_rays) {
 			Ok(voxel_renderer) => {
 				self.voxel_renderer = Some(voxel_renderer);
 				self.size = (width, height);
 				self.format = Some(format);
+				self.gi_rays = gi_rays;
 			}
 			Err(error) => log::error!("Failed to build VoxelRenderer: {error}"),
 		}

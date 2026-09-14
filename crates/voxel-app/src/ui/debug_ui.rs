@@ -7,7 +7,7 @@ use voxel_tasks::AsyncPriorityTaskPool;
 use voxel_mass::{CenterOfMass, Mass, RotationalInertia};
 use voxel_physics::{BallJoint, FreezePhysics, IsStatic, RigidBody};
 use crate::voxel::rendering::VoxelRenderMode;
-use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::GraphicsSettings};
+use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::{GiRayCount, GraphicsSettings, LightingMode}};
 use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
 use tile_data::CHUNK_SIZE;
@@ -107,11 +107,30 @@ fn debug_window(
 			ui.label(format!("Async priority queue: {}", async_queue_len));
 			ui.separator();
 			ui.label("Graphics");
-			ui.checkbox(&mut graphics_settings.shadows, "shadows");
+			egui::ComboBox::from_label("Lighting")
+				.selected_text(match graphics_settings.lighting {
+					LightingMode::None => "Nothing",
+					LightingMode::Direct => "Direct",
+					LightingMode::Indirect => "1-bounce indirect",
+				})
+				.show_ui(ui, |ui| {
+					ui.selectable_value(&mut graphics_settings.lighting, LightingMode::None, "Nothing");
+					ui.selectable_value(&mut graphics_settings.lighting, LightingMode::Direct, "Direct");
+					ui.selectable_value(&mut graphics_settings.lighting, LightingMode::Indirect, "1-bounce indirect");
+				});
 			ui.checkbox(&mut graphics_settings.anti_aliasing, "ray anti-aliasing");
-			ui.checkbox(&mut graphics_settings.face_gi, "face GI (prototype)");
-			ui.collapsing("Face GI stats (last view)", |ui| {
-				ui.label(format!("Last frame: {}", if gi.enabled { "enabled" } else { "disabled" }));
+			ui.add_enabled_ui(graphics_settings.lighting == LightingMode::Indirect, |ui| {
+				egui::ComboBox::from_label("GI rays per face")
+					.selected_text(graphics_settings.gi_rays.count().to_string())
+					.show_ui(ui, |ui| {
+						for rays in [GiRayCount::Eight, GiRayCount::Sixteen, GiRayCount::ThirtyTwo, GiRayCount::SixtyFour] {
+							ui.selectable_value(&mut graphics_settings.gi_rays, rays, rays.count().to_string());
+						}
+					});
+			});
+			ui.collapsing("Face lighting stats (last view)", |ui| {
+				ui.label(format!("Last frame: {}", if !gi.enabled { "Nothing" } else if gi.indirect { "1-bounce indirect" } else { "Direct" }));
+				ui.label(format!("GI rays per face: {}", gi.rays_per_face));
 				ui.label(format!("Arena: {:.2} MiB", gi.arena_bytes as f64 / (1024.0 * 1024.0)));
 				ui.label(format!("Visible faces: {} / {}", gi.visible_faces, gi.visible_capacity));
 				ui.label(format!("Total faces: {} / {}", gi.total_faces, gi.table_capacity));
@@ -119,7 +138,7 @@ fn debug_window(
 				ui.label(format!("Incomplete rays: {}", gi.incomplete_rays));
 				ui.label(format!("Sky misses: {}", gi.sky_misses));
 				ui.label(format!("Overflow flags: {:#x}", gi.overflow_flags));
-				if gi.enabled && gi.overflow_flags != 0 { ui.label("Legacy lighting fallback"); }
+				if gi.enabled && gi.overflow_flags != 0 { ui.label("Direct-only lighting fallback"); }
 			});
 			ui.horizontal(|ui| {
 				ui.label("grid renderer");

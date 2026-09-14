@@ -1,28 +1,33 @@
-# Frame-local face GI prototype
+# Per-face lighting prototype
 
-Run `cargo run --release -p voxel-app`. In **Debug → Graphics**, enable **shadows** and **face GI (prototype)**. GI is off by default; the shadows setting also controls contributor shadow rays.
+Run `cargo run --release -p voxel-app`. **Debug → Graphics → Lighting** selects:
 
-Each frame:
+- **Nothing:** unlit material colors; no lighting passes.
+- **Direct:** shadowed sunlight, computed once per visible voxel face.
+- **1-bounce indirect:** the same direct lighting plus one diffuse bounce and visible sky light.
 
-1. Deduplicate visible voxel faces, including faces reconstructed by ray anti-aliasing.
-2. Trace eight fixed, cosine-weighted rays from each face center.
-3. Discover and deduplicate their contributor faces.
-4. Compute direct lighting once per unique face.
-5. Gather contributor lighting back into visible faces.
+Lighting defaults to Nothing. **GI rays per face** selects 8, 16, 32, or 64 rays, defaulting to 32. The ray-count dropdown is enabled only for indirect lighting. Both lit modes include shadows; there is no separate shadows toggle or artificial ambient floor.
 
-The hash table stores references to hit records from an earlier pass. Keys are voxel coordinates, BVH item, and face direction—not material addresses. This avoids publishing partly written keys. Repeated indirect hits retain their sampling weight.
+## Frame-local lighting
 
-Only the table and counters need clearing. Other data is overwritten before use. Buffers survive between frames, but lighting does not. Stats readback does not feed lighting or schedule GPU work.
+Each lit frame deduplicates visible faces, including those reconstructed by ray anti-aliasing. Direct mode shades that list and stops.
+
+Indirect mode first traces cosine-weighted rays from visible face centers and discovers contributor faces. Only then does it compute direct lighting for the combined list and gather contributions back into visible faces. Repeated hits retain their sampling weight.
+
+The hash table stores references to hit records from an earlier pass. Keys are voxel coordinates, BVH item, and face direction—not material addresses. This avoids publishing partly written keys.
+
+Only the table and counters need clearing. Other data is overwritten before use. Buffers survive between frames, but lighting does not. Stats readback does not feed lighting or schedule GPU work. Large workloads use two-dimensional indirect dispatches.
 
 ## Limits
 
-- One diffuse bounce, flat per-face lighting, no temporal or spatial filtering. Eight rays produce visible, stable noise.
-- Genuine misses sample a constant sky. Known unavailable geometry contributes no indirect light and blocks direct shadow rays. Geometry absent from the render BVH cannot be detected.
-- GI does not include rasterized or marching-renderer surfaces.
-- The arena is capped at 104 MiB per view, with a smaller capacity on limited devices. It remains allocated while GI is disabled.
-- Capacity or bounded-hash-probe failure falls back to the legacy direct/ambient renderer for the whole frame. No partial GI is displayed.
+- Flat per-face lighting, no filtering or history. More rays reduce noise but do not add bounces or increase light strength.
+- Genuine misses sample a constant sky. Contributors currently reflect sunlight only, not skylight.
+- Known unavailable geometry contributes no indirect light and blocks shadow rays. Geometry absent from the render BVH cannot be detected.
+- Rasterized and marching-renderer surfaces do not contribute to this lighting.
+- At full face capacity, the arena uses about 104, 136, 200, or 328 MiB per view for 8, 16, 32, or 64 rays. Smaller device limits reduce face capacity. Buffers remain allocated when lighting is disabled; changing ray count rebuilds them.
+- Capacity or bounded-hash-probe failure falls back to direct-only lighting for the whole frame. Fallback samples shadows at the same face centers, including faces reconstructed by AA, but may repeat work per pixel.
 
-**Face GI stats** shows visible and total face counts, secondary hits, sky misses, incomplete rays, memory, and overflow flags. It reports the last rendered view.
+**Face lighting stats** shows the last view's mode, ray count, face counts, secondary hits, sky misses, incomplete rays, memory, and overflow flags. Direct mode needs no indirect-hit records and can use the full face-table capacity.
 
 ## Checks
 
@@ -33,4 +38,4 @@ cargo run --release -p voxel-app --example face_gi_smoke -- --overflow
 cargo run --release -p voxel-app --example face_gi_smoke -- --app
 ```
 
-The smoke example uses a small colored room and saves images under the system temporary directory. It checks color bleed, repeated frames, GI on/off, anti-aliasing, render-target resizing, and grid translation/rotation/scale. The overflow run limits dispatch capacity and checks that fallback matches legacy rendering byte-for-byte. The `--app` run captures the normal application with GI on, with AA, and with GI off.
+The smoke example saves images under the system temporary directory. It checks all lighting modes and ray counts, color bleed, repeated frames, two-dimensional dispatches, AA, render-target resizing, and grid transforms. The overflow run deliberately limits visible-face capacity and checks that fallback matches Direct byte-for-byte, with and without AA. The `--app` run captures the normal application in all modes, including 64-ray GI with AA.

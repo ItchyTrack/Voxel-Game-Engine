@@ -28,6 +28,7 @@ const SHARED_FILES: &[&str] = &[
 	"dda/data.slang",
 	"dda/raycast.slang",
 	"direction_feedback.slang",
+	"face_geometry.slang",
 	"helpers/aabb.slang",
 	"helpers/quat.slang",
 	"voxel_reader.slang",
