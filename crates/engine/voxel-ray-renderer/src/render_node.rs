@@ -87,6 +87,7 @@ pub fn prepare_voxel_view_bind_groups(
 
 pub fn voxel_render_pass(
 	voxel_resource: Res<VoxelRendererResource>,
+	graphics_settings: Res<GraphicsSettings>,
 	render_stats: Res<RenderStats>,
 	extracted_scenes: Res<ExtractedVoxelScenes>,
 	view: ViewQuery<(
@@ -133,6 +134,7 @@ pub fn voxel_render_pass(
 		&extracted.main_voxel_buffer,
 		&depth_sample_view,
 		color_attachment,
+		graphics_settings.face_gi,
 	);
 
 	if let Ok(mut stats) = render_stats.inner.lock() {

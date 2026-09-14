@@ -26,6 +26,7 @@ struct RaycastIter<T : IRaycastPolicy> {
 	float3 ray_dir;
 	RaycastStackEntry stack[32];
 	int top;
+	float dropped_dist;
 };
 
 struct RaycastHit {
@@ -36,7 +37,10 @@ struct RaycastHit {
 };
 
 void raycast_push<T : IRaycastPolicy>(inout RaycastIter<T> it, uint idx, float dist) {
-	if (it.top >= RAYCAST_STACK_DEPTH) { return; }
+	if (it.top >= RAYCAST_STACK_DEPTH) {
+		it.dropped_dist = min(it.dropped_dist, dist);
+		return;
+	}
 	it.stack[it.top] = RaycastStackEntry(idx, dist);
 	it.top += 1;
 }
@@ -47,6 +51,7 @@ RaycastIter<T> iter_new<T : IRaycastPolicy>(float3 ray_pos, float3 ray_dir, T po
 	iter.ray_pos = ray_pos;
 	iter.ray_dir = ray_dir;
 	iter.top     = 0;
+	iter.dropped_dist = 1e38;
 
 	let sentinel = bvh[0];
 	let distances = iter.policy.hit_aabb(ray_pos, ray_dir, sentinel.c0_min_and_ref.xyz, sentinel.c0_max_and_ref2.xyz);

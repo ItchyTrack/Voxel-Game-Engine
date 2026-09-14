@@ -10,6 +10,8 @@ const RAY_SHADER_ROOT: &str = "embedded://voxel_ray_renderer/shaders/";
 const LOCAL_FILES: &[&str] = &[
 	"beam.slang",
 	"raycasting.slang",
+	"face_gi.slang",
+	"face_gi_common.slang",
 	"coloring_shader.slang",
 	"coloring_common.slang",
 	"anti_aliasing.slang",
@@ -36,17 +38,21 @@ pub struct VoxelShaderSources {
 	pub beam: String,
 	pub raycasting: String,
 	pub coloring: String,
+	pub fallback: String,
+	pub face_gi: [String; 7],
 }
 
 impl VoxelShaderSources {
 	pub fn from_compiled(shaders: &[String]) -> ShaderResult<Self> {
-		if shaders.len() != 4 {
-			return Err(std::io::Error::other("expected four compiled voxel ray shader stages").into());
+		if shaders.len() != 12 {
+			return Err(std::io::Error::other("expected twelve compiled voxel ray shader stages").into());
 		}
 		Ok(Self {
 			beam: shaders[0].clone(),
 			raycasting: shaders[1].clone(),
 			coloring: format!("{}\n{}", shaders[2], shaders[3]),
+			fallback: shaders[4].clone(),
+			face_gi: std::array::from_fn(|i| shaders[5 + i].clone()),
 		})
 	}
 }
@@ -85,26 +91,52 @@ pub fn asset_settings(shader_types: &VoxelGpuShaderTypes) -> SlangShaderSettings
 			.collect(),
 	};
 
+	let mut entries = vec![
+		SlangAssetEntry { source: "beam.slang".into(), entry: "main".into(), stage: SlangStage::Compute },
+		SlangAssetEntry { source: "raycasting.slang".into(), entry: "main".into(), stage: SlangStage::Compute },
+		SlangAssetEntry { source: "coloring_shader.slang".into(), entry: "vs_main".into(), stage: SlangStage::Vertex },
+		SlangAssetEntry { source: "coloring_shader.slang".into(), entry: "fs_main".into(), stage: SlangStage::Fragment },
+		SlangAssetEntry { source: "raycasting.slang".into(), entry: "fallback_main".into(), stage: SlangStage::Compute },
+	];
+	entries.extend(crate::face_gi::GI_ENTRIES.iter().map(|entry| SlangAssetEntry {
+		source: "face_gi.slang".into(), entry: (*entry).into(), stage: SlangStage::Compute,
+	}));
+	let mut linkages = vec![
+		SlangLinkage::default(), SlangLinkage::default(),
+		voxel_linkage.clone(), voxel_linkage.clone(), SlangLinkage::default(),
+	];
+	linkages.extend(crate::face_gi::GI_ENTRIES.iter().map(|_| voxel_linkage.clone()));
+
 	SlangShaderSettings {
 		files,
 		base_dir: "ray".into(),
 		include_dirs: vec!["ray".into(), "ray/shared".into()],
-		entries: vec![
-			SlangAssetEntry { source: "beam.slang".into(), entry: "main".into(), stage: SlangStage::Compute },
-			SlangAssetEntry { source: "raycasting.slang".into(), entry: "main".into(), stage: SlangStage::Compute },
-			SlangAssetEntry { source: "coloring_shader.slang".into(), entry: "vs_main".into(), stage: SlangStage::Vertex },
-			SlangAssetEntry { source: "coloring_shader.slang".into(), entry: "fs_main".into(), stage: SlangStage::Fragment },
-		],
-		linkages: vec![
-			SlangLinkage::default(),
-			SlangLinkage::default(),
-			voxel_linkage.clone(),
-			voxel_linkage,
-		],
+		entries,
+		linkages,
 		create_bevy_shader: false,
 	}
 }
 
 fn voxel_module_path(type_id: u16) -> PathBuf {
 	PathBuf::from(format!("voxel/{type_id}.slang"))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn compiled_stage_order_matches_pipeline_sources() {
+		let stages = (0..12).map(|i| i.to_string()).collect::<Vec<_>>();
+		let sources = VoxelShaderSources::from_compiled(&stages).unwrap();
+		assert_eq!(sources.beam, "0");
+		assert_eq!(sources.raycasting, "1");
+		assert_eq!(sources.coloring, "2\n3");
+		assert_eq!(sources.fallback, "4");
+		for (i, source) in sources.face_gi.iter().enumerate() {
+			assert_eq!(*source, (i + 5).to_string());
+		}
+		assert!(VoxelShaderSources::from_compiled(&stages[..4]).is_err());
+		assert!(VoxelShaderSources::from_compiled(&stages[..11]).is_err());
+	}
 }

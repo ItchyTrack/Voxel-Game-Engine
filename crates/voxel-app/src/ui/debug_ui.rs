@@ -84,11 +84,9 @@ fn debug_window(
 		.unwrap_or_default();
 	let raster_kb = raster_gpu_data.as_ref().map(|gpu| gpu.lock().faces.held_bytes() / 1000).unwrap_or_default();
 
-	let (bvh_kb, bvh_leaf_kb) = render_stats
-		.inner
-		.lock()
-		.map(|s| (s.bvh_bytes / 1000, s.bvh_leaf_bytes / 1000))
-		.unwrap_or((0, 0));
+	let stats = render_stats.inner.lock().map(|s| *s).unwrap_or_default();
+	let (bvh_kb, bvh_leaf_kb) = (stats.bvh_bytes / 1000, stats.bvh_leaf_bytes / 1000);
+	let gi = stats.face_gi;
 
 	let async_queue_len = AsyncPriorityTaskPool::get().len();
 	let mut render_mode = *voxel_render_mode;
@@ -111,6 +109,18 @@ fn debug_window(
 			ui.label("Graphics");
 			ui.checkbox(&mut graphics_settings.shadows, "shadows");
 			ui.checkbox(&mut graphics_settings.anti_aliasing, "ray anti-aliasing");
+			ui.checkbox(&mut graphics_settings.face_gi, "face GI (prototype)");
+			ui.collapsing("Face GI stats (last view)", |ui| {
+				ui.label(format!("Last frame: {}", if gi.enabled { "enabled" } else { "disabled" }));
+				ui.label(format!("Arena: {:.2} MiB", gi.arena_bytes as f64 / (1024.0 * 1024.0)));
+				ui.label(format!("Visible faces: {} / {}", gi.visible_faces, gi.visible_capacity));
+				ui.label(format!("Total faces: {} / {}", gi.total_faces, gi.table_capacity));
+				ui.label(format!("Secondary hits: {}", gi.secondary_hits));
+				ui.label(format!("Incomplete rays: {}", gi.incomplete_rays));
+				ui.label(format!("Sky misses: {}", gi.sky_misses));
+				ui.label(format!("Overflow flags: {:#x}", gi.overflow_flags));
+				if gi.enabled && gi.overflow_flags != 0 { ui.label("Legacy lighting fallback"); }
+			});
 			ui.horizontal(|ui| {
 				ui.label("grid renderer");
 				ui.selectable_value(&mut render_mode, VoxelRenderMode::Ray, "ray");

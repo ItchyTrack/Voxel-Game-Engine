@@ -275,6 +275,9 @@ float4 anti_aliased_voxel_color(uint2 texture_pos, uint2 texture_size) {
 		if (closest_hit.hit && !closest_hit.face_occluded) {
 			let surface_pos = voxel_raycast_hit_surface_pos(closest_data, closest_hit, ray_direction);
 			let world_normal = voxel_raycast_hit_normal(closest_data, closest_hit);
+			// The reconstructed sample may hit a different face than its corner ray.
+			closest_contribution.normal = (closest_hit.normal_axis << 3u)
+				| (closest_hit.normal_negative ? (1u << closest_hit.normal_axis) : 0u);
 			accumulated_color += color_voxel_surface(closest_contribution, surface_pos, world_normal);
 			ray_hit_count++;
 		}

@@ -4,7 +4,12 @@
 #include "helpers/quat.slang"
 #include "voxel_reader.slang"
 
-Texture2D<uint4> intermediate_textured_read : register(t0, space3);
+#include "face_gi_common.slang"
+
+struct RenderSettings {
+	uint4 values;
+};
+ConstantBuffer<RenderSettings> render_settings : register(b1, space0);
 
 struct ViewUniform {
 	float4x4 clip_from_world;
@@ -52,6 +57,7 @@ struct VoxelContribution {
 	bool hit;
 	bool light_visible;
 	uint normal;
+	uint packed_hit_data;
 	uint camera_face_occlusion_mask;
 	uint bvh_item_idx;
 	uint voxel_data_index;
@@ -67,6 +73,7 @@ VoxelContribution calculate_voxel_contribution(uint4 data, float2 texture_positi
 
 	contribution.hit = true;
 	contribution.normal = data.x & 0xFFu;
+	contribution.packed_hit_data = data.x;
 	contribution.light_visible = (data.x & 256u) != 0u;
 	contribution.camera_face_occlusion_mask = (data.x >> 11u) & 7u;
 	contribution.bvh_item_idx = data.y;
@@ -113,6 +120,19 @@ float3 color_voxel_surface(VoxelContribution contribution, float3 surface_pos, f
 			contribution.voxel_index,
 			surface_pos
 		).xyz;
+	}
+	if (render_settings.values.z != 0u && gi_load(2u) == 0u) {
+		let axis = (contribution.normal >> 3u) & 3u;
+		let packed = (contribution.packed_hit_data & 0xffffc000u) | contribution.normal;
+		let key = uint2(gi_canonical_normal(packed, axis), contribution.bvh_item_idx);
+		let slot = gi_find_face(key);
+		if (slot < gi_params.sizes.x) {
+			let offset = gi_params.offsets.w + slot * 7u;
+			let direct = asfloat(gi_load(offset + 3u));
+			return base_color * (float3(direct) + gi_load_rgb(offset + 4u));
+		}
+		// A missing face must not use a primary shadow that GI skipped.
+		return float3(0.0);
 	}
 	return shade(base_color, world_normal, contribution.light_visible);
 }

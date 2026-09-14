@@ -35,10 +35,12 @@ pub struct RenderStats {
 pub struct RenderStatsData {
 	pub bvh_bytes: u64,
 	pub bvh_leaf_bytes: u64,
+	pub face_gi: crate::face_gi::FaceGiStats,
 }
 
 pub fn read_back_direction_masks(
 	render_device: Res<RenderDevice>,
+	render_stats: Res<RenderStats>,
 	mut view_feedback: Query<&mut DirectionFeedback>,
 ) {
 	for mut feedback in &mut view_feedback {
@@ -47,6 +49,10 @@ pub fn read_back_direction_masks(
 			wgpu::MapMode::Read,
 			|result| result.expect("failed to map voxel direction feedback"),
 		);
+		if let Some(gi) = &gpu_bvh.face_gi_readback {
+			gi.buffer.slice(..).map_async(wgpu::MapMode::Read,
+				|result| result.expect("failed to map face GI stats"));
+		}
 		render_device.wgpu_device().poll(wgpu::PollType::Wait {
 			submission_index: None,
 			timeout: None,
@@ -63,5 +69,12 @@ pub fn read_back_direction_masks(
 			}).collect()
 		};
 		gpu_bvh.item_direction_mask_staging_buffer.unmap();
+		if let Some(gi) = &gpu_bvh.face_gi_readback {
+			let gi_stats = gi.read_mapped();
+			gi.buffer.unmap();
+			if let Ok(mut stats) = render_stats.inner.lock() {
+				stats.face_gi = gi_stats;
+			}
+		}
 	}
 }

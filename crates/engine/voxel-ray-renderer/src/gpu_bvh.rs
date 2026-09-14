@@ -93,6 +93,7 @@ pub struct GpuBvh {
 	pub item_direction_mask_buffer: GpuBuffer,
 	pub item_direction_mask_staging_buffer: GpuBuffer,
 	pub item_ids: Vec<Entity>,
+	pub face_gi_readback: Option<crate::face_gi::FaceGiReadback>,
 }
 
 impl GpuBvh {
@@ -197,6 +198,7 @@ impl GpuBvh {
 			item_direction_mask_buffer,
 			item_direction_mask_staging_buffer,
 			item_ids,
+			face_gi_readback: None,
 		}
 	}
 

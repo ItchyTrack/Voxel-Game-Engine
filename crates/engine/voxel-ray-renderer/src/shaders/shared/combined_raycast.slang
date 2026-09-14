@@ -13,12 +13,14 @@ struct RaycastHit {
 	uint voxel_data_index;
 	uint voxel_index;
 	float total_dist;
+	float unknown_dist;
 };
 
 RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
-	RaycastHit best;
+	RaycastHit best = {};
 	best.normal = 0;
 	best.total_dist = max_dist;
+	best.unknown_dist = 1e38;
 
 	BVH::ExactRaycastPolicy bvh_policy;
 	var iter = BVH::iter_new(ray_pos, ray_dir, bvh_policy);
@@ -36,7 +38,10 @@ RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 		let local_dir = Quat::inv_rotate(transform_quat, ray_dir);
 		record_bvh_item_directions(candidate.bvh_item_idx, local_dir);
 		let data_source = item.aabb_size >> 24u;
-		if (data_source == 0u) { continue; }
+		if (data_source == 0u) {
+			best.unknown_dist = min(best.unknown_dist, candidate.dist);
+			continue;
+		}
 		let remaining = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
 		DDAHit dda_hit;
 		if ((data_source == 2u)) {
@@ -57,5 +62,6 @@ RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 		}
 	}
 
+	best.unknown_dist = min(best.unknown_dist, iter.dropped_dist);
 	return best;
 }

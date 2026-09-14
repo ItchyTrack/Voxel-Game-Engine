@@ -10,6 +10,7 @@ type GpuComputePipeline = WgpuWrapper<wgpu::ComputePipeline>;
 type GpuRenderPipeline = WgpuWrapper<wgpu::RenderPipeline>;
 type GpuTexture = WgpuWrapper<wgpu::Texture>;
 
+use crate::face_gi::{FaceGi, params_entry, storage_entry};
 use crate::gpu_bvh::GpuBvh;
 use crate::shader_sources::VoxelShaderSources;
 
@@ -31,7 +32,9 @@ pub struct VoxelRenderer {
 	// pipelines
 	pub bvh_beam_pipeline: GpuComputePipeline,
 	pub ray_marching_pipeline: GpuComputePipeline,
+	pub fallback_pipeline: GpuComputePipeline,
 	pub coloring_pipeline: GpuRenderPipeline,
+	pub face_gi: FaceGi,
 }
 
 fn texture_view(_texture: &GpuTexture, usage: wgpu::TextureUsages) -> impl FnOnce(&wgpu::Texture) -> wgpu::TextureView + '_ {
@@ -61,6 +64,9 @@ impl VoxelRenderer {
 	) -> anyhow::Result<Self> {
 		struct Cfg { width: u32, height: u32 }
 		let config = Cfg { width, height };
+		let intermediate_width = width.checked_add(1).ok_or_else(|| anyhow::anyhow!("intermediate width overflow"))?;
+		let intermediate_height = height.checked_add(1).ok_or_else(|| anyhow::anyhow!("intermediate height overflow"))?;
+		crate::face_gi::GiArenaLayout::new(intermediate_width, intermediate_height, &device.limits())?;
 		let tree_bind_group_layout = WgpuWrapper::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 			entries: &[
 				wgpu::BindGroupLayoutEntry {
@@ -179,6 +185,7 @@ impl VoxelRenderer {
 					},
 					count: None,
 				},
+				storage_entry(3, wgpu::ShaderStages::COMPUTE, true),
 			],
 			label: Some("ray_marching_bind_group_layout"),
 		}));
@@ -192,12 +199,15 @@ impl VoxelRenderer {
 					multisampled: false,
 				},
 				count: None,
-			}],
+			},
+			storage_entry(1, wgpu::ShaderStages::FRAGMENT, true),
+			params_entry(wgpu::ShaderStages::FRAGMENT),
+			],
 			label: Some("intermediate_read_layout"),
 		}));
 		let intermediate_textured = WgpuWrapper::new(device.create_texture(&wgpu::TextureDescriptor {
 			label: Some("intermediate_texture"),
-			size: wgpu::Extent3d { width: config.width + 1, height: config.height + 1, depth_or_array_layers: 1 },
+			size: wgpu::Extent3d { width: intermediate_width, height: intermediate_height, depth_or_array_layers: 1 },
 			mip_level_count: 1,
 			sample_count: 1,
 			dimension: wgpu::TextureDimension::D2,
@@ -205,16 +215,21 @@ impl VoxelRenderer {
 			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
 			view_formats: &[],
 		}));
+		let gpu_bvh_layout = GpuBvh::bind_group_layout(device);
+		let face_gi = FaceGi::new(device, &intermediate_textured, camera_bind_group_layout, &gpu_bvh_layout, shader_sources)?;
 		let intermediate_textured_read_bind_group = {
 			let view = texture_view(&intermediate_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&intermediate_textured);
 			WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 				layout: &intermediate_textured_read_bind_group_layout,
-				entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
+				entries: &[
+					wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+					wgpu::BindGroupEntry { binding: 1, resource: face_gi.words.as_entire_binding() },
+					wgpu::BindGroupEntry { binding: 2, resource: face_gi.params.as_entire_binding() },
+				],
 				label: Some("intermediate_read_bind_group"),
 			}))
 		};
 
-		let gpu_bvh_layout = GpuBvh::bind_group_layout(device);
 		let bvh_beam_pipeline = {
 			let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 				label: Some("Beam Shader"),
@@ -261,6 +276,25 @@ impl VoxelRenderer {
 				entry_point: Some("main"),
 				compilation_options: Default::default(),
 				cache: Default::default(),
+			}))
+		};
+
+		let fallback_pipeline = {
+			let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+				label: Some("GI Fallback Ray Shader"),
+				source: wgpu::ShaderSource::Wgsl(shader_sources.fallback.clone().into()),
+			});
+			let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+				label: Some("GI Fallback Ray Layout"),
+				bind_group_layouts: &[
+					Some(camera_bind_group_layout), Some(&gpu_bvh_layout),
+					Some(&tree_bind_group_layout), Some(&ray_marching_bind_group_layout),
+				],
+				immediate_size: 0,
+			});
+			WgpuWrapper::new(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+				label: Some("GI Fallback Ray Pipeline"), layout: Some(&layout), module: &shader,
+				entry_point: Some("fallback_main"), compilation_options: Default::default(), cache: None,
 			}))
 		};
 
@@ -319,7 +353,9 @@ impl VoxelRenderer {
 			intermediate_textured_read_bind_group,
 			// pipelines
 			ray_marching_pipeline,
+			fallback_pipeline,
 			coloring_pipeline,
+			face_gi,
 		})
 	}
 
@@ -337,8 +373,10 @@ impl VoxelRenderer {
 		main_voxel_buffer: &GpuBuffer,
 		depth_view: &wgpu::TextureView,
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
+		face_gi_enabled: bool,
 	) -> GpuBvh {
-		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
+		let mut gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
+		self.face_gi.clear(encoder, face_gi_enabled);
 		let beam_storage_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.bvh_beam_textured);
 		let beam_read_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&self.bvh_beam_textured);
 		let intermediate_view = texture_view(&self.intermediate_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.intermediate_textured);
@@ -356,6 +394,7 @@ impl VoxelRenderer {
 				wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&intermediate_view) },
 				wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&beam_read_view) },
 				wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(depth_view) },
+				wgpu::BindGroupEntry { binding: 3, resource: self.face_gi.words.as_entire_binding() },
 			],
 			label: Some("ray_marching_bind_group"),
 		}));
@@ -384,6 +423,21 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &*ray_bind_group, &[]);
 			compute_pass.set_pipeline(&self.ray_marching_pipeline);
+			compute_pass.dispatch_workgroups(self.intermediate_textured.width().div_ceil(8), self.intermediate_textured.height().div_ceil(4), 1);
+		}
+		if face_gi_enabled {
+			self.face_gi.dispatch(
+				device, encoder, view_bind_group, view_uniform_offset, &gpu_bvh.bind_group,
+				[tree_buffer, main_tree_buffer, voxel_buffer, main_voxel_buffer],
+			);
+			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+				label: Some("GI Fallback Ray Pass"), timestamp_writes: None,
+			});
+			compute_pass.set_bind_group(0, &**view_bind_group, &[view_uniform_offset]);
+			compute_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);
+			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
+			compute_pass.set_bind_group(3, &*ray_bind_group, &[]);
+			compute_pass.set_pipeline(&self.fallback_pipeline);
 			compute_pass.dispatch_workgroups(self.intermediate_textured.width().div_ceil(8), self.intermediate_textured.height().div_ceil(4), 1);
 		}
 		let voxels_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -419,6 +473,7 @@ impl VoxelRenderer {
 			gpu_bvh.item_direction_mask_buffer.size(),
 		);
 
+		gpu_bvh.face_gi_readback = Some(self.face_gi.copy_stats(device, encoder, face_gi_enabled));
 		gpu_bvh
 	}
 }

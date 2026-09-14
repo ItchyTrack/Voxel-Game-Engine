@@ -13,11 +13,6 @@ VertexOutput vs_main(uint vertex_index : SV_VertexID) {
 	return out;
 }
 
-struct RenderSettings {
-	uint4 values;
-};
-ConstantBuffer<RenderSettings> render_settings : register(b1, space0);
-
 float3 voxel_color(uint value) {
 	let h = float(value % 17u) / 17.0 * 6.0;
 	let s = uint(h);

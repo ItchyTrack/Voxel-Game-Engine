@@ -1,4 +1,5 @@
 pub mod graphics_settings;
+pub mod face_gi;
 pub mod gpu_bvh;
 pub mod gpu_data;
 pub mod gpu_grid_tree;
@@ -101,6 +102,8 @@ impl Plugin for VoxelRayRendererPlugin {
 	fn build(&self, app: &mut App) {
 		bevy::asset::embedded_asset!(app, "shaders/beam.slang");
 		bevy::asset::embedded_asset!(app, "shaders/raycasting.slang");
+		bevy::asset::embedded_asset!(app, "shaders/face_gi.slang");
+		bevy::asset::embedded_asset!(app, "shaders/face_gi_common.slang");
 		bevy::asset::embedded_asset!(app, "shaders/coloring_shader.slang");
 		bevy::asset::embedded_asset!(app, "shaders/coloring_common.slang");
 		bevy::asset::embedded_asset!(app, "shaders/anti_aliasing.slang");

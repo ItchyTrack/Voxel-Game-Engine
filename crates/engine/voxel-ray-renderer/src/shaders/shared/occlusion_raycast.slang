@@ -5,7 +5,7 @@
 #include "dda/raycast.slang"
 #include "helpers/quat.slang"
 
-bool occlusion_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
+bool occlusion_raycast_impl(float3 ray_pos, float3 ray_dir, float max_dist, bool unknown_blocks) {
 	BVH::ExactRaycastPolicy bvh_policy;
 	var iter = BVH::iter_new(ray_pos, ray_dir, bvh_policy);
 
@@ -22,7 +22,10 @@ bool occlusion_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 		let local_dir = Quat::inv_rotate(transform_quat, ray_dir);
 		record_bvh_item_directions(candidate.bvh_item_idx, local_dir);
 		let data_source = item.aabb_size >> 24u;
-		if (data_source == 0u) { continue; }
+		if (data_source == 0u) {
+			if (unknown_blocks) { return true; }
+			continue;
+		}
 		let remaining = min(max_dist - candidate.dist, candidate.aabb_internal_dist);
 		DDAHit dda_hit;
 		if ((data_source == 2u)) {
@@ -37,5 +40,13 @@ bool occlusion_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
 			}
 		}
 	}
-	return false;
+	return unknown_blocks && iter.dropped_dist < max_dist;
+}
+
+bool occlusion_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
+	return occlusion_raycast_impl(ray_pos, ray_dir, max_dist, false);
+}
+
+bool occlusion_raycast_conservative(float3 ray_pos, float3 ray_dir, float max_dist) {
+	return occlusion_raycast_impl(ray_pos, ray_dir, max_dist, true);
 }

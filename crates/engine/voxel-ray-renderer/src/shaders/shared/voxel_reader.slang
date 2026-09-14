@@ -2,8 +2,13 @@
 
 #include "voxel_sampler_api.slang"
 
+#ifdef FACE_GI_COMPUTE
+StructuredBuffer<uint> residency_voxel_data_buf : register(t2, space2);
+StructuredBuffer<uint> main_voxel_data_buf : register(t3, space2);
+#else
 StructuredBuffer<uint> residency_voxel_data_buf : register(t0, space2);
 StructuredBuffer<uint> main_voxel_data_buf : register(t1, space2);
+#endif
 
 static const uint VOXELS_NODE_OFFSET_UNIT_BYTES = 16u;
 static const uint VOXEL_DATA_SOURCE_RESIDENCY = 1u;

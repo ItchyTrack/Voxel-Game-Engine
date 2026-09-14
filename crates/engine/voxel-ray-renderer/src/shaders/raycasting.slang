@@ -10,6 +10,7 @@
 WTexture2D<uint4> intermediate_textured : register(u0, space3);
 Texture2D<float> bvh_beam_textured_read : register(t1, space3);
 Texture2D<float> scene_depth : register(t2, space3);
+StructuredBuffer<uint> gi_words : register(t3, space3);
 
 struct ViewUniform {
 	float4x4 clip_from_world;
@@ -29,9 +30,7 @@ struct RenderSettings {
 };
 ConstantBuffer<RenderSettings> render_settings : register(b1, space0);
 
-[shader("compute")]
-[numthreads(8, 4, 1)]
-void main(uint3 global_invocation_id : SV_DispatchThreadID) {
+void raycast_primary(uint3 global_invocation_id) {
 	uint texture_width;
 	uint texture_height;
 	intermediate_textured.GetDimensions(texture_width, texture_height);
@@ -105,7 +104,7 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 	}
 
 	bool light_visible = true;
-	if (render_settings.values.x != 0u) {
+	if (render_settings.values.x != 0u && (render_settings.values.z == 0u || gi_words[2u] != 0u)) {
 		let item = bvh_items[hit.bvh_item_idx];
 		let hit_pos = ray_start + (hit.total_dist + beam_min_dist) * ray_dir;
 		let shadow_bias = max(0.01, item.scale * 0.01);
@@ -117,4 +116,18 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 		hit.voxel_data_index + (hit.voxel_index << 16u),
 		asuint(hit.total_dist + beam_min_dist)
 	));
+}
+
+[shader("compute")]
+[numthreads(8, 4, 1)]
+void main(uint3 global_invocation_id : SV_DispatchThreadID) {
+	raycast_primary(global_invocation_id);
+}
+
+[shader("compute")]
+[numthreads(8, 4, 1)]
+void fallback_main(uint3 global_invocation_id : SV_DispatchThreadID) {
+	if (render_settings.values.z != 0u && gi_words[2u] != 0u) {
+		raycast_primary(global_invocation_id);
+	}
 }
