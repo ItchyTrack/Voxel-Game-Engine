@@ -276,7 +276,7 @@ pub(crate) fn chunks(region: NonZeroChunkRegion) -> impl Iterator<Item = IVec3> 
 }
 
 pub fn complete_voxel_store_acquisitions(
-	mut sources: ResMut<voxel_sources::SourceManager>,
+	mut sources: ResMut<voxel_sources::VoxelSourceManager>,
 	mut results: MessageReader<SourceResult>,
 ) {
 	for result in results.read() {

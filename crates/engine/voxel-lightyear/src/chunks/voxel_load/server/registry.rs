@@ -4,7 +4,7 @@ use bevy::log::warn;
 use bevy::prelude::*;
 use lightyear::prelude::PeerId;
 use voxel_data::compressed_voxels::CompressedVoxels;
-use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridGeneration};
+use voxel_sources::{RequestId, VoxelSourceManager, SourceResult, SourceResultData, edit::GridGeneration};
 
 use super::super::{
 	VoxelLoadManifest,
@@ -75,7 +75,7 @@ impl PendingVoxelLoads {
 		peer: PeerId,
 		request: VoxelLoadRequest,
 		server_generation: GridGeneration,
-		sources: &mut SourceManager,
+		sources: &mut VoxelSourceManager,
 	) {
 		let owner = VoxelLoadOwner { peer, id: request.id };
 		if self.cancelled.remove(&owner) { return; }
@@ -110,7 +110,7 @@ impl PendingVoxelLoads {
 		&mut self,
 		peer: PeerId,
 		id: NetworkRequestId,
-		sources: &mut SourceManager,
+		sources: &mut VoxelSourceManager,
 	) {
 		let owner = VoxelLoadOwner { peer, id };
 		if !self.remove_owner(owner, sources) {
@@ -136,7 +136,7 @@ impl PendingVoxelLoads {
 		&mut self,
 		peer: PeerId,
 		id: NetworkRequestId,
-		sources: &mut SourceManager,
+		sources: &mut VoxelSourceManager,
 	) {
 		self.remove_owner(VoxelLoadOwner { peer, id }, sources);
 	}
@@ -177,7 +177,7 @@ impl PendingVoxelLoads {
 	pub(super) fn remove_disconnected(
 		&mut self,
 		mut connected: impl FnMut(PeerId) -> bool,
-		sources: &mut SourceManager,
+		sources: &mut VoxelSourceManager,
 	) {
 		let disconnected: Vec<_> = self.keys_by_owner.keys()
 			.filter(|owner| !connected(owner.peer))
@@ -241,7 +241,7 @@ impl PendingVoxelLoads {
 		}
 	}
 
-	fn remove_owner(&mut self, owner: VoxelLoadOwner, sources: &mut SourceManager) -> bool {
+	fn remove_owner(&mut self, owner: VoxelLoadOwner, sources: &mut VoxelSourceManager) -> bool {
 		let Some(key) = self.keys_by_owner.remove(&owner) else {
 			self.outgoing.retain(|message| message.owner() != owner);
 			return false;

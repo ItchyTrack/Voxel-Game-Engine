@@ -2,7 +2,7 @@ use bevy::{ecs::message::{MessageReader, MessageWriter}};
 use bevy::math::IVec3;
 use bevy::prelude::*;
 
-use voxel_sources::{SourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
+use voxel_sources::{VoxelSourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
 use voxel_data::grid::GridId;
 use tile_data::{CHUNK_SIZE, chunks_covering_nonzero_voxel_region};
 use crate::{tile_building::TileBuildingChannel, tile_requester::TileRequester};
@@ -47,7 +47,7 @@ pub(crate) fn apply_source_presence(
 }
 
 pub(crate) fn request_presence_for_new_grids(
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut commands: Commands,
 	grids: Query<(Entity, GridId), (With<RequestChunkPresence>, Without<InflightChunkPresence>)>,
 ) {

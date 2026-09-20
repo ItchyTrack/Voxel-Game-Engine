@@ -1,7 +1,7 @@
 use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerMetadata, RemoteEvent};
-use voxel_sources::{SourceManager, SourceResult};
+use voxel_sources::{VoxelSourceManager, SourceResult};
 
 use super::registry::{OutgoingVoxelMessage, PendingVoxelLoads};
 use super::super::{
@@ -16,7 +16,7 @@ use crate::chunks::edit_stream::EditSubscriptions;
 
 pub(crate) fn receive_voxel_load_request(
 	trigger: On<RemoteEvent<VoxelLoadRequest>>,
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut pending: ResMut<PendingVoxelLoads>,
 	edits: Res<EditSubscriptions>,
 ) {
@@ -31,7 +31,7 @@ pub(crate) fn receive_voxel_load_request(
 
 pub(crate) fn receive_voxel_load_cancel(
 	trigger: On<RemoteEvent<VoxelLoadCancel>>,
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let event = trigger.event();
@@ -48,7 +48,7 @@ pub(crate) fn receive_voxel_load_retry(
 
 pub(crate) fn receive_voxel_load_received(
 	trigger: On<RemoteEvent<VoxelLoadReceived>>,
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let event = trigger.event();
@@ -93,7 +93,7 @@ pub(crate) fn send_pending_voxel_load_responses(
 
 pub(crate) fn cleanup_disconnected_requests(
 	peer_metadata: Option<Res<PeerMetadata>>,
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };

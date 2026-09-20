@@ -11,7 +11,7 @@ use crate::{edit::GridEditMessage, source_manager::publish_source_results_messag
 pub use crate::{
 	request::{RequestId, SourceResult, SourceResultData},
 	source::{ChunkSource, SourceCoverage, SourceHandle, SourceId},
-	source_manager::SourceManager,
+	source_manager::VoxelSourceManager,
 };
 
 pub trait VoxelSourcesAppExt {
@@ -21,7 +21,7 @@ pub trait VoxelSourcesAppExt {
 impl VoxelSourcesAppExt for App {
 	fn register_voxel_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self {
 		self.world_mut()
-			.get_resource_or_init::<SourceManager>()
+			.get_resource_or_init::<VoxelSourceManager>()
 			.add_source(source);
 		self
 	}
@@ -32,7 +32,7 @@ pub struct VoxelSourcesPlugin;
 
 impl Plugin for VoxelSourcesPlugin {
 	fn build(&self, app: &mut App) {
-		app.init_resource::<SourceManager>()
+		app.init_resource::<VoxelSourceManager>()
 			.add_message::<SourceResult>()
 			.add_message::<GridEditMessage>()
 			.add_systems(PreUpdate, publish_source_results_messages);

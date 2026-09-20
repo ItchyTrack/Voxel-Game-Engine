@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A request ID that is meaningful only within the voxel network protocol.
-/// SourceManager request IDs remain local to the process that allocated them.
+/// VoxelSourceManager request IDs remain local to the process that allocated them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct NetworkRequestId(pub(crate) u64);
 

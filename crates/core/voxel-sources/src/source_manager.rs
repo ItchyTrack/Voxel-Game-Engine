@@ -8,7 +8,7 @@ use voxel_tasks::CancellationToken;
 use crate::{edit::GridGeneration, request::{RequestId, SourceResult}, source::{ChunkSource, SourceCoverage, SourceHandle, SourceId}};
 
 #[derive(Resource)]
-pub struct SourceManager {
+pub struct VoxelSourceManager {
 	last_request_id: RequestId,
 	pending_requests: FxHashMap<RequestId, (CancellationToken, u32)>,
 	sources: Vec<Box<dyn ChunkSource>>,
@@ -16,7 +16,7 @@ pub struct SourceManager {
 	source_result_receiver: Receiver<SourceResult>,
 }
 
-impl Default for SourceManager {
+impl Default for VoxelSourceManager {
 	fn default() -> Self {
 		let (source_result_sender, source_result_receiver) = crossbeam_channel::unbounded();
 		Self {
@@ -29,7 +29,7 @@ impl Default for SourceManager {
 	}
 }
 
-impl SourceManager {
+impl VoxelSourceManager {
 	fn new_request_id(&mut self) -> RequestId {
 		let request_id = self.last_request_id;
 		self.last_request_id.0 += 1;
@@ -137,7 +137,7 @@ impl SourceManager {
 }
 
 pub(crate) fn publish_source_results_messages(
-	mut source_manager: ResMut<SourceManager>,
+	mut source_manager: ResMut<VoxelSourceManager>,
 	mut result_writter: MessageWriter<SourceResult>,
 ) {
 	result_writter.write_batch(source_manager.source_result_receiver.clone().try_iter().filter_map(|result| {

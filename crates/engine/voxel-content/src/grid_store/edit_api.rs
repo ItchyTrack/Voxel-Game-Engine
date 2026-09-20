@@ -9,7 +9,7 @@ use voxel_mass::{
 	edit_reservation_error,
 };
 use voxel_sources::{
-	SourceManager,
+	VoxelSourceManager,
 	edit::{GridEdit, GridEditId, GridEditIdManager, GridEditMessage, GridGeneration},
 };
 
@@ -17,7 +17,7 @@ use super::{VoxelStoreSource, grid_store::ChunkOwnership, voxel_store_source::ch
 
 #[derive(SystemParam)]
 pub struct GridStoreEditApi<'w, 's> {
-	sources: ResMut<'w, SourceManager>,
+	sources: ResMut<'w, VoxelSourceManager>,
 	messages: MessageWriter<'w, GridEditMessage>,
 	edit_mass_readers: Res<'w, GridEditMassReaders>,
 	voxel_mass_readers: Res<'w, VoxelMassReaders>,

@@ -17,7 +17,7 @@ use voxel_mass::{RotationalInertia, SourceMassAppExt, VoxelMass};
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, VoxelPhysicsAppExt
 };
-use voxel_sources::{SourceManager, VoxelSourcesAppExt};
+use voxel_sources::{VoxelSourceManager, VoxelSourcesAppExt};
 use voxel_streaming::{GridStreaming, RequestChunkPresence};
 
 use crate::voxel::spawn_grid::spawn_grid;
@@ -72,7 +72,7 @@ fn drive_orientation(
 
 fn setup_scene(
 	mut commands: Commands,
-	mut source_manager: ResMut<SourceManager>,
+	mut source_manager: ResMut<VoxelSourceManager>,
 ) {
 	{
 		let vox_source = source_manager.get_source_mut::<SceneVoxFileSource>().unwrap();

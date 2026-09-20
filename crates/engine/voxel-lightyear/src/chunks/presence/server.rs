@@ -5,7 +5,7 @@ use bevy::log::warn;
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerId, PeerMetadata, RemoteEvent};
 use voxel_data::grid::GridId;
-use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData};
+use voxel_sources::{RequestId, VoxelSourceManager, SourceResult, SourceResultData};
 
 use super::{PresenceCancel, PresenceLoad, PresenceLoaded, PresenceRequest};
 use crate::ReplicateVoxelsRestriction;
@@ -44,7 +44,7 @@ pub(super) struct PendingPresenceLoads {
 }
 
 impl PendingPresenceLoads {
-	fn request(&mut self, peer: PeerId, request: PresenceRequest, sources: &mut SourceManager) {
+	fn request(&mut self, peer: PeerId, request: PresenceRequest, sources: &mut VoxelSourceManager) {
 		let owner = PresenceOwner { peer, id: request.id };
 		if self.cancelled.remove(&owner) { return; }
 		self.remove_owner(owner, sources);
@@ -53,14 +53,14 @@ impl PendingPresenceLoads {
 		self.by_source_request.insert(request_id, PendingPresence { owner, grid: request.grid });
 	}
 
-	fn cancel(&mut self, peer: PeerId, id: NetworkRequestId, sources: &mut SourceManager) {
+	fn cancel(&mut self, peer: PeerId, id: NetworkRequestId, sources: &mut VoxelSourceManager) {
 		let owner = PresenceOwner { peer, id };
 		if !self.remove_owner(owner, sources) {
 			self.cancelled.insert(owner);
 		}
 	}
 
-	fn remove_owner(&mut self, owner: PresenceOwner, sources: &mut SourceManager) -> bool {
+	fn remove_owner(&mut self, owner: PresenceOwner, sources: &mut VoxelSourceManager) -> bool {
 		self.outgoing.retain(|message| message.owner() != owner);
 		let Some(request_id) = self.by_owner.remove(&owner) else { return false };
 		self.by_source_request.remove(&request_id);
@@ -68,7 +68,7 @@ impl PendingPresenceLoads {
 		true
 	}
 
-	fn remove_disconnected(&mut self, connected: impl Fn(PeerId) -> bool, sources: &mut SourceManager) {
+	fn remove_disconnected(&mut self, connected: impl Fn(PeerId) -> bool, sources: &mut VoxelSourceManager) {
 		let disconnected: Vec<_> = self.by_owner.keys()
 			.filter(|owner| !connected(owner.peer))
 			.copied()
@@ -83,7 +83,7 @@ impl PendingPresenceLoads {
 
 pub(super) fn receive_request(
 	trigger: On<RemoteEvent<PresenceRequest>>,
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut pending: ResMut<PendingPresenceLoads>,
 ) {
 	let event = trigger.event();
@@ -92,7 +92,7 @@ pub(super) fn receive_request(
 
 pub(super) fn receive_cancel(
 	trigger: On<RemoteEvent<PresenceCancel>>,
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut pending: ResMut<PendingPresenceLoads>,
 ) {
 	let event = trigger.event();
@@ -178,7 +178,7 @@ pub(super) fn send_pending_presence(
 
 pub(super) fn cleanup_disconnected(
 	peer_metadata: Option<Res<PeerMetadata>>,
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut pending: ResMut<PendingPresenceLoads>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };

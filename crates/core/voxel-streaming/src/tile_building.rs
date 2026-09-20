@@ -8,7 +8,7 @@ use tile_data::{
 	VoxelRegionRequest, VoxelRegionResult,
 };
 use voxel_data::grid::GridId;
-use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridGeneration};
+use voxel_sources::{RequestId, VoxelSourceManager, SourceResult, SourceResultData, edit::GridGeneration};
 use voxel_tasks::CancellationToken;
 
 use crate::{GridStreaming, tile_dependency_index::TileDependency};
@@ -178,7 +178,7 @@ pub(crate) fn session(
 
 pub(crate) fn submit_tile_voxel_requests(
 	mut bridge: ResMut<TileVoxelSourceBridge>,
-	mut sources: ResMut<SourceManager>,
+	mut sources: ResMut<VoxelSourceManager>,
 	mut grids: Query<&mut GridStreaming>,
 ) {
 	for request in bridge.request_rx.try_iter().collect::<Vec<_>>() {
