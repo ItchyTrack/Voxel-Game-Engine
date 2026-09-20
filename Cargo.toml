@@ -2,9 +2,10 @@
 resolver = "3"
 
 members = [
+	"crates/core/vge-math",
+	"crates/core/scene",
 	"crates/core/voxel-tasks",
 	"crates/core/voxel-trees",
-	"crates/core/voxel-data",
 	"crates/core/voxel-data",
 	"crates/core/tile-data",
 	"crates/core/voxel-sources",
@@ -31,7 +32,7 @@ default-members = [
 ]
 
 [profile.release]
-strip = true
+debug = true
 
 [workspace.dependencies]
 bevy = "0.19"
@@ -48,6 +49,8 @@ tokio = "1"
 futures = "0.3.32"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+vge-math = { version = "0.1.0", path = "crates/core/vge-math" }
+scene = { version = "0.1.0", path = "crates/core/scene" }
 voxel-tasks = { version = "0.1.0", path = "crates/core/voxel-tasks" }
 voxel-trees = { version = "0.1.0", path = "crates/core/voxel-trees" }
 voxel-data = { version = "0.1.0", path = "crates/core/voxel-data" }

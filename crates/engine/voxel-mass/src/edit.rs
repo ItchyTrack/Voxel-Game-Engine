@@ -3,7 +3,7 @@ use std::{any::TypeId, sync::Arc};
 use bevy::prelude::{App, Resource};
 use rustc_hash::FxHashMap;
 use voxel_sources::edit::GridEdit;
-use voxel_trees::region::NonZeroVoxelRegion;
+use vge_math::region::NonZeroVoxelRegion;
 
 use crate::{MassError, MassProperties, VoxelMassReaders};
 

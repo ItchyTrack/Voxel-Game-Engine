@@ -3,9 +3,9 @@ use std::sync::RwLock;
 use bevy::math::IVec3;
 use rustc_hash::FxHashMap;
 use tile_data::NonZeroChunkRegion;
+use vge_math::region::NonZeroVoxelRegion;
 use voxel_trees::{
 	grid_tree::U16Cell,
-	region::NonZeroVoxelRegion,
 	signed_grid_tree::SignedGridTree,
 };
 use voxel_data::grid::GridId;

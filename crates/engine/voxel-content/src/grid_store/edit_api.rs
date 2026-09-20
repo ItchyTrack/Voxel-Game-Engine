@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bevy::{ecs::system::SystemParam, math::IVec3, prelude::*};
+use vge_math::region::NonZeroVoxelRegion;
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin, chunks_covering_nonzero_voxel_region};
 use voxel_data::grid::{Grid, GridId};
 use voxel_mass::{
@@ -11,7 +12,6 @@ use voxel_sources::{
 	SourceManager,
 	edit::{GridEdit, GridEditId, GridEditIdManager, GridEditMessage, GridGeneration},
 };
-use voxel_trees::region::NonZeroVoxelRegion;
 
 use super::{VoxelStoreSource, grid_store::ChunkOwnership, voxel_store_source::chunks};
 

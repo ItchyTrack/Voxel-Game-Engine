@@ -1,6 +1,6 @@
 use bevy::math::UVec3;
 use std::fmt::Debug;
-use crate::region::NonZeroVoxelRegion;
+use vge_math::region::NonZeroVoxelRegion;
 
 pub trait GridView: Debug {
 	type Data<'d>: Copy where Self: 'd;

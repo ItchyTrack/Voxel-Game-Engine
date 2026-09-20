@@ -2,7 +2,7 @@ use bevy::math::IVec3;
 use bevy::transform::components::Transform;
 
 use tile_data::NonZeroChunkRegion;
-use voxel_trees::region::NonZeroVoxelRegion;
+use vge_math::region::NonZeroVoxelRegion;
 use voxel_trees::signed_grid_tree::SignedGridTree;
 use voxel_trees::grid_tree::U16Cell;
 

@@ -124,7 +124,7 @@ mod single_build;
 mod storage;
 mod surgery;
 
-pub use crate::region::NonZeroVoxelRegion;
+pub use vge_math::region::NonZeroVoxelRegion;
 use crate::views::{GridTreeView, GridView};
 pub use reduce::{reduce_grid_trees, GridReducer, SourceOverlap, SourceOverlaps, SourceTree};
 

@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
+use vge_math::region::NonZeroVoxelRegion;
 use tile_data::NonZeroChunkRegion;
 use voxel_trees::{
-	grid_tree::U32Cell,
-	region::NonZeroVoxelRegion,
 	signed_grid_tree::SignedGridTree,
+	grid_tree::U32Cell,
 };
 use voxel_data::grid::GridId;
 use crate::streaming::GridStreaming;

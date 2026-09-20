@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use bevy::{log::warn, math::IVec3};
-use voxel_trees::region::NonZeroVoxelRegion;
+use vge_math::region::NonZeroVoxelRegion;
 use voxel_data::{compressed_voxels::CompressedVoxels, grid::GridId, voxels::{VoxelTypeId, Voxels}};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use voxel_sources::{RequestId, SourceHandle, edit::GridGeneration};

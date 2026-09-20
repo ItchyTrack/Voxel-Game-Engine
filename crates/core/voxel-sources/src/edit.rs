@@ -2,7 +2,7 @@ use std::{any::Any, sync::Arc};
 
 use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
-use voxel_trees::region::NonZeroVoxelRegion;
+use vge_math::region::NonZeroVoxelRegion;
 use voxel_data::{grid::GridId, voxels::{Voxel, Voxels}};
 
 #[typetag::serde(tag = "type")]

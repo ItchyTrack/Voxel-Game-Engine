@@ -1,0 +1,15 @@
+[package]
+name = "vge-math"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+gpu_profiling = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+bevy = { workspace = true }
+
+[lints]
+workspace = true

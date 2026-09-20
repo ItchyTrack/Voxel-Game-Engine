@@ -1,7 +1,7 @@
 use bevy::math::{UVec3, I8Vec3, U8Vec3};
 use bevy::prelude::*;
 use std::fmt::Debug;
-use crate::region::NonZeroVoxelRegion;
+use vge_math::region::NonZeroVoxelRegion;
 use super::GridView;
 use std::collections::HashSet;
 
