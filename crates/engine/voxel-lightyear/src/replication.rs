@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::{DisableReplicateHierarchy, ReplicationSystems};
-use tile_data::LoadedTile;
+use bile_tiles::TileKey;
 
 pub struct ReplicationPlugin;
 
@@ -12,7 +12,7 @@ impl Plugin for ReplicationPlugin {
 
 fn disable_hierarchy_replication(
 	mut commands: Commands,
-	entities: Query<Entity, (With<LoadedTile>, Without<DisableReplicateHierarchy>)>,
+	entities: Query<Entity, (With<TileKey>, Without<DisableReplicateHierarchy>)>,
 ) {
 	for entity in &entities {
 		commands.entity(entity).insert(DisableReplicateHierarchy);

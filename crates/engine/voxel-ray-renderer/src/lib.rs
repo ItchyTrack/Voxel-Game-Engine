@@ -16,7 +16,7 @@ mod shader_asset;
 mod shader_sources;
 
 use bevy::app::{App, Plugin};
-use bevy::prelude::{Camera3d, Component, Query, Resource};
+use bevy::prelude::{Camera3d, Component, Query};
 use bevy::core_pipeline::core_3d::main_opaque_pass_3d;
 use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -24,10 +24,11 @@ use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::render::render_resource::TextureUsages;
 
-use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
+use ::tile_data::TileVoxelReducerRegistry;
 use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
+use voxel_streaming::TileBuilderAppExt;
 use voxel_gpu::{
-	GpuVoxelDataPlugin, RenderingBuilderAppExt, RenderingType, SlangShader,
+	GpuVoxelDataPlugin, SlangShader,
 	VoxelGpuDataReaders,
 };
 
@@ -37,41 +38,12 @@ use direction_feedback::RenderStats;
 #[derive(Component)]
 pub struct VoxelRayShader;
 
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RayRenderingType(pub RenderingType);
-
-#[derive(Resource, Default)]
-pub struct RayTileCapabilityRegistry(TileCapabilityRegistry<tile_data::RayTileCapabilityData>);
-
-impl RayTileCapabilityRegistry {
-	pub fn read(&self, data: &dyn TileData) -> Option<tile_data::RayTileCapabilityData> { self.0.read(data) }
-
-	pub fn register<T: tile_data::RayTileCapability>(&mut self) {
-		self.0.register::<T>(|data| data.ray_tile_data());
-	}
-}
-
 pub trait VoxelRayTileAppExt {
-	fn register_ray_tile_data<T: tile_data::RayTileCapability>(&mut self) -> &mut Self;
-	fn register_voxel_ray_builder(
-		&mut self,
-		voxel_type: VoxelTypeId,
-		lod_levels: u8,
-	) -> RenderingType;
+	fn register_voxel_ray_builder(&mut self, voxel_type: VoxelTypeId, lod_levels: u8) -> &mut Self;
 }
 
 impl VoxelRayTileAppExt for App {
-	fn register_ray_tile_data<T: tile_data::RayTileCapability>(&mut self) -> &mut Self {
-		self.init_resource::<RayTileCapabilityRegistry>();
-		self.world_mut().resource_mut::<RayTileCapabilityRegistry>().register::<T>();
-		self
-	}
-
-	fn register_voxel_ray_builder(
-		&mut self,
-		voxel_type: VoxelTypeId,
-		lod_levels: u8,
-	) -> RenderingType {
+	fn register_voxel_ray_builder(&mut self, voxel_type: VoxelTypeId, lod_levels: u8) -> &mut Self {
 		self.init_resource::<TileVoxelReducerRegistry>();
 		let builder = tile_data::VoxelRayTileBuilder {
 			voxel_type,
@@ -80,9 +52,7 @@ impl VoxelRayTileAppExt for App {
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
 			reducers: self.world().resource::<TileVoxelReducerRegistry>().clone(),
 		};
-		let rendering_type = self.register_rendering_builder(builder);
-		self.insert_resource(RayRenderingType(rendering_type));
-		rendering_type
+		self.register_tile_builder(builder)
 	}
 }
 
@@ -125,8 +95,7 @@ impl Plugin for VoxelRayRendererPlugin {
 		}
 		let render_stats = RenderStats::default();
 		app.init_resource::<gpu_data::RayWorldGpuData>()
-			.init_resource::<RayTileCapabilityRegistry>();
-		app.register_ray_tile_data::<tile_data::RayTileData>();
+			.register_tile_class_component::<tile_data::RayTileClass, tile_data::RayTileData>();
 		app.insert_resource(render_stats.clone())
 			.init_resource::<GraphicsSettings>()
 			.add_systems(bevy::prelude::Last, configure_depth_texture_usage)

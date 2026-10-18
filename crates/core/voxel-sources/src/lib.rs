@@ -27,6 +27,9 @@ impl VoxelSourcesAppExt for App {
 	}
 }
 
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct VoxelSourcesSet;
+
 #[derive(Default)]
 pub struct VoxelSourcesPlugin;
 
@@ -35,6 +38,6 @@ impl Plugin for VoxelSourcesPlugin {
 		app.init_resource::<SourceManager>()
 			.add_message::<SourceResult>()
 			.add_message::<GridEditMessage>()
-			.add_systems(PreUpdate, publish_source_results_messages);
+			.add_systems(PreUpdate, publish_source_results_messages.in_set(VoxelSourcesSet));
 	}
 }

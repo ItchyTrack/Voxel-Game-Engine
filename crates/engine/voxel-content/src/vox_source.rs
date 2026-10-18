@@ -15,7 +15,7 @@ use voxel_mass::{
 };
 use voxel_trees::grid_tree::NonZeroRegion;
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
-use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of, chunk_origin};
+use tile_data::{chunk_aligned, chunk_of, chunk_origin, chunk_region, chunks_in};
 use tile_data::CHUNK_SIZE;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
@@ -52,7 +52,7 @@ struct GridBinding {
 #[derive(Default)]
 struct FileCache {
 	chunks: HashMap<IVec3, CompressedVoxels>,
-	available_area: Option<ChunkRegion>,
+	available_area: Option<NonZeroRegion>,
 	load_attempted: bool,
 	load_failed: bool,
 }
@@ -190,7 +190,7 @@ impl<T: VoxMaterialVoxel> VoxFileSourceInner<T> {
 			chunk_points.insert(chunk, std::mem::take(&mut current_points));
 		}
 
-		cache.available_area = touched_bounds.and_then(|(min, max)| ChunkRegion::from_min_max(min, max));
+		cache.available_area = touched_bounds.and_then(|(min, max)| NonZeroRegion::from_min_end(chunk_origin(min), chunk_origin(max + IVec3::ONE)));
 
 		for (chunk, points) in chunk_points {
 			let voxel_refs: Vec<_> = points.iter().map(|(pos, voxel)| (*pos, voxel.get_ref())).collect();
@@ -236,15 +236,11 @@ impl<T: VoxMaterialVoxel> VoxFileSourceInner<T> {
 		if out.is_empty() { None } else { Some(out) }
 	}
 
-	fn translated_available_area(&self, binding: &GridBinding) -> Option<NonZeroChunkRegion> {
+	fn translated_available_area(&self, binding: &GridBinding) -> Option<NonZeroRegion> {
 		self.ensure_file_loaded(&binding.path);
 		let files = self.files.read().unwrap();
 		let area = files.get(&binding.path)?.available_area?;
-		let min_voxel = area.min() * CHUNK_SIZE as i32 + binding.offset;
-		let max_voxel_exclusive = area.end() * CHUNK_SIZE as i32 + binding.offset;
-		let min_chunk = chunk_of(min_voxel);
-		let max_chunk = chunk_of(max_voxel_exclusive - IVec3::ONE);
-		NonZeroChunkRegion::from_min_max(min_chunk, max_chunk)
+		Some(chunk_aligned(area.translated(binding.offset)))
 	}
 }
 
@@ -258,27 +254,17 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
 	) -> SourceCoverage {
 		let Some(binding) = self.inner.binding(grid) else { return SourceCoverage::None; };
 
-		let mut owned_chunks = Vec::new();
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					let chunk = IVec3::new(x, y, z);
-					if !self.inner.forgotten.contains(grid, chunk) {
-						owned_chunks.push(chunk);
-					}
-				}
-			}
-		}
+		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| !self.inner.forgotten.contains(grid, chunk)).collect();
 		let coverage = if owned_chunks.is_empty() {
 			return SourceCoverage::None;
-		} else if owned_chunks.len() == region.area() as usize {
+		} else if owned_chunks.len() == chunks_in(region).count() {
 			SourceCoverage::All
 		} else {
 			SourceCoverage::Some
@@ -292,7 +278,7 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 			for chunk in owned_chunks {
 				if cancellation.is_cancelled() { break; }
 				if let Some(voxels) = source.translated_chunk(&binding, chunk) {
-					handle.voxels(request_id, grid, NonZeroChunkRegion::from_single(chunk), 0, generation, voxels);
+					handle.voxels(request_id, grid, chunk_region(chunk), 0, generation, voxels);
 				}
 			}
 			handle.voxels_loaded(request_id, generation);
@@ -314,12 +300,12 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		if self.inner.binding(grid).is_none() { return; }
 		self.inner.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		if self.inner.binding(grid).is_none() { return; }
 		self.inner.forgotten.forget_area(grid, region);
 	}

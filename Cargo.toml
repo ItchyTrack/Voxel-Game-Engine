@@ -12,7 +12,6 @@ members = [
 	"crates/core/voxel-streaming",
 	"crates/engine/voxel-gpu",
 	"crates/engine/voxel-query",
-	"crates/engine/camera-voxel-loader",
 	"crates/engine/voxel-lightyear",
 	"crates/engine/voxel-ray-renderer",
 	"crates/engine/voxel-raster-renderer",
@@ -58,7 +57,6 @@ voxel-tracking = { version = "0.1.0", path = "crates/core/voxel-tracking" }
 voxel-streaming = { version = "0.1.0", path = "crates/core/voxel-streaming" }
 voxel-gpu = { version = "0.1.0", path = "crates/engine/voxel-gpu" }
 voxel-query = { version = "0.1.0", path = "crates/engine/voxel-query" }
-camera-voxel-loader = { version = "0.1.0", path = "crates/engine/camera-voxel-loader" }
 voxel-lightyear = { version = "0.1.0", path = "crates/engine/voxel-lightyear" }
 voxel-ray-renderer = { version = "0.1.0", path = "crates/engine/voxel-ray-renderer" }
 voxel-raster-renderer = { version = "0.1.0", path = "crates/engine/voxel-raster-renderer" }

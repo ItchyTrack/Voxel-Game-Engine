@@ -1,7 +1,7 @@
 use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
-use tile_data::NonZeroChunkRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::grid::GridId;
 
 use crate::chunks::request_id::NetworkRequestId;
@@ -27,7 +27,7 @@ pub(crate) struct PresenceCancel {
 pub(crate) struct PresenceLoad {
 	pub id: NetworkRequestId,
 	pub grid: GridId,
-	pub region: NonZeroChunkRegion,
+	pub region: NonZeroRegion,
 }
 
 impl MapEntities for PresenceLoad {

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crossbeam_channel::{Receiver, Sender};
 use rustc_hash::FxHashMap;
-use tile_data::NonZeroChunkRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::{grid::GridId, voxels::VoxelTypeId};
 use voxel_tasks::CancellationToken;
 
@@ -39,7 +39,7 @@ impl SourceManager {
 	pub fn request_voxels(
 		&mut self,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
@@ -97,7 +97,7 @@ impl SourceManager {
 		}
 	}
 
-	pub fn transfer_ownership(&mut self, new_owner: SourceId, grid: GridId, region: NonZeroChunkRegion) {
+	pub fn transfer_ownership(&mut self, new_owner: SourceId, grid: GridId, region: NonZeroRegion) {
 		if new_owner.0 >= self.sources.len() {
 			println!("transfer_ownership failed! Invalid new_owner {new_owner:?}");
 			return;

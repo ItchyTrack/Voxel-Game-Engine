@@ -11,7 +11,7 @@ mod voxel_raster_renderer;
 mod voxel_raster_renderer_resource;
 
 use bevy::app::{App, Plugin};
-use bevy::prelude::{Component, Resource};
+use bevy::prelude::Component;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::core_pipeline::core_3d::Opaque3d;
 use bevy::render::{
@@ -19,51 +19,23 @@ use bevy::render::{
 	render_phase::AddRenderCommand,
 };
 
-use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
+use ::tile_data::TileVoxelReducerRegistry;
 use voxel_data::{VoxelDataPlugin, voxels::VoxelTypeId};
+use voxel_streaming::TileBuilderAppExt;
 use voxel_gpu::{
-	GpuVoxelDataPlugin, RenderingBuilderAppExt, RenderingType, SlangShader,
+	GpuVoxelDataPlugin, SlangShader,
 	VoxelGpuDataReaders, VoxelGpuShaderTypes,
 };
 
 #[derive(Component)]
 pub struct VoxelRasterShader;
 
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RasterRenderingType(pub RenderingType);
-
-#[derive(Resource, Default)]
-pub struct RasterTileCapabilityRegistry(TileCapabilityRegistry<tile_data::RasterTileCapabilityData>);
-
-impl RasterTileCapabilityRegistry {
-	pub fn read(&self, data: &dyn TileData) -> Option<tile_data::RasterTileCapabilityData> { self.0.read(data) }
-
-	pub fn register<T: tile_data::RasterTileCapability>(&mut self) {
-		self.0.register::<T>(|data| data.raster_tile_data());
-	}
-}
-
 pub trait VoxelRasterTileAppExt {
-	fn register_raster_tile_data<T: tile_data::RasterTileCapability>(&mut self) -> &mut Self;
-	fn register_voxel_raster_builder(
-		&mut self,
-		voxel_type: VoxelTypeId,
-		lod_levels: u8,
-	) -> RenderingType;
+	fn register_voxel_raster_builder(&mut self, voxel_type: VoxelTypeId, lod_levels: u8) -> &mut Self;
 }
 
 impl VoxelRasterTileAppExt for App {
-	fn register_raster_tile_data<T: tile_data::RasterTileCapability>(&mut self) -> &mut Self {
-		self.init_resource::<RasterTileCapabilityRegistry>();
-		self.world_mut().resource_mut::<RasterTileCapabilityRegistry>().register::<T>();
-		self
-	}
-
-	fn register_voxel_raster_builder(
-		&mut self,
-		voxel_type: VoxelTypeId,
-		lod_levels: u8,
-	) -> RenderingType {
+	fn register_voxel_raster_builder(&mut self, voxel_type: VoxelTypeId, lod_levels: u8) -> &mut Self {
 		self.init_resource::<TileVoxelReducerRegistry>();
 		let builder = tile_data::VoxelRasterTileBuilder {
 			voxel_type,
@@ -72,9 +44,7 @@ impl VoxelRasterTileAppExt for App {
 			readers: self.world().resource::<VoxelGpuDataReaders>().clone(),
 			reducers: self.world().resource::<TileVoxelReducerRegistry>().clone(),
 		};
-		let rendering_type = self.register_rendering_builder(builder);
-		self.insert_resource(RasterRenderingType(rendering_type));
-		rendering_type
+		self.register_tile_builder(builder)
 	}
 }
 
@@ -91,8 +61,7 @@ impl Plugin for VoxelRasterRendererPlugin {
 			app.add_plugins(GpuVoxelDataPlugin);
 		}
 		app.init_resource::<gpu_data::RasterWorldGpuData>()
-			.init_resource::<RasterTileCapabilityRegistry>();
-		app.register_raster_tile_data::<tile_data::RasterTileData>();
+			.register_tile_class_component::<tile_data::RasterTileClass, tile_data::RasterTileData>();
 		app.add_systems(bevy::prelude::Update, (
 			gpu_data::collect_raster_gpu_garbage,
 			shader_sources::reload_shader_on_type_change,

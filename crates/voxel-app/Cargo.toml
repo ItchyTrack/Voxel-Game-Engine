@@ -45,7 +45,8 @@ voxel-lightyear = { workspace = true }
 voxel-content = { workspace = true }
 voxel-gpu = { workspace = true }
 basic-voxel = { workspace = true }
-camera-voxel-loader = { workspace = true }
+bile-scene = { workspace = true }
+bile-tiles = { workspace = true }
 voxel-ray-renderer = { workspace = true }
 voxel-raster-renderer = { workspace = true }
 voxel-marching-renderer = { workspace = true }

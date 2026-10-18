@@ -4,11 +4,13 @@ use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
 use bile_math::NonZeroRegion;
 use voxel_data::{grid::GridId, voxels::{Voxel, Voxels}};
+use voxel_trees::grid_tree::{GridTree64, U16Cell};
 
 #[typetag::serde(tag = "type")]
 pub trait GridEdit: std::fmt::Debug + Send + Sync + GridEditToAny {
 	fn affected_region(&self) -> NonZeroRegion;
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels);
+	fn apply_to_occupancy(&self, tile: NonZeroRegion, occupancy: &mut GridTree64<U16Cell>);
 	fn apply_to_tracking(&self) {} // todo once voxel tracking is added
 }
 
@@ -53,6 +55,11 @@ impl GridEdit for AddArea {
 		};
 		voxels.add_area(region.min().as_uvec3(), region.size(), self.voxel.get_ref());
 	}
+
+	fn apply_to_occupancy(&self, tile: NonZeroRegion, occupancy: &mut GridTree64<U16Cell>) {
+		let Some(region) = self.region.intersection(tile) else { return };
+		occupancy.add_area(&(region.min() - tile.min()).as_uvec3(), region.size(), 0u16);
+	}
 }
 
 #[typetag::serde]
@@ -66,6 +73,11 @@ impl GridEdit for RemoveArea {
 			return;
 		};
 		voxels.remove_area(region.min().as_uvec3(), region.size());
+	}
+
+	fn apply_to_occupancy(&self, tile: NonZeroRegion, occupancy: &mut GridTree64<U16Cell>) {
+		let Some(region) = self.region.intersection(tile) else { return };
+		occupancy.remove_area(&(region.min() - tile.min()).as_uvec3(), region.size());
 	}
 }
 

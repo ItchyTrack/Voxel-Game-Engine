@@ -18,7 +18,7 @@ use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, VoxelPhysicsAppExt
 };
 use voxel_sources::{SourceManager, VoxelSourcesAppExt};
-use voxel_streaming::{GridStreaming, RequestChunkPresence};
+use voxel_streaming::RequestChunkPresence;
 
 use crate::voxel::spawn_grid::spawn_grid;
 
@@ -112,7 +112,6 @@ fn spawn_sponza(commands: &mut Commands, vox_source: &mut MarchingVoxFileSource)
 		Transform::IDENTITY,
 		Grid::new::<MarchingVoxel>(),
 		GridEditIdManager::default(),
-		GridStreaming::default(),
 		RequestChunkPresence,
 		ReplicateVoxels,
 		VoxelCollider,
@@ -135,7 +134,6 @@ fn spawn_church(commands: &mut Commands, vox_source: &mut SceneVoxFileSource) {
 			Transform::IDENTITY,
 			Grid::new::<BasicVoxel>(),
 			GridEditIdManager::default(),
-			GridStreaming::default(),
 			RequestChunkPresence,
 			ReplicateVoxels,
 			VoxelCollider,

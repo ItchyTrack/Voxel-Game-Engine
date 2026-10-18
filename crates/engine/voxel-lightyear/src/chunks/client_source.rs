@@ -2,7 +2,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use bevy::prelude::*;
-use tile_data::NonZeroChunkRegion;
+use bile_math::NonZeroRegion;
+use tile_data::chunks_in;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
@@ -36,7 +37,7 @@ impl ChunkSource for ClientChunkSource {
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
@@ -44,19 +45,9 @@ impl ChunkSource for ClientChunkSource {
 		if cancellation.is_cancelled() || !self.state.remote_grids.lock().unwrap().contains(&grid) {
 			return SourceCoverage::None;
 		}
-		let mut accepted_chunks = HashSet::new();
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					let chunk = IVec3::new(x, y, z);
-					if !self.state.forgotten.contains(grid, chunk) {
-						accepted_chunks.insert(chunk);
-					}
-				}
-			}
-		}
+		let accepted_chunks: HashSet<_> = chunks_in(region).filter(|&chunk| !self.state.forgotten.contains(grid, chunk)).collect();
 		if accepted_chunks.is_empty() { return SourceCoverage::None; }
-		let coverage = if accepted_chunks.len() == region.area() as usize { SourceCoverage::All } else { SourceCoverage::Some };
+		let coverage = if accepted_chunks.len() == chunks_in(region).count() { SourceCoverage::All } else { SourceCoverage::Some };
 		self.state.loads.lock().unwrap().request_voxels(
 			request_id,
 			cancellation,
@@ -84,11 +75,11 @@ impl ChunkSource for ClientChunkSource {
 		}
 	}
 
-	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		self.state.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		self.state.forgotten.forget_area(grid, region);
 	}
 }

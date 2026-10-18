@@ -2,7 +2,7 @@ use bevy::input::ButtonInput;
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
 
-use camera_voxel_loader::FreezeCameraVoxelLoader;
+use voxel_engine::FreezeCameraVoxelLoader;
 
 pub struct DebugTogglesPlugin;
 

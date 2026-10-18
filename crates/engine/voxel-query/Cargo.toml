@@ -8,6 +8,9 @@ bevy = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
+bile-tiles = { workspace = true }
+voxel-sources = { workspace = true }
+voxel-streaming = { workspace = true }
 
 [lints]
 workspace = true

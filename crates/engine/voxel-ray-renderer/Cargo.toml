@@ -21,6 +21,7 @@ anyhow = "1.0"
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }
+voxel-streaming = { workspace = true }
 voxel-gpu = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

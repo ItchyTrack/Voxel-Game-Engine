@@ -13,13 +13,12 @@ use crate::gpu_data::RayWorldGpuData;
 use voxel_data::voxels::VoxelTypeInfo;
 use voxel_data::bvh::BVH;
 use voxel_data::aabb::aabb_of_transformed_aabb;
-use tile_data::DynamicTileData;
 use voxel_gpu::PackedBufferAllocation;
 
 use crate::direction_feedback::DirectionFeedback;
 use crate::incoming_ray_directions::IncomingRayDirections;
 use crate::gpu_bvh::{BvhDataSource, BvhItemData};
-use crate::{RayTileCapabilityRegistry, voxel_camera::VoxelCamera};
+use crate::{tile_data::RayTileData, voxel_camera::VoxelCamera};
 use bevy::render::renderer::WgpuWrapper;
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
@@ -58,9 +57,8 @@ pub fn extract_voxel_scene(
 	mut extracted_scenes: ResMut<ExtractedVoxelScenes>,
 	mut residency: ResMut<ResidencyBuffers>,
 	direction_feedback: Query<&DirectionFeedback>,
-	tile_capabilities: Extract<Res<RayTileCapabilityRegistry>>,
 	cameras: Extract<Query<(RenderEntity, &VoxelCamera, &Camera, &GlobalTransform)>>,
-	tiles: Extract<Query<(&DynamicTileData, &GlobalTransform)>>,
+	tiles: Extract<Query<(&RayTileData, &GlobalTransform)>>,
 	world_gpu: Extract<Res<RayWorldGpuData>>,
 ) {
 	extracted_scenes.0.clear();
@@ -70,8 +68,7 @@ pub fn extract_voxel_scene(
 		if !camera.is_active { continue; }
 		let mut items = Vec::new();
 		for entity in &voxel_camera.tiles_to_render {
-			let Ok((tile_data, tile_global)) = tiles.get(*entity) else { continue };
-			let Some(tile) = tile_capabilities.read(tile_data.data()) else { continue };
+			let Ok((tile, tile_global)) = tiles.get(*entity) else { continue };
 			let scale = (1u32 << tile.voxel_lod) as f32;
 			let transform = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
 			let placement = tile.placement;
@@ -79,8 +76,8 @@ pub fn extract_voxel_scene(
 			let tree_transform = transform * Transform::from_translation(placement.tree_root_pos.as_vec3());
 			items.push(RenderItem {
 				entity: *entity,
-				tree: tile.tree,
-				voxels: tile.voxels,
+				tree: tile.tree.clone(),
+				voxels: tile.voxels.clone(),
 				generation: tile.generation,
 				voxel_type: tile.voxel_type,
 				aabb,

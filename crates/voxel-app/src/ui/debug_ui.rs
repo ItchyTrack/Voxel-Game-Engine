@@ -2,7 +2,8 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
-use camera_voxel_loader::{CameraVoxelLoader, CoverageDebugState, FreezeCameraVoxelLoader};
+use bile_scene::NodeBounds;
+use voxel_engine::{CameraTileLoader, FreezeCameraVoxelLoader};
 use voxel_tasks::AsyncPriorityTaskPool;
 use voxel_mass::{CenterOfMass, Mass, RotationalInertia};
 use voxel_physics::{BallJoint, FreezePhysics, IsStatic, RigidBody};
@@ -10,8 +11,6 @@ use crate::voxel::rendering::VoxelRenderMode;
 use voxel_ray_renderer::{gpu_data::RayWorldGpuData, graphics_settings::GraphicsSettings};
 use voxel_raster_renderer::gpu_data::RasterWorldGpuData;
 use voxel_ray_renderer::direction_feedback::RenderStats;
-use tile_data::CHUNK_SIZE;
-use voxel_streaming::GridStreaming;
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct InertiaBoxes(pub bool);
@@ -250,36 +249,28 @@ fn draw_box_edges<C: GizmoConfigGroup>(gizmos: &mut Gizmos<C>, gt: &GlobalTransf
 
 fn draw_chunk_presence(
 	mut gizmos: Gizmos<ChunkGizmos>,
-	grids: Query<(&GlobalTransform, &GridStreaming)>,
+	grids: Query<(&GlobalTransform, &NodeBounds)>,
 ) {
 	const INSET: f32 = 0.75;
 	let color = Color::srgb(0.1, 0.8, 0.1);
-	for (gt, streaming) in grids.iter() {
-		for (origin, size) in streaming.presence().iter_present() {
-			let lo = (origin * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
-			let hi = ((origin + IVec3::splat(size as i32)) * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
-			draw_box_edges(&mut gizmos, gt, lo, hi, color);
-		}
+	for (gt, bounds) in grids.iter() {
+		let lo = bounds.region().min().as_vec3() + Vec3::splat(INSET);
+		let hi = bounds.region().end().as_vec3() - Vec3::splat(INSET);
+		draw_box_edges(&mut gizmos, gt, lo, hi, color);
 	}
 }
 
 fn draw_coverage(
 	mut gizmos: Gizmos<ChunkGizmos>,
-	loaders: Query<&CameraVoxelLoader>,
-	transforms: Query<&GlobalTransform>,
+	loaders: Query<(&GlobalTransform, &CameraTileLoader)>,
 ) {
 	const INSET: f32 = 1.5;
-	for loader in &loaders {
-		for tile in loader.coverage_debug_tiles() {
-			let Ok(gt) = transforms.get(tile.grid) else { continue };
-			let lo = (tile.region.min() * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(INSET);
-			let hi = (tile.region.end() * CHUNK_SIZE as i32).as_vec3() - Vec3::splat(INSET);
-			let color = match tile.state {
-				CoverageDebugState::Pending => Color::srgb(0.9, 0.9, 0.1),
-				CoverageDebugState::Loaded => Color::srgb(0.1, 0.8, 0.1),
-				CoverageDebugState::Empty => Color::srgb(0.2, 0.2, 0.2),
-				CoverageDebugState::Waiting => Color::srgb(0.9, 0.1, 0.1),
-			};
+	for (gt, loader) in &loaders {
+		let loaded = loader.loaded_tiles().map(|(key, _)| (key, Color::srgb(0.1, 0.8, 0.1)));
+		let pending = loader.pending_tiles().map(|key| (key, Color::srgb(0.9, 0.9, 0.1)));
+		for (key, color) in loaded.chain(pending) {
+			let lo = key.tile_key.region.min().as_vec3() + Vec3::splat(INSET);
+			let hi = key.tile_key.region.end().as_vec3() - Vec3::splat(INSET);
 			draw_box_edges(&mut gizmos, gt, lo, hi, color);
 		}
 	}

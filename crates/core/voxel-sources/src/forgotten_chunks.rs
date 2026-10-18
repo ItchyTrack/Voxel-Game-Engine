@@ -2,8 +2,8 @@ use std::sync::RwLock;
 
 use bevy::math::IVec3;
 use rustc_hash::FxHashMap;
-use tile_data::NonZeroChunkRegion;
 use bile_math::NonZeroRegion;
+use tile_data::{chunk_origin, chunk_region};
 use voxel_trees::{
 	grid_tree::U16Cell,
 	signed_grid_tree::SignedGridTree,
@@ -19,36 +19,32 @@ pub struct ForgottenChunks {
 
 impl ForgottenChunks {
 	pub fn forget(&self, grid: GridId, chunk: IVec3) {
-		self.grids.write().unwrap().entry(grid).or_default().insert(chunk, 0u16);
+		self.grids.write().unwrap().entry(grid).or_default().add_area(chunk_region(chunk), 0u16);
 	}
 
 	pub fn remember(&self, grid: GridId, chunk: IVec3) {
 		if let Some(chunks) = self.grids.write().unwrap().get_mut(&grid) {
-			chunks.remove(chunk);
+			chunks.remove_area(chunk_region(chunk));
 		}
 	}
 
-	pub fn remember_area(&self, grid: GridId, region: NonZeroChunkRegion) {
+	pub fn remember_area(&self, grid: GridId, region: NonZeroRegion) {
 		if let Some(forgotten) = self.grids.write().unwrap().get_mut(&grid) {
-			forgotten.remove_area(chunk_region(region));
+			forgotten.remove_area(region);
 		}
 	}
 
-	pub fn forget_area(&self, grid: GridId, region: NonZeroChunkRegion) {
-		self.grids.write().unwrap().entry(grid).or_default().add_area(chunk_region(region), 0u16);
+	pub fn forget_area(&self, grid: GridId, region: NonZeroRegion) {
+		self.grids.write().unwrap().entry(grid).or_default().add_area(region, 0u16);
 	}
 
 	pub fn contains(&self, grid: GridId, chunk: IVec3) -> bool {
-		self.grids.read().unwrap().get(&grid).is_some_and(|chunks| chunks.get(chunk).is_some())
+		self.grids.read().unwrap().get(&grid).is_some_and(|chunks| chunks.get(chunk_origin(chunk)).is_some())
 	}
 
-	pub fn any_remembered_in(&self, grid: GridId, region: NonZeroChunkRegion) -> bool {
+	pub fn any_remembered_in(&self, grid: GridId, region: NonZeroRegion) -> bool {
 		let grids = self.grids.read().unwrap();
 		let Some(chunks) = grids.get(&grid) else { return true };
-		!chunks.is_area_filled(chunk_region(region))
+		!chunks.is_area_filled(region)
 	}
-}
-
-fn chunk_region(region: NonZeroChunkRegion) -> NonZeroRegion {
-	NonZeroRegion::new(region.min(), region.size()).unwrap()
 }

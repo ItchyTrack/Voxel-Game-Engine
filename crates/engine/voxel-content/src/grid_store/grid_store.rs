@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bevy::math::{IVec3, UVec3};
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
+use tile_data::{CHUNK_SIZE, chunk_origin};
 use bile_math::NonZeroRegion;
 use voxel_data::{
 	compressed_voxels::CompressedVoxels,
@@ -83,7 +83,7 @@ pub struct GridStore {
 }
 
 impl GridStore {
-	pub fn available_area(&self) -> Option<NonZeroChunkRegion> {
+	pub fn available_area(&self) -> Option<NonZeroRegion> {
 		let mut iter = self.chunks.keys().copied();
 		let first = iter.next()?;
 		let (mut min, mut max) = (first, first);
@@ -91,7 +91,7 @@ impl GridStore {
 			min = min.min(chunk);
 			max = max.max(chunk);
 		}
-		NonZeroChunkRegion::from_min_max(min, max)
+		NonZeroRegion::from_min_end(chunk_origin(min), chunk_origin(max + IVec3::ONE))
 	}
 
 	pub fn save_chunk(&mut self, chunk: IVec3, generation: GridGeneration, voxels: &Voxels) {

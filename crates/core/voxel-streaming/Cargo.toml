@@ -17,6 +17,8 @@ futures = { workspace = true }
 bevy-trait-query = { workspace = true }
 bile-math = { workspace = true }
 bile-tiles = { workspace = true }
+bile-scene = { workspace = true }
+bile-region-loader = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 tile-data = { workspace = true }

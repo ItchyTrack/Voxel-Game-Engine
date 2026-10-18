@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use crossbeam_channel::Sender;
-use tile_data::NonZeroChunkRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_tasks::CancellationToken;
@@ -26,7 +26,7 @@ impl SourceHandle {
 		&self,
 		request_id: RequestId,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		generation: GridGeneration,
 		voxels: Voxels,
@@ -50,7 +50,7 @@ impl SourceHandle {
 		});
 	}
 
-	pub fn presence(&self, request_id: RequestId, grid: GridId, region: NonZeroChunkRegion) {
+	pub fn presence(&self, request_id: RequestId, grid: GridId, region: NonZeroRegion) {
 		let _ = self.messages.send(SourceResult {
 			request_id,
 			data: SourceResultData::Presence{ grid, region },
@@ -83,7 +83,7 @@ pub trait ChunkSource: Send + Sync + SourceToAny {
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
@@ -96,9 +96,9 @@ pub trait ChunkSource: Send + Sync + SourceToAny {
 		grid: GridId,
 	);
 
-	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion);
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroRegion);
 
-	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion);
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroRegion);
 }
 
 pub trait SourceToAny: 'static {

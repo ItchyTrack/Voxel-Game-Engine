@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use bevy::prelude::*;
 use lightyear::prelude::{EventSender, PeerId, PeerMetadata, RemoteEvent};
-use tile_data::chunks_covering_nonzero_voxel_region;
+use tile_data::chunk_aligned;
 use voxel_data::grid::GridId;
 use voxel_sources::edit::{GridEditIdManager, GridEditMessage, GridGeneration};
 use voxel_streaming::ChunkEditInterest;
@@ -90,7 +90,7 @@ pub(super) fn flush_edits(
 				continue;
 		}
 		};
-		let affected_region = chunks_covering_nonzero_voxel_region(message.edit().affected_region());
+		let affected_region = chunk_aligned(message.edit().affected_region());
 		for (&peer, grids) in &mut subscriptions.clients {
 			let Some(subscription) = grids.get_mut(&message.grid_id()) else { continue };
 			if !subscription.interest.overlaps(affected_region) { continue; }

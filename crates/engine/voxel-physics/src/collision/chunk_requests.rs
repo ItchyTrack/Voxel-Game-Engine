@@ -3,13 +3,15 @@ use std::collections::HashSet;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 
+use bevy::ecs::component::ComponentIdFor;
+use bile_math::NonZeroRegion;
+use bile_scene::NodeBounds;
+use bile_tiles::{TileClassReady, TileInstances, TileKey};
 use rustc_hash::FxHashMap;
 use voxel_data::aabb::{aabb_corners, aabb_of_transformed_aabb};
 use voxel_data::bvh::BVH;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileKey, chunk_origin, chunks_covering_nonzero_voxel_region};
+use tile_data::{CHUNK_SIZE, chunk_origin, chunk_region, chunks_in};
 use voxel_query::OccupancyTileClass;
-use voxel_sources::edit::GridEditMessage;
-use voxel_streaming::{GridStreaming, TileLoadUpdate, TileRequester};
 
 use crate::components::{IsStatic, RigidBody, VoxelCollider};
 
@@ -25,36 +27,12 @@ fn overlap(a: (Vec3, Vec3), b: (Vec3, Vec3)) -> bool {
 	a.0.cmple(b.1).all() && b.0.cmple(a.1).all()
 }
 
-/// Cached grid-local AABB of a grid's present chunks.
-#[derive(Component)]
-pub struct PresenceAabb {
-	lo: Vec3,
-	hi: Vec3,
-}
-
-pub fn cache_presence_aabb(
+pub fn ensure_wanted_chunks(
 	mut commands: Commands,
-	grids: Query<(Entity, &GridStreaming), (With<VoxelCollider>, Without<PresenceAabb>)>,
+	grids: Query<Entity, (With<VoxelCollider>, With<NodeBounds>, Without<WantedChunks>)>,
 ) {
-	for (entity, streaming) in grids.iter() {
-		let mut min = IVec3::splat(i32::MAX);
-		let mut max = IVec3::splat(i32::MIN);
-		let mut any = false;
-		for (origin, size) in streaming.presence().iter_present() {
-			any = true;
-			min = min.min(origin);
-			max = max.max(origin + IVec3::splat(size as i32));
-		}
-		if !any {
-			continue;
-		}
-		commands.entity(entity).insert((
-			PresenceAabb {
-				lo: (chunk_origin(min)).as_vec3(),
-				hi: (chunk_origin(max)).as_vec3(),
-			},
-			WantedChunks::default(),
-		));
+	for entity in &grids {
+		commands.entity(entity).insert(WantedChunks::default());
 	}
 }
 
@@ -67,45 +45,25 @@ struct GridReq {
 	chunk_world_half: Vec3,
 }
 
-/// Expand a grid's present chunks into a flat list (a tree node covers `size^3`).
-fn present_chunks(streaming: &GridStreaming) -> Vec<IVec3> {
-	let mut chunks = Vec::new();
-	for (origin, size) in streaming.presence().iter_present() {
-		let size = size as i32;
-		for dx in 0..size {
-			for dy in 0..size {
-				for dz in 0..size {
-					chunks.push(origin + IVec3::new(dx, dy, dz));
-				}
-			}
-		}
-	}
-	chunks
-}
-
 /// Non-static bodies request every present chunk of their collider grids;
 /// static bodies request only chunks intersecting an overlapping body's AABB.
 pub fn request_collision_chunks(
 	bodies: Query<(&Transform, Has<IsStatic>), With<RigidBody>>,
-	class: Res<OccupancyTileClass>,
-	mut consumers: Query<(Entity, &mut PhysicsConsumer)>,
-	mut streaming: ParamSet<(
-		TileRequester,
-		Query<(Entity, &ChildOf, &Transform, &GridStreaming, &PresenceAabb, &mut WantedChunks), With<VoxelCollider>>,
-	)>,
+	class: ComponentIdFor<OccupancyTileClass>,
+	mut consumers: Query<&mut PhysicsConsumer>,
+	mut grids: Query<(Entity, &ChildOf, &Transform, &NodeBounds, &mut TileInstances, &mut WantedChunks), With<VoxelCollider>>,
 ) {
-	let Ok((consumer_entity, mut consumer)) = consumers.single_mut() else { return };
-	let mut grids = streaming.p1();
+	let Ok(mut consumer) = consumers.single_mut() else { return };
 
 	// Pass 1: accumulate each body's world AABB from its grids' cached extents.
 	let mut reqs: Vec<GridReq> = Vec::new();
 	let mut body_aabb: FxHashMap<Entity, (Vec3, Vec3)> = FxHashMap::default();
-	for (entity, child_of, local_tf, _, aabb, _) in grids.iter() {
+	for (entity, child_of, local_tf, bounds, _, _) in grids.iter() {
 		let body = child_of.parent();
 		let Ok((body_tf, is_static)) = bodies.get(body) else { continue };
 		let grid_tf = *body_tf * *local_tf;
 		let grid_affine = grid_tf.compute_affine();
-		let (gmin, gmax) = aabb_of_transformed_aabb(&grid_tf, aabb.lo, aabb.hi);
+		let (gmin, gmax) = aabb_of_transformed_aabb(&grid_tf, bounds.region().min().as_vec3(), bounds.region().end().as_vec3());
 		body_aabb
 			.entry(body)
 			.and_modify(|a| {
@@ -132,10 +90,10 @@ pub fn request_collision_chunks(
 	// Pass 2: compute the wanted chunk set per grid under the policy above.
 	let mut desired: FxHashMap<Entity, HashSet<IVec3>> = FxHashMap::default();
 	for req in &reqs {
-		let Ok((_, _, _, streaming, _, _)) = grids.get(req.entity) else { continue };
+		let Ok((_, _, _, bounds, _, _)) = grids.get(req.entity) else { continue };
 		let want = desired.entry(req.entity).or_default();
 		if !req.is_static {
-			want.extend(present_chunks(streaming));
+			want.extend(chunks_in(bounds.region()));
 			continue;
 		}
 
@@ -162,97 +120,34 @@ pub fn request_collision_chunks(
 			}
 		}
 
+		let Some(partner_region) = NonZeroRegion::from_min_max(chunk_origin(cmin), chunk_origin(cmax)) else { continue };
+		let Some(region) = bounds.region().intersection(partner_region) else { continue };
 		let chunk_local_center_offset = Vec3::splat(CHUNK_SIZE as f32 * 0.5);
-		let mut skipped_regions: Vec<(IVec3, u32)> = Vec::new();
-		streaming.presence().for_each_node_in_region(cmin, cmax, |origin, size, is_leaf| {
-			let node_end = origin + IVec3::splat(size as i32);
-			while let Some((skip_origin, skip_size)) = skipped_regions.last().copied() {
-				let skip_end = skip_origin + IVec3::splat(skip_size as i32);
-				if origin.cmpge(skip_origin).all() && node_end.cmple(skip_end).all() {
-					break;
-				}
-				skipped_regions.pop();
-			}
-			if !skipped_regions.is_empty() {
-				return;
-			}
-
-			let local_center = (origin * CHUNK_SIZE as i32).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 * size as f32 * 0.5);
+		for chunk in chunks_in(region) {
+			let local_center = chunk_origin(chunk).as_vec3() + chunk_local_center_offset;
 			let world_center = req.grid_affine.transform_point3(local_center);
-			let node_world_half = req.chunk_world_half * size as f32;
-			let node_box = (world_center - node_world_half, world_center + node_world_half);
-			if !partners.iter().any(|p| overlap(node_box, *p)) {
-				if !is_leaf {
-					skipped_regions.push((origin, size));
-				}
-				return;
+			let chunk_box = (world_center - req.chunk_world_half, world_center + req.chunk_world_half);
+			if partners.iter().any(|p| overlap(chunk_box, *p)) {
+				want.insert(chunk);
 			}
-
-			if !is_leaf {
-				return;
-			}
-			if size == 1 {
-				want.insert(origin);
-				return;
-			}
-
-			for x in origin.x..origin.x + size as i32 {
-				for y in origin.y..origin.y + size as i32 {
-					for z in origin.z..origin.z + size as i32 {
-						let chunk = IVec3::new(x, y, z);
-						let local_center = (chunk * CHUNK_SIZE as i32).as_vec3() + chunk_local_center_offset;
-						let world_center = req.grid_affine.transform_point3(local_center);
-						let chunk_box = (world_center - req.chunk_world_half, world_center + req.chunk_world_half);
-						if partners.iter().any(|p| overlap(chunk_box, *p)) {
-							want.insert(chunk);
-						}
-					}
-				}
-			}
-		});
+		}
 	}
 
 	// Pass 3: diff against last tick — fetch newly wanted occupancy tiles and
 	// release dropped ones. Grids absent from `desired` release everything.
-	let mut acquisitions = Vec::new();
-	let mut releases = Vec::new();
-	for (entity, _, _, _, _, mut wanted) in grids.iter_mut() {
+	for (entity, _, _, _, mut instances, mut wanted) in grids.iter_mut() {
 		let want = desired.remove(&entity).unwrap_or_default();
-		acquisitions.extend(want.difference(&wanted.0).map(|&chunk| {
-			(entity, TileKey::new(NonZeroChunkRegion::from_single(chunk), 0, class.0))
-		}));
-		releases.extend(wanted.0.difference(&want).map(|&chunk| {
-			(entity, TileKey::new(NonZeroChunkRegion::from_single(chunk), 0, class.0))
-		}));
+		for &chunk in wanted.0.difference(&want) {
+			let key = TileKey::new(chunk_region(chunk), 0);
+			consumer.pending.remove(&(entity, key));
+			instances.remove_class(key, class.get());
+		}
+		for &chunk in want.difference(&wanted.0) {
+			let key = TileKey::new(chunk_region(chunk), 0);
+			consumer.pending.insert((entity, key));
+			instances.add_class(key, class.get());
+		}
 		wanted.0 = want;
-	}
-	drop(grids);
-
-	let mut requester = streaming.p0();
-	for (grid, key) in releases {
-		consumer.pending.remove(&(grid, key));
-		requester.release_tile(grid, consumer_entity, key);
-	}
-	for (grid, key) in acquisitions {
-		if requester.fetch_tile(grid, consumer_entity, key, 0.0, true, None) {
-			consumer.pending.insert((grid, key));
-		}
-	}
-}
-
-pub fn mark_edited_collision_tiles_pending(
-	mut edits: MessageReader<GridEditMessage>,
-	class: Res<OccupancyTileClass>,
-	grids: Query<&WantedChunks>,
-	mut consumers: Query<&mut PhysicsConsumer>,
-) {
-	let Ok(mut consumer) = consumers.single_mut() else { return };
-	for edit in edits.read() {
-		let Ok(wanted) = grids.get(edit.grid_id()) else { continue };
-		let affected = chunks_covering_nonzero_voxel_region(edit.edit().affected_region());
-		for chunk in wanted.0.iter().copied().filter(|chunk| affected.contains(*chunk)) {
-			consumer.pending.insert((edit.grid_id(), TileKey::new(NonZeroChunkRegion::from_single(chunk), 0, class.0)));
-		}
 	}
 }
 
@@ -265,13 +160,14 @@ pub fn remove_stale_collision_requests(
 }
 
 pub fn receive_collision_tiles(
-	mut updates: MessageReader<TileLoadUpdate>,
-	mut consumers: Query<(Entity, &mut PhysicsConsumer)>,
+	mut ready: MessageReader<TileClassReady>,
+	class: ComponentIdFor<OccupancyTileClass>,
+	mut consumers: Query<&mut PhysicsConsumer>,
 ) {
-	let Ok((consumer_entity, mut consumer)) = consumers.single_mut() else { return };
-	for update in updates.read() {
-		if update.requester == consumer_entity {
-			consumer.pending.remove(&(update.grid, update.key));
+	let Ok(mut consumer) = consumers.single_mut() else { return };
+	for ready in ready.read() {
+		if ready.class == class.get() {
+			consumer.pending.remove(&(ready.entity, ready.tile_key));
 		}
 	}
 }

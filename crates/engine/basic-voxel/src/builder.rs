@@ -1,5 +1,5 @@
 use bevy::math::{IVec3, UVec3};
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileVoxelReducer, VoxelRegionResult};
+use tile_data::{TileVoxelReducer, VoxelRegionResult, chunk_origin, chunks_in};
 use voxel_trees::grid_tree::{NonZeroRegion, SourceOverlaps as GridSourceOverlaps};
 use voxel_data::voxel_grid_tree::VoxelGridType;
 use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, VoxelTypeId, Voxels};
@@ -21,7 +21,7 @@ pub(crate) struct MarchingToMarchingVoxelReducer;
 impl TileVoxelReducer for BasicToLodVoxelReducer {
 	fn input_type_id(&self) -> VoxelTypeId { BasicVoxel::TYPE_ID }
 	fn output_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_ID }
-	fn reduce(&self, area: NonZeroChunkRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
+	fn reduce(&self, area: NonZeroRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
 		reduce_lod_voxels(area, output_lod, inputs)
 	}
 }
@@ -29,7 +29,7 @@ impl TileVoxelReducer for BasicToLodVoxelReducer {
 impl TileVoxelReducer for LodToLodVoxelReducer {
 	fn input_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_ID }
 	fn output_type_id(&self) -> VoxelTypeId { LodVoxel::TYPE_ID }
-	fn reduce(&self, area: NonZeroChunkRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
+	fn reduce(&self, area: NonZeroRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
 		reduce_lod_voxels(area, output_lod, inputs)
 	}
 }
@@ -37,7 +37,7 @@ impl TileVoxelReducer for LodToLodVoxelReducer {
 impl TileVoxelReducer for BasicToMarchingVoxelReducer {
 	fn input_type_id(&self) -> VoxelTypeId { BasicVoxel::TYPE_ID }
 	fn output_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_ID }
-	fn reduce(&self, area: NonZeroChunkRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
+	fn reduce(&self, area: NonZeroRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
 		reduce_marching_voxels(area, output_lod, inputs)
 	}
 }
@@ -45,28 +45,16 @@ impl TileVoxelReducer for BasicToMarchingVoxelReducer {
 impl TileVoxelReducer for MarchingToMarchingVoxelReducer {
 	fn input_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_ID }
 	fn output_type_id(&self) -> VoxelTypeId { MarchingVoxel::TYPE_ID }
-	fn reduce(&self, area: NonZeroChunkRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
+	fn reduce(&self, area: NonZeroRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
 		reduce_marching_voxels(area, output_lod, inputs)
 	}
 }
 
-pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
-	let min = region.min();
-	let size = region.size();
+pub fn downsample_region(region: NonZeroRegion, lod: f32, fetch: impl Fn(IVec3) -> Option<Voxels>) -> Option<Voxels> {
 	let scale_down = lod.max(0.0).floor() as u8;
 	let step = 1i32 << scale_down as u32;
 
-	let mut loaded = Vec::new();
-	for chunk_z in 0..size.z {
-		for chunk_y in 0..size.y {
-			for chunk_x in 0..size.x {
-				let local = IVec3::new(chunk_x as i32, chunk_y as i32, chunk_z as i32);
-				if let Some(voxels) = fetch(min + local) {
-					loaded.push((local, voxels));
-				}
-			}
-		}
-	}
+	let loaded: Vec<_> = chunks_in(region).filter_map(|chunk| Some((chunk_origin(chunk) - region.min(), fetch(chunk)?))).collect();
 	if loaded.is_empty() {
 		return None;
 	}
@@ -76,38 +64,38 @@ pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IV
 		.map(|(local, voxels)| SourceTree {
 			voxels,
 			scale_down,
-			output_offset: (*local * CHUNK_SIZE as i32).div_euclid(IVec3::splat(step)),
+			output_offset: local.div_euclid(IVec3::splat(step)),
 		})
 		.collect();
 	let source_infos = sources
 		.iter()
 		.map(|source| SourceInfo { scale_down: source.scale_down, output_offset: source.output_offset })
 		.collect();
-	let output_size = div_ceil_uvec3(size * CHUNK_SIZE, step as u32);
+	let output_size = div_ceil_uvec3(region.size(), step as u32);
 	let output_region = NonZeroRegion::new(IVec3::ZERO, output_size)?;
 	Voxels::reduce_voxels(output_region, &sources, BasicVoxelReducer { sources: source_infos })
 }
 
 fn result_sources<'a>(
-	area: NonZeroChunkRegion,
+	area: NonZeroRegion,
 	output_lod: u8,
 	inputs: &[&'a VoxelRegionResult],
 ) -> Option<(NonZeroRegion, Vec<SourceTree<'a>>)> {
 	let output_step = 1i32.checked_shl(output_lod as u32)?;
-	let output_size = div_ceil_uvec3(area.size() * CHUNK_SIZE, output_step as u32);
+	let output_size = div_ceil_uvec3(area.size(), output_step as u32);
 	let output_region = NonZeroRegion::new(IVec3::ZERO, output_size)?;
 	let sources = inputs
 		.iter()
 		.map(|input| Some(SourceTree {
 			voxels: &input.voxels,
 			scale_down: output_lod.checked_sub(input.lod)?,
-			output_offset: ((input.area.min() - area.min()) * CHUNK_SIZE as i32).div_euclid(IVec3::splat(output_step)),
+			output_offset: (input.area.min() - area.min()).div_euclid(IVec3::splat(output_step)),
 		}))
 		.collect::<Option<Vec<_>>>()?;
 	Some((output_region, sources))
 }
 
-fn reduce_lod_voxels(area: NonZeroChunkRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
+fn reduce_lod_voxels(area: NonZeroRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
 	let (output_region, sources) = result_sources(area, output_lod, inputs)?;
 	let source_infos = sources
 		.iter()
@@ -116,7 +104,7 @@ fn reduce_lod_voxels(area: NonZeroChunkRegion, output_lod: u8, inputs: &[&VoxelR
 	Voxels::reduce_voxels(output_region, &sources, BasicVoxelReducer { sources: source_infos })
 }
 
-fn reduce_marching_voxels(area: NonZeroChunkRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
+fn reduce_marching_voxels(area: NonZeroRegion, output_lod: u8, inputs: &[&VoxelRegionResult]) -> Option<Voxels> {
 	let (output_region, sources) = result_sources(area, output_lod, inputs)?;
 	Voxels::reduce_voxels(output_region, &sources, MarchingVoxelReducer)
 }
@@ -297,7 +285,8 @@ fn round_channel(sum: u64, weight: u64) -> u8 {
 #[cfg(test)]
 mod tests {
 	use bevy::math::{IVec3, UVec3};
-	use tile_data::{NonZeroChunkRegion, TileVoxelReducerRegistry, VoxelRegionResult};
+	use tile_data::{TileVoxelReducerRegistry, VoxelRegionResult, chunk_region};
+	use voxel_trees::grid_tree::NonZeroRegion;
 	use voxel_data::voxels::{VoxelType, Voxels};
 
 	use super::{BasicToLodVoxelReducer, BasicVoxel, LodVoxel};
@@ -305,12 +294,12 @@ mod tests {
 	fn basic_result(chunk: IVec3, color: [u8; 4]) -> VoxelRegionResult {
 		let mut voxels = Voxels::new::<BasicVoxel>();
 		voxels.add_voxel(UVec3::ZERO, BasicVoxel { color, mass: 1 }.get_ref());
-		VoxelRegionResult { area: NonZeroChunkRegion::from_single(chunk), lod: 0, voxels }
+		VoxelRegionResult { area: chunk_region(chunk), lod: 0, voxels }
 	}
 
 	#[test]
 	fn stored_chunks_are_downsampled_at_offsets_relative_to_the_requested_area() {
-		let area = NonZeroChunkRegion::new(IVec3::new(4, 0, 0), bevy::math::UVec3::new(2, 1, 1)).unwrap();
+		let area = NonZeroRegion::new(IVec3::new(256, 0, 0), bevy::math::UVec3::new(128, 64, 64)).unwrap();
 		let first = basic_result(IVec3::new(4, 0, 0), [255, 0, 0, 255]);
 		let second = basic_result(IVec3::new(5, 0, 0), [0, 255, 0, 255]);
 		let inputs = [&first, &second];
@@ -324,12 +313,12 @@ mod tests {
 
 	#[test]
 	fn registry_combines_finer_fallback_data_with_exact_requested_lod_data() {
-		let area = NonZeroChunkRegion::new(IVec3::new(-2, 0, 0), bevy::math::UVec3::new(2, 1, 1)).unwrap();
+		let area = NonZeroRegion::new(IVec3::new(-128, 0, 0), bevy::math::UVec3::new(128, 64, 64)).unwrap();
 		let raw = basic_result(IVec3::new(-2, 0, 0), [255, 0, 0, 255]);
 		let mut exact_voxels = Voxels::new::<LodVoxel>();
 		exact_voxels.add_voxel(UVec3::ZERO, LodVoxel::solid([0, 0, 255, 255]).get_ref());
 		let exact = VoxelRegionResult {
-			area: NonZeroChunkRegion::from_single(IVec3::new(-1, 0, 0)),
+			area: chunk_region(IVec3::new(-1, 0, 0)),
 			lod: 1,
 			voxels: exact_voxels,
 		};

@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use bevy::{ecs::system::SystemParam, math::IVec3, prelude::*};
-use bile_math::NonZeroRegion;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin, chunks_covering_nonzero_voxel_region};
+use bevy::{ecs::system::SystemParam, prelude::*};
+use tile_data::{chunk_region, chunks_in};
 use voxel_data::grid::{Grid, GridId};
 use voxel_mass::{
 	GridEditMassReaders, GridMassProperties, MassError, VoxelMassReaders,
@@ -13,7 +12,7 @@ use voxel_sources::{
 	edit::{GridEdit, GridEditId, GridEditIdManager, GridEditMessage, GridGeneration},
 };
 
-use super::{VoxelStoreSource, grid_store::ChunkOwnership, voxel_store_source::chunks};
+use super::{VoxelStoreSource, grid_store::ChunkOwnership};
 
 #[derive(SystemParam)]
 pub struct GridStoreEditApi<'w, 's> {
@@ -39,18 +38,17 @@ impl<'w, 's> GridStoreEditApi<'w, 's> {
 			(grid_data.voxel_type_info(), mass.cloned().unwrap_or_default())
 		};
 		let affected_region = edit.affected_region();
-		let affected_chunks = chunks_covering_nonzero_voxel_region(affected_region);
 		let mass_bearing = self.voxel_mass_readers.contains(voxel_type.id);
 
 		let source = self.sources.get_source::<VoxelStoreSource>()
 			.expect("voxel store source was not registered");
-		let chunk_ownership: Vec<_> = chunks(affected_chunks)
+		let chunk_ownership: Vec<_> = chunks_in(affected_region)
 			.map(|chunk| (chunk, source.chunk_ownership(grid, chunk)))
 			.collect();
 
 		if mass_bearing {
 			let first_chunk = chunk_ownership.first().expect("an edit must affect at least one chunk").0;
-			let clipped = affected_region.intersection(chunk_voxel_region(first_chunk)).unwrap();
+			let clipped = affected_region.intersection(chunk_region(first_chunk)).unwrap();
 			assert!(
 				self.edit_mass_readers.read(edit.as_ref(), clipped, &self.voxel_mass_readers).is_some(),
 				"mass-bearing grid edit has no registered mass reader",
@@ -61,7 +59,7 @@ impl<'w, 's> GridStoreEditApi<'w, 's> {
 			if !mass_bearing || *ownership == ChunkOwnership::Owned {
 				return MassError::ZERO;
 			}
-			let clipped = affected_region.intersection(chunk_voxel_region(*chunk)).unwrap();
+			let clipped = affected_region.intersection(chunk_region(*chunk)).unwrap();
 			let new_mass = self.edit_mass_readers
 				.read(edit.as_ref(), clipped, &self.voxel_mass_readers)
 				.expect("mass-bearing grid edit has no registered mass reader");
@@ -85,7 +83,7 @@ impl<'w, 's> GridStoreEditApi<'w, 's> {
 		let mut acquiring = Vec::new();
 		for (chunk, ownership) in &chunk_ownership {
 			if *ownership != ChunkOwnership::Unowned { continue; }
-			let region = NonZeroChunkRegion::from_single(*chunk);
+			let region = chunk_region(*chunk);
 			let request_id = self.sources.request_voxels(grid, region, 0, Some(voxel_type.id), previous_generation);
 			self.sources.transfer_ownership(source_id, grid, region);
 			acquiring.push((*chunk, request_id));
@@ -106,6 +104,4 @@ impl<'w, 's> GridStoreEditApi<'w, 's> {
 	}
 }
 
-fn chunk_voxel_region(chunk: IVec3) -> NonZeroRegion {
-	NonZeroRegion::new(chunk_origin(chunk), UVec3::splat(CHUNK_SIZE)).unwrap()
-}
+
