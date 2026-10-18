@@ -2,7 +2,6 @@
 resolver = "3"
 
 members = [
-	"crates/core/vge-math",
 	"crates/core/scene",
 	"crates/core/voxel-tasks",
 	"crates/core/voxel-trees",
@@ -13,7 +12,6 @@ members = [
 	"crates/core/voxel-streaming",
 	"crates/engine/voxel-gpu",
 	"crates/engine/voxel-query",
-	"crates/engine/camera-voxel-loader",
 	"crates/engine/voxel-lightyear",
 	"crates/engine/voxel-ray-renderer",
 	"crates/engine/voxel-raster-renderer",
@@ -49,7 +47,6 @@ tokio = "1"
 futures = "0.3.32"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
-vge-math = { version = "0.1.0", path = "crates/core/vge-math" }
 scene = { version = "0.1.0", path = "crates/core/scene" }
 voxel-tasks = { version = "0.1.0", path = "crates/core/voxel-tasks" }
 voxel-trees = { version = "0.1.0", path = "crates/core/voxel-trees" }
@@ -60,7 +57,6 @@ voxel-tracking = { version = "0.1.0", path = "crates/core/voxel-tracking" }
 voxel-streaming = { version = "0.1.0", path = "crates/core/voxel-streaming" }
 voxel-gpu = { version = "0.1.0", path = "crates/engine/voxel-gpu" }
 voxel-query = { version = "0.1.0", path = "crates/engine/voxel-query" }
-camera-voxel-loader = { version = "0.1.0", path = "crates/engine/camera-voxel-loader" }
 voxel-lightyear = { version = "0.1.0", path = "crates/engine/voxel-lightyear" }
 voxel-ray-renderer = { version = "0.1.0", path = "crates/engine/voxel-ray-renderer" }
 voxel-raster-renderer = { version = "0.1.0", path = "crates/engine/voxel-raster-renderer" }
@@ -70,6 +66,11 @@ voxel-mass = { version = "0.1.0", path = "crates/engine/voxel-mass" }
 voxel-content = { version = "0.1.0", path = "crates/engine/voxel-content" }
 basic-voxel = { version = "0.1.0", path = "crates/engine/basic-voxel" }
 voxel-engine = { version = "0.1.0", path = "crates/engine/voxel-engine" }
+bevy-trait-query = "0.19.0"
+bile-math = { git = "https://github.com/ItchyTrack/Bile", rev = "1ae4a2e" }
+bile-tiles = { git = "https://github.com/ItchyTrack/Bile", rev = "1ae4a2e" }
+bile-scene = { git = "https://github.com/ItchyTrack/Bile", rev = "1ae4a2e" }
+bile-region-loader = { git = "https://github.com/ItchyTrack/Bile", rev = "1ae4a2e" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"

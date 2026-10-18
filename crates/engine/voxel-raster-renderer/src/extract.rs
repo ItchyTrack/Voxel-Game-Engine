@@ -9,12 +9,11 @@ use bevy::math::{UVec3, Vec3};
 use bevy::render::Extract;
 use bevy::render::sync_world::RenderEntity;
 use bevy::transform::components::{GlobalTransform, Transform};
-use tile_data::DynamicTileData;
 use voxel_data::voxels::VoxelTypeId;
 use voxel_gpu::packed_buffer_group::{PackedBufferGroupAllocation, PackedBufferGroupBuffer};
 
 use crate::gpu_data::RasterWorldGpuData;
-use crate::{RasterTileCapabilityRegistry, voxel_camera::VoxelRasterCamera};
+use crate::{tile_data::RasterTileData, voxel_camera::VoxelRasterCamera};
 
 #[derive(Clone, Debug)]
 pub struct ExtractedRasterItem {
@@ -57,9 +56,8 @@ fn in_frustum(frustum: &Frustum, min: UVec3, max: UVec3, transform: &Transform) 
 pub fn extract_raster_scene(
 	mut commands: Commands,
 	existing_scenes: Query<Entity, bevy::ecs::query::With<ExtractedRasterScene>>,
-	tile_capabilities: Extract<Res<RasterTileCapabilityRegistry>>,
 	cameras: Extract<Query<(RenderEntity, &VoxelRasterCamera, &Camera, &Frustum)>>,
-	tiles: Extract<Query<(&DynamicTileData, &GlobalTransform)>>,
+	tiles: Extract<Query<(&RasterTileData, &GlobalTransform)>>,
 	world_gpu: Extract<Res<RasterWorldGpuData>>,
 ) {
 	for entity in &existing_scenes {
@@ -72,15 +70,14 @@ pub fn extract_raster_scene(
 		if !camera.is_active { continue; }
 		let mut candidates = Vec::new();
 		for entity in &raster_camera.tiles_to_render {
-			let Ok((tile_data, tile_global)) = tiles.get(*entity) else { continue };
-			let Some(tile) = tile_capabilities.read(tile_data.data()) else { continue };
+			let Ok((tile, tile_global)) = tiles.get(*entity) else { continue };
 			let scale = (1u32 << tile.voxel_lod) as f32;
 			let transform = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
 			if !in_frustum(frustum, tile.bounds_min, tile.bounds_max, &transform) { continue; }
 			candidates.push(RenderItem {
 				entity: *entity,
-				faces: tile.faces,
-				voxel_data: tile.voxel_data,
+				faces: tile.faces.clone(),
+				voxel_data: tile.voxel_data.clone(),
 				face_count: tile.face_count,
 				voxel_type: tile.voxel_type,
 				transform,

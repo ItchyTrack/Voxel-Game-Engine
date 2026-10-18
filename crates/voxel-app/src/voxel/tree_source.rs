@@ -9,13 +9,13 @@ use voxel_data::{
 	grid::{Grid, GridId},
 	voxels::{VoxelType, VoxelTypeId, Voxels},
 };
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
+use bile_math::NonZeroRegion;
+use bile_scene::NodeBounds;
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_lightyear::ReplicateVoxels;
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
-use tile_data::{chunk_of, chunk_origin};
-use voxel_streaming::GridStreaming;
+use tile_data::{chunk_aligned, chunk_of, chunk_origin, chunks_in};
 use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, SourceMassAppExt, VoxelMass, VoxelMassReaders, mass_properties_of_voxels};
 
 const WOOD_COLORS: [[u8; 4]; 3] = [[103, 67, 38, 255], [119, 78, 43, 255], [132, 88, 48, 255]];
@@ -96,13 +96,13 @@ impl Plugin for TreeSourcePlugin {
 #[derive(Resource, Clone)]
 struct TreeGrid {
 	grid: Arc<OnceLock<GridId>>,
-	bounds: NonZeroChunkRegion,
+	bounds: NonZeroRegion,
 	position: Vec3,
 }
 
 struct TreeSource {
 	grid: Arc<OnceLock<GridId>>,
-	bounds: NonZeroChunkRegion,
+	bounds: NonZeroRegion,
 	chunks: Arc<HashMap<IVec3, Voxels>>,
 	handle: OnceLock<SourceHandle>,
 	forgotten: ForgottenChunks,
@@ -123,27 +123,17 @@ impl ChunkSource for TreeSource {
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
 	) -> SourceCoverage {
 		if cancellation.is_cancelled() || !self.is_mine(grid) { return SourceCoverage::None; }
 
-		let mut owned_chunks = Vec::new();
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					let chunk = IVec3::new(x, y, z);
-					if self.bounds.contains(chunk) && !self.forgotten.contains(grid, chunk) {
-						owned_chunks.push(chunk);
-					}
-				}
-			}
-		}
+		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| self.bounds.contains(chunk_origin(chunk)) && !self.forgotten.contains(grid, chunk)).collect();
 		let coverage = if owned_chunks.is_empty() {
 			return SourceCoverage::None;
-		} else if owned_chunks.len() == region.area() as usize {
+		} else if owned_chunks.len() == chunks_in(region).count() {
 			SourceCoverage::All
 		} else {
 			SourceCoverage::Some
@@ -165,7 +155,7 @@ impl ChunkSource for TreeSource {
 				for &chunk in &owned_chunks {
 					if cancellation.is_cancelled() { break; }
 					if let Some(part) = chunks.get(&chunk) {
-						let offset = (chunk - region.min()) * CHUNK_SIZE as i32;
+						let offset = chunk_origin(chunk) - region.min();
 						merged.get_or_insert_with(|| Voxels::new::<BasicVoxel>()).merge_from(part, offset);
 					}
 				}
@@ -196,12 +186,12 @@ impl ChunkSource for TreeSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		if !self.is_mine(grid) { return; }
 		self.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		if !self.is_mine(grid) { return; }
 		self.forgotten.forget_area(grid, region);
 	}
@@ -210,10 +200,7 @@ impl ChunkSource for TreeSource {
 fn spawn_tree(mut commands: Commands, tree: Res<TreeGrid>) {
 	let body = commands.spawn((RigidBody, IsStatic, Transform::from_translation(tree.position))).id();
 
-	let mut streaming = GridStreaming::default();
-	streaming.mark_present_area(tree.bounds);
-
-	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEditIdManager::default(), ReplicateVoxels, VoxelCollider, VoxelMass, streaming)).id();
+	let grid = commands.spawn((Transform::IDENTITY, Grid::new::<BasicVoxel>(), GridEditIdManager::default(), ReplicateVoxels, VoxelCollider, VoxelMass, NodeBounds::new(tree.bounds))).id();
 	let _ = tree.grid.set(grid);
 	commands.entity(body).add_child(grid);
 }
@@ -246,7 +233,7 @@ struct TreeModel {
 	settings: TreeSettings,
 }
 
-fn estimated_chunk_bounds(settings: TreeSettings) -> NonZeroChunkRegion {
+fn estimated_chunk_bounds(settings: TreeSettings) -> NonZeroRegion {
 	let segment_length = settings.segment_length.abs();
 	let influence_distance = settings.influence_distance.abs();
 	let canopy_radius = settings.canopy_radius.abs();
@@ -263,9 +250,7 @@ fn estimated_chunk_bounds(settings: TreeSettings) -> NonZeroChunkRegion {
 	let raster_padding = estimated_pipe_radius.max(settings.leaf_radius.abs()).max(1.0) + 2.0;
 	let voxel_min = (tree_min - Vec3::splat(raster_padding)).floor().as_ivec3();
 	let voxel_max = (tree_max + Vec3::splat(raster_padding)).ceil().as_ivec3();
-	let min = chunk_of(voxel_min);
-	let max = chunk_of(voxel_max) + IVec3::ONE;
-	NonZeroChunkRegion::from_min_end(min, max).unwrap()
+	chunk_aligned(NonZeroRegion::from_min_max(voxel_min, voxel_max).unwrap())
 }
 
 fn build_tree_model(settings: TreeSettings) -> TreeModel {
@@ -491,7 +476,7 @@ mod tests {
 		let model = build_tree_model(settings);
 
 		let voxels = rasterize_tree_voxels(&model);
-		assert!(voxels.keys().all(|&position| estimated_bounds.contains(chunk_of(position))));
+		assert!(voxels.keys().all(|&position| estimated_bounds.contains(position)));
 		let leaves = voxels.values().filter(|voxel| LEAF_COLORS.contains(&voxel.color)).count();
 		let wood = voxels.values().filter(|voxel| WOOD_COLORS.contains(&voxel.color)).count();
 		assert!(voxels.contains_key(&IVec3::ZERO));

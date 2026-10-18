@@ -1,13 +1,11 @@
 use bevy::prelude::*;
 
-use vge_math::region::NonZeroVoxelRegion;
-use tile_data::NonZeroChunkRegion;
+use bile_math::NonZeroRegion;
 use voxel_trees::{
 	signed_grid_tree::SignedGridTree,
 	grid_tree::U32Cell,
 };
-use voxel_data::grid::GridId;
-use crate::streaming::GridStreaming;
+use crate::VoxelTileSource;
 
 #[derive(Default)]
 pub struct ChunkEditInterest {
@@ -15,11 +13,10 @@ pub struct ChunkEditInterest {
 }
 
 impl ChunkEditInterest {
-	pub fn retain(&mut self, region: NonZeroChunkRegion) {
-		let region = tree_region(region);
+	pub fn retain(&mut self, region: NonZeroRegion) {
 		let mut overlaps = Vec::new();
 		self.counts.for_each_leaf_in_region(region, |origin, size, count| {
-			let occupied = NonZeroVoxelRegion::from_min_size(origin, bevy::math::UVec3::splat(size)).unwrap();
+			let occupied = NonZeroRegion::new(origin, bevy::math::UVec3::splat(size)).unwrap();
 			let overlap = occupied.intersection(region).expect("visited edit-interest cell did not overlap query");
 			overlaps.push((overlap, count.checked_add(1).expect("chunk edit-interest count overflow")));
 		});
@@ -30,14 +27,13 @@ impl ChunkEditInterest {
 		}
 	}
 
-	pub fn release(&mut self, region: NonZeroChunkRegion) -> bool {
-		let region = tree_region(region);
+	pub fn release(&mut self, region: NonZeroRegion) -> bool {
 		if !self.counts.is_area_filled(region) { return false; }
 
 		let mut remaining = Vec::new();
 		self.counts.for_each_leaf_in_region(region, |origin, size, count| {
 			if count == 1 { return; }
-			let occupied = NonZeroVoxelRegion::from_min_size(origin, bevy::math::UVec3::splat(size)).unwrap();
+			let occupied = NonZeroRegion::new(origin, bevy::math::UVec3::splat(size)).unwrap();
 			let overlap = occupied.intersection(region).expect("visited edit-interest cell did not overlap query");
 			remaining.push((overlap, count - 1));
 		});
@@ -49,28 +45,24 @@ impl ChunkEditInterest {
 		true
 	}
 
-	pub fn overlaps(&self, region: NonZeroChunkRegion) -> bool {
-		self.counts.any_in_region(tree_region(region))
+	pub fn overlaps(&self, region: NonZeroRegion) -> bool {
+		self.counts.any_in_region(region)
 	}
-}
-
-fn tree_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
-	NonZeroVoxelRegion::new(region.min(), region.size()).unwrap()
 }
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChunkEditInterestChanged {
 	pub grid: voxel_data::grid::GridId,
-	pub region: NonZeroChunkRegion,
+	pub region: NonZeroRegion,
 	pub interested: bool,
 }
 
 pub(crate) fn publish_edit_interest_changes(
 	mut events: MessageWriter<ChunkEditInterestChanged>,
-	mut grids: Query<(GridId, &mut GridStreaming)>,
+	mut source: ResMut<VoxelTileSource>,
 ) {
-	for (grid, mut streaming) in &mut grids {
-		for (region, interested) in std::mem::take(&mut streaming.queued_edit_interest) {
+	for (&grid, tiles) in &mut source.grids {
+		for (region, interested) in std::mem::take(&mut tiles.queued_edit_interest) {
 			events.write(ChunkEditInterestChanged { grid, region, interested });
 		}
 	}
@@ -83,17 +75,17 @@ mod tests {
 
 	use super::*;
 
-	fn region(min: IVec3, size: UVec3) -> NonZeroChunkRegion {
-		NonZeroChunkRegion::from_min_size(min, size).unwrap()
+	fn region(min: IVec3, size: UVec3) -> NonZeroRegion {
+		NonZeroRegion::new(min, size).unwrap()
 	}
 
 	#[test]
 	fn releasing_one_overlapping_region_preserves_the_other() {
 		let first = region(IVec3::ZERO, UVec3::splat(4));
 		let second = region(IVec3::splat(2), UVec3::splat(4));
-		let first_only = NonZeroChunkRegion::from_single(IVec3::ZERO);
-		let overlap = NonZeroChunkRegion::from_single(IVec3::splat(3));
-		let second_only = NonZeroChunkRegion::from_single(IVec3::splat(5));
+		let first_only = NonZeroRegion::from_single(IVec3::ZERO);
+		let overlap = NonZeroRegion::from_single(IVec3::splat(3));
+		let second_only = NonZeroRegion::from_single(IVec3::splat(5));
 		let mut interest = ChunkEditInterest::default();
 
 		interest.retain(first);

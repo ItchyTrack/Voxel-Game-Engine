@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use tile_data::{CHUNK_SIZE, DynamicTileData, LoadedTile};
+use bile_tiles::TileKey;
 use voxel_data::aabb::aabb_of_transformed_aabb;
 use voxel_data::bvh::BVH;
 use voxel_query::OccupancyTileData;
@@ -24,24 +24,24 @@ pub(crate) fn detect_collisions(
 	mut collisions: ResMut<Collisions>,
 	bodies: Query<(Entity, &Transform, Has<IsStatic>), With<RigidBody>>,
 	grids: Query<(&Transform, &ChildOf), With<VoxelCollider>>,
-	tiles: Query<(&LoadedTile, &DynamicTileData)>,
+	tiles: Query<(&TileKey, &ChildOf, &OccupancyTileData)>,
 ) {
 	let mut colliders = Vec::new();
-	for (loaded, data) in &tiles {
-		let Some(occupancy) = data.downcast_ref::<OccupancyTileData>() else { continue };
-		let Ok((grid_transform, parent)) = grids.get(loaded.grid) else { continue };
+	for (key, tile_parent, occupancy) in &tiles {
+		let grid = tile_parent.parent();
+		let Ok((grid_transform, parent)) = grids.get(grid) else { continue };
 		let Ok((body, body_transform, is_static)) = bodies.get(parent.parent()) else { continue };
 		if !body_transform.scale.abs_diff_eq(Vec3::ONE, 1e-5)
 			|| !grid_transform.scale.abs_diff_eq(Vec3::ONE, 1e-5)
 		{
 			continue;
 		}
-		let tile_origin = loaded.key.region.min() * CHUNK_SIZE as i32;
+		let tile_origin = key.region.min();
 		let transform = *body_transform * *grid_transform * Transform::from_translation(tile_origin.as_vec3());
 		colliders.push(TileCollider {
 			body,
 			body_transform: *body_transform,
-			grid: loaded.grid,
+			grid,
 			tree: &occupancy.tree,
 			transform,
 			tile_origin,

@@ -161,8 +161,7 @@ impl Plugin for VoxelPhysicsPlugin {
 				FixedUpdate,
 				(
 					collision::chunk_requests::remove_stale_collision_requests,
-					collision::chunk_requests::mark_edited_collision_tiles_pending,
-					collision::chunk_requests::cache_presence_aabb,
+					collision::chunk_requests::ensure_wanted_chunks,
 					collision::chunk_requests::request_collision_chunks,
 				)
 					.chain()
@@ -171,7 +170,7 @@ impl Plugin for VoxelPhysicsPlugin {
 			)
 			.add_systems(
 				FixedUpdate,
-				voxel_streaming::run_streaming
+				voxel_streaming::run_tile_schedule
 					.run_if(physics_simulation_enabled)
 					.after(collision::chunk_requests::request_collision_chunks)
 					.before(collision::chunk_requests::receive_collision_tiles),

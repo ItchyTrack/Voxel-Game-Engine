@@ -6,7 +6,8 @@ use bevy::math::{IVec2, IVec3, Vec3};
 use voxel_data::{grid::GridId, voxels::{VoxelRef, VoxelTypeId, Voxels}};
 use voxel_trees::sdf::Sdf;
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_of, chunk_origin};
+use bile_math::NonZeroRegion;
+use tile_data::{CHUNK_SIZE, chunk_aligned, chunk_origin, chunk_region, chunks_in};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
 /// Procedural SDF contract used by [`SdfSource`].
@@ -73,23 +74,17 @@ impl SdfSource {
 		self.bindings.get(&grid).cloned()
 	}
 
-	fn region_bounds(min: IVec3, size: IVec3) -> (Vec3, Vec3) {
-		let lo = chunk_origin(min).as_vec3();
-		let hi = chunk_origin(min + size).as_vec3();
-		(lo, hi)
-	}
-
-	fn might_intersect_region(binding: &GridBinding, region: NonZeroChunkRegion) -> bool {
+	fn might_intersect_region(binding: &GridBinding, region: NonZeroRegion) -> bool {
 		let Some((bounds_min, bounds_max)) = binding.sdf.bounds() else { return true };
 		if !bounds_min.cmplt(bounds_max).all() {
 			return false;
 		}
-		let (region_min, region_max) = Self::region_bounds(region.min(), region.size().as_ivec3());
+		let (region_min, region_max) = (region.min().as_vec3(), region.end().as_vec3());
 		region_min.cmplt(bounds_max).all() && region_max.cmpgt(bounds_min).all()
 	}
 
 	fn chunk_owned(&self, grid: GridId, binding: &GridBinding, chunk: IVec3) -> bool {
-		!self.forgotten.contains(grid, chunk) && Self::might_intersect_region(binding, NonZeroChunkRegion::from_single(chunk))
+		!self.forgotten.contains(grid, chunk) && Self::might_intersect_region(binding, chunk_region(chunk))
 	}
 }
 
@@ -109,7 +104,7 @@ impl ChunkSource for SdfSource {
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
@@ -118,20 +113,10 @@ impl ChunkSource for SdfSource {
 			return SourceCoverage::None;
 		}
 		let Some(binding) = self.binding(grid) else { return SourceCoverage::None };
-		let mut owned_chunks = Vec::new();
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					let chunk = IVec3::new(x, y, z);
-					if self.chunk_owned(grid, &binding, chunk) {
-						owned_chunks.push(chunk);
-					}
-				}
-			}
-		}
+		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| self.chunk_owned(grid, &binding, chunk)).collect();
 		let coverage = if owned_chunks.is_empty() {
 			return SourceCoverage::None;
-		} else if owned_chunks.len() == region.area() as usize {
+		} else if owned_chunks.len() == chunks_in(region).count() {
 			SourceCoverage::All
 		} else {
 			SourceCoverage::Some
@@ -175,7 +160,7 @@ impl ChunkSource for SdfSource {
 					voxel,
 				);
 				if !voxels.is_empty() {
-					let offset = (chunk - region.min()) * chunk_extent;
+					let offset = (chunk_origin(chunk) - region.min()) / step as i32;
 					merged.get_or_insert_with(|| Voxels::new_with_type(voxel.type_info())).merge_from(&voxels, offset);
 				}
 			}
@@ -193,23 +178,19 @@ impl ChunkSource for SdfSource {
 		if let Some(binding) = self.binding(grid)
 			&& let Some((bounds_min, bounds_max)) = binding.sdf.bounds()
 			&& bounds_min.cmplt(bounds_max).all() {
-			let voxel_min = bounds_min.floor().as_ivec3();
-			let voxel_max = bounds_max.ceil().as_ivec3() - IVec3::ONE;
-			let chunk_min = chunk_of(voxel_min);
-			let chunk_max = chunk_of(voxel_max);
-			if let Some(region) = NonZeroChunkRegion::from_min_max(chunk_min, chunk_max) {
-				handle.presence(request_id, grid, region);
+			if let Some(region) = NonZeroRegion::from_min_end(bounds_min.floor().as_ivec3(), bounds_max.ceil().as_ivec3()) {
+				handle.presence(request_id, grid, chunk_aligned(region));
 			}
 		}
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		if self.binding(grid).is_none() { return; }
 		self.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		if self.binding(grid).is_none() { return; }
 		self.forgotten.forget_area(grid, region);
 	}

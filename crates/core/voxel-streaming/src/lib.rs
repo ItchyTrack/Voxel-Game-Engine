@@ -1,54 +1,30 @@
-use bevy::ecs::message::Message;
-use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
-use tile_data::NonZeroChunkRegion;
+use bile_tiles::{BileTilesSchedule, BileTilesSystemSet, TileInstances, TileKey};
+use voxel_data::grid::Grid;
 
 mod edit_interest;
-mod tile_dependency_index;
 mod presence;
-mod streaming;
-pub mod tile_requester;
-mod tile_building;
-pub mod systems;
+mod source;
+mod tile_dependency_index;
 
-use tile_data::{LoadedTile, TileKey};
-pub use edit_interest::ChunkEditInterest;
-pub use presence::ChunkPresence;
-pub use tile_requester::{TileLoadStatus, TileLoadUpdate, TileRequester};
-pub use streaming::{InflightChunkPresence, GridStreaming, RequestChunkPresence};
-pub use edit_interest::ChunkEditInterestChanged;
-
-#[doc(hidden)]
-pub use bevy as __bevy;
-#[doc(hidden)]
-pub use voxel_data::grid::GridId as __GridId;
-
-/// Loading pipeline. Safe to run several times a frame; invoke with [`run_streaming`].
-#[derive(ScheduleLabel, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct StreamingSchedule;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChunkAvailabilityChangeKind {
-	BecamePresent,
-	BecameEmpty,
-}
-
-#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ChunkAvailabilityChanged {
-	pub grid: voxel_data::grid::GridId,
-	pub region: NonZeroChunkRegion,
-	pub kind: ChunkAvailabilityChangeKind,
-}
+pub use edit_interest::{ChunkEditInterest, ChunkEditInterestChanged};
+pub use presence::{RequestChunkPresence, bounds_of_chunks};
+pub use source::{TileBuilderAppExt, VoxelTileSource};
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum StreamingPhase {
+pub enum VoxelTileSourceSet {
 	Ingest,
-	Request,
 	Receive,
+	Request,
 }
 
-pub fn run_streaming(world: &mut World) {
-	world.run_schedule(StreamingSchedule);
+pub fn run_tile_schedule(world: &mut World) {
+	world.run_schedule(BileTilesSchedule);
+}
+
+fn place_tile(add: On<Add, TileKey>, keys: Query<&TileKey>, mut commands: Commands) {
+	let Ok(key) = keys.get(add.entity) else { return };
+	commands.entity(add.entity).insert(Transform::from_translation(key.min().as_vec3()));
 }
 
 #[derive(Default)]
@@ -59,55 +35,38 @@ impl Plugin for VoxelStreamingPlugin {
 		if !app.is_plugin_added::<voxel_sources::VoxelSourcesPlugin>() {
 			app.add_plugins(voxel_sources::VoxelSourcesPlugin);
 		}
-		if !app.is_plugin_added::<tile_data::TileDataPlugin>() {
-			app.add_plugins(tile_data::TileDataPlugin);
+		if !app.is_plugin_added::<bile_tiles::TileDataPlugin>() {
+			app.add_plugins(bile_tiles::TileDataPlugin);
 		}
-		app.add_message::<ChunkAvailabilityChanged>()
-			.add_message::<edit_interest::ChunkEditInterestChanged>()
-			.add_message::<TileLoadUpdate>()
-			.init_resource::<tile_building::TileBuildingChannel>()
-			.init_resource::<tile_building::TileVoxelSourceBridge>()
-			.init_schedule(StreamingSchedule)
-			.configure_sets(
-				StreamingSchedule,
+		source::register_source(app);
+		app.register_required_components::<Grid, TileInstances>();
+		app.add_message::<ChunkEditInterestChanged>()
+			.add_message::<bile_region_loader::RegionUpdated>()
+			.configure_sets(PreUpdate, VoxelTileSourceSet::Ingest.after(voxel_sources::VoxelSourcesSet))
+			.configure_sets(BileTilesSchedule, (
+				VoxelTileSourceSet::Receive.before(BileTilesSystemSet::UpdateReadyClasses),
+				VoxelTileSourceSet::Request.after(BileTilesSystemSet::ComponentRequest),
+			))
+			.add_systems(PreUpdate, (presence::request_presence, presence::receive_presence).chain().in_set(VoxelTileSourceSet::Ingest))
+			.add_systems(BileTilesSchedule, (
 				(
-					StreamingPhase::Ingest,
-					StreamingPhase::Request,
-					StreamingPhase::Receive,
-				)
-					.chain(),
-			)
-			.add_systems(
-				StreamingSchedule,
+					presence::publish_bounds_updates,
+					source::route_voxel_results,
+					source::cancel_requests,
+					source::update_edited_tiles,
+					source::receive_tile_builds,
+				).chain().in_set(VoxelTileSourceSet::Receive),
 				(
-					(
-						systems::receive_chunk_presence_loaded,
-						systems::apply_source_presence,
-						systems::make_edited_chunks_present,
-						systems::dirty_edited_tiles,
-					)
-						.chain()
-						.in_set(StreamingPhase::Ingest),
-					(
-						systems::invalidate_changed_generation_contexts,
-						systems::request_presence_for_new_grids,
-						edit_interest::publish_edit_interest_changes,
-						tile_building::submit_tile_voxel_requests,
-					)
-						.chain()
-						.in_set(StreamingPhase::Request),
-					(
-						tile_building::route_tile_source_results,
-						systems::receive_tile_results,
-					)
-						.chain()
-						.in_set(StreamingPhase::Receive),
-				),
-			)
-			.add_systems(PreUpdate, run_streaming)
+					source::start_requested_builds,
+					source::submit_voxel_requests,
+					edit_interest::publish_edit_interest_changes,
+				).chain().in_set(VoxelTileSourceSet::Request),
+			))
+			.add_observer(place_tile)
+			.add_observer(source::release_removed_grid)
 			.add_systems(
 				PostUpdate,
-				bevy::transform::systems::propagate_transforms_for::<Added<LoadedTile>>
+				bevy::transform::systems::propagate_transforms_for::<Added<TileKey>>
 					.after(bevy::transform::TransformSystems::Propagate),
 			);
 	}

@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bevy::prelude::*;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
+use bile_math::NonZeroRegion;
+use tile_data::{chunk_origin, chunk_region, chunks_in};
 use voxel_data::{grid::GridId, voxels::{VoxelTypeId, VoxelTypeInfo, Voxels}};
 use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, VoxelMassReaders, mass_properties_of_voxels};
 use voxel_sources::{
@@ -64,7 +65,7 @@ impl VoxelStoreSource {
 		self.handle.as_ref().expect("voxel store source was not initialized").id()
 	}
 
-	fn grid_available_area(&self, grid: GridId) -> Option<NonZeroChunkRegion> {
+	fn grid_available_area(&self, grid: GridId) -> Option<NonZeroRegion> {
 		self.grids.get(&grid)?.available_area()
 	}
 
@@ -132,8 +133,8 @@ impl VoxelStoreSource {
 		match &result.data {
 			SourceResultData::Voxels { region, lod, voxels, .. } => {
 				let Some(acquisition) = self.acquisitions.get_mut(&result.request_id) else { return };
-				if *lod != 0 || !region.contains(acquisition.chunk) { return; }
-				let offset = (region.min() - acquisition.chunk) * CHUNK_SIZE as i32;
+				if *lod != 0 || !region.contains(chunk_origin(acquisition.chunk)) { return; }
+				let offset = region.min() - chunk_origin(acquisition.chunk);
 				acquisition.baseline.get_or_insert_with(|| Voxels::new_with_type(voxels.voxel_type_info()))
 					.merge_from(voxels, offset);
 				return;
@@ -177,7 +178,7 @@ impl VoxelStoreSource {
 				handle.voxels(
 					request.request_id,
 					grid,
-					NonZeroChunkRegion::from_single(chunk),
+					chunk_region(chunk),
 					0,
 					request.generation,
 					voxels,
@@ -198,7 +199,7 @@ impl ChunkSource for VoxelStoreSource {
 		request_id: RequestId,
 		cancellation: &voxel_tasks::CancellationToken,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
@@ -214,7 +215,7 @@ impl ChunkSource for VoxelStoreSource {
 		let mut waits_for_acquisition = false;
 		{
 			let Some(store) = self.grids.get(&grid) else { return SourceCoverage::None };
-			for chunk in chunks(region) {
+			for chunk in chunks_in(region) {
 				match store.ownership(chunk) {
 					ChunkOwnership::Unowned => {}
 					ChunkOwnership::Owned => request.chunks.push((chunk, store.get_chunk(chunk))),
@@ -226,7 +227,7 @@ impl ChunkSource for VoxelStoreSource {
 			}
 		}
 		if request.chunks.is_empty() { return SourceCoverage::None }
-		let coverage = if request.chunks.len() == region.area() as usize { SourceCoverage::All } else { SourceCoverage::Some };
+		let coverage = if request.chunks.len() == chunks_in(region).count() { SourceCoverage::All } else { SourceCoverage::Some };
 		if waits_for_acquisition {
 			self.grids.entry(grid).or_default().push_waiting_request(request);
 		} else {
@@ -243,8 +244,8 @@ impl ChunkSource for VoxelStoreSource {
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
-		for chunk in chunks(region) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
+		for chunk in chunks_in(region) {
 			let pending = self.acquisitions.iter()
 				.filter_map(|(request_id, acquisition)| {
 					(acquisition.grid == grid && acquisition.chunk == chunk).then_some(*request_id)
@@ -259,20 +260,12 @@ impl ChunkSource for VoxelStoreSource {
 		}
 	}
 
-	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		let Some(store) = self.grids.get_mut(&grid) else { return };
-		for chunk in chunks(region) {
+		for chunk in chunks_in(region) {
 			store.relinquish(chunk);
 		}
 	}
-}
-
-pub(crate) fn chunks(region: NonZeroChunkRegion) -> impl Iterator<Item = IVec3> {
-	(region.min().z..region.end().z).flat_map(move |z| {
-		(region.min().y..region.end().y).flat_map(move |y| {
-			(region.min().x..region.end().x).map(move |x| IVec3::new(x, y, z))
-		})
-	})
 }
 
 pub fn complete_voxel_store_acquisitions(

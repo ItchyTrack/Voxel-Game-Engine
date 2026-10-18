@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::math::{IVec3, UVec3};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use voxel_trees::grid_tree::{GridReducer, GridTree64, NonZeroVoxelRegion, SourceOverlaps, SourceTree, U16Cell, reduce_grid_trees};
+use voxel_trees::grid_tree::{GridReducer, GridTree64, NonZeroRegion, SourceOverlaps, SourceTree, U16Cell, reduce_grid_trees};
 
 const SOURCE_SIZE: u32 = 16;
 const OUTPUT_SIZE: u32 = 16;
@@ -17,7 +17,7 @@ impl GridReducer<U16Cell> for SumReducer {
 
 	fn reduce<'overlaps, 'a>(
 		&mut self,
-		_region: NonZeroVoxelRegion,
+		_region: NonZeroRegion,
 		overlaps: SourceOverlaps<'overlaps, 'a, U16Cell>,
 	) -> Option<Self::Output> {
 		let mut seen = false;
@@ -73,7 +73,7 @@ fn bench_case(group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::
 			SourceTree { tree, scale_down: 1, output_offset: offset }
 		})
 		.collect();
-	let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(OUTPUT_SIZE)).expect("benchmark output region");
+	let output_region = NonZeroRegion::new(IVec3::ZERO, UVec3::splat(OUTPUT_SIZE)).expect("benchmark output region");
 	group.bench_function(name, |b| {
 		b.iter(|| {
 			let output = reduce_grid_trees(black_box(output_region), black_box(&sources), SumReducer);

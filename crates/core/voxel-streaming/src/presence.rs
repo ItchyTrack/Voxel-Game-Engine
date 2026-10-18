@@ -1,90 +1,91 @@
-use bevy::math::IVec3;
-use bevy::transform::components::Transform;
+use std::collections::HashMap;
 
-use tile_data::NonZeroChunkRegion;
-use vge_math::region::NonZeroVoxelRegion;
-use voxel_trees::signed_grid_tree::SignedGridTree;
-use voxel_trees::grid_tree::U16Cell;
+use bevy::prelude::*;
+use bile_math::NonZeroRegion;
+use bile_region_loader::RegionUpdated;
+use bile_scene::NodeBounds;
+use tile_data::{chunk_aligned, chunk_origin};
+use voxel_data::grid::GridId;
+use voxel_sources::{SourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
 
-type ChunkGridTree = SignedGridTree<U16Cell>;
+use crate::VoxelTileSource;
 
-pub struct ChunkPresence {
-	tree: ChunkGridTree,
+#[derive(Component, Debug, Default)]
+pub struct RequestChunkPresence;
+
+pub fn bounds_of_chunks(chunks: impl IntoIterator<Item = IVec3>) -> Option<NodeBounds> {
+	let mut chunks = chunks.into_iter();
+	let first = chunks.next()?;
+	let (min, max) = chunks.fold((first, first), |(min, max), chunk| (min.min(chunk), max.max(chunk)));
+	Some(NodeBounds::new(NonZeroRegion::from_min_end(chunk_origin(min), chunk_origin(max + IVec3::ONE)).unwrap()))
 }
 
-impl Default for ChunkPresence {
-	fn default() -> Self {
-		Self { tree: ChunkGridTree::new() }
-	}
+fn union(a: NonZeroRegion, b: NonZeroRegion) -> NonZeroRegion {
+	NonZeroRegion::from_min_end(a.min().min(b.min()), a.end().max(b.end())).unwrap()
 }
 
-impl ChunkPresence {
-	pub fn len(&self) -> u64 {
-		self.tree.len()
-	}
-
-	pub fn is_empty(&self) -> bool {
-		self.tree.is_empty()
-	}
-
-	pub fn mark_present_area(&mut self, region: NonZeroChunkRegion) {
-		self.tree.add_area(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), 0u16);
-	}
-
-	pub fn clear_present(&mut self, chunk: IVec3) {
-		self.clear_present_area(NonZeroChunkRegion::from_single(chunk));
-	}
-
-	pub fn clear_present_area(&mut self, region: NonZeroChunkRegion) {
-		self.tree.remove_area(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap());
-	}
-
-	pub fn is_present(&self, chunk: IVec3) -> bool {
-		self.tree.get(chunk).is_some()
-	}
-
-	pub fn any_present_in_region(&self, region: NonZeroChunkRegion) -> bool {
-		self.tree.any_in_region(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap())
-	}
-
-	pub fn all_present_in_region(&self, region: NonZeroChunkRegion) -> bool {
-		self.tree.is_area_filled(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap())
-	}
-
-	pub fn for_each_occupied_tile_cover(&self, region: NonZeroChunkRegion, tile_size: u32, f: impl FnMut(IVec3)) {
-		self.tree.for_each_occupied_tile_cover(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), tile_size, f);
-	}
-
-	/// `transform` rotation maps +Z onto the ray direction (matches the voxel tree).
-	pub fn raycast(&self, transform: &Transform, max_length: Option<f32>) -> Option<(IVec3, f32)> {
-		self.tree.raycast(transform, max_length).map(|(pos, _, dist)| (pos, dist))
-	}
-
-	pub fn iter_present(&self) -> impl Iterator<Item = (IVec3, u32)> + '_ {
-		self.tree.iter().map(|(origin, size, _)| (origin, size))
-	}
-
-	/// Visit every present chunk inside the inclusive chunk region `[min, max]`,
-	/// descending only into subtrees that overlap it. Used for collision
-	/// broad-phase so cost scales with the region, not the whole footprint.
-	pub fn for_each_in_region(&self, min: IVec3, max: IVec3, mut f: impl FnMut(IVec3)) {
-		let Some(region) = NonZeroVoxelRegion::from_min_max(min, max) else { return };
-		self.tree.for_each_leaf_in_region(region, |origin, size, _| {
-			let lo = origin.max(min);
-			let hi = (origin + IVec3::splat(size as i32) - IVec3::ONE).min(max);
-			for x in lo.x..=hi.x {
-				for y in lo.y..=hi.y {
-					for z in lo.z..=hi.z {
-						f(IVec3::new(x, y, z));
-					}
+fn grow_bounds(commands: &mut Commands, bounds: &mut Query<&mut NodeBounds>, added: HashMap<GridId, NonZeroRegion>) {
+	for (grid, region) in added {
+		match bounds.get_mut(grid) {
+			Ok(mut bounds) => {
+				if !bounds.region().contains_region(region) {
+					let region = union(bounds.region(), region);
+					bounds.set_region(region);
 				}
 			}
-		});
+			Err(_) => { commands.entity(grid).try_insert(NodeBounds::new(region)); }
+		}
 	}
+}
 
-	/// Visit every occupied presence node or leaf whose box intersects the inclusive chunk region `[min, max]`.
-	pub fn for_each_node_in_region(&self, min: IVec3, max: IVec3, f: impl FnMut(IVec3, u32, bool)) {
-		let Some(region) = NonZeroVoxelRegion::from_min_max(min, max) else { return };
-		self.tree.for_each_node_in_region(region, f);
+pub(crate) fn request_presence(
+	mut source: ResMut<VoxelTileSource>,
+	mut sources: ResMut<SourceManager>,
+	grids: Query<GridId, With<RequestChunkPresence>>,
+) {
+	for grid in &grids {
+		let tiles = source.grids.entry(grid).or_default();
+		if tiles.presence_request.is_none() {
+			tiles.presence_request = Some(sources.request_presence(grid));
+		}
+	}
+}
+
+pub(crate) fn receive_presence(
+	mut commands: Commands,
+	mut source: ResMut<VoxelTileSource>,
+	mut results: MessageReader<SourceResult>,
+	mut edits: MessageReader<GridEditMessage>,
+	mut bounds: Query<&mut NodeBounds>,
+) {
+	let mut added: HashMap<GridId, NonZeroRegion> = HashMap::new();
+	let mut add = |grid: GridId, region: NonZeroRegion| {
+		added.entry(grid).and_modify(|bounds| *bounds = union(*bounds, region)).or_insert(region);
+	};
+	for result in results.read() {
+		match &result.data {
+			SourceResultData::Presence { grid, region } => add(*grid, *region),
+			SourceResultData::PresenceLoaded => {
+				for (&grid, tiles) in &mut source.grids {
+					if tiles.presence_request != Some(result.request_id) { continue; }
+					tiles.presence_request = None;
+					commands.entity(grid).try_remove::<RequestChunkPresence>();
+				}
+			}
+			_ => {}
+		}
+	}
+	for edit in edits.read() {
+		add(edit.grid_id(), chunk_aligned(edit.edit().affected_region()));
+	}
+	grow_bounds(&mut commands, &mut bounds, added);
+}
+
+pub(crate) fn publish_bounds_updates(
+	grids: Query<(Entity, &NodeBounds), Changed<NodeBounds>>,
+	mut updates: MessageWriter<RegionUpdated>,
+) {
+	for (entity, bounds) in &grids {
+		updates.write(RegionUpdated { entity, region: bounds.region() });
 	}
 }

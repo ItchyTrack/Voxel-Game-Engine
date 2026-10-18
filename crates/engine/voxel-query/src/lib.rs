@@ -1,39 +1,38 @@
-use std::any::Any;
 use std::collections::HashSet;
 
+use bevy::ecs::component::ComponentIdFor;
 use bevy::ecs::query::QueryFilter;
 use bevy::ecs::system::SystemParam;
 use bevy::math::{IVec3, Quat, UVec3, Vec3};
 use bevy::prelude::*;
-use tile_data::{
-	CHUNK_SIZE, DynamicTileData, LoadedTile, TileAppExt, TileBuilder, TileBuildingSession,
-	TileClassId, TileData,
-};
+use bile_tiles::{BileTilesSchedule, DesiredComponents, TileInstances, TileKey};
+use tile_data::{TileBuilder, TileBuildingSession, chunk_aligned};
 use voxel_data::bvh::BVH;
 use voxel_data::grid::{Grid, GridId};
+use voxel_sources::edit::GridEditMessage;
+use voxel_streaming::{TileBuilderAppExt, VoxelTileSourceSet};
 use voxel_trees::grid_tree::{GridTree64, U16Cell};
 use voxel_trees::views::GridTreeView;
 
 pub type OccupancyTree = GridTree64<U16Cell>;
 
-#[derive(Debug)]
+#[derive(Component, Default)]
+pub struct OccupancyTileClass;
+
+#[derive(Component, Debug, Default)]
 pub struct OccupancyTileData {
 	pub tree: OccupancyTree,
 }
-
-impl TileData for OccupancyTileData {
-	fn as_any(&self) -> &dyn Any { self }
-}
-
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OccupancyTileClass(pub TileClassId);
 
 #[derive(Default)]
 pub struct OccupancyTileBuilder;
 
 #[tile_data::async_trait]
 impl TileBuilder for OccupancyTileBuilder {
-	async fn build(&self, mut session: TileBuildingSession) -> Option<Box<dyn TileData>> {
+	type Output = OccupancyTileData;
+	const REBUILD_ON_EDIT: bool = false;
+
+	async fn build(&self, mut session: TileBuildingSession) -> Option<OccupancyTileData> {
 		let tile_region = session.key.region;
 		assert_eq!(session.key.lod, 0, "occupancy tiles must use LOD 0");
 		session.request_voxels(tile_region, 0, None);
@@ -41,7 +40,7 @@ impl TileBuilder for OccupancyTileBuilder {
 		let mut areas = Vec::new();
 		while let Some(input) = session.receive_voxels().await {
 			assert_eq!(input.lod, 0, "occupancy tile source returned a nonzero LOD");
-			let offset = (input.area.min() - tile_region.min()) * CHUNK_SIZE as i32;
+			let offset = input.area.min() - tile_region.min();
 			for (origin, size, _) in input.voxels.grid_tree() {
 				let origin = offset + origin.as_ivec3();
 				assert!(origin.cmpge(IVec3::ZERO).all(), "occupancy source data starts before its requested tile");
@@ -52,7 +51,36 @@ impl TileBuilder for OccupancyTileBuilder {
 		if areas.is_empty() { return None; }
 		let mut tree = OccupancyTree::default();
 		tree.add_areas(&areas);
-		Some(Box::new(OccupancyTileData { tree }))
+		Some(OccupancyTileData { tree })
+	}
+}
+
+fn apply_edits_to_occupancy(
+	mut commands: Commands,
+	mut edits: MessageReader<GridEditMessage>,
+	class: ComponentIdFor<OccupancyTileClass>,
+	component: ComponentIdFor<OccupancyTileData>,
+	grids: Query<&TileInstances>,
+	mut tiles: Query<(&TileKey, &DesiredComponents, Option<&mut OccupancyTileData>)>,
+) {
+	for edit in edits.read() {
+		let Ok(instances) = grids.get(edit.grid_id()) else { continue };
+		let mut keys = Vec::new();
+		instances.for_each_overlapping(chunk_aligned(edit.edit().affected_region()), |key| keys.push(key));
+		for key in keys {
+			let Some(entity) = instances.get(key) else { continue };
+			let Ok((key, desired, occupancy)) = tiles.get_mut(entity) else { continue };
+			if !desired.is_component_desired(component.get()) { continue; }
+			match occupancy {
+				Some(mut occupancy) => edit.edit().apply_to_occupancy(key.region, &mut occupancy.tree),
+				None if desired.is_class_ready(class.get()) => {
+					let mut occupancy = OccupancyTileData::default();
+					edit.edit().apply_to_occupancy(key.region, &mut occupancy.tree);
+					commands.entity(entity).insert(occupancy);
+				}
+				None => {}
+			}
+		}
 	}
 }
 
@@ -61,12 +89,9 @@ pub struct VoxelQueryPlugin;
 
 impl Plugin for VoxelQueryPlugin {
 	fn build(&self, app: &mut App) {
-		if !app.is_plugin_added::<tile_data::TileDataPlugin>() {
-			app.add_plugins(tile_data::TileDataPlugin);
-		}
-		let class = app.register_tile_class();
-		app.register_tile_builder(class, OccupancyTileBuilder)
-			.insert_resource(OccupancyTileClass(class));
+		app.register_tile_class_component::<OccupancyTileClass, OccupancyTileData>()
+			.register_tile_builder(OccupancyTileBuilder)
+			.add_systems(BileTilesSchedule, apply_edits_to_occupancy.in_set(VoxelTileSourceSet::Receive));
 	}
 }
 
@@ -84,13 +109,13 @@ pub struct VoxelWorldQueryParam<'w, 's, GridFilter = ()>
 where
 	GridFilter: QueryFilter + 'static,
 {
-	class: Res<'w, OccupancyTileClass>,
 	grids: Query<'w, 's, (Entity, &'static Grid), GridFilter>,
-	tiles: Query<'w, 's, (&'static LoadedTile, &'static DynamicTileData, &'static GlobalTransform)>,
+	tiles: Query<'w, 's, (&'static TileKey, &'static ChildOf, &'static OccupancyTileData, &'static GlobalTransform)>,
 }
 
 struct RaycastCandidate<'a> {
-	loaded: &'a LoadedTile,
+	key: TileKey,
+	grid: GridId,
 	occupancy: &'a OccupancyTileData,
 	transform: Transform,
 }
@@ -104,12 +129,12 @@ where
 		if direction == Vec3::ZERO { return None; }
 
 		let selected_grids: HashSet<_> = self.grids.iter().map(|(entity, _)| entity).collect();
-		let candidates: Vec<_> = self.tiles.iter().filter_map(|(loaded, data, global)| {
-			if loaded.key.class != self.class.0 || !selected_grids.contains(&loaded.grid) { return None; }
-			let occupancy = data.downcast_ref::<OccupancyTileData>()?;
+		let candidates: Vec<_> = self.tiles.iter().filter_map(|(&key, child_of, occupancy, global)| {
+			let grid = child_of.parent();
+			if !selected_grids.contains(&grid) { return None; }
 			let transform = global.compute_transform();
 			if !transform.scale.abs_diff_eq(Vec3::ONE, 1e-5) { return None; }
-			Some(RaycastCandidate { loaded, occupancy, transform })
+			Some(RaycastCandidate { key, grid, occupancy, transform })
 		}).collect();
 
 		let bounds = candidates.iter().enumerate().filter_map(|(index, candidate)| {
@@ -139,9 +164,9 @@ where
 			};
 			let Some((tile_voxel, normal, distance)) = candidate.occupancy.tree.raycast(&local_ray, max_distance) else { continue };
 			if best.is_some_and(|hit| hit.distance <= distance) { continue; }
-			let tile_origin = candidate.loaded.key.region.min() * CHUNK_SIZE as i32;
+			let tile_origin = candidate.key.region.min();
 			best = Some(VoxelWorldRaycastHit {
-				grid: candidate.loaded.grid,
+				grid: candidate.grid,
 				voxel_pos: tile_origin + tile_voxel.as_ivec3(),
 				normal: normal.as_ivec3(),
 				world_position: origin + direction * distance,

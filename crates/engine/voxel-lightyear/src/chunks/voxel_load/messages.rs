@@ -1,7 +1,7 @@
 use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::prelude::Event;
 use serde::{Deserialize, Serialize};
-use tile_data::NonZeroChunkRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
@@ -12,7 +12,7 @@ use crate::chunks::request_id::NetworkRequestId;
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct VoxelRequestKey {
 	pub grid: GridId,
-	pub region: NonZeroChunkRegion,
+	pub region: NonZeroRegion,
 	pub lod: u8,
 	pub voxel_type: Option<VoxelTypeId>,
 	pub generation: GridGeneration,
@@ -23,7 +23,7 @@ pub(crate) struct VoxelPayloadIndex(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct VoxelPayloadMetadata {
-	pub region: NonZeroChunkRegion,
+	pub region: NonZeroRegion,
 	pub lod: u8,
 	pub compressed_bytes: u64,
 }

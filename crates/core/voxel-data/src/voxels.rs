@@ -3,7 +3,7 @@ use bevy::math::{IVec2, IVec3, UVec3, Vec3};
 use serde::{Deserialize, Serialize};
 use tracy_client::span;
 use std::{io::{self, Read, Write}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
-use voxel_trees::{grid_tree::{self, GridReducer, NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps}, sdf::Sdf};
+use voxel_trees::{grid_tree::{self, GridReducer, NonZeroRegion, SourceOverlaps as GridSourceOverlaps}, sdf::Sdf};
 use super::voxel_grid_tree::{VoxelGridTree, VoxelGridType};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -111,10 +111,10 @@ pub struct SourceOverlap<'a> {
 	pub source_index: usize,
 
 	/// Source-local region contributing to the current output region.
-	pub source_region: NonZeroVoxelRegion,
+	pub source_region: NonZeroRegion,
 
 	/// Projected/clipped region in output coordinates.
-	pub output_region: NonZeroVoxelRegion,
+	pub output_region: NonZeroRegion,
 
 	pub data: VoxelRef<'a>,
 }
@@ -167,7 +167,7 @@ pub trait VoxelReducer {
 
 	fn reduce<'overlaps, 'a>(
 		&mut self,
-		region: NonZeroVoxelRegion,
+		region: NonZeroRegion,
 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
 	) -> Option<Self::Output>;
 }
@@ -187,7 +187,7 @@ pub trait VoxelReducer {
 
 // 	fn reduce<'overlaps, 'a>(
 // 		&mut self,
-// 		region: NonZeroVoxelRegion,
+// 		region: NonZeroRegion,
 // 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
 // 	) -> Option<Self::Output>
 // 	{
@@ -210,7 +210,7 @@ where
 
 	fn reduce<'overlaps, 'a>(
 		&mut self,
-		region: NonZeroVoxelRegion,
+		region: NonZeroRegion,
 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
 	) -> Option<Self::Output> {
 		VoxelReducer::reduce(&mut self.0, region, overlaps)
@@ -226,7 +226,7 @@ impl Voxels {
 		Self { voxels: VoxelGridTree::new_with_type(VoxelGridType::new(voxel_type)), bounding_box: Mutex::new(None), bounding_box_dirty: AtomicBool::new(false) }
 	}
 
-	pub fn reduce_voxels<'a, R>(output_region: NonZeroVoxelRegion, sources: &[SourceTree<'a>], reducer: R) -> Option<Self>
+	pub fn reduce_voxels<'a, R>(output_region: NonZeroRegion, sources: &[SourceTree<'a>], reducer: R) -> Option<Self>
 	where
 		R: VoxelReducer,
 		for<'d> &'d R::Output: Into<VoxelRef<'d>>,
@@ -352,7 +352,7 @@ impl Voxels {
 	}
 
 	pub fn remove_area(&mut self, pos: UVec3, size: UVec3) {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size) else { return };
+		let Some(region) = NonZeroRegion::new(pos.as_ivec3(), size) else { return };
 		self.voxels.clear_region(region);
 		self.bounding_box_dirty.store(true, Ordering::Release);
 	}
@@ -370,7 +370,7 @@ impl Voxels {
 
 	pub fn merge_from(&mut self, source: &Voxels, offset: IVec3) { self.merge_region_from(source, None, offset); }
 
-	pub fn merge_region_from(&mut self, source: &Voxels, source_region: Option<NonZeroVoxelRegion>, offset: IVec3) {
+	pub fn merge_region_from(&mut self, source: &Voxels, source_region: Option<NonZeroRegion>, offset: IVec3) {
 		self.assert_type(source.voxel_type_id());
 		let bounds = match source_region {
 			Some(region) => source.voxels.occupied_bounds_in_region(region),
@@ -386,7 +386,7 @@ impl Voxels {
 		}
 	}
 
-	pub fn overwrite_region_from(&mut self, source: &Voxels, source_region: NonZeroVoxelRegion, offset: IVec3) {
+	pub fn overwrite_region_from(&mut self, source: &Voxels, source_region: NonZeroRegion, offset: IVec3) {
 		self.assert_type(source.voxel_type_id());
 		self.voxels.overwrite_region_from(&source.voxels, source_region, offset);
 		self.bounding_box_dirty.store(true, Ordering::Release);

@@ -1,5 +1,5 @@
 use bevy::ecs::message::Message;
-use tile_data::NonZeroChunkRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::{grid::GridId, voxels::Voxels};
 
 use crate::edit::GridGeneration;
@@ -18,12 +18,12 @@ impl RequestId {
 pub enum SourceResultData {
 	Presence {
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 	},
 	PresenceLoaded,
 	Voxels {
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		generation: GridGeneration,
 		voxels: Voxels,

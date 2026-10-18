@@ -1,6 +1,7 @@
 use bevy::{math::{DMat3, DVec3}, prelude::*};
 use tracy_client::span;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
+use bile_math::NonZeroRegion;
+use tile_data::{CHUNK_SIZE, chunk_origin};
 use voxel_data::voxels::{VoxelType, Voxels};
 use voxel_mass::{CenterOfMass, InertiaTensor, Mass, MassProperties, RotationalInertia};
 use voxel_tasks::CancellationToken;
@@ -22,7 +23,7 @@ pub(super) fn planet_lod_voxel(_pos: IVec3) -> LodVoxel {
 
 pub(super) fn build_planet_region<V: VoxelType>(
 	tile_index: usize,
-	region: NonZeroChunkRegion,
+	region: NonZeroRegion,
 	chunks: &[IVec3],
 	lod: u8,
 	cancellation: &CancellationToken,
@@ -31,14 +32,13 @@ pub(super) fn build_planet_region<V: VoxelType>(
 	let _zone = span!("planet build region");
 	let tile = planet_tiles().get(tile_index)?;
 	let step = 1i32 << lod as u32;
-	let chunk_extent = CHUNK_SIZE as i32 / step;
 
 	let mut areas = Vec::new();
 
 	for &chunk in chunks {
 		if cancellation.is_cancelled() { return None; }
 		let origin = chunk_origin(chunk);
-		let chunk_offset = (chunk - region.min()) * chunk_extent;
+		let chunk_offset = (origin - region.min()) / step;
 		for_each_shape_column(tile, origin, step, |x, y, z0, z1| {
 			let pos = chunk_offset + IVec3::new(x, y, z0);
 			let size = UVec3::new(1, 1, (z1 - z0) as u32);

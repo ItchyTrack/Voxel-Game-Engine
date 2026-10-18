@@ -1,11 +1,10 @@
 use basic_voxel::MarchingVoxel;
-use bevy::prelude::*;
-use tile_data::TileBuildingParameters;
+use bevy::{ecs::component::ComponentIdFor, prelude::*};
 use voxel_data::{grid::Grid, voxels::VoxelType};
-use voxel_gpu::RenderingContext;
-use voxel_marching_renderer::MarchingRenderingType;
-use voxel_raster_renderer::RasterRenderingType;
-use voxel_ray_renderer::RayRenderingType;
+use voxel_engine::GridRenderClass;
+use voxel_marching_renderer::tile_data::MarchingTileClass;
+use voxel_raster_renderer::tile_data::RasterTileClass;
+use voxel_ray_renderer::tile_data::RayTileClass;
 
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VoxelRenderMode {
@@ -20,33 +19,26 @@ pub struct VoxelAppRenderingPlugin;
 impl Plugin for VoxelAppRenderingPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<VoxelRenderMode>()
-			.add_systems(Update, apply_grid_rendering_contexts);
+			.add_systems(Update, apply_grid_render_classes);
 	}
 }
 
-fn apply_grid_rendering_contexts(
+fn apply_grid_render_classes(
 	mut commands: Commands,
 	mode: Res<VoxelRenderMode>,
-	ray: Res<RayRenderingType>,
-	raster: Res<RasterRenderingType>,
-	marching: Res<MarchingRenderingType>,
-	grids: Query<(Entity, &Grid, Option<&TileBuildingParameters>)>,
+	ray: ComponentIdFor<RayTileClass>,
+	raster: ComponentIdFor<RasterTileClass>,
+	marching: ComponentIdFor<MarchingTileClass>,
+	grids: Query<(Entity, &Grid, Option<&GridRenderClass>)>,
 ) {
 	let selected = match *mode {
-		VoxelRenderMode::Ray => ray.0,
-		VoxelRenderMode::Raster => raster.0,
+		VoxelRenderMode::Ray => ray.get(),
+		VoxelRenderMode::Raster => raster.get(),
 	};
 	for (entity, grid, current) in &grids {
-		let rendering_type = if grid.voxel_type_info().id == MarchingVoxel::TYPE_INFO.id {
-			marching.0
-		} else {
-			selected
-		};
-		let matches = current
-			.and_then(|parameters| parameters.downcast_ref::<RenderingContext>())
-			.is_some_and(|context| context.rendering_type == rendering_type);
-		if !matches {
-			commands.entity(entity).insert(TileBuildingParameters::new(RenderingContext { rendering_type }));
+		let class = if grid.voxel_type_info().id == MarchingVoxel::TYPE_INFO.id { marching.get() } else { selected };
+		if current.map(|current| current.0) != Some(class) {
+			commands.entity(entity).insert(GridRenderClass(class));
 		}
 	}
 }

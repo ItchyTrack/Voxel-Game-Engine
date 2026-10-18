@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use bevy::{log::warn, math::IVec3};
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::{compressed_voxels::CompressedVoxels, grid::GridId, voxels::{VoxelTypeId, Voxels}};
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
+use tile_data::{CHUNK_SIZE, chunk_origin};
 use voxel_sources::{RequestId, SourceHandle, edit::GridGeneration};
 use voxel_tasks::CancellationToken;
 
@@ -56,16 +56,16 @@ pub(crate) struct ClientLoadRegistry {
 
 fn filter_accepted_chunks(
 	accepted_chunks: &HashSet<IVec3>,
-	region: NonZeroChunkRegion,
+	region: NonZeroRegion,
 	lod: u8,
 	voxels: Voxels,
 ) -> Option<Voxels> {
 	let chunk_extent = (CHUNK_SIZE >> lod) as i32;
 	let mut filtered = Voxels::new_with_type(voxels.voxel_type_info());
 	for &chunk in accepted_chunks {
-		if !region.contains(chunk) { continue; }
-		let local_min = (chunk - region.min()) * chunk_extent;
-		let local_region = NonZeroVoxelRegion::from_min_size(local_min, bevy::math::UVec3::splat(chunk_extent as u32)).unwrap();
+		if !region.contains(chunk_origin(chunk)) { continue; }
+		let local_min = (chunk_origin(chunk) - region.min()) >> lod as i32;
+		let local_region = NonZeroRegion::new(local_min, bevy::math::UVec3::splat(chunk_extent as u32)).unwrap();
 		filtered.merge_region_from(&voxels, Some(local_region), IVec3::ZERO);
 	}
 	(!filtered.is_empty()).then_some(filtered)
@@ -77,7 +77,7 @@ impl ClientLoadRegistry {
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,

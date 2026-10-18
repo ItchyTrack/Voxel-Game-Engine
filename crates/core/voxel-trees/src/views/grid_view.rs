@@ -1,15 +1,15 @@
 use bevy::math::UVec3;
 use std::fmt::Debug;
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 
 pub trait GridView: Debug {
 	type Data<'d>: Copy where Self: 'd;
 
 	fn get(&self, pos: UVec3) -> Option<Self::Data<'_>>;
 
-	fn bounds(&self) -> Option<NonZeroVoxelRegion>;
+	fn bounds(&self) -> Option<NonZeroRegion>;
 
-	fn for_each_in_region<'grid, F>(&'grid self, region: NonZeroVoxelRegion, mut f: F)
+	fn for_each_in_region<'grid, F>(&'grid self, region: NonZeroRegion, mut f: F)
 	where
 		F: FnMut(UVec3, Self::Data<'grid>),
 	{
@@ -23,7 +23,7 @@ pub trait GridView: Debug {
 		}
 	}
 
-	fn any_in_region(&self, region: NonZeroVoxelRegion) -> bool {
+	fn any_in_region(&self, region: NonZeroRegion) -> bool {
 		for x in region.min().x..region.end().x {
 			for y in region.min().y..region.end().y {
 				for z in region.min().z..region.end().z {
@@ -35,7 +35,7 @@ pub trait GridView: Debug {
 		false
 	}
 
-	fn is_region_filled(&self, region: NonZeroVoxelRegion) -> bool {
+	fn is_region_filled(&self, region: NonZeroRegion) -> bool {
 		for x in region.min().x..region.end().x {
 			for y in region.min().y..region.end().y {
 				for z in region.min().z..region.end().z {

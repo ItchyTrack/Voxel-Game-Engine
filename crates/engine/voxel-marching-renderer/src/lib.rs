@@ -17,24 +17,12 @@ use bevy::render::{
 	ExtractSchedule, Render, RenderApp, RenderSystems,
 	render_phase::AddRenderCommand,
 };
-use ::tile_data::{TileCapabilityRegistry, TileData, TileVoxelReducerRegistry};
-use voxel_gpu::{RenderingBuilderAppExt, RenderingType, SlangShader, SlangShaderSettings};
+use ::tile_data::TileVoxelReducerRegistry;
+use voxel_gpu::{SlangShader, SlangShaderSettings};
+use voxel_streaming::TileBuilderAppExt;
 
 #[derive(Component)]
 pub struct MarchingShader;
-
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MarchingRenderingType(pub RenderingType);
-
-#[derive(Resource, Default)]
-pub struct MarchingTileCapabilityRegistry(TileCapabilityRegistry<tile_data::MarchingTileCapabilityData>);
-
-impl MarchingTileCapabilityRegistry {
-	pub fn read(&self, data: &dyn TileData) -> Option<tile_data::MarchingTileCapabilityData> { self.0.read(data) }
-	pub fn register<T: tile_data::MarchingTileCapability>(&mut self) {
-		self.0.register::<T>(|data| data.marching_tile_data());
-	}
-}
 
 #[derive(Default)]
 pub struct VoxelMarchingRendererPlugin;
@@ -48,15 +36,13 @@ impl Plugin for VoxelMarchingRendererPlugin {
 			.with_settings(move |current: &mut SlangShaderSettings| *current = settings.clone())
 			.load(shader_sources::ROOT_SHADER_ASSET);
 		app.init_resource::<gpu_data::MarchingWorldGpuData>()
-			.init_resource::<MarchingTileCapabilityRegistry>()
 			.init_resource::<TileVoxelReducerRegistry>()
+			.register_tile_class_component::<tile_data::MarchingTileClass, tile_data::MarchingTileData>()
 			.add_systems(Update, gpu_data::collect_marching_gpu_garbage);
-		app.world_mut().resource_mut::<MarchingTileCapabilityRegistry>().register::<tile_data::MarchingTileData>();
 
 		let gpu = app.world().resource::<gpu_data::MarchingWorldGpuData>().clone();
 		let reducers = app.world().resource::<TileVoxelReducerRegistry>().clone();
-		let rendering_type = app.register_rendering_builder(tile_data::MarchingTileBuilder { gpu, reducers });
-		app.insert_resource(MarchingRenderingType(rendering_type));
+		app.register_tile_builder(tile_data::MarchingTileBuilder { gpu, reducers });
 
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app.world_mut().spawn((MarchingShader, SlangShader::new(shader)));

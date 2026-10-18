@@ -118,9 +118,7 @@ pub(super) fn flush_source_results(
 					warn!(request_id=?result.request_id, ?grid, "ignoring source presence for a missing grid");
 					continue;
 				};
-				let region = if let Some((min, size)) = restriction.and_then(|restriction| restriction.readable_aabb(owner.peer)) {
-					let readable = tile_data::NonZeroChunkRegion::from_min_size(min, size.as_uvec3())
-						.expect("non-empty readable presence had an empty bounding box");
+				let region = if let Some(readable) = restriction.and_then(|restriction| restriction.readable_aabb(owner.peer)) {
 					region.intersection(readable)
 				} else if restriction.is_some() {
 					None

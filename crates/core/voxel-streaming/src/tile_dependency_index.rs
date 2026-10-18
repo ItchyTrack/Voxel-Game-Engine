@@ -1,47 +1,44 @@
 use std::collections::HashMap;
 
+use bevy::{ecs::component::ComponentId, prelude::*};
+use bile_math::NonZeroRegion;
+use bile_tiles::{TileIndex, TileIndexKey};
 use rustc_hash::FxHashSet;
-use tile_data::{NonZeroChunkRegion, TileIndex, TileIndexKey};
 
-use crate::TileKey;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TileDependency {
-	pub(crate) region: NonZeroChunkRegion,
-}
+pub(crate) type TileComponent = (Entity, ComponentId);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct IndexedTileDependency {
-	tile: TileKey,
-	dependency: TileDependency,
+struct TileDependency {
+	tile: TileComponent,
+	region: NonZeroRegion,
 }
 
-impl TileIndexKey for IndexedTileDependency {
-	fn region(self) -> NonZeroChunkRegion { self.dependency.region }
+impl TileIndexKey for TileDependency {
+	fn region(self) -> NonZeroRegion { self.region }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct TileDependencyIndex {
-	index: TileIndex<IndexedTileDependency>,
-	by_tile: HashMap<TileKey, Vec<TileDependency>>,
+	index: TileIndex<TileDependency>,
+	by_tile: HashMap<TileComponent, Vec<NonZeroRegion>>,
 }
 
 impl TileDependencyIndex {
-	pub(crate) fn add(&mut self, key: TileKey, dependency: TileDependency) {
-		self.index.insert(IndexedTileDependency { tile: key, dependency });
-		self.by_tile.entry(key).or_default().push(dependency);
+	pub(crate) fn add(&mut self, tile: TileComponent, region: NonZeroRegion) {
+		self.index.insert(TileDependency { tile, region });
+		self.by_tile.entry(tile).or_default().push(region);
 	}
 
-	pub(crate) fn remove(&mut self, key: TileKey) {
-		let Some(dependencies) = self.by_tile.remove(&key) else { return };
-		for dependency in dependencies {
-			self.index.remove(IndexedTileDependency { tile: key, dependency });
+	pub(crate) fn remove(&mut self, tile: TileComponent) {
+		let Some(regions) = self.by_tile.remove(&tile) else { return };
+		for region in regions {
+			self.index.remove(TileDependency { tile, region });
 		}
 	}
 
-	pub(crate) fn tiles_using_region(&self, region: NonZeroChunkRegion) -> impl Iterator<Item = TileKey> {
-		let mut stale = FxHashSet::default();
-		self.index.for_each_overlapping(region, |dependency| { stale.insert(dependency.tile); });
-		stale.into_iter()
+	pub(crate) fn tiles_using_region(&self, region: NonZeroRegion) -> FxHashSet<TileComponent> {
+		let mut tiles = FxHashSet::default();
+		self.index.for_each_overlapping(region, |dependency| { tiles.insert(dependency.tile); });
+		tiles
 	}
 }

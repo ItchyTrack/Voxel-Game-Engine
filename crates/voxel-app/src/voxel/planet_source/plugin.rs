@@ -3,14 +3,15 @@ use std::sync::{Arc, OnceLock};
 
 use bevy::prelude::*;
 use basic_voxel::{BasicVoxel, LodVoxel};
-use tile_data::NonZeroChunkRegion;
+use bile_math::NonZeroRegion;
+use tile_data::{chunk_region, chunks_in};
 use voxel_data::voxels::VoxelType;
 use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
 use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, SourceMassAppExt, VoxelMass, VoxelMassReaders};
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
-use voxel_streaming::GridStreaming;
+use voxel_streaming::bounds_of_chunks;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
 use super::generation::{build_planet_region, planet_mass_properties, planet_voxel, planet_lod_voxel};
@@ -62,7 +63,7 @@ impl ChunkSource for ProceduralPlanetSource {
 		request_id: RequestId,
 		cancellation: &CancellationToken,
 		grid: GridId,
-		region: NonZeroChunkRegion,
+		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
 		generation: GridGeneration,
@@ -71,20 +72,10 @@ impl ChunkSource for ProceduralPlanetSource {
 		let Some(tile_index) = self.tile_index(grid) else { return SourceCoverage::None };
 		let Some(tile) = planet_tiles().get(tile_index) else { return SourceCoverage::None };
 
-		let mut owned_chunks = Vec::new();
-		for z in region.min().z..region.end().z {
-			for y in region.min().y..region.end().y {
-				for x in region.min().x..region.end().x {
-					let chunk = IVec3::new(x, y, z);
-					if tile_has_chunk(tile, chunk) && !self.forgotten.contains(grid, chunk) {
-						owned_chunks.push(chunk);
-					}
-				}
-			}
-		}
+		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| tile_has_chunk(tile, chunk) && !self.forgotten.contains(grid, chunk)).collect();
 		let coverage = if owned_chunks.is_empty() {
 			return SourceCoverage::None;
-		} else if owned_chunks.len() == region.area() as usize {
+		} else if owned_chunks.len() == chunks_in(region).count() {
 			SourceCoverage::All
 		} else {
 			SourceCoverage::Some
@@ -118,19 +109,19 @@ impl ChunkSource for ProceduralPlanetSource {
 		if let Some(tile_index) = self.tile_index(grid)
 			&& let Some(tile) = planet_tiles().get(tile_index) {
 			for &chunk in &tile.present_chunks {
-				handle.presence(request_id, grid, NonZeroChunkRegion::from_single(chunk));
+				handle.presence(request_id, grid, chunk_region(chunk));
 			}
 		}
 		handle.presence_loaded(request_id);
 	}
 
-	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		let Some(tile_index) = self.tile_index(grid) else { return };
 		if planet_tiles().get(tile_index).is_none() { return; }
 		self.forgotten.remember_area(grid, region);
 	}
 
-	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroChunkRegion) {
+	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroRegion) {
 		let Some(tile_index) = self.tile_index(grid) else { return };
 		if planet_tiles().get(tile_index).is_none() { return; }
 		self.forgotten.forget_area(grid, region);
@@ -149,11 +140,6 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 	let mut grid_map = HashMap::with_capacity(planet_tiles().len());
 
 	for tile in planet_tiles() {
-		let mut streaming = GridStreaming::default();
-		for &chunk in &tile.present_chunks {
-			streaming.mark_present_area(NonZeroChunkRegion::from_single(chunk));
-		}
-
 		let rotation = Quat::from_mat3(&Mat3::from_cols(tile.axis_x, tile.axis_y, tile.normal));
 		let transform = Transform {
 			translation: tile.origin,
@@ -169,9 +155,11 @@ fn spawn_planet(mut commands: Commands, grids: Res<PlanetGridMap>) {
 				VoxelMass,
 				GridEditIdManager::default(),
 				ReplicateVoxels,
-				streaming,
 			))
 			.id();
+		if let Some(bounds) = bounds_of_chunks(tile.present_chunks.iter().copied()) {
+			commands.entity(grid_entity).insert(bounds);
+		}
 		grid_map.insert(grid_entity, tile.index);
 		commands.entity(parent).add_child(grid_entity);
 	}

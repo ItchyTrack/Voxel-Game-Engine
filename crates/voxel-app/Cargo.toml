@@ -31,7 +31,7 @@ tracing-tracy = { version = "0.11", default-features = false, features = ["enabl
 tracy-client = { workspace = true }
 lightyear = { version = "0.28.0", features = ["udp", "netcode"] }
 serde = { version = "1.0", features = ["derive"] }
-vge-math = { workspace = true }
+bile-math = { workspace = true }
 voxel-tasks = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
@@ -45,7 +45,8 @@ voxel-lightyear = { workspace = true }
 voxel-content = { workspace = true }
 voxel-gpu = { workspace = true }
 basic-voxel = { workspace = true }
-camera-voxel-loader = { workspace = true }
+bile-scene = { workspace = true }
+bile-tiles = { workspace = true }
 voxel-ray-renderer = { workspace = true }
 voxel-raster-renderer = { workspace = true }
 voxel-marching-renderer = { workspace = true }

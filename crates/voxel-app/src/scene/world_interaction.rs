@@ -7,8 +7,11 @@ use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
 use bevy_egui::input::EguiWantsInput;
 
-use vge_math::region::NonZeroVoxelRegion;
-use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileKey};
+use bile_math::NonZeroRegion;
+use bevy::ecs::component::ComponentIdFor;
+use bile_scene::NodeBounds;
+use bile_tiles::{TileInstances, TileKey};
+use tile_data::{CHUNK_SIZE, chunk_origin, chunk_region};
 use voxel_content::grid_store::GridStoreEditApi;
 use voxel_data::grid::{Grid, GridId};
 use voxel_data::voxels::{Voxel, VoxelType};
@@ -16,7 +19,6 @@ use voxel_query::{OccupancyTileClass, VoxelWorldQueryParam};
 use voxel_sources::edit::{AddArea, RemoveArea};
 use voxel_mass::{CenterOfMass, Mass};
 use voxel_physics::{FreezePhysics, Impulses, IsStatic, Velocity, VoxelPhysicsAppExt};
-use voxel_streaming::{GridStreaming, TileRequester};
 
 use crate::audio::plugin::PlaySfx;
 use basic_voxel::{BasicVoxel, MarchingVoxel};
@@ -87,17 +89,13 @@ fn edit_voxel_for_grid(grid: &Grid, voxel: BasicVoxel) -> Option<Voxel> {
 
 fn update_ray_occupancy_requests(
 	cameras: Query<(Entity, &Camera, &GlobalTransform), With<Camera3d>>,
-	class: Res<OccupancyTileClass>,
+	class: ComponentIdFor<OccupancyTileClass>,
 	mut requested: ResMut<RayOccupancyRequests>,
-	mut streaming: ParamSet<(
-		TileRequester,
-		Query<(GridId, &GlobalTransform, &GridStreaming)>,
-	)>,
+	mut grids: Query<(GridId, &GlobalTransform, &NodeBounds, &mut TileInstances)>,
 ) {
 	let mut desired = HashSet::new();
 	if let Some(ray) = player_ray(&cameras) {
-		let grids = streaming.p1();
-		for (grid, grid_global, grid_streaming) in &grids {
+		for (grid, grid_global, bounds, _) in &grids {
 			let grid_transform = grid_global.compute_transform();
 			if !grid_transform.scale.abs_diff_eq(Vec3::ONE, 1e-5) { continue; }
 
@@ -105,29 +103,25 @@ fn update_ray_occupancy_requests(
 			let local_origin = inverse_rotation * (ray.origin - grid_transform.translation);
 			let local_direction = inverse_rotation * ray.direction;
 			for_each_ray_chunk(local_origin, local_direction, RAY_OCCUPANCY_DISTANCE, |chunk| {
-				if !grid_streaming.presence().is_present(chunk) { return; }
+				if !bounds.region().contains(chunk_origin(chunk)) { return; }
 				desired.insert(RayOccupancyRequest {
 					requester: ray.requester,
 					grid,
-					key: TileKey::new(NonZeroChunkRegion::from_single(chunk), 0, class.0),
+					key: TileKey::new(chunk_region(chunk), 0),
 				});
 			});
 		}
 	}
 
-	let acquisitions: Vec<_> = desired.difference(&requested.0).copied().collect();
-	let releases: Vec<_> = requested.0.difference(&desired).copied().collect();
 	let mut retained: HashSet<_> = requested.0.intersection(&desired).copied().collect();
-	let mut requester = streaming.p0();
-
-	// Acquire first so shared tiles survive an active-camera switch.
-	for request in acquisitions {
-		if requester.fetch_tile(request.grid, request.requester, request.key, 0.0, false, None) {
-			retained.insert(request);
-		}
+	for request in desired.difference(&requested.0) {
+		let Ok((_, _, _, mut instances)) = grids.get_mut(request.grid) else { continue };
+		instances.add_class(request.key, class.get());
+		retained.insert(*request);
 	}
-	for request in releases {
-		requester.release_tile(request.grid, request.requester, request.key);
+	for request in requested.0.difference(&desired) {
+		let Ok((_, _, _, mut instances)) = grids.get_mut(request.grid) else { continue };
+		instances.remove_class(request.key, class.get());
 	}
 	requested.0 = retained;
 }
@@ -233,12 +227,12 @@ fn voxel_place_break_system(
 	if place {
 		let Some(voxel) = edit_voxel_for_grid(grid, PLACE_VOXEL) else { return };
 		let pos = hit.voxel_pos + hit.normal;
-		edits.apply(hit.grid, AddArea::new(NonZeroVoxelRegion::from_single(pos), voxel));
+		edits.apply(hit.grid, AddArea::new(NonZeroRegion::from_single(pos), voxel));
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 		}
 	} else {
-		edits.apply(hit.grid, RemoveArea::new(NonZeroVoxelRegion::from_single(hit.voxel_pos)));
+		edits.apply(hit.grid, RemoveArea::new(NonZeroRegion::from_single(hit.voxel_pos)));
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
 		}

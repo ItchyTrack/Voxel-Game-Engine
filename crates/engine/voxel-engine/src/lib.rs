@@ -1,4 +1,7 @@
+mod camera_tiles;
 mod client_rendering;
+
+pub use camera_tiles::{CameraTileLoader, CameraTileSettings, CameraTiles, FreezeCameraVoxelLoader, GridRenderClass};
 
 use bevy::app::{PluginGroup, PluginGroupBuilder};
 use voxel_data::VoxelDataPlugin;

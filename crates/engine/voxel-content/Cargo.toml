@@ -7,7 +7,7 @@ edition = "2024"
 bevy = { workspace = true }
 bytemuck = { workspace = true }
 dot_vox = "5.2.0"
-vge-math = { workspace = true }
+bile-math = { workspace = true }
 voxel-tasks = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }

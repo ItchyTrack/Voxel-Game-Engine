@@ -4,7 +4,7 @@ use lightyear::prelude::*;
 use lightyear::prelude::client::{ClientPlugins, Connect, NetcodeClient};
 use voxel_data::{body::Body, grid::Grid};
 use voxel_sources::edit::GridEditIdManager;
-use voxel_streaming::{GridStreaming, RequestChunkPresence};
+use voxel_streaming::RequestChunkPresence;
 
 use crate::networking::network_common::{CLIENT_ADDR, NetworkBody, NetworkGrid, NetworkProtocolPlugin, NetworkTransform, PRIVATE_KEY, PROTOCOL_ID, SERVER_ADDR};
 use crate::SelectedClientId;
@@ -63,7 +63,6 @@ fn init_replicated_grids(
 	for (entity, network_transform) in &grids {
 		commands.entity(entity).insert((
 			Grid::new::<BasicVoxel>(),
-			GridStreaming::default(),
 			GridEditIdManager::default(),
 			RequestChunkPresence,
 			network_transform.copied().map(Transform::from).unwrap_or_default(),
