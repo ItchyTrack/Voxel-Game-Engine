@@ -14,7 +14,6 @@ crossbeam-channel = { workspace = true }
 rustc-hash = { workspace = true }
 tracy-client = { workspace = true }
 futures = { workspace = true }
-vge-math = { workspace = true }
 bevy-trait-query = { workspace = true }
 bile-math = { workspace = true }
 bile-tiles = { workspace = true }

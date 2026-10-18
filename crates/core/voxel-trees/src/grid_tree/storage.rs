@@ -7,8 +7,8 @@ impl<G: GridType> GridTree64<G> {
 	}
 
 	#[inline]
-	pub(super) fn canonical_extent_region() -> NonZeroVoxelRegion {
-		NonZeroVoxelRegion::from_min_end(IVec3::ZERO, IVec3::splat(Self::max_extent() as i32)).unwrap()
+	pub(super) fn canonical_extent_region() -> NonZeroRegion {
+		NonZeroRegion::from_min_end(IVec3::ZERO, IVec3::splat(Self::max_extent() as i32)).unwrap()
 	}
 
 	#[inline]

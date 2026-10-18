@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use bevy::{log::warn, math::IVec3};
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::{compressed_voxels::CompressedVoxels, grid::GridId, voxels::{VoxelTypeId, Voxels}};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion};
 use voxel_sources::{RequestId, SourceHandle, edit::GridGeneration};
@@ -65,7 +65,7 @@ fn filter_accepted_chunks(
 	for &chunk in accepted_chunks {
 		if !region.contains(chunk) { continue; }
 		let local_min = (chunk - region.min()) * chunk_extent;
-		let local_region = NonZeroVoxelRegion::from_min_size(local_min, bevy::math::UVec3::splat(chunk_extent as u32)).unwrap();
+		let local_region = NonZeroRegion::new(local_min, bevy::math::UVec3::splat(chunk_extent as u32)).unwrap();
 		filtered.merge_region_from(&voxels, Some(local_region), IVec3::ZERO);
 	}
 	(!filtered.is_empty()).then_some(filtered)

@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bevy::math::{IVec3, UVec3};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin};
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::{
 	compressed_voxels::CompressedVoxels,
 	voxels::{VoxelTypeInfo, Voxels},
@@ -217,7 +217,7 @@ fn edited_chunk_voxels(
 	edit.apply_to_voxels(-chunk_origin(chunk), &mut voxels);
 
 	let mut chunk_voxels = Voxels::new_with_type(voxel_type);
-	let chunk_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, UVec3::splat(CHUNK_SIZE)).unwrap();
+	let chunk_region = NonZeroRegion::new(IVec3::ZERO, UVec3::splat(CHUNK_SIZE)).unwrap();
 	chunk_voxels.merge_region_from(&voxels, Some(chunk_region), IVec3::ZERO);
 	chunk_voxels
 }

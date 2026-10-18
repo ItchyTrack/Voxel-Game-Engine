@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use bevy::math::IVec3;
 use rustc_hash::FxHashMap;
 use tile_data::NonZeroChunkRegion;
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use voxel_trees::{
 	grid_tree::U16Cell,
 	signed_grid_tree::SignedGridTree,
@@ -49,6 +49,6 @@ impl ForgottenChunks {
 	}
 }
 
-fn chunk_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
-	NonZeroVoxelRegion::new(region.min(), region.size()).unwrap()
+fn chunk_region(region: NonZeroChunkRegion) -> NonZeroRegion {
+	NonZeroRegion::new(region.min(), region.size()).unwrap()
 }

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use tile_data::TileClassId;
 use voxel_trees::{
-	grid_tree::NonZeroVoxelRegion,
+	grid_tree::NonZeroRegion,
 	signed_grid_tree::SignedGridTree,
 	grid_tree::U16Cell,
 };
@@ -42,7 +42,7 @@ impl UnresolvedTileIndex {
 			return;
 		}
 		let grid = self.by_grid.entry((key.grid, key.tile_key.class)).or_default();
-		grid.trees[key.tile_key.lod as usize].add_area(NonZeroVoxelRegion::new(key.tile_key.region.min(), key.tile_key.region.size()).unwrap(), PRESENT);
+		grid.trees[key.tile_key.lod as usize].add_area(NonZeroRegion::new(key.tile_key.region.min(), key.tile_key.region.size()).unwrap(), PRESENT);
 		grid.lod_mask |= lod_bit(key.tile_key.lod);
 	}
 
@@ -51,7 +51,7 @@ impl UnresolvedTileIndex {
 			return false;
 		}
 		let Some(grid) = self.by_grid.get_mut(&(key.grid, key.tile_key.class)) else { return false };
-		grid.trees[key.tile_key.lod as usize].remove_area(NonZeroVoxelRegion::new(key.tile_key.region.min(), key.tile_key.region.size()).unwrap());
+		grid.trees[key.tile_key.lod as usize].remove_area(NonZeroRegion::new(key.tile_key.region.min(), key.tile_key.region.size()).unwrap());
 		if grid.trees[key.tile_key.lod as usize].is_empty() {
 			grid.lod_mask &= !lod_bit(key.tile_key.lod);
 		}
@@ -88,7 +88,7 @@ impl UnresolvedTileIndex {
 		&self,
 		grid: GridId,
 		class: TileClassId,
-		region: NonZeroVoxelRegion,
+		region: NonZeroRegion,
 		max_lod: u8,
 		skip_lod: Option<u8>,
 		mut f: impl FnMut(GridTileKey),
@@ -128,7 +128,7 @@ mod tests {
 
 	use bevy::prelude::*;
 	use tile_data::TileClassId;
-	use voxel_trees::grid_tree::NonZeroVoxelRegion;
+	use voxel_trees::grid_tree::NonZeroRegion;
 
 	use crate::types::GridTileKey;
 
@@ -162,7 +162,7 @@ mod tests {
 		index.for_each_in_region(
 			grid,
 			TileClassId(0),
-			NonZeroVoxelRegion::from_single(IVec3::ZERO),
+			NonZeroRegion::from_single(IVec3::ZERO),
 			1,
 			Some(0),
 			|key| actual.push(key),
@@ -187,7 +187,7 @@ mod tests {
 		index.for_each_in_region(
 			grid,
 			source.tile_key.class,
-			NonZeroVoxelRegion::new(source.tile_key.region.min(), source.tile_key.region.size()).unwrap(),
+			NonZeroRegion::new(source.tile_key.region.min(), source.tile_key.region.size()).unwrap(),
 			16,
 			Some(source.tile_key.lod),
 			|key| actual.push(key),

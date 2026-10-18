@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 
 use voxel_data::grid::GridId;
-use voxel_trees::{grid_tree::U32Cell, region::NonZeroVoxelRegion, signed_grid_tree::SignedGridTree};
+use bile_math::NonZeroRegion;
+use voxel_trees::{grid_tree::U32Cell, signed_grid_tree::SignedGridTree};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TrackedVoxelId(u64);
@@ -46,7 +47,7 @@ impl GridTrackedVoxels {
 		Some(&self.tracked_voxels[internal_id as usize])
 	}
 
-	// pub fn get_tracking(&self, region: NonZeroVoxelRegion) {
+	// pub fn get_tracking(&self, region: NonZeroRegion) {
 	// 	self.tracking_tree.
 	// }
 

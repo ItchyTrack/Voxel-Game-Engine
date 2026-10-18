@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use voxel_trees::grid_tree::NonZeroVoxelRegion;
+use voxel_trees::grid_tree::NonZeroRegion;
 
 use crate::{types::GridTileKey, unresolved_tile_index::UnresolvedTileIndex};
 
@@ -77,7 +77,7 @@ impl Coverage {
 		}
 
 		let mut replacements = HashSet::new();
-		if let Some(region) = NonZeroVoxelRegion::new(key.tile_key.region.min(), key.tile_key.region.size()) {
+		if let Some(region) = NonZeroRegion::new(key.tile_key.region.min(), key.tile_key.region.size()) {
 			self.pending.for_each_in_region(key.grid, key.tile_key.class, region, u8::MAX, Some(key.tile_key.lod), |candidate| {
 				replacements.insert(candidate);
 			});

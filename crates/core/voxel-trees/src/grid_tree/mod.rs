@@ -41,7 +41,7 @@ pub struct GridTree64<G: GridType> {
 
 #[derive(Debug)]
 struct AreaOp<'a, G: GridType> {
-	region: NonZeroVoxelRegion,
+	region: NonZeroRegion,
 	data: G::Data<'a>,
 }
 
@@ -124,7 +124,7 @@ mod single_build;
 mod storage;
 mod surgery;
 
-pub use vge_math::region::NonZeroVoxelRegion;
+pub use bile_math::NonZeroRegion;
 use crate::views::{GridTreeView, GridView};
 pub use reduce::{reduce_grid_trees, GridReducer, SourceOverlap, SourceOverlaps, SourceTree};
 

@@ -22,7 +22,7 @@ use voxel_streaming::{
 	TileLoadUpdate,
 	VoxelStreamingPlugin,
 };
-use voxel_trees::region::NonZeroVoxelRegion;
+use voxel_trees::region::NonZeroRegion;
 
 use crate::{
 	CameraVoxelLoader,
@@ -386,7 +386,7 @@ fn edit_in_new_chunk_makes_it_present_and_requests_tile() {
 		grid,
 		GridGeneration::default(),
 		GridEditId::default(),
-		RemoveArea::new(NonZeroVoxelRegion::from_single(IVec3::ZERO)),
+		RemoveArea::new(NonZeroRegion::from_single(IVec3::ZERO)),
 	));
 	app.update();
 	app.world_mut().run_schedule(RefreshSchedule);

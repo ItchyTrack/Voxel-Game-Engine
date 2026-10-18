@@ -1,6 +1,6 @@
 use bevy::math::{IVec3, UVec3};
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileVoxelReducer, VoxelRegionResult};
-use voxel_trees::grid_tree::{NonZeroVoxelRegion, SourceOverlaps as GridSourceOverlaps};
+use voxel_trees::grid_tree::{NonZeroRegion, SourceOverlaps as GridSourceOverlaps};
 use voxel_data::voxel_grid_tree::VoxelGridType;
 use voxel_data::voxels::{SourceOverlap, SourceTree, VoxelReducer, VoxelType, VoxelTypeId, Voxels};
 
@@ -84,7 +84,7 @@ pub fn downsample_region(region: NonZeroChunkRegion, lod: f32, fetch: impl Fn(IV
 		.map(|source| SourceInfo { scale_down: source.scale_down, output_offset: source.output_offset })
 		.collect();
 	let output_size = div_ceil_uvec3(size * CHUNK_SIZE, step as u32);
-	let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, output_size)?;
+	let output_region = NonZeroRegion::new(IVec3::ZERO, output_size)?;
 	Voxels::reduce_voxels(output_region, &sources, BasicVoxelReducer { sources: source_infos })
 }
 
@@ -92,10 +92,10 @@ fn result_sources<'a>(
 	area: NonZeroChunkRegion,
 	output_lod: u8,
 	inputs: &[&'a VoxelRegionResult],
-) -> Option<(NonZeroVoxelRegion, Vec<SourceTree<'a>>)> {
+) -> Option<(NonZeroRegion, Vec<SourceTree<'a>>)> {
 	let output_step = 1i32.checked_shl(output_lod as u32)?;
 	let output_size = div_ceil_uvec3(area.size() * CHUNK_SIZE, output_step as u32);
-	let output_region = NonZeroVoxelRegion::from_min_size(IVec3::ZERO, output_size)?;
+	let output_region = NonZeroRegion::new(IVec3::ZERO, output_size)?;
 	let sources = inputs
 		.iter()
 		.map(|input| Some(SourceTree {
@@ -158,7 +158,7 @@ impl VoxelReducer for BasicVoxelReducer {
 
 	fn reduce<'overlaps, 'a>(
 		&mut self,
-		region: NonZeroVoxelRegion,
+		region: NonZeroRegion,
 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
 	) -> Option<Self::Output> {
 		reduce_basic_voxel(region, &self.sources, overlaps.map(|overlap| SourceOverlap {
@@ -170,7 +170,7 @@ impl VoxelReducer for BasicVoxelReducer {
 	}
 }
 
-fn reduce_basic_voxel<'a>(region: NonZeroVoxelRegion, sources: &[SourceInfo], overlaps: impl Iterator<Item = SourceOverlap<'a>>) -> Option<LodVoxel> {
+fn reduce_basic_voxel<'a>(region: NonZeroRegion, sources: &[SourceInfo], overlaps: impl Iterator<Item = SourceOverlap<'a>>) -> Option<LodVoxel> {
 	let mut octants = [Accum::default(); 8];
 	let mut total = Accum::default();
 	for overlap in overlaps {
@@ -214,7 +214,7 @@ impl VoxelReducer for MarchingVoxelReducer {
 
 	fn reduce<'overlaps, 'a>(
 		&mut self,
-		_region: NonZeroVoxelRegion,
+		_region: NonZeroRegion,
 		overlaps: GridSourceOverlaps<'overlaps, 'a, VoxelGridType>,
 	) -> Option<Self::Output> {
 		let mut color = [0u64; 4];
@@ -243,7 +243,7 @@ impl VoxelReducer for MarchingVoxelReducer {
 	}
 }
 
-fn octant_for_region(output_region: NonZeroVoxelRegion, source: SourceInfo, source_region: NonZeroVoxelRegion) -> usize {
+fn octant_for_region(output_region: NonZeroRegion, source: SourceInfo, source_region: NonZeroRegion) -> usize {
 	let center = [
 		(source_region.min().x + source_region.end().x) as f32 * 0.5,
 		(source_region.min().y + source_region.end().y) as f32 * 0.5,
@@ -252,7 +252,7 @@ fn octant_for_region(output_region: NonZeroVoxelRegion, source: SourceInfo, sour
 	octant_for_source_point(output_region, source, center)
 }
 
-fn octant_for_child_region(output_region: NonZeroVoxelRegion, source: SourceInfo, source_region: NonZeroVoxelRegion, child: usize) -> usize {
+fn octant_for_child_region(output_region: NonZeroRegion, source: SourceInfo, source_region: NonZeroRegion, child: usize) -> usize {
 	let size = source_region.size();
 	let center = [
 		source_region.min().x as f32 + size.x as f32 * if (child & 1) != 0 { 0.75 } else { 0.25 },
@@ -262,7 +262,7 @@ fn octant_for_child_region(output_region: NonZeroVoxelRegion, source: SourceInfo
 	octant_for_source_point(output_region, source, center)
 }
 
-fn octant_for_source_point(output_region: NonZeroVoxelRegion, source: SourceInfo, source_point: [f32; 3]) -> usize {
+fn octant_for_source_point(output_region: NonZeroRegion, source: SourceInfo, source_point: [f32; 3]) -> usize {
 	let step = 1i32 << source.scale_down as u32;
 	let preimage_min = (output_region.min() - source.output_offset) * step;
 	let preimage_size = output_region.size() * step as u32;
@@ -276,7 +276,7 @@ fn octant_for_source_point(output_region: NonZeroVoxelRegion, source: SourceInfo
 		| (((source_point[2] >= threshold[2]) as usize) << 2)
 }
 
-fn region_volume(region: NonZeroVoxelRegion) -> u64 {
+fn region_volume(region: NonZeroRegion) -> u64 {
 	let size = region.size();
 	size.x as u64 * size.y as u64 * size.z as u64
 }

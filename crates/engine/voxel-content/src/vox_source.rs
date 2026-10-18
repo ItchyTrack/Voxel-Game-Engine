@@ -13,7 +13,7 @@ use voxel_mass::{
 	MassError, MassProperties, SourceMass, SourceMassUpdate, VoxelMassReaders,
 	mass_properties_of_voxels,
 };
-use voxel_trees::grid_tree::NonZeroVoxelRegion;
+use voxel_trees::grid_tree::NonZeroRegion;
 use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
 use tile_data::{ChunkRegion, NonZeroChunkRegion, chunk_of, chunk_origin};
 use tile_data::CHUNK_SIZE;
@@ -227,7 +227,7 @@ impl<T: VoxMaterialVoxel> VoxFileSourceInner<T> {
 					let Some(source_voxels) = self.source_chunk(&binding.path, source_chunk) else { continue };
 					out.merge_region_from(
 						&source_voxels,
-						NonZeroVoxelRegion::from_min_size(local_min, local_size.as_uvec3()),
+						NonZeroRegion::new(local_min, local_size.as_uvec3()),
 						source_chunk_origin + binding.offset - grid_chunk_origin,
 					);
 				}

@@ -2,7 +2,7 @@ use bevy::math::IVec3;
 use bevy::transform::components::Transform;
 
 use tile_data::NonZeroChunkRegion;
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use voxel_trees::signed_grid_tree::SignedGridTree;
 use voxel_trees::grid_tree::U16Cell;
 
@@ -28,7 +28,7 @@ impl ChunkPresence {
 	}
 
 	pub fn mark_present_area(&mut self, region: NonZeroChunkRegion) {
-		self.tree.add_area(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), 0u16);
+		self.tree.add_area(NonZeroRegion::new(region.min(), region.size()).unwrap(), 0u16);
 	}
 
 	pub fn clear_present(&mut self, chunk: IVec3) {
@@ -36,7 +36,7 @@ impl ChunkPresence {
 	}
 
 	pub fn clear_present_area(&mut self, region: NonZeroChunkRegion) {
-		self.tree.remove_area(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap());
+		self.tree.remove_area(NonZeroRegion::new(region.min(), region.size()).unwrap());
 	}
 
 	pub fn is_present(&self, chunk: IVec3) -> bool {
@@ -44,15 +44,15 @@ impl ChunkPresence {
 	}
 
 	pub fn any_present_in_region(&self, region: NonZeroChunkRegion) -> bool {
-		self.tree.any_in_region(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap())
+		self.tree.any_in_region(NonZeroRegion::new(region.min(), region.size()).unwrap())
 	}
 
 	pub fn all_present_in_region(&self, region: NonZeroChunkRegion) -> bool {
-		self.tree.is_area_filled(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap())
+		self.tree.is_area_filled(NonZeroRegion::new(region.min(), region.size()).unwrap())
 	}
 
 	pub fn for_each_occupied_tile_cover(&self, region: NonZeroChunkRegion, tile_size: u32, f: impl FnMut(IVec3)) {
-		self.tree.for_each_occupied_tile_cover(NonZeroVoxelRegion::new(region.min(), region.size()).unwrap(), tile_size, f);
+		self.tree.for_each_occupied_tile_cover(NonZeroRegion::new(region.min(), region.size()).unwrap(), tile_size, f);
 	}
 
 	/// `transform` rotation maps +Z onto the ray direction (matches the voxel tree).
@@ -68,7 +68,7 @@ impl ChunkPresence {
 	/// descending only into subtrees that overlap it. Used for collision
 	/// broad-phase so cost scales with the region, not the whole footprint.
 	pub fn for_each_in_region(&self, min: IVec3, max: IVec3, mut f: impl FnMut(IVec3)) {
-		let Some(region) = NonZeroVoxelRegion::from_min_max(min, max) else { return };
+		let Some(region) = NonZeroRegion::from_min_max(min, max) else { return };
 		self.tree.for_each_leaf_in_region(region, |origin, size, _| {
 			let lo = origin.max(min);
 			let hi = (origin + IVec3::splat(size as i32) - IVec3::ONE).min(max);
@@ -84,7 +84,7 @@ impl ChunkPresence {
 
 	/// Visit every occupied presence node or leaf whose box intersects the inclusive chunk region `[min, max]`.
 	pub fn for_each_node_in_region(&self, min: IVec3, max: IVec3, f: impl FnMut(IVec3, u32, bool)) {
-		let Some(region) = NonZeroVoxelRegion::from_min_max(min, max) else { return };
+		let Some(region) = NonZeroRegion::from_min_max(min, max) else { return };
 		self.tree.for_each_node_in_region(region, f);
 	}
 }

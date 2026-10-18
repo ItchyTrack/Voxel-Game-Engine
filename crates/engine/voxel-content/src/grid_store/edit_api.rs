@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bevy::{ecs::system::SystemParam, math::IVec3, prelude::*};
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, chunk_origin, chunks_covering_nonzero_voxel_region};
 use voxel_data::grid::{Grid, GridId};
 use voxel_mass::{
@@ -106,6 +106,6 @@ impl<'w, 's> GridStoreEditApi<'w, 's> {
 	}
 }
 
-fn chunk_voxel_region(chunk: IVec3) -> NonZeroVoxelRegion {
-	NonZeroVoxelRegion::from_min_size(chunk_origin(chunk), UVec3::splat(CHUNK_SIZE)).unwrap()
+fn chunk_voxel_region(chunk: IVec3) -> NonZeroRegion {
+	NonZeroRegion::new(chunk_origin(chunk), UVec3::splat(CHUNK_SIZE)).unwrap()
 }

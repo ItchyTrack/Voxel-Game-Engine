@@ -3,7 +3,7 @@ use std::{any::TypeId, sync::Arc};
 use bevy::prelude::{App, Resource};
 use rustc_hash::FxHashMap;
 use voxel_sources::edit::GridEdit;
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 
 use crate::{MassError, MassProperties, VoxelMassReaders};
 
@@ -27,7 +27,7 @@ pub fn edit_reservation_error(
 	current: MassProperties,
 	current_error: MassError,
 	new_mass: MassRange,
-	region: NonZeroVoxelRegion,
+	region: NonZeroRegion,
 ) -> MassError {
 	let old_mass_max = current.mass.0.checked_add(current_error.mass_plus()).expect("mass bound overflow");
 	let mass_delta_min = i128::from(new_mass.min()) - i128::from(old_mass_max);
@@ -73,7 +73,7 @@ fn positive_magnitude(value: i128) -> u64 {
 }
 
 type GridEditMassReader =
-	Arc<dyn Fn(&dyn GridEdit, NonZeroVoxelRegion, &VoxelMassReaders) -> MassRange + Send + Sync>;
+	Arc<dyn Fn(&dyn GridEdit, NonZeroRegion, &VoxelMassReaders) -> MassRange + Send + Sync>;
 
 /// Type-erased bounds for the mass left in an edit's affected region.
 #[derive(Resource, Default, Clone)]
@@ -85,7 +85,7 @@ impl GridEditMassReaders {
 	pub fn register<T, F>(&mut self, reader: F)
 	where
 		T: GridEdit,
-		F: Fn(&T, NonZeroVoxelRegion, &VoxelMassReaders) -> MassRange + Send + Sync + 'static,
+		F: Fn(&T, NonZeroRegion, &VoxelMassReaders) -> MassRange + Send + Sync + 'static,
 	{
 		self.readers.insert(TypeId::of::<T>(), Arc::new(move |edit, region, mass_readers| {
 			reader(
@@ -100,7 +100,7 @@ impl GridEditMassReaders {
 	pub fn read(
 		&self,
 		edit: &dyn GridEdit,
-		region: NonZeroVoxelRegion,
+		region: NonZeroRegion,
 		mass_readers: &VoxelMassReaders,
 	) -> Option<MassRange> {
 		self.readers.get(&edit.as_any().type_id()).map(|reader| reader(edit, region, mass_readers))
@@ -109,7 +109,7 @@ impl GridEditMassReaders {
 	pub fn read_typed<T: GridEdit>(
 		&self,
 		edit: &T,
-		region: NonZeroVoxelRegion,
+		region: NonZeroRegion,
 		mass_readers: &VoxelMassReaders,
 	) -> Option<MassRange> {
 		self.read(edit, region, mass_readers)
@@ -120,14 +120,14 @@ pub trait GridEditMassAppExt {
 	fn register_grid_edit_mass<T, F>(&mut self, reader: F) -> &mut Self
 	where
 		T: GridEdit,
-		F: Fn(&T, NonZeroVoxelRegion, &VoxelMassReaders) -> MassRange + Send + Sync + 'static;
+		F: Fn(&T, NonZeroRegion, &VoxelMassReaders) -> MassRange + Send + Sync + 'static;
 }
 
 impl GridEditMassAppExt for App {
 	fn register_grid_edit_mass<T, F>(&mut self, reader: F) -> &mut Self
 	where
 		T: GridEdit,
-		F: Fn(&T, NonZeroVoxelRegion, &VoxelMassReaders) -> MassRange + Send + Sync + 'static,
+		F: Fn(&T, NonZeroRegion, &VoxelMassReaders) -> MassRange + Send + Sync + 'static,
 	{
 		self.init_resource::<GridEditMassReaders>();
 		self.world_mut().resource_mut::<GridEditMassReaders>().register::<T, F>(reader);

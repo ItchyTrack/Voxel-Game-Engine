@@ -3,22 +3,22 @@ use bevy::math::UVec3;
 use super::*;
 
 impl<G: GridType> GridTree64<G> {
-	pub fn fill_region(&mut self, region: NonZeroVoxelRegion, data: G::Data<'_>) {
+	pub fn fill_region(&mut self, region: NonZeroRegion, data: G::Data<'_>) {
 		self.add_regions(&[(region, data)]);
 	}
 
 	pub fn add_area(&mut self, pos: &UVec3, size: UVec3, data: G::Data<'_>) {
-		let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), size) else { return };
+		let Some(region) = NonZeroRegion::new(pos.as_ivec3(), size) else { return };
 		self.fill_region(region, data);
 	}
 
-	pub fn add_regions<'a>(&mut self, regions: &[(NonZeroVoxelRegion, G::Data<'a>)]) {
+	pub fn add_regions<'a>(&mut self, regions: &[(NonZeroRegion, G::Data<'a>)]) {
 		let mut ops = Vec::with_capacity(regions.len());
-		let mut bounds: Option<NonZeroVoxelRegion> = None;
+		let mut bounds: Option<NonZeroRegion> = None;
 		for (region, data) in regions {
 			ops.push(AreaOp { region: *region, data: *data });
 			bounds = Some(match bounds {
-				Some(bounds) => NonZeroVoxelRegion::from_min_end(bounds.min().min(region.min()), bounds.end().max(region.end())).unwrap(),
+				Some(bounds) => NonZeroRegion::from_min_end(bounds.min().min(region.min()), bounds.end().max(region.end())).unwrap(),
 				None => *region,
 			});
 		}
@@ -53,13 +53,13 @@ impl<G: GridType> GridTree64<G> {
 	pub fn add_areas<'a>(&mut self, areas: &[(UVec3, UVec3, G::Data<'a>)]) {
 		let mut regions = Vec::with_capacity(areas.len());
 		for (pos, size, data) in areas {
-			let Some(region) = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), *size) else { continue };
+			let Some(region) = NonZeroRegion::new(pos.as_ivec3(), *size) else { continue };
 			regions.push((region, *data));
 		}
 		self.add_regions(&regions);
 	}
 
-	pub(super) fn apply_area_ops<'a>(&mut self, ops: &[AreaOp<'a, G>], bounds: NonZeroVoxelRegion) {
+	pub(super) fn apply_area_ops<'a>(&mut self, ops: &[AreaOp<'a, G>], bounds: NonZeroRegion) {
 		if ops.is_empty() {
 			return;
 		}

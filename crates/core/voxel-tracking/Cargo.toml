@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bevy = { workspace = true }
+bile-math = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 

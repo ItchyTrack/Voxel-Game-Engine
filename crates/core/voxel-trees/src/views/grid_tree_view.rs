@@ -1,7 +1,7 @@
 use bevy::math::{UVec3, I8Vec3, U8Vec3};
 use bevy::prelude::*;
 use std::fmt::Debug;
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use super::GridView;
 use std::collections::HashSet;
 
@@ -115,7 +115,7 @@ pub trait GridTreeView: Sized + Debug {
 
 	fn occupied_children(&self, node: NodeRef<Self::NodeHandle>) -> ChildCells<'_, Self> { ChildCells::new(self, node, true) }
 
-	fn occupied_children_in_region(&self, node: NodeRef<Self::NodeHandle>, region: NonZeroVoxelRegion) -> ChildCellsInRegion<'_, Self> {
+	fn occupied_children_in_region(&self, node: NodeRef<Self::NodeHandle>, region: NonZeroRegion) -> ChildCellsInRegion<'_, Self> {
 		ChildCellsInRegion::new(self, node, region)
 	}
 
@@ -133,7 +133,7 @@ pub trait GridTreeView: Sized + Debug {
 		node_region_recurse(self, self.root(), min, max, &mut |o, s, is_leaf| f(o, s, is_leaf));
 	}
 
-	fn for_each_leaf_in_region<'tree, F>(&'tree self, region: NonZeroVoxelRegion, mut f: F)
+	fn for_each_leaf_in_region<'tree, F>(&'tree self, region: NonZeroRegion, mut f: F)
 	where
 		F: FnMut(UVec3, u32, Self::Data<'tree>),
 	{
@@ -332,7 +332,7 @@ impl<'tree, View: GridTreeView> Iterator for ChildCells<'tree, View> {
 pub struct ChildCellsInRegion<'tree, View: GridTreeView> {
 	view: &'tree View,
 	node: NodeRef<View::NodeHandle>,
-	region: NonZeroVoxelRegion,
+	region: NonZeroRegion,
 	remaining_mask: u64,
 }
 
@@ -342,9 +342,9 @@ impl<'tree, View: GridTreeView> Clone for ChildCellsInRegion<'tree, View> {
 }
 
 impl<'tree, View: GridTreeView> ChildCellsInRegion<'tree, View> {
-	fn new(view: &'tree View, node: NodeRef<View::NodeHandle>, region: NonZeroVoxelRegion) -> Self {
+	fn new(view: &'tree View, node: NodeRef<View::NodeHandle>, region: NonZeroRegion) -> Self {
 		assert!(region.min().is_negative_bitmask() == 0);
-		let node_region = NonZeroVoxelRegion::from_min_size(node.origin.as_ivec3(), UVec3::splat(View::size(node.depth))).unwrap();
+		let node_region = NonZeroRegion::new(node.origin.as_ivec3(), UVec3::splat(View::size(node.depth))).unwrap();
 		let Some(overlap) = node_region.intersection(region) else {
 			return Self { view, node, region, remaining_mask: 0 };
 		};
@@ -369,17 +369,17 @@ impl<'tree, View: GridTreeView> ChildCellsInRegion<'tree, View> {
 		}
 	}
 
-	fn resolve(&self, child_index: u8) -> Option<(Cell<View>, NonZeroVoxelRegion)> {
+	fn resolve(&self, child_index: u8) -> Option<(Cell<View>, NonZeroRegion)> {
 		let child = self.view.child(self.node, child_index);
 		if child.kind == CellKind::Empty { return None; }
-		let child_region = NonZeroVoxelRegion::from_min_size(child.origin.as_ivec3(), UVec3::splat(child.size())).unwrap();
+		let child_region = NonZeroRegion::new(child.origin.as_ivec3(), UVec3::splat(child.size())).unwrap();
 		let clipped = child_region.intersection(self.region).expect("masked child intersects region");
 		Some((child, clipped))
 	}
 }
 
 impl<'tree, View: GridTreeView> Iterator for ChildCellsInRegion<'tree, View> {
-	type Item = (Cell<View>, NonZeroVoxelRegion);
+	type Item = (Cell<View>, NonZeroRegion);
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
@@ -486,20 +486,20 @@ impl<View: GridTreeView> GridView for View {
 		}
 	}
 
-	fn bounds(&self) -> Option<NonZeroVoxelRegion> {
+	fn bounds(&self) -> Option<NonZeroRegion> {
 		if self.is_empty() {
 			return None;
 		}
 		let root = self.root();
-		NonZeroVoxelRegion::from_min_size(root.origin.as_ivec3(), UVec3::splat(Self::size(root.depth)))
+		NonZeroRegion::new(root.origin.as_ivec3(), UVec3::splat(Self::size(root.depth)))
 	}
 
-	fn for_each_in_region<'tree, F>(&'tree self, region: NonZeroVoxelRegion, mut f: F)
+	fn for_each_in_region<'tree, F>(&'tree self, region: NonZeroRegion, mut f: F)
 	where
 		F: FnMut(UVec3, Self::Data<'tree>),
 	{
 		self.for_each_leaf_in_region(region, &mut |pos: UVec3, size: u32, data| {
-			let leaf_region = NonZeroVoxelRegion::from_min_size(pos.as_ivec3(), UVec3::splat(size)).unwrap();
+			let leaf_region = NonZeroRegion::new(pos.as_ivec3(), UVec3::splat(size)).unwrap();
 			let overlap = leaf_region.intersection(region).expect("visited leaf intersects region");
 			for x in overlap.min().x..overlap.end().x {
 				for y in overlap.min().y..overlap.end().y {
@@ -511,11 +511,11 @@ impl<View: GridTreeView> GridView for View {
 		});
 	}
 
-	fn any_in_region(&self, region: NonZeroVoxelRegion) -> bool {
+	fn any_in_region(&self, region: NonZeroRegion) -> bool {
 		region_any_recurse(self, self.root(), region.min().as_uvec3(), region.max().as_uvec3())
 	}
 
-	fn is_region_filled(&self, region: NonZeroVoxelRegion) -> bool {
+	fn is_region_filled(&self, region: NonZeroRegion) -> bool {
 		if region.size().cmple(UVec3::ZERO).any() {
 			return true;
 		}

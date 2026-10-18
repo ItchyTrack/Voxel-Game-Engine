@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::transform::components::{GlobalTransform, Transform};
 use bevy_egui::input::EguiWantsInput;
 
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use tile_data::{CHUNK_SIZE, NonZeroChunkRegion, TileKey};
 use voxel_content::grid_store::GridStoreEditApi;
 use voxel_data::grid::{Grid, GridId};
@@ -233,12 +233,12 @@ fn voxel_place_break_system(
 	if place {
 		let Some(voxel) = edit_voxel_for_grid(grid, PLACE_VOXEL) else { return };
 		let pos = hit.voxel_pos + hit.normal;
-		edits.apply(hit.grid, AddArea::new(NonZeroVoxelRegion::from_single(pos), voxel));
+		edits.apply(hit.grid, AddArea::new(NonZeroRegion::from_single(pos), voxel));
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_place(grid_global_transform.transform_point(pos.as_vec3() + Vec3::splat(0.5))));
 		}
 	} else {
-		edits.apply(hit.grid, RemoveArea::new(NonZeroVoxelRegion::from_single(hit.voxel_pos)));
+		edits.apply(hit.grid, RemoveArea::new(NonZeroRegion::from_single(hit.voxel_pos)));
 		if let Some(sfx) = &mut sfx {
 			sfx.write(PlaySfx::block_break(grid_global_transform.transform_point(hit.voxel_pos.as_vec3() + Vec3::splat(0.5))));
 		}

@@ -2,12 +2,12 @@ use std::{any::Any, sync::Arc};
 
 use bevy::{ecs::{component::Component, message::Message}, math::IVec3};
 use serde::{Deserialize, Serialize};
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use voxel_data::{grid::GridId, voxels::{Voxel, Voxels}};
 
 #[typetag::serde(tag = "type")]
 pub trait GridEdit: std::fmt::Debug + Send + Sync + GridEditToAny {
-	fn affected_region(&self) -> NonZeroVoxelRegion;
+	fn affected_region(&self) -> NonZeroRegion;
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels);
 	fn apply_to_tracking(&self) {} // todo once voxel tracking is added
 }
@@ -22,32 +22,32 @@ impl<T: 'static> GridEditToAny for T {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddArea {
-	region: NonZeroVoxelRegion,
+	region: NonZeroRegion,
 	voxel: Voxel,
 }
 
 impl AddArea {
-	pub fn new(region: NonZeroVoxelRegion, voxel: Voxel) -> Self { Self { region, voxel } }
+	pub fn new(region: NonZeroRegion, voxel: Voxel) -> Self { Self { region, voxel } }
 
 	pub fn voxel(&self) -> &Voxel { &self.voxel }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RemoveArea {
-	region: NonZeroVoxelRegion,
+	region: NonZeroRegion,
 }
 
 impl RemoveArea {
-	pub fn new(region: NonZeroVoxelRegion) -> Self { Self { region } }
+	pub fn new(region: NonZeroRegion) -> Self { Self { region } }
 }
 
 #[typetag::serde]
 impl GridEdit for AddArea {
-	fn affected_region(&self) -> NonZeroVoxelRegion { self.region }
+	fn affected_region(&self) -> NonZeroRegion { self.region }
 
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels) {
 		let Some(region) =
-			NonZeroVoxelRegion::from_min_end((self.region.min() + voxels_position).max(IVec3::ZERO), self.region.end() + voxels_position)
+			NonZeroRegion::from_min_end((self.region.min() + voxels_position).max(IVec3::ZERO), self.region.end() + voxels_position)
 		else {
 			return;
 		};
@@ -57,11 +57,11 @@ impl GridEdit for AddArea {
 
 #[typetag::serde]
 impl GridEdit for RemoveArea {
-	fn affected_region(&self) -> NonZeroVoxelRegion { self.region }
+	fn affected_region(&self) -> NonZeroRegion { self.region }
 
 	fn apply_to_voxels(&self, voxels_position: IVec3, voxels: &mut Voxels) {
 		let Some(region) =
-			NonZeroVoxelRegion::from_min_end((self.region.min() + voxels_position).max(IVec3::ZERO), self.region.end() + voxels_position)
+			NonZeroRegion::from_min_end((self.region.min() + voxels_position).max(IVec3::ZERO), self.region.end() + voxels_position)
 		else {
 			return;
 		};

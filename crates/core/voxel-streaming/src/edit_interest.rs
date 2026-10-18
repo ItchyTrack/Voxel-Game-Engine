@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use vge_math::region::NonZeroVoxelRegion;
+use bile_math::NonZeroRegion;
 use tile_data::NonZeroChunkRegion;
 use voxel_trees::{
 	signed_grid_tree::SignedGridTree,
@@ -19,7 +19,7 @@ impl ChunkEditInterest {
 		let region = tree_region(region);
 		let mut overlaps = Vec::new();
 		self.counts.for_each_leaf_in_region(region, |origin, size, count| {
-			let occupied = NonZeroVoxelRegion::from_min_size(origin, bevy::math::UVec3::splat(size)).unwrap();
+			let occupied = NonZeroRegion::new(origin, bevy::math::UVec3::splat(size)).unwrap();
 			let overlap = occupied.intersection(region).expect("visited edit-interest cell did not overlap query");
 			overlaps.push((overlap, count.checked_add(1).expect("chunk edit-interest count overflow")));
 		});
@@ -37,7 +37,7 @@ impl ChunkEditInterest {
 		let mut remaining = Vec::new();
 		self.counts.for_each_leaf_in_region(region, |origin, size, count| {
 			if count == 1 { return; }
-			let occupied = NonZeroVoxelRegion::from_min_size(origin, bevy::math::UVec3::splat(size)).unwrap();
+			let occupied = NonZeroRegion::new(origin, bevy::math::UVec3::splat(size)).unwrap();
 			let overlap = occupied.intersection(region).expect("visited edit-interest cell did not overlap query");
 			remaining.push((overlap, count - 1));
 		});
@@ -54,8 +54,8 @@ impl ChunkEditInterest {
 	}
 }
 
-fn tree_region(region: NonZeroChunkRegion) -> NonZeroVoxelRegion {
-	NonZeroVoxelRegion::new(region.min(), region.size()).unwrap()
+fn tree_region(region: NonZeroChunkRegion) -> NonZeroRegion {
+	NonZeroRegion::new(region.min(), region.size()).unwrap()
 }
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,7 +84,7 @@ mod tests {
 	use super::*;
 
 	fn region(min: IVec3, size: UVec3) -> NonZeroChunkRegion {
-		NonZeroChunkRegion::from_min_size(min, size).unwrap()
+		NonZeroChunkRegion::new(min, size).unwrap()
 	}
 
 	#[test]

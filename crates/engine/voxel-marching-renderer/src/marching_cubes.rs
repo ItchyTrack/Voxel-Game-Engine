@@ -1,7 +1,7 @@
 use basic_voxel::MarchingVoxel;
 use bevy::math::{IVec3, Vec3};
 use rustc_hash::FxHashMap;
-use voxel_trees::grid_tree::NonZeroVoxelRegion;
+use voxel_trees::grid_tree::NonZeroRegion;
 use voxel_trees::views::GridTreeView;
 use voxel_data::voxels::{VoxelType, Voxels};
 
@@ -77,7 +77,7 @@ pub fn make_marching_cubes_mesh_in_region(
 		return (Vec::new(), 0, Vec3::ZERO, Vec3::ZERO);
 	}
 	let cell_end = cell_min + cell_size;
-	let cell_region = NonZeroVoxelRegion::from_min_end(cell_min, cell_end).unwrap();
+	let cell_region = NonZeroRegion::from_min_end(cell_min, cell_end).unwrap();
 	let mut cells: Vec<_> = stage_cells(voxels, cell_region).into_iter().collect();
 	cells.sort_unstable_by_key(|(origin, _)| (origin.z, origin.y, origin.x));
 	let mut triangles = Vec::new();
@@ -95,11 +95,11 @@ pub fn make_marching_cubes_mesh_in_region(
 	)
 }
 
-fn stage_cells(voxels: &Voxels, cell_region: NonZeroVoxelRegion) -> FxHashMap<IVec3, CellSamples> {
+fn stage_cells(voxels: &Voxels, cell_region: NonZeroRegion) -> FxHashMap<IVec3, CellSamples> {
 	let sample_min = cell_region.min().max(IVec3::ZERO);
 	let sample_end = (cell_region.end() + IVec3::ONE).min(IVec3::splat(u16::MAX as i32 + 1));
 	let mut cells = FxHashMap::default();
-	if let Some(sample_region) = NonZeroVoxelRegion::from_min_end(sample_min, sample_end) {
+	if let Some(sample_region) = NonZeroRegion::from_min_end(sample_min, sample_end) {
 		voxels.grid_tree().for_each_leaf_in_region(sample_region, |origin, size, voxel| {
 			let leaf_min = origin.as_ivec3();
 			let leaf_end = leaf_min + IVec3::splat(size as i32);
@@ -117,7 +117,7 @@ fn stage_cells(voxels: &Voxels, cell_region: NonZeroVoxelRegion) -> FxHashMap<IV
 
 fn stage_leaf_boundary(
 	cells: &mut FxHashMap<IVec3, CellSamples>,
-	cell_region: NonZeroVoxelRegion,
+	cell_region: NonZeroRegion,
 	leaf_min: IVec3,
 	leaf_end: IVec3,
 	value: MarchingVoxel,
@@ -319,7 +319,7 @@ mod tests {
 		voxels.add_voxel(UVec3::new(0, 0, 0), blue.get_ref());
 		voxels.add_voxel(UVec3::new(12, 11, 10), blue.get_ref());
 
-		let region = NonZeroVoxelRegion::from_min_end(IVec3::splat(-1), IVec3::splat(15)).unwrap();
+		let region = NonZeroRegion::from_min_end(IVec3::splat(-1), IVec3::splat(15)).unwrap();
 		let staged = stage_cells(&voxels, region);
 		for z in region.min().z..region.end().z {
 			for y in region.min().y..region.end().y {
