@@ -12,7 +12,7 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
 |---|---|---|
 | ~~`3fe5a96`~~ | reuse the ray BVH and its GPU buffers while the tile set is unchanged (removed in `04a6ad5`: only helps static scenes) | extract -20%, default fps +8..15% |
 | `858a2fe` | cache tile placements, drop redundant sort, Fx hashing | extract -22..30%, default fps +4..12% |
-| next | ray pass workgroup 8x4 -> 8x8 | ray pass -11..-21% (default), -12..-18% (full) |
+| `0188a6c` | ray pass workgroup 8x4 -> 8x8 | ray pass -11..-21% (default), -12..-18% (full) |
 | `ca9b7a0` | async compute (streaming) pool 60% -> 25% of cores | tour fps +69%, 1% low 1.6 -> 7.3 fps, main 32 -> 22 ms; static warm-up +25% |
 | `f2b4ebe` | incremental render-side tile table; work follows changes, not tile count | extract -21..-46% (swarm 7.7 -> 4.7 ms), fps +11..21% |
 
@@ -55,6 +55,22 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
   shades once when all four corner rays hit the same unoccluded face with the same key. Both made
   the color pass 15-55% slower (fps -3..-15% at full settings), so color lookups aren't the
   bottleneck. The extra code probably costs occupancy in an already register-heavy shader.
+
+- **Skip shadow rays on faces pointing away from the sun** (`benchmarks/experiments/skip-backfacing-shadow-rays.patch`):
+  shading multiplies light by max(n.l, 0), so those rays can't change the color. Ray pass -14% in
+  sponza and -8% in planet_orbit, noise elsewhere: those rays stop inside their own voxel and were
+  cheap. AA edges changed on <0.1% of pixels. Not committed.
+
+- **No residency copies** (bind only the main tile buffers; they are already capped at the
+  storage-binding limit): extract -9..-33%, but the GPU loses the compact copy's locality (sponza
+  full ray pass +12%, church default +11%), so fps is -7..+8%. The copy earns its keep on the GPU.
+
+- **Residency packed in Morton order of tile position** (instead of entity order): -8..+5% ray
+  pass, no consistent sign. Memory layout of resident tiles isn't the lever.
+
+- **One DDA instantiation with a runtime-selected buffer** (`benchmarks/experiments/single-dda-instantiation.patch`):
+  halves the traversal code in the ray shaders. Renders correctly; the A/B was stopped before
+  it finished, so it is unmeasured.
 
 ## Parked for approval (would change the image)
 
