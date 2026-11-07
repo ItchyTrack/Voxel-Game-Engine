@@ -30,7 +30,7 @@ struct RenderSettings {
 ConstantBuffer<RenderSettings> render_settings : register(b1, space0);
 
 [shader("compute")]
-[numthreads(8, 4, 1)]
+[numthreads(8, 8, 1)]
 void main(uint3 global_invocation_id : SV_DispatchThreadID) {
 	uint texture_width;
 	uint texture_height;

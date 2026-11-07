@@ -383,7 +383,7 @@ impl VoxelRenderer {
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
 			compute_pass.set_bind_group(3, &*ray_bind_group, &[]);
 			compute_pass.set_pipeline(&self.ray_marching_pipeline);
-			compute_pass.dispatch_workgroups(self.intermediate_textured.width().div_ceil(8), self.intermediate_textured.height().div_ceil(4), 1);
+			compute_pass.dispatch_workgroups(self.intermediate_textured.width().div_ceil(8), self.intermediate_textured.height().div_ceil(8), 1);
 		}
 		let voxels_bind_group = WgpuWrapper::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
 			layout: &self.voxel_bind_group_layout,
