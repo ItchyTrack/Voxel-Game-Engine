@@ -20,14 +20,11 @@ use crate::incoming_ray_directions::IncomingRayDirections;
 use crate::gpu_bvh::{BvhDataSource, BvhItemData};
 use crate::{tile_data::RayTileData, voxel_camera::VoxelCamera};
 use bevy::render::renderer::WgpuWrapper;
-use std::sync::Arc;
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
 
 pub struct ExtractedVoxelScene {
-	pub bvh: Option<Arc<BVH<Entity>>>,
-	/// Changes whenever `bvh` is rebuilt, so the GPU copy of its nodes can be reused until then.
-	pub bvh_key: u64,
+	pub bvh: Option<BVH<Entity>>,
 	pub bvh_item_data: FxHashMap<Entity, BvhItemData>,
 	pub tree_buffer: GpuBuffer,
 	pub voxel_buffer: GpuBuffer,
@@ -39,33 +36,6 @@ pub struct ExtractedVoxelScene {
 
 #[derive(Resource, Default)]
 pub struct ExtractedVoxelScenes(pub FxHashMap<Entity, ExtractedVoxelScene>);
-
-/// Last BVH per view. Rebuilding it costs several milliseconds on the extract path, which blocks
-/// the main world, but the tile set and placements rarely change between frames.
-#[derive(Resource, Default)]
-pub struct BvhCache {
-	views: FxHashMap<Entity, CachedBvh>,
-	next_key: u64,
-}
-
-struct CachedBvh {
-	inputs: Vec<(Entity, (Vec3, Vec3))>,
-	bvh: Arc<BVH<Entity>>,
-	key: u64,
-}
-
-impl BvhCache {
-	/// `inputs` must be sorted by entity so that only content, not camera-dependent order, matters.
-	fn get_or_build(&mut self, view: Entity, inputs: Vec<(Entity, (Vec3, Vec3))>) -> (Arc<BVH<Entity>>, u64) {
-		if let Some(cached) = self.views.get(&view) && cached.inputs == inputs {
-			return (cached.bvh.clone(), cached.key);
-		}
-		self.next_key += 1;
-		let bvh = Arc::new(BVH::new(inputs.clone()));
-		self.views.insert(view, CachedBvh { inputs, bvh: bvh.clone(), key: self.next_key });
-		(bvh, self.next_key)
-	}
-}
 
 /// World placement of each tile, recomputed only when its transform or contents change.
 /// Decomposing ~10k `GlobalTransform`s every frame was a large part of extraction.
@@ -135,7 +105,6 @@ struct ResidencyCandidate<'a> {
 pub fn extract_voxel_scene(
 	mut extracted_scenes: ResMut<ExtractedVoxelScenes>,
 	mut residency: ResMut<ResidencyBuffers>,
-	mut bvh_cache: ResMut<BvhCache>,
 	mut placements: ResMut<TilePlacementCache>,
 	direction_feedback: Query<&DirectionFeedback>,
 	cameras: Extract<Query<(RenderEntity, &VoxelCamera, &Camera, &GlobalTransform)>>,
@@ -144,7 +113,7 @@ pub fn extract_voxel_scene(
 	render_stats: Res<crate::direction_feedback::RenderStats>,
 ) {
 	let start = std::time::Instant::now();
-	extract_scene(&mut extracted_scenes, &mut residency, &mut bvh_cache, &mut placements, &direction_feedback, &cameras, &tiles, &world_gpu);
+	extract_scene(&mut extracted_scenes, &mut residency, &mut placements, &direction_feedback, &cameras, &tiles, &world_gpu);
 	if render_stats.timing.enabled() {
 		render_stats.timing.push_cpu(crate::gpu_timing::RenderCpuSample {
 			tag: render_stats.timing.tag(),
@@ -157,7 +126,6 @@ pub fn extract_voxel_scene(
 fn extract_scene(
 	extracted_scenes: &mut ExtractedVoxelScenes,
 	residency: &mut ResidencyBuffers,
-	bvh_cache: &mut BvhCache,
 	placements: &mut TilePlacementCache,
 	direction_feedback: &Query<&DirectionFeedback>,
 	cameras: &Query<(RenderEntity, &VoxelCamera, &Camera, &GlobalTransform)>,
@@ -283,16 +251,8 @@ fn extract_scene(
 			allocation_leases.push((item.tree, item.voxels));
 		}
 
-		bvh_items.sort_unstable_by_key(|(entity, _)| entity.to_bits());
-		let (bvh, bvh_key) = if bvh_items.is_empty() {
-			(None, 0)
-		} else {
-			let (bvh, key) = bvh_cache.get_or_build(render_entity, bvh_items);
-			(Some(bvh), key)
-		};
 		extracted_scenes.0.insert(render_entity, ExtractedVoxelScene {
-			bvh,
-			bvh_key,
+			bvh: (!bvh_items.is_empty()).then(|| BVH::new(bvh_items)),
 			bvh_item_data,
 			tree_buffer: tree_buffer.clone(),
 			voxel_buffer: voxel_buffer.clone(),

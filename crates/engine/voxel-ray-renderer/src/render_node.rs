@@ -130,12 +130,9 @@ pub fn voxel_render_pass(
 	let timer = timer_slot.and(feedback.timer.as_ref());
 	let gpu_bvh = voxel_renderer.render(
 		&device,
-		&render_queue,
 		encoder,
 		view_bind_group,
 		prepared.view_uniform_offset,
-		&mut feedback.gpu_bvh_cache,
-		extracted.bvh_key,
 		bvh,
 		&extracted.bvh_item_data,
 		&extracted.tree_buffer,

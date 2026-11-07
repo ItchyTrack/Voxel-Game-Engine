@@ -85,7 +85,6 @@ pub struct BvhItemData {
 	pub voxel_type: VoxelTypeInfo,
 }
 
-#[derive(Clone)]
 pub struct GpuBvh {
 	pub bvh_buffer: GpuBuffer,
 	pub items_buffer: GpuBuffer,
@@ -94,42 +93,6 @@ pub struct GpuBvh {
 	pub item_direction_mask_buffer: GpuBuffer,
 	pub item_direction_mask_staging_buffer: GpuBuffer,
 	pub item_ids: Vec<Entity>,
-}
-
-/// GPU buffers of the last BVH a view rendered, reused while its [`crate::extract::BvhCache`] key
-/// stays the same. Only the item data (data sources, transforms) is rewritten when it changes.
-#[derive(Default)]
-pub struct GpuBvhCache {
-	key: u64,
-	item_bytes: Vec<u8>,
-	gpu: Option<GpuBvh>,
-}
-
-impl GpuBvhCache {
-	pub fn update(
-		&mut self,
-		device: &Device,
-		queue: &wgpu::Queue,
-		encoder: &mut wgpu::CommandEncoder,
-		key: u64,
-		bvh: &bvh::BVH<Entity>,
-		item_data_by_id: &FxHashMap<Entity, BvhItemData>,
-	) -> GpuBvh {
-		let (item_bytes, item_ids) = GpuBvh::item_bytes(bvh, item_data_by_id);
-		if let Some(gpu) = self.gpu.as_ref().filter(|_| self.key == key) {
-			if item_bytes != self.item_bytes {
-				queue.write_buffer(&gpu.items_buffer, 0, &item_bytes);
-				self.item_bytes = item_bytes;
-			}
-			encoder.clear_buffer(&gpu.item_direction_mask_buffer, 0, None);
-			return gpu.clone();
-		}
-		let gpu = GpuBvh::new(device, bvh, &item_bytes, item_ids);
-		self.key = key;
-		self.item_bytes = item_bytes;
-		self.gpu = Some(gpu.clone());
-		gpu
-	}
 }
 
 impl GpuBvh {
@@ -166,7 +129,8 @@ impl GpuBvh {
 		(item_data, item_ids)
 	}
 
-	fn new(device: &Device, bvh: &bvh::BVH<Entity>, item_data: &[u8], item_ids: Vec<Entity>) -> Self {
+	pub fn from_bvh(device: &Device, bvh: &bvh::BVH<Entity>, item_data_by_id: &FxHashMap<Entity, BvhItemData>) -> Self {
+		let (item_data, item_ids) = Self::item_bytes(bvh, item_data_by_id);
 		let (nodes, _) = bvh.internals();
 
 		let mut gpu_nodes: Vec<GpuBVHNode> = Vec::with_capacity(nodes.len() + 1);
@@ -196,15 +160,15 @@ impl GpuBvh {
 
 		let items_buffer = WgpuWrapper::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("bvh_items_buffer"),
-			contents: item_data,
-			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+			contents: &item_data,
+			usage: wgpu::BufferUsages::STORAGE,
 		}));
 
 		let direction_mask_size = (item_ids.len().max(1).div_ceil(4) * size_of::<u32>()) as u64;
 		let item_direction_mask_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("bvh_item_direction_mask_buffer"),
 			size: direction_mask_size,
-			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
 			mapped_at_creation: false,
 		}));
 		let item_direction_mask_staging_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
