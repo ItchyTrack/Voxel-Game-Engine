@@ -199,13 +199,13 @@ def wait_status(status, timeout, kill_pattern):
 	return status.read_text().strip()
 
 
-def exec_adhoc(binary, seconds, args, env):
+def exec_adhoc(binary, seconds, args, env, prefix=""):
 	out = RAW / "adhoc"
 	out.mkdir(parents=True, exist_ok=True)
 	log, status = out / "run.log", out / "exit_status"
 	status.unlink(missing_ok=True)
 	with Desktop() as desktop:
-		desktop.launch(launch_script(f"timeout {seconds} {binary}", " ".join(args), log, status, env))
+		desktop.launch(launch_script(f"timeout {seconds} {prefix} {binary}", " ".join(args), log, status, env))
 		code = wait_status(status, seconds + 30, str(binary))
 	print(f"exit status: {code}")
 	print(log.read_text()[-6000:] if log.exists() else "(no log)")
@@ -385,6 +385,7 @@ def main():
 	exec_parser.add_argument("--binary", default=str(DEFAULT_BINARY))
 	exec_parser.add_argument("--seconds", type=int, default=60)
 	exec_parser.add_argument("--env", default="")
+	exec_parser.add_argument("--prefix", default="", help="command to wrap the binary with, e.g. perf record")
 	exec_parser.add_argument("args", nargs=argparse.REMAINDER)
 	args = parser.parse_args()
 
@@ -403,7 +404,7 @@ def main():
 		images(args.label_a, args.label_b)
 	elif args.command == "exec":
 		extra = args.args[1:] if args.args[:1] == ["--"] else args.args
-		exec_adhoc(Path(args.binary).resolve(), args.seconds, extra, args.env)
+		exec_adhoc(Path(args.binary).resolve(), args.seconds, extra, args.env, args.prefix)
 
 
 if __name__ == "__main__":

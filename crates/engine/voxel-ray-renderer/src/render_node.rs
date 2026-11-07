@@ -121,6 +121,7 @@ pub fn voxel_render_pass(
 		array_layer_count: None,
 	});
 
+	let feedback = &mut *feedback;
 	let timing_enabled = render_stats.timing.enabled();
 	if timing_enabled && feedback.timer.is_none() {
 		feedback.timer = crate::gpu_timing::GpuPassTimer::new(&device, render_queue.get_timestamp_period());
@@ -129,9 +130,12 @@ pub fn voxel_render_pass(
 	let timer = timer_slot.and(feedback.timer.as_ref());
 	let gpu_bvh = voxel_renderer.render(
 		&device,
+		&render_queue,
 		encoder,
 		view_bind_group,
 		prepared.view_uniform_offset,
+		&mut feedback.gpu_bvh_cache,
+		extracted.bvh_key,
 		bvh,
 		&extracted.bvh_item_data,
 		&extracted.tree_buffer,

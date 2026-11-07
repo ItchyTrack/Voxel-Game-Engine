@@ -85,6 +85,7 @@ pub struct BvhItemData {
 	pub voxel_type: VoxelTypeInfo,
 }
 
+#[derive(Clone)]
 pub struct GpuBvh {
 	pub bvh_buffer: GpuBuffer,
 	pub items_buffer: GpuBuffer,
@@ -95,13 +96,78 @@ pub struct GpuBvh {
 	pub item_ids: Vec<Entity>,
 }
 
-impl GpuBvh {
-	pub fn from_bvh(
+/// GPU buffers of the last BVH a view rendered, reused while its [`crate::extract::BvhCache`] key
+/// stays the same. Only the item data (data sources, transforms) is rewritten when it changes.
+#[derive(Default)]
+pub struct GpuBvhCache {
+	key: u64,
+	item_bytes: Vec<u8>,
+	gpu: Option<GpuBvh>,
+}
+
+impl GpuBvhCache {
+	pub fn update(
+		&mut self,
 		device: &Device,
+		queue: &wgpu::Queue,
+		encoder: &mut wgpu::CommandEncoder,
+		key: u64,
 		bvh: &bvh::BVH<Entity>,
 		item_data_by_id: &FxHashMap<Entity, BvhItemData>,
-	) -> Self {
-		let (nodes, items) = bvh.internals();
+	) -> GpuBvh {
+		let (item_bytes, item_ids) = GpuBvh::item_bytes(bvh, item_data_by_id);
+		if let Some(gpu) = self.gpu.as_ref().filter(|_| self.key == key) {
+			if item_bytes != self.item_bytes {
+				queue.write_buffer(&gpu.items_buffer, 0, &item_bytes);
+				self.item_bytes = item_bytes;
+			}
+			encoder.clear_buffer(&gpu.item_direction_mask_buffer, 0, None);
+			return gpu.clone();
+		}
+		let gpu = GpuBvh::new(device, bvh, &item_bytes, item_ids);
+		self.key = key;
+		self.item_bytes = item_bytes;
+		self.gpu = Some(gpu.clone());
+		gpu
+	}
+}
+
+impl GpuBvh {
+	fn item_bytes(bvh: &bvh::BVH<Entity>, item_data_by_id: &FxHashMap<Entity, BvhItemData>) -> (Vec<u8>, Vec<Entity>) {
+		let (_, items) = bvh.internals();
+		let mut item_data: Vec<u8> = Vec::with_capacity(items.len().max(1) * size_of::<GpuBVHItem>());
+		let mut item_ids = Vec::with_capacity(items.len());
+		for item in items {
+			let data = item_data_by_id
+				.get(&item.0)
+				.expect("every BVH item must have transform data");
+			let scale = data.transform.scale.x.max(f32::MIN_POSITIVE);
+			let (data_source, tree_offset, voxels_offset) = match data.data_source {
+				BvhDataSource::FeedbackOnly => (0, 0, 0),
+				BvhDataSource::Residency { tree_offset, voxel_offset } => (1, tree_offset, voxel_offset),
+				BvhDataSource::MainBuffer { tree_offset, voxel_offset } => (2, tree_offset, voxel_offset),
+			};
+			item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
+				min_corner: item.1.0.to_array(),
+				aabb_size: ((item.1.1 - item.1.0) / scale).ceil().as_u8vec3().to_array(),
+				data_source,
+				item_index: tree_offset,
+				item_index_2: voxels_offset,
+				voxel_type_id: u32::from(data.voxel_type.id.0),
+				pos: data.transform.translation.to_array(),
+				quat: data.transform.rotation.to_array(),
+				scale: data.transform.scale.x,
+			}));
+			item_ids.push(item.0);
+		}
+		if item_data.is_empty() {
+			item_data.extend_from_slice(&[0; size_of::<GpuBVHItem>()]);
+		}
+		(item_data, item_ids)
+	}
+
+	fn new(device: &Device, bvh: &bvh::BVH<Entity>, item_data: &[u8], item_ids: Vec<Entity>) -> Self {
+		let (nodes, _) = bvh.internals();
 
 		let mut gpu_nodes: Vec<GpuBVHNode> = Vec::with_capacity(nodes.len() + 1);
 		if let Some(root) = nodes.first() {
@@ -128,47 +194,17 @@ impl GpuBvh {
 			usage: wgpu::BufferUsages::STORAGE,
 		}));
 
-		let mut item_data: Vec<u8> = Vec::with_capacity(items.len() * size_of::<GpuBVHItem>());
-		let mut item_ids = Vec::with_capacity(items.len());
-		for item in items {
-			let data = item_data_by_id
-				.get(&item.0)
-				.expect("every BVH item must have transform data");
-			let scale = data.transform.scale.x.max(f32::MIN_POSITIVE);
-			let (data_source, tree_offset, voxels_offset) = match data.data_source {
-				BvhDataSource::FeedbackOnly => (0, 0, 0),
-				BvhDataSource::Residency { tree_offset, voxel_offset } => (1, tree_offset, voxel_offset),
-				BvhDataSource::MainBuffer { tree_offset, voxel_offset } => (2, tree_offset, voxel_offset),
-			};
-			item_data.extend_from_slice(bytemuck::bytes_of(&GpuBVHItem {
-				min_corner: item.1.0.to_array(),
-				aabb_size: ((item.1.1 - item.1.0) / scale).ceil().as_u8vec3().to_array(),
-				data_source,
-				item_index: tree_offset,
-				item_index_2: voxels_offset,
-				voxel_type_id: u32::from(data.voxel_type.id.0),
-				pos: data.transform.translation.to_array(),
-				quat: data.transform.rotation.to_array(),
-				scale: data.transform.scale.x,
-			}));
-			item_ids.push(item.0);
-		}
-
-		if item_data.is_empty() {
-			item_data.extend_from_slice(&[0; size_of::<GpuBVHItem>()]);
-		}
-
 		let items_buffer = WgpuWrapper::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: Some("bvh_items_buffer"),
-			contents: &item_data,
-			usage: wgpu::BufferUsages::STORAGE,
+			contents: item_data,
+			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
 		}));
 
 		let direction_mask_size = (item_ids.len().max(1).div_ceil(4) * size_of::<u32>()) as u64;
 		let item_direction_mask_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("bvh_item_direction_mask_buffer"),
 			size: direction_mask_size,
-			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+			usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
 			mapped_at_creation: false,
 		}));
 		let item_direction_mask_staging_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {

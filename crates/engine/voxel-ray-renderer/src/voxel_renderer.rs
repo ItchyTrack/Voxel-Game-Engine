@@ -326,9 +326,12 @@ impl VoxelRenderer {
 	pub fn render(
 		&self,
 		device: &wgpu::Device,
+		queue: &wgpu::Queue,
 		encoder: &mut wgpu::CommandEncoder,
 		view_bind_group: &GpuBindGroup,
 		view_uniform_offset: u32,
+		bvh_cache: &mut crate::gpu_bvh::GpuBvhCache,
+		bvh_key: u64,
 		bvh: &bvh::BVH<Entity>,
 		bvh_item_data: &FxHashMap<Entity, crate::gpu_bvh::BvhItemData>,
 		tree_buffer: &GpuBuffer,
@@ -339,7 +342,7 @@ impl VoxelRenderer {
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
 		timer: Option<&crate::gpu_timing::GpuPassTimer>,
 	) -> GpuBvh {
-		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
+		let gpu_bvh = bvh_cache.update(device, queue, encoder, bvh_key, bvh, bvh_item_data);
 		let beam_storage_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.bvh_beam_textured);
 		let beam_read_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&self.bvh_beam_textured);
 		let intermediate_view = texture_view(&self.intermediate_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.intermediate_textured);

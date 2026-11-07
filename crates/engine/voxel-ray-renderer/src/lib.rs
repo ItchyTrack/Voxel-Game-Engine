@@ -110,6 +110,7 @@ impl Plugin for VoxelRayRendererPlugin {
 		render_app
 			.insert_resource(render_stats)
 			.init_resource::<extract::ExtractedVoxelScenes>()
+			.init_resource::<extract::BvhCache>()
 			.add_systems(
 				ExtractSchedule,
 				(

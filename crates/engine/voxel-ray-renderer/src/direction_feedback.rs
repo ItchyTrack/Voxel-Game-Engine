@@ -15,6 +15,7 @@ pub struct DirectionFeedback {
 	directions: HashMap<Entity, IncomingRayDirections>,
 	rendered: Option<GpuBvh>,
 	pub(crate) timer: Option<GpuPassTimer>,
+	pub(crate) gpu_bvh_cache: crate::gpu_bvh::GpuBvhCache,
 	/// Benchmark tag of the frame currently being extracted and rendered.
 	pub(crate) frame_tag: u32,
 }
