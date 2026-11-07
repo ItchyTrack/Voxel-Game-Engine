@@ -67,6 +67,55 @@ impl BvhCache {
 	}
 }
 
+/// World placement of each tile, recomputed only when its transform or contents change.
+/// Decomposing ~10k `GlobalTransform`s every frame was a large part of extraction.
+#[derive(Resource, Default)]
+pub struct TilePlacementCache {
+	tiles: FxHashMap<Entity, CachedPlacement>,
+	frame: u32,
+}
+
+struct CachedPlacement {
+	affine: bevy::math::Affine3A,
+	generation: u64,
+	aabb: (Vec3, Vec3),
+	tree_transform: Transform,
+	last_used: u32,
+}
+
+impl TilePlacementCache {
+	fn placement(&mut self, entity: Entity, tile: &RayTileData, tile_global: &GlobalTransform) -> ((Vec3, Vec3), Transform) {
+		let frame = self.frame;
+		let affine = tile_global.affine();
+		let cached = self.tiles.entry(entity).or_insert_with(|| CachedPlacement {
+			affine: bevy::math::Affine3A::NAN,
+			generation: u64::MAX,
+			aabb: (Vec3::ZERO, Vec3::ZERO),
+			tree_transform: Transform::IDENTITY,
+			last_used: frame,
+		});
+		cached.last_used = frame;
+		if cached.affine != affine || cached.generation != tile.generation {
+			let scale = (1u32 << tile.voxel_lod) as f32;
+			let transform = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
+			let placement = tile.placement;
+			cached.aabb = aabb_of_transformed_aabb(&transform, placement.bounds_min.as_vec3(), placement.bounds_max.as_vec3() + Vec3::ONE);
+			cached.tree_transform = transform * Transform::from_translation(placement.tree_root_pos.as_vec3());
+			cached.affine = affine;
+			cached.generation = tile.generation;
+		}
+		(cached.aabb, cached.tree_transform)
+	}
+
+	fn end_frame(&mut self, used: usize) {
+		if self.tiles.len() > used * 2 + 1024 {
+			let frame = self.frame;
+			self.tiles.retain(|_, cached| cached.last_used == frame);
+		}
+		self.frame = self.frame.wrapping_add(1);
+	}
+}
+
 struct RenderItem {
 	entity: Entity,
 	tree: PackedBufferAllocation,
@@ -87,6 +136,7 @@ pub fn extract_voxel_scene(
 	mut extracted_scenes: ResMut<ExtractedVoxelScenes>,
 	mut residency: ResMut<ResidencyBuffers>,
 	mut bvh_cache: ResMut<BvhCache>,
+	mut placements: ResMut<TilePlacementCache>,
 	direction_feedback: Query<&DirectionFeedback>,
 	cameras: Extract<Query<(RenderEntity, &VoxelCamera, &Camera, &GlobalTransform)>>,
 	tiles: Extract<Query<(&RayTileData, &GlobalTransform)>>,
@@ -94,7 +144,7 @@ pub fn extract_voxel_scene(
 	render_stats: Res<crate::direction_feedback::RenderStats>,
 ) {
 	let start = std::time::Instant::now();
-	extract_scene(&mut extracted_scenes, &mut residency, &mut bvh_cache, &direction_feedback, &cameras, &tiles, &world_gpu);
+	extract_scene(&mut extracted_scenes, &mut residency, &mut bvh_cache, &mut placements, &direction_feedback, &cameras, &tiles, &world_gpu);
 	if render_stats.timing.enabled() {
 		render_stats.timing.push_cpu(crate::gpu_timing::RenderCpuSample {
 			tag: render_stats.timing.tag(),
@@ -108,6 +158,7 @@ fn extract_scene(
 	extracted_scenes: &mut ExtractedVoxelScenes,
 	residency: &mut ResidencyBuffers,
 	bvh_cache: &mut BvhCache,
+	placements: &mut TilePlacementCache,
 	direction_feedback: &Query<&DirectionFeedback>,
 	cameras: &Query<(RenderEntity, &VoxelCamera, &Camera, &GlobalTransform)>,
 	tiles: &Query<(&RayTileData, &GlobalTransform)>,
@@ -121,11 +172,7 @@ fn extract_scene(
 		let mut items = Vec::new();
 		for entity in &voxel_camera.tiles_to_render {
 			let Ok((tile, tile_global)) = tiles.get(*entity) else { continue };
-			let scale = (1u32 << tile.voxel_lod) as f32;
-			let transform = tile_global.compute_transform() * Transform::from_scale(Vec3::splat(scale));
-			let placement = tile.placement;
-			let aabb = aabb_of_transformed_aabb(&transform, placement.bounds_min.as_vec3(), placement.bounds_max.as_vec3() + Vec3::ONE);
-			let tree_transform = transform * Transform::from_translation(placement.tree_root_pos.as_vec3());
+			let (aabb, tree_transform) = placements.placement(*entity, tile, tile_global);
 			items.push(RenderItem {
 				entity: *entity,
 				tree: tile.tree.clone(),
@@ -137,9 +184,9 @@ fn extract_scene(
 				priority: global_transform.translation().distance((aabb.0 + aabb.1) * 0.5) / 1000.0,
 			});
 		}
-		items.sort_unstable_by_key(|item| ((item.priority * 100.0) as u64, item.entity.to_bits()));
 		views.push((render_entity, items));
 	}
+	placements.end_frame(views.iter().map(|(_, items)| items.len()).sum());
 
 	let tree_alignment = residency.tree_alignment();
 	let voxel_alignment = residency.voxel_alignment();

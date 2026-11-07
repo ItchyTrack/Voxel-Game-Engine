@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::{Arc, Mutex};
 
 use bevy::ecs::component::Component;
@@ -12,7 +12,7 @@ use crate::incoming_ray_directions::IncomingRayDirections;
 
 #[derive(Component, Default)]
 pub struct DirectionFeedback {
-	directions: HashMap<Entity, IncomingRayDirections>,
+	directions: FxHashMap<Entity, IncomingRayDirections>,
 	rendered: Option<GpuBvh>,
 	pub(crate) timer: Option<GpuPassTimer>,
 	pub(crate) gpu_bvh_cache: crate::gpu_bvh::GpuBvhCache,
