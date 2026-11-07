@@ -110,7 +110,7 @@ impl Plugin for VoxelRayRendererPlugin {
 		render_app
 			.insert_resource(render_stats)
 			.init_resource::<extract::ExtractedVoxelScenes>()
-			.init_resource::<extract::TilePlacementCache>()
+			.init_resource::<extract::TileTables>()
 			.add_systems(
 				ExtractSchedule,
 				(

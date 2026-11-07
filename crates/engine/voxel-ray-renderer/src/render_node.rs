@@ -90,6 +90,7 @@ pub fn voxel_render_pass(
 	render_queue: Res<RenderQueue>,
 	render_stats: Res<RenderStats>,
 	extracted_scenes: Res<ExtractedVoxelScenes>,
+	tile_tables: Res<crate::extract::TileTables>,
 	view: ViewQuery<(
 		bevy::ecs::entity::Entity,
 		&ViewTarget,
@@ -105,6 +106,7 @@ pub fn voxel_render_pass(
 	let Some(view_bind_group) = voxel_resource.view_bind_group.as_ref() else { return };
 	let Some(extracted) = extracted_scenes.0.get(&entity) else { return };
 	let Some(bvh) = extracted.bvh.as_ref() else { return };
+	let Some(table) = tile_tables.0.get(&entity) else { return };
 
 	let device = render_context.render_device().wgpu_device().clone();
 	let encoder = render_context.command_encoder();
@@ -134,7 +136,7 @@ pub fn voxel_render_pass(
 		view_bind_group,
 		prepared.view_uniform_offset,
 		bvh,
-		&extracted.bvh_item_data,
+		table,
 		&extracted.tree_buffer,
 		&extracted.voxel_buffer,
 		&extracted.main_tree_buffer,

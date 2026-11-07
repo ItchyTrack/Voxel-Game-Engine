@@ -2,7 +2,7 @@ use bevy::ecs::entity::Entity;
 use bevy::math::Vec3;
 use bevy::transform::components::Transform;
 use bevy::render::renderer::WgpuWrapper;
-use rustc_hash::FxHashMap;
+use crate::extract::TileTable;
 use voxel_data::bvh;
 use voxel_data::voxels::VoxelTypeInfo;
 use wgpu::{util::DeviceExt, Device};
@@ -92,18 +92,22 @@ pub struct GpuBvh {
 	pub bind_group_layout: GpuBindGroupLayout,
 	pub item_direction_mask_buffer: GpuBuffer,
 	pub item_direction_mask_staging_buffer: GpuBuffer,
-	pub item_ids: Vec<Entity>,
+	/// Table slot and entity of each BVH item, in BVH item order, plus the table version they
+	/// refer to. Direction feedback maps back through these.
+	pub item_slots: Vec<u32>,
+	pub item_entities: Vec<Entity>,
+	pub table_version: u64,
 }
 
 impl GpuBvh {
-	fn item_bytes(bvh: &bvh::BVH<Entity>, item_data_by_id: &FxHashMap<Entity, BvhItemData>) -> (Vec<u8>, Vec<Entity>) {
+	fn item_bytes(bvh: &bvh::BVH<u32>, table: &TileTable) -> (Vec<u8>, Vec<u32>, Vec<Entity>) {
 		let (_, items) = bvh.internals();
 		let mut item_data: Vec<u8> = Vec::with_capacity(items.len().max(1) * size_of::<GpuBVHItem>());
-		let mut item_ids = Vec::with_capacity(items.len());
+		let mut item_slots = Vec::with_capacity(items.len());
+		let mut item_entities = Vec::with_capacity(items.len());
 		for item in items {
-			let data = item_data_by_id
-				.get(&item.0)
-				.expect("every BVH item must have transform data");
+			let entry = &table.tiles[item.0 as usize];
+			let data = &entry.item;
 			let scale = data.transform.scale.x.max(f32::MIN_POSITIVE);
 			let (data_source, tree_offset, voxels_offset) = match data.data_source {
 				BvhDataSource::FeedbackOnly => (0, 0, 0),
@@ -121,16 +125,17 @@ impl GpuBvh {
 				quat: data.transform.rotation.to_array(),
 				scale: data.transform.scale.x,
 			}));
-			item_ids.push(item.0);
+			item_slots.push(item.0);
+			item_entities.push(entry.entity);
 		}
 		if item_data.is_empty() {
 			item_data.extend_from_slice(&[0; size_of::<GpuBVHItem>()]);
 		}
-		(item_data, item_ids)
+		(item_data, item_slots, item_entities)
 	}
 
-	pub fn from_bvh(device: &Device, bvh: &bvh::BVH<Entity>, item_data_by_id: &FxHashMap<Entity, BvhItemData>) -> Self {
-		let (item_data, item_ids) = Self::item_bytes(bvh, item_data_by_id);
+	pub fn from_bvh(device: &Device, bvh: &bvh::BVH<u32>, table: &TileTable) -> Self {
+		let (item_data, item_slots, item_entities) = Self::item_bytes(bvh, table);
 		let (nodes, _) = bvh.internals();
 
 		let mut gpu_nodes: Vec<GpuBVHNode> = Vec::with_capacity(nodes.len() + 1);
@@ -164,7 +169,7 @@ impl GpuBvh {
 			usage: wgpu::BufferUsages::STORAGE,
 		}));
 
-		let direction_mask_size = (item_ids.len().max(1).div_ceil(4) * size_of::<u32>()) as u64;
+		let direction_mask_size = (item_slots.len().max(1).div_ceil(4) * size_of::<u32>()) as u64;
 		let item_direction_mask_buffer = WgpuWrapper::new(device.create_buffer(&wgpu::BufferDescriptor {
 			label: Some("bvh_item_direction_mask_buffer"),
 			size: direction_mask_size,
@@ -196,7 +201,9 @@ impl GpuBvh {
 			bind_group_layout,
 			item_direction_mask_buffer,
 			item_direction_mask_staging_buffer,
-			item_ids,
+			item_slots,
+			item_entities,
+			table_version: table.version,
 		}
 	}
 

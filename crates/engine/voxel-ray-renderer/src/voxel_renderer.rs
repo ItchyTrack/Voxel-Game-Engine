@@ -1,6 +1,4 @@
-use bevy::ecs::entity::Entity;
 use bevy::render::renderer::WgpuWrapper;
-use rustc_hash::FxHashMap;
 use voxel_data::bvh;
 
 type GpuBindGroup = WgpuWrapper<wgpu::BindGroup>;
@@ -329,8 +327,8 @@ impl VoxelRenderer {
 		encoder: &mut wgpu::CommandEncoder,
 		view_bind_group: &GpuBindGroup,
 		view_uniform_offset: u32,
-		bvh: &bvh::BVH<Entity>,
-		bvh_item_data: &FxHashMap<Entity, crate::gpu_bvh::BvhItemData>,
+		bvh: &bvh::BVH<u32>,
+		table: &crate::extract::TileTable,
 		tree_buffer: &GpuBuffer,
 		voxel_buffer: &GpuBuffer,
 		main_tree_buffer: &GpuBuffer,
@@ -339,7 +337,7 @@ impl VoxelRenderer {
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
 		timer: Option<&crate::gpu_timing::GpuPassTimer>,
 	) -> GpuBvh {
-		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
+		let gpu_bvh = GpuBvh::from_bvh(device, bvh, table);
 		let beam_storage_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.bvh_beam_textured);
 		let beam_read_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::TEXTURE_BINDING)(&self.bvh_beam_textured);
 		let intermediate_view = texture_view(&self.intermediate_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.intermediate_textured);

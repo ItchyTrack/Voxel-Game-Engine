@@ -12,6 +12,7 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
 |---|---|---|
 | ~~`3fe5a96`~~ | reuse the ray BVH and its GPU buffers while the tile set is unchanged (removed in `04a6ad5`: only helps static scenes) | extract -20%, default fps +8..15% |
 | `858a2fe` | cache tile placements, drop redundant sort, Fx hashing | extract -22..30%, default fps +4..12% |
+| next | incremental render-side tile table; work follows changes, not tile count | extract -21..-46% (swarm 7.7 -> 4.7 ms), fps +11..21% |
 
 ## Tried, not committed
 

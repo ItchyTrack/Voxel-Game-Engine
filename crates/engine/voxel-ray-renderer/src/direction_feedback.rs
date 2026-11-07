@@ -1,4 +1,3 @@
-use rustc_hash::FxHashMap;
 use std::sync::{Arc, Mutex};
 
 use bevy::ecs::component::Component;
@@ -12,7 +11,7 @@ use crate::incoming_ray_directions::IncomingRayDirections;
 
 #[derive(Component, Default)]
 pub struct DirectionFeedback {
-	directions: FxHashMap<Entity, IncomingRayDirections>,
+	latest: Option<FeedbackFrame>,
 	rendered: Option<GpuBvh>,
 	pub(crate) timer: Option<GpuPassTimer>,
 	/// Benchmark tag of the frame currently being extracted and rendered.
@@ -20,13 +19,26 @@ pub struct DirectionFeedback {
 }
 
 impl DirectionFeedback {
-	pub fn directions_for(&self, entity: Entity) -> IncomingRayDirections {
-		self.directions.get(&entity).copied().unwrap_or_default()
-	}
+	/// Ray directions that hit each tile in the last frame read back.
+	pub fn latest(&self) -> Option<&FeedbackFrame> { self.latest.as_ref() }
 
 	pub fn push_rendered(&mut self, gpu_bvh: GpuBvh) {
 		assert!(self.rendered.is_none(), "direction feedback from the previous render was not consumed");
 		self.rendered = Some(gpu_bvh);
+	}
+}
+
+pub struct FeedbackFrame {
+	/// Version of the tile table the slots refer to.
+	pub version: u64,
+	/// Tiles touched by at least one ray, by table slot.
+	pub slot_directions: Vec<(u32, IncomingRayDirections)>,
+	entities: Vec<Entity>,
+}
+
+impl FeedbackFrame {
+	pub fn entity_directions(&self) -> impl Iterator<Item = (Entity, IncomingRayDirections)> + '_ {
+		self.entities.iter().zip(&self.slot_directions).map(|(&entity, &(_, directions))| (entity, directions))
 	}
 }
 
@@ -78,14 +90,18 @@ fn read_back_view(render_device: &RenderDevice, feedback: &mut DirectionFeedback
 		}).expect("failed while waiting for voxel direction feedback");
 
 		let staging = gpu_bvh.item_direction_mask_staging_buffer.slice(..);
-		feedback.directions = {
+		feedback.latest = {
 			let view = staging.get_mapped_range();
 			let words: &[u32] = bytemuck::cast_slice(&view);
-			gpu_bvh.item_ids.iter().enumerate().map(|(item_index, id)| {
-				let word = words[item_index / 4];
-				let shift = (item_index % 4) * 8;
-				(*id, IncomingRayDirections::from_bits_truncate((word >> shift) as u8))
-			}).collect()
+			let mut slot_directions = Vec::new();
+			let mut entities = Vec::new();
+			for (item_index, (&slot, &entity)) in gpu_bvh.item_slots.iter().zip(&gpu_bvh.item_entities).enumerate() {
+				let directions = IncomingRayDirections::from_bits_truncate((words[item_index / 4] >> ((item_index % 4) * 8)) as u8);
+				if directions.is_empty() { continue; }
+				slot_directions.push((slot, directions));
+				entities.push(entity);
+			}
+			Some(FeedbackFrame { version: gpu_bvh.table_version, slot_directions, entities })
 		};
 		gpu_bvh.item_direction_mask_staging_buffer.unmap();
 	}
