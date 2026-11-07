@@ -32,6 +32,7 @@ pub enum ExtraScene {
 	None,
 	Castle,
 	RaySponza,
+	MovingObjects,
 }
 
 pub const CASTLE_ORIGIN: Vec3 = Vec3::new(-6000.0, -250.0, 0.0);
@@ -116,6 +117,29 @@ pub const SCENARIOS: &[Scenario] = &[
 				key([6000.0, -40.0, 30.0], [6000.0 + 250.0, -80.0, 0.0]),
 				key([6000.0 + 180.0, -60.0, 0.0], [6000.0 + 400.0, -70.0, 0.0]),
 			]),
+		],
+	},
+	Scenario {
+		name: "dynamic",
+		extra: ExtraScene::MovingObjects,
+		shots: &[
+			// ~100 grids orbiting and spinning over the village; scripted, so frames are identical
+			// between runs. Every one of them changes the BVH every frame.
+			frozen("swarm", 10.0, &[
+				key([450.0, 240.0, 0.0], [0.0, 100.0, 0.0]),
+				key([0.0, 300.0, 450.0], [0.0, 100.0, 0.0]),
+				key([-450.0, 240.0, 0.0], [0.0, 100.0, 0.0]),
+			]),
+			// Physics balls falling onto the roofs with the solver live, at real-time speed.
+			Shot {
+				name: "physics_drop",
+				mode: ShotMode::Live,
+				seconds: 12.0,
+				keys: &[
+					key([700.0, 160.0, 0.0], [450.0, 40.0, -250.0]),
+					key([650.0, 120.0, -50.0], [450.0, 0.0, -250.0]),
+				],
+			},
 		],
 	},
 	Scenario {

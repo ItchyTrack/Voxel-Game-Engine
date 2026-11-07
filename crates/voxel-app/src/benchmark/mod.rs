@@ -4,6 +4,7 @@
 //! opens a real 1920x1080 window with vsync off, flies the scenario's shots, writes a CSV per
 //! shot plus screenshots to `<dir>`, and exits.
 
+pub mod dynamic;
 pub mod scenarios;
 
 use std::collections::HashMap;
@@ -96,6 +97,8 @@ impl Plugin for BenchmarkPlugin {
 		std::fs::create_dir_all(&self.0.out_dir).expect("failed to create benchmark output directory");
 		app.insert_resource(self.0.clone())
 			.init_resource::<Driver>()
+			.init_resource::<dynamic::SwarmClock>()
+			.add_systems(Update, dynamic::move_swarm.after(drive))
 			.add_systems(Startup, spawn_extra_scene)
 			.add_systems(First, stamp_frame_start)
 			.add_systems(Update, drive)
@@ -154,6 +157,10 @@ struct Driver {
 fn spawn_extra_scene(mut commands: Commands, config: Res<BenchConfig>, mut sources: ResMut<SourceManager>) {
 	let (file, position) = match config.scenario.extra {
 		ExtraScene::None => return,
+		ExtraScene::MovingObjects => {
+			dynamic::spawn_moving_objects(&mut commands, &mut sources);
+			return;
+		}
 		ExtraScene::Castle => ("castle.vox", scenarios::CASTLE_ORIGIN),
 		ExtraScene::RaySponza => ("sponza.vox", scenarios::RAY_SPONZA_ORIGIN),
 	};
@@ -199,6 +206,7 @@ fn drive(
 	mut settings: ResMut<GraphicsSettings>,
 	mut freeze_loader: ResMut<FreezeCameraVoxelLoader>,
 	mut freeze_physics: ResMut<FreezePhysics>,
+	mut swarm_clock: ResMut<dynamic::SwarmClock>,
 	mut cameras: Query<&mut Transform, With<Camera3d>>,
 	loaders: Query<&CameraTileLoader>,
 	windows: Query<&Window, With<PrimaryWindow>>,
@@ -234,7 +242,9 @@ fn drive(
 			driver.phase_start = Some(Instant::now());
 			driver.stable_since = None;
 			freeze_loader.0 = false;
-			freeze_physics.0 = shot.mode == ShotMode::Frozen;
+			// Physics stays frozen until recording, so falling objects are still falling in the shot.
+			freeze_physics.0 = true;
+			swarm_clock.0 = 0.0;
 			place(&mut camera, 0.0);
 		}
 		Phase::Warm => {
@@ -259,6 +269,7 @@ fn drive(
 			driver.frame += 1;
 			if driver.frame >= SETTLE_FRAMES {
 				driver.phase = Phase::Fly;
+				freeze_physics.0 = shot.mode == ShotMode::Frozen;
 				driver.phase_start = Some(Instant::now());
 				driver.frame = 0;
 				driver.rss_kb = read_rss_kb();
@@ -271,6 +282,7 @@ fn drive(
 				ShotMode::Live => driver.phase_start.unwrap().elapsed().as_secs_f32() / shot.seconds,
 			};
 			place(&mut camera, t);
+			swarm_clock.0 = t * shot.seconds;
 			if driver.frame % RSS_SAMPLE_INTERVAL == 0 { driver.rss_kb = read_rss_kb(); }
 			let (tree_bytes, voxel_bytes) = gpu_data.as_ref().map_or((0, 0), |gpu| {
 				let gpu = gpu.lock();
@@ -315,6 +327,7 @@ fn drive(
 		}
 		Phase::Screenshot => {
 			place(&mut camera, SCREENSHOT_POINTS[driver.shot_point]);
+			swarm_clock.0 = SCREENSHOT_POINTS[driver.shot_point] * shot.seconds;
 			driver.frame += 1;
 			if driver.frame == SCREENSHOT_SETTLE_FRAMES {
 				let path = config.out_dir.join(format!("{}_{}.png", shot.name, driver.shot_point));

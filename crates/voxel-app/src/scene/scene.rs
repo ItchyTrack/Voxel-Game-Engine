@@ -259,7 +259,7 @@ fn spawn_bb8(
 	));
 }
 
-fn spawn_ball(commands: &mut Commands, store: &mut VoxelStoreSource, position: Vec3, radius: i32) -> Entity {
+pub(crate) fn spawn_ball(commands: &mut Commands, store: &mut VoxelStoreSource, position: Vec3, radius: i32) -> Entity {
 	let radius_sq = (radius as f32 - 0.5).powi(2);
 
 	let mut top = StreamingVoxels::new::<BasicVoxel>();

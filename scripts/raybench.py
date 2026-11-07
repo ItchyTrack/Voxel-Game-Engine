@@ -33,7 +33,7 @@ WIDTH, HEIGHT = 1920, 1080
 RUN_TIMEOUT_SECONDS = 1500
 REQUIRED_ADAPTER = "NVIDIA"
 
-ALL_SCENARIOS = "church,planet,castle,sponza,tour"
+ALL_SCENARIOS = "church,planet,castle,sponza,dynamic,tour"
 ALL_SETTINGS = "default,full"
 
 

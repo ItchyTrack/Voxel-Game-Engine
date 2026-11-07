@@ -27,6 +27,7 @@ Defined in `crates/voxel-app/src/benchmark/scenarios.rs`.
 | planet | `planet_orbit`, `planet_tree` | 1024 tile grids of the planet; fine foliage on the tree |
 | castle | `castle_flyaround` | `res/castle.vox`, spawned at x=-6000 for this scenario only |
 | sponza | `sponza_atrium` | ray-traced copy of `res/sponza.vox` at x=6000, enclosed space |
+| dynamic | `swarm`, `physics_drop` | 112 scripted grids orbiting and spinning over the village (deterministic); 48 physics balls dropped with the solver live |
 | tour | `streaming_tour` | live streaming and physics at real-time speed: stutter, load, memory |
 
 Frozen shots (all except `tour`) warm streaming at the first camera key until it has been idle for
