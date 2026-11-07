@@ -116,9 +116,8 @@ pub fn extract_voxel_scene(
 	extract_scene(&mut extracted_scenes, &mut residency, &mut placements, &direction_feedback, &cameras, &tiles, &world_gpu);
 	if render_stats.timing.enabled() {
 		render_stats.timing.push_cpu(crate::gpu_timing::RenderCpuSample {
-			tag: render_stats.timing.tag(),
-			readback_ms: f32::NAN,
 			extract_ms: start.elapsed().as_secs_f32() * 1e3,
+			..crate::gpu_timing::RenderCpuSample::new(render_stats.timing.tag())
 		});
 	}
 }

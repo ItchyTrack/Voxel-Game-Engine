@@ -118,10 +118,14 @@ impl Plugin for VoxelRayRendererPlugin {
 					extract::extract_voxel_scene,
 				).chain(),
 			)
+			.init_resource::<gpu_timing::RenderScheduleClock>()
 			.add_systems(
 				Render,
-				render_node::prepare_voxel_view_bind_groups
-					.in_set(RenderSystems::PrepareBindGroups),
+				(
+					render_node::prepare_voxel_view_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+					gpu_timing::render_schedule_start.in_set(RenderSystems::ExtractCommands),
+					gpu_timing::render_schedule_end.in_set(RenderSystems::PostCleanup),
+				),
 			)
 			.add_systems(
 				Core3d,

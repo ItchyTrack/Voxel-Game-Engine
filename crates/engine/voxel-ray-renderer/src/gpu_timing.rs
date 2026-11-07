@@ -30,6 +30,39 @@ pub struct RenderCpuSample {
 	pub tag: u32,
 	pub readback_ms: f32,
 	pub extract_ms: f32,
+	/// Render-thread time from the start of the Render schedule to the end of its cleanup
+	/// (prepare, render graph, submit, present).
+	pub render_ms: f32,
+}
+
+impl RenderCpuSample {
+	pub fn new(tag: u32) -> Self {
+		Self { tag, readback_ms: f32::NAN, extract_ms: f32::NAN, render_ms: f32::NAN }
+	}
+}
+
+/// Render-world bookkeeping for [`RenderCpuSample::render_ms`].
+#[derive(bevy::ecs::resource::Resource, Default)]
+pub struct RenderScheduleClock {
+	tag: u32,
+	start: Option<std::time::Instant>,
+}
+
+pub fn render_schedule_start(
+	mut clock: bevy::ecs::system::ResMut<RenderScheduleClock>,
+	stats: bevy::ecs::system::Res<crate::direction_feedback::RenderStats>,
+) {
+	clock.start = stats.timing.enabled().then(std::time::Instant::now);
+	clock.tag = stats.timing.extracted_tag();
+}
+
+pub fn render_schedule_end(
+	clock: bevy::ecs::system::Res<RenderScheduleClock>,
+	stats: bevy::ecs::system::Res<crate::direction_feedback::RenderStats>,
+) {
+	if let Some(start) = clock.start {
+		stats.timing.push_cpu(RenderCpuSample { render_ms: start.elapsed().as_secs_f32() * 1e3, ..RenderCpuSample::new(clock.tag) });
+	}
 }
 
 /// Shared between the main world (benchmark driver) and the render world.
@@ -37,6 +70,8 @@ pub struct RenderCpuSample {
 pub struct FrameTimings {
 	enabled: Arc<AtomicBool>,
 	tag: Arc<AtomicU32>,
+	/// Tag of the frame last extracted; the render world works on it while main moves ahead.
+	extracted_tag: Arc<AtomicU32>,
 	gpu: Arc<Mutex<Vec<GpuPassSample>>>,
 	cpu: Arc<Mutex<Vec<RenderCpuSample>>>,
 }
@@ -47,6 +82,8 @@ impl FrameTimings {
 	/// Tag the frame the main world is currently producing; samples for it carry this value.
 	pub fn set_tag(&self, tag: u32) { self.tag.store(tag, Ordering::Relaxed); }
 	pub fn tag(&self) -> u32 { self.tag.load(Ordering::Relaxed) }
+	pub fn set_extracted_tag(&self, tag: u32) { self.extracted_tag.store(tag, Ordering::Relaxed); }
+	pub fn extracted_tag(&self) -> u32 { self.extracted_tag.load(Ordering::Relaxed) }
 	pub fn push_cpu(&self, sample: RenderCpuSample) { self.cpu.lock().unwrap().push(sample); }
 	pub fn drain_gpu(&self) -> Vec<GpuPassSample> { std::mem::take(&mut *self.gpu.lock().unwrap()) }
 	pub fn drain_cpu(&self) -> Vec<RenderCpuSample> { std::mem::take(&mut *self.cpu.lock().unwrap()) }

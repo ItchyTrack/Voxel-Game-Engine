@@ -46,6 +46,9 @@ Per shot, median across repeats:
 - `stutter_pct`: frames over 2x the local (31-frame) median and at least 4 ms above it. `jitter_ms`: mean
   frame-to-frame change.
 - `gpu_*_ms`: timestamp queries around the beam, ray, and coloring passes.
+- `render_ms`: render-thread time from the start of the Render schedule to the end of cleanup
+  (prepare, render graph encoding, submit, present). With pipelined rendering a frame takes roughly
+  max(main + extract, render).
 - `main_ms`: main-world schedule. `extract_ms`: voxel scene extraction. `readback_ms`: direction feedback
   readback, which blocks extraction.
 - `peak_rss_mb` (VmHWM), `vram_peak_mib` (board-wide, nvidia-smi), `warm_seconds`, tile counts.

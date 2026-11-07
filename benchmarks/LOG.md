@@ -10,7 +10,7 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
 
 | commit | change | headline |
 |---|---|---|
-| `3fe5a96` | reuse the ray BVH and its GPU buffers while the tile set is unchanged | extract -20%, default fps +8..15% |
+| ~~`3fe5a96`~~ | reuse the ray BVH and its GPU buffers while the tile set is unchanged (removed in `04a6ad5`: only helps static scenes) | extract -20%, default fps +8..15% |
 | `858a2fe` | cache tile placements, drop redundant sort, Fx hashing | extract -22..30%, default fps +4..12% |
 
 ## Tried, not committed
@@ -29,6 +29,12 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
 
 ## Environment notes
 
+- Frame structure with pipelined rendering: frame ≈ extract + max(main, render thread). In the
+  dynamic swarm (default settings) that is 7.6 + max(6.9, 19.7) ms. Extract blocks both worlds, so it
+  is always on the critical path.
+- The render thread's on-CPU time is ~60% the driver's present (Xvfb copy, ~9 ms per 1080p
+  frame). It also runs main-world tasks (physics, parallel BVH build) while it waits, which delays
+  its own work.
 - Present goes through Xvfb (private desktopctl session), so the NVIDIA driver copies every frame
   to the CPU. In the stock profile that copy was ~21% of the main thread's CPU time. It counts in
   `frame_ms` but is not engine work.

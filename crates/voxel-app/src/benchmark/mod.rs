@@ -218,6 +218,7 @@ fn drive(
 		let entry = driver.cpu.entry(sample.tag).or_insert(sample);
 		if !sample.readback_ms.is_nan() { entry.readback_ms = sample.readback_ms; }
 		if !sample.extract_ms.is_nan() { entry.extract_ms = sample.extract_ms; }
+		if !sample.render_ms.is_nan() { entry.render_ms = sample.render_ms; }
 	}
 
 	let Ok(mut camera) = cameras.single_mut() else { return };
@@ -369,16 +370,16 @@ fn write_shot(config: &BenchConfig, driver: &Driver, shot: &Shot, adapter: Optio
 		config.scenario.name, shot.name, if config.full_settings { "full" } else { "default" },
 		if shot.mode == ShotMode::Frozen { "frozen" } else { "live" },
 		adapter_name.replace(' ', "_"), width, height, present, driver.warm_seconds, peak_rss_kb());
-	csv.push_str("frame,frame_ms,main_ms,readback_ms,extract_ms,gpu_beam_ms,gpu_ray_ms,gpu_color_ms,rss_kb,tree_bytes,voxel_bytes,bvh_bytes,bvh_item_bytes,loaded_tiles,pending_tiles,queue\n");
+	csv.push_str("frame,frame_ms,main_ms,readback_ms,extract_ms,render_ms,gpu_beam_ms,gpu_ray_ms,gpu_color_ms,rss_kb,tree_bytes,voxel_bytes,bvh_bytes,bvh_item_bytes,loaded_tiles,pending_tiles,queue\n");
 	for (index, row) in driver.rows.iter().enumerate() {
 		// The last row's frame never finished inside the flight.
 		if row.frame_ms == 0.0 { continue; }
 		let gpu = driver.gpu.get(&row.tag);
 		let cpu = driver.cpu.get(&row.tag);
 		let opt = |value: Option<f32>| value.filter(|value| !value.is_nan()).map_or(String::new(), |value| format!("{value:.4}"));
-		let _ = writeln!(csv, "{index},{:.4},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+		let _ = writeln!(csv, "{index},{:.4},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
 			row.frame_ms, row.main_ms,
-			opt(cpu.map(|sample| sample.readback_ms)), opt(cpu.map(|sample| sample.extract_ms)),
+			opt(cpu.map(|sample| sample.readback_ms)), opt(cpu.map(|sample| sample.extract_ms)), opt(cpu.map(|sample| sample.render_ms)),
 			opt(gpu.map(|sample| sample.beam_ms)), opt(gpu.map(|sample| sample.ray_ms)), opt(gpu.map(|sample| sample.color_ms)),
 			row.rss_kb, row.tree_bytes, row.voxel_bytes, row.bvh_bytes, row.bvh_item_bytes,
 			row.loaded_tiles, row.pending_tiles, row.queue);

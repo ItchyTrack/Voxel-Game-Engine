@@ -48,6 +48,7 @@ pub fn read_back_direction_masks(
 	mut view_feedback: Query<&mut DirectionFeedback>,
 ) {
 	let timing_enabled = render_stats.timing.enabled();
+	render_stats.timing.set_extracted_tag(render_stats.timing.tag());
 	for mut feedback in &mut view_feedback {
 		let start = std::time::Instant::now();
 		feedback.frame_tag = render_stats.timing.tag();
@@ -57,9 +58,8 @@ pub fn read_back_direction_masks(
 		read_back_view(&render_device, &mut feedback);
 		if timing_enabled {
 			render_stats.timing.push_cpu(RenderCpuSample {
-				tag: feedback.frame_tag,
 				readback_ms: start.elapsed().as_secs_f32() * 1e3,
-				extract_ms: f32::NAN,
+				..RenderCpuSample::new(feedback.frame_tag)
 			});
 		}
 	}
