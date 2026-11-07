@@ -78,10 +78,15 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 					on_thread_spawn: None,
 					on_thread_destroy: None,
 				},
+				// Streaming workers. At 60% of the cores (7 of 12 here) their tile results arrived
+				// faster than the main thread could absorb them: live-streaming frames took ~32 ms
+				// of main-world time and 1% lows were under 2 fps. At 25% the tour runs at 1.7x the
+				// fps, 4x the 1% low, and still streams in more tiles over the flight. Initial
+				// loading of a static view is ~25% slower.
 				async_compute: TaskPoolThreadAssignmentPolicy {
 					min_threads: 1,
 					max_threads: usize::MAX,
-					percent: 0.6,
+					percent: 0.25,
 					on_thread_spawn: None,
 					on_thread_destroy: None,
 				},

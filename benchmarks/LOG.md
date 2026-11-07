@@ -12,6 +12,7 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
 |---|---|---|
 | ~~`3fe5a96`~~ | reuse the ray BVH and its GPU buffers while the tile set is unchanged (removed in `04a6ad5`: only helps static scenes) | extract -20%, default fps +8..15% |
 | `858a2fe` | cache tile placements, drop redundant sort, Fx hashing | extract -22..30%, default fps +4..12% |
+| next | async compute (streaming) pool 60% -> 25% of cores | tour fps +69%, 1% low 1.6 -> 7.3 fps, main 32 -> 22 ms; static warm-up +25% |
 | `f2b4ebe` | incremental render-side tile table; work follows changes, not tile count | extract -21..-46% (swarm 7.7 -> 4.7 ms), fps +11..21% |
 
 ## Tried, not committed
@@ -40,6 +41,12 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
   thread is the bottleneck (Xvfb present) and now waits 2-3 ms for the build, so fps -0..-7%
   (tour +3%, its 1% low +12%). Likely a win on a real display, where present is cheap and
   extract + main is the critical path. Needs your approval.
+
+- **Streaming threads at nice 10** instead of a smaller pool: no effect at all, so the tour's main
+  thread isn't starved of CPU; the cost scales with how fast tile results arrive.
+- **mimalloc global allocator** (the main thread blocked in `free()` on memory allocated by tile
+  builders): tour +10% avg fps with 30-45% run spread, other shots -5..+4%, peak RSS up to +10%.
+  Not convincing.
 
 ## Parked for approval (would change the image)
 
