@@ -1,0 +1,176 @@
+diff --git a/crates/engine/basic-voxel/src/shaders/basic_voxel.slang b/crates/engine/basic-voxel/src/shaders/basic_voxel.slang
+index ce18046..3794c13 100644
+--- a/crates/engine/basic-voxel/src/shaders/basic_voxel.slang
++++ b/crates/engine/basic-voxel/src/shaders/basic_voxel.slang
+@@ -32,6 +32,10 @@ struct BasicVoxelSampler : IVoxelSampler {
+ 		return read_color(data_source, data_header_offset + 1u + palette_index * 4u);
+ 	}
+ 
++	uint color_cache_key(uint data_source, uint data_header_offset, uint node_data_offset, uint item_index, float3 surface_pos) {
++		return 0u;
++	}
++
+ 	float4 color(uint data_source, uint data_header_offset, uint node_data_offset, uint item_index, float3 surface_pos) {
+ 		let bits = voxel_sampler_u8(data_source, data_header_offset);
+ 		if (bits == PALETTE_NO_PALETTE) {
+diff --git a/crates/engine/basic-voxel/src/shaders/lod_voxel.slang b/crates/engine/basic-voxel/src/shaders/lod_voxel.slang
+index b07a0d3..54ff152 100644
+--- a/crates/engine/basic-voxel/src/shaders/lod_voxel.slang
++++ b/crates/engine/basic-voxel/src/shaders/lod_voxel.slang
+@@ -84,6 +84,20 @@ struct LodVoxelSampler : IVoxelSampler {
+ 		return read_color(data_source, color_offset(node_data_offset, item_index, best_octant));
+ 	}
+ 
++	/// The octant, when its own color is used. When that color is null the result depends on the
++	/// exact position (nearest non-null octant), so it isn't cacheable.
++	uint color_cache_key(uint data_source, uint data_header_offset, uint node_data_offset, uint item_index, float3 surface_pos) {
++		let octant = (surface_pos.x >= 0.5 ? 1u : 0u)
++			+ (surface_pos.y >= 0.5 ? 2u : 0u)
++			+ (surface_pos.z >= 0.5 ? 4u : 0u);
++		let bits = voxel_sampler_u8(data_source, data_header_offset);
++		if (bits == PALETTE_NO_PALETTE) {
++			return is_null_color(data_source, color_offset(node_data_offset, item_index, octant)) ? VOXEL_COLOR_NO_CACHE : octant;
++		}
++		let palette_index = bits == 0u ? 0u : read_palette_index(data_source, node_data_offset, item_index * 8u + octant, bits);
++		return palette_is_null_color(data_source, data_header_offset, palette_index) ? VOXEL_COLOR_NO_CACHE : octant;
++	}
++
+ 	float4 color(uint data_source, uint data_header_offset, uint node_data_offset, uint item_index, float3 surface_pos) {
+ 		let octant = (surface_pos.x >= 0.5 ? 1u : 0u)
+ 			+ (surface_pos.y >= 0.5 ? 2u : 0u)
+diff --git a/crates/engine/voxel-gpu/src/shaders/voxel_sampler_api.slang b/crates/engine/voxel-gpu/src/shaders/voxel_sampler_api.slang
+index 59f7a42..ad78bb2 100644
+--- a/crates/engine/voxel-gpu/src/shaders/voxel_sampler_api.slang
++++ b/crates/engine/voxel-gpu/src/shaders/voxel_sampler_api.slang
+@@ -2,6 +2,12 @@
+ 
+ uint voxel_sampler_u8(uint data_source, uint byte_off);
+ 
++static const uint VOXEL_COLOR_NO_CACHE = 0xFFFFFFFFu;
++
+ interface IVoxelSampler {
+ 	float4 color(uint data_source, uint data_header_offset, uint node_data_offset, uint item_index, float3 surface_pos);
++
++	/// Two positions on the same voxel with the same key (other than VOXEL_COLOR_NO_CACHE) must have
++	/// the same color, so callers sampling one voxel many times can reuse it.
++	uint color_cache_key(uint data_source, uint data_header_offset, uint node_data_offset, uint item_index, float3 surface_pos);
+ }
+diff --git a/crates/engine/voxel-ray-renderer/src/shaders/anti_aliasing.slang b/crates/engine/voxel-ray-renderer/src/shaders/anti_aliasing.slang
+index 8054eb3..a433eec 100644
+--- a/crates/engine/voxel-ray-renderer/src/shaders/anti_aliasing.slang
++++ b/crates/engine/voxel-ray-renderer/src/shaders/anti_aliasing.slang
+@@ -57,6 +57,28 @@ bool same_voxel(VoxelContribution a, VoxelContribution b) {
+ 		&& all(a.local_voxel_min == b.local_voxel_min);
+ }
+ 
++uint contribution_face(VoxelContribution contribution) {
++	let axis = (contribution.normal >> 3u) & 0xFu;
++	return axis | (((contribution.normal >> axis) & 1u) << 2u);
++}
++
++/// True when all four corner rays hit the same unoccluded face of the same voxel with the same
++/// sampler color key. The face is convex and so is each color-key region on it, so every sample
++/// ray between the corners hits that face with that color, normal, and shadow: the 16-sample
++/// result is that one shaded color.
++bool single_face_pixel(VoxelContribution top_left, VoxelContribution top_right, VoxelContribution bottom_left, VoxelContribution bottom_right) {
++	if (!(same_voxel(top_left, top_right) && same_voxel(top_left, bottom_left) && same_voxel(top_left, bottom_right))) { return false; }
++	let face = contribution_face(top_left);
++	if (contribution_face(top_right) != face || contribution_face(bottom_left) != face || contribution_face(bottom_right) != face) { return false; }
++	if ((top_left.camera_face_occlusion_mask & (1u << (face & 3u))) != 0u) { return false; }
++	if (top_left.light_visible != top_right.light_visible || top_left.light_visible != bottom_left.light_visible || top_left.light_visible != bottom_right.light_visible) { return false; }
++	let key = voxel_color_cache_key(top_left, top_left.surface_pos);
++	return key != VOXEL_COLOR_NO_CACHE
++		&& voxel_color_cache_key(top_right, top_right.surface_pos) == key
++		&& voxel_color_cache_key(bottom_left, bottom_left.surface_pos) == key
++		&& voxel_color_cache_key(bottom_right, bottom_right.surface_pos) == key;
++}
++
+ VoxelContributionRaycastData prepare_voxel_contribution_raycast(VoxelContribution contribution, float3 world_ray_origin) {
+ 	VoxelContributionRaycastData data = {};
+ 	if (!contribution.hit) { return data; }
+@@ -186,6 +208,10 @@ float4 anti_aliased_voxel_color(uint2 texture_pos, uint2 texture_size) {
+ 		return float4(0.0);
+ 	}
+ 
++	if (single_face_pixel(top_left, top_right, bottom_left, bottom_right)) {
++		return float4(color_voxel_surface(top_left, top_left.surface_pos, voxel_contribution_world_normal(top_left)), 1.0);
++	}
++
+ 	let camera_position = view.world_position;
+ 	let texture_denominator = float2(texture_size - uint2(1));
+ 	let pixel_min = float2(texture_pos);
+diff --git a/crates/engine/voxel-ray-renderer/src/shaders/coloring_common.slang b/crates/engine/voxel-ray-renderer/src/shaders/coloring_common.slang
+index 35d83f5..fec70e4 100644
+--- a/crates/engine/voxel-ray-renderer/src/shaders/coloring_common.slang
++++ b/crates/engine/voxel-ray-renderer/src/shaders/coloring_common.slang
+@@ -94,27 +94,36 @@ VoxelContribution calculate_voxel_contribution(uint4 data, float2 texture_positi
+ 	return contribution;
+ }
+ 
+-float3 color_voxel_surface(VoxelContribution contribution, float3 surface_pos, float3 world_normal) {
++uint contribution_data_source(VoxelContribution contribution) {
++	return (bvh_items[contribution.bvh_item_idx].aabb_size >> 24u) == 2u ? VOXEL_DATA_SOURCE_MAIN : VOXEL_DATA_SOURCE_RESIDENCY;
++}
++
++float3 voxel_base_color(VoxelContribution contribution, float3 surface_pos) {
+ 	let item = bvh_items[contribution.bvh_item_idx];
+-	float3 base_color;
+-	if ((item.aabb_size >> 24u) == 2u) {
+-		base_color = main_voxel_sampler_color(
+-			item.voxel_type_id,
+-			item.item_index_2,
+-			contribution.voxel_data_index,
+-			contribution.voxel_index,
+-			surface_pos
+-		).xyz;
+-	} else {
+-		base_color = residency_voxel_sampler_color(
+-			item.voxel_type_id,
+-			item.item_index_2,
+-			contribution.voxel_data_index,
+-			contribution.voxel_index,
+-			surface_pos
+-		).xyz;
+-	}
+-	return shade(base_color, world_normal, contribution.light_visible);
++	return voxel_sampler_color(
++		item.voxel_type_id,
++		contribution_data_source(contribution),
++		item.item_index_2,
++		contribution.voxel_data_index,
++		contribution.voxel_index,
++		surface_pos
++	).xyz;
++}
++
++uint voxel_color_cache_key(VoxelContribution contribution, float3 surface_pos) {
++	let item = bvh_items[contribution.bvh_item_idx];
++	return voxel_sampler_color_cache_key(
++		item.voxel_type_id,
++		contribution_data_source(contribution),
++		item.item_index_2,
++		contribution.voxel_data_index,
++		contribution.voxel_index,
++		surface_pos
++	);
++}
++
++float3 color_voxel_surface(VoxelContribution contribution, float3 surface_pos, float3 world_normal) {
++	return shade(voxel_base_color(contribution, surface_pos), world_normal, contribution.light_visible);
+ }
+ 
+ float3 voxel_contribution_world_normal(VoxelContribution contribution) {
+diff --git a/crates/engine/voxel-ray-renderer/src/shaders/shared/voxel_reader.slang b/crates/engine/voxel-ray-renderer/src/shaders/shared/voxel_reader.slang
+index c0c3928..09d93e0 100644
+--- a/crates/engine/voxel-ray-renderer/src/shaders/shared/voxel_reader.slang
++++ b/crates/engine/voxel-ray-renderer/src/shaders/shared/voxel_reader.slang
+@@ -38,3 +38,9 @@ float4 residency_voxel_sampler_color(uint voxel_type_id, uint voxels_base, uint
+ float4 main_voxel_sampler_color(uint voxel_type_id, uint voxels_base, uint voxel_data_index, uint voxel_index, float3 surface_pos) {
+ 	return voxel_sampler_color(voxel_type_id, VOXEL_DATA_SOURCE_MAIN, voxels_base, voxel_data_index, voxel_index, surface_pos);
+ }
++
++uint voxel_sampler_color_cache_key(uint voxel_type_id, uint data_source, uint voxels_base, uint voxel_data_index, uint voxel_index, float3 surface_pos) {
++	let node_data_offset = voxel_reader_buffer_offset(voxels_base, voxel_data_index);
++	IVoxelSampler sampler = createDynamicObject<IVoxelSampler>(voxel_type_id);
++	return sampler.color_cache_key(data_source, voxels_base, node_data_offset, voxel_index, surface_pos);
++}

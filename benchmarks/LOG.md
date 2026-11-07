@@ -12,7 +12,7 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
 |---|---|---|
 | ~~`3fe5a96`~~ | reuse the ray BVH and its GPU buffers while the tile set is unchanged (removed in `04a6ad5`: only helps static scenes) | extract -20%, default fps +8..15% |
 | `858a2fe` | cache tile placements, drop redundant sort, Fx hashing | extract -22..30%, default fps +4..12% |
-| next | async compute (streaming) pool 60% -> 25% of cores | tour fps +69%, 1% low 1.6 -> 7.3 fps, main 32 -> 22 ms; static warm-up +25% |
+| `ca9b7a0` | async compute (streaming) pool 60% -> 25% of cores | tour fps +69%, 1% low 1.6 -> 7.3 fps, main 32 -> 22 ms; static warm-up +25% |
 | `f2b4ebe` | incremental render-side tile table; work follows changes, not tile count | extract -21..-46% (swarm 7.7 -> 4.7 ms), fps +11..21% |
 
 ## Tried, not committed
@@ -47,6 +47,13 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
 - **mimalloc global allocator** (the main thread blocked in `free()` on memory allocated by tile
   builders): tour +10% avg fps with 30-45% run spread, other shots -5..+4%, peak RSS up to +10%.
   Not convincing.
+
+- **Fewer voxel color lookups in the AA color pass** (`benchmarks/experiments/aa-single-face-fast-path.patch`).
+  Samplers gained a `color_cache_key` (equal keys guarantee equal color). Two uses, both exact:
+  a per-corner cache of the last color across the 16 samples, then a per-pixel fast path that
+  shades once when all four corner rays hit the same unoccluded face with the same key. Both made
+  the color pass 15-55% slower (fps -3..-15% at full settings), so color lookups aren't the
+  bottleneck. The extra code probably costs occupancy in an already register-heavy shader.
 
 ## Parked for approval (would change the image)
 
