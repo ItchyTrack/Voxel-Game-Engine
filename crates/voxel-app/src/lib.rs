@@ -12,10 +12,10 @@ use bevy::app::TaskPoolThreadAssignmentPolicy;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 #[cfg(target_arch = "wasm32")]
-use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
+use bevy::render::settings::Backends;
+use bevy::render::settings::{RenderCreation, WgpuSettings};
 use bevy::camera::{Hdr, PerspectiveProjection, Projection};
 use bevy::render::view::Msaa;
-#[cfg(target_arch = "wasm32")]
 use bevy::render::RenderPlugin;
 use bevy::window::WindowResolution;
 #[cfg(target_arch = "wasm32")]
@@ -80,6 +80,12 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 				},
 				..default()
 			},
+		}).set(RenderPlugin {
+			render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
+				disabled_features: Some(disabled_wgpu_features()),
+				..Default::default()
+			})),
+			..Default::default()
 		});
 	#[cfg(target_arch = "wasm32")]
 	let default_plugins = DefaultPlugins.build()
@@ -157,6 +163,25 @@ fn run_app() {
 		..Default::default()
 	});
 	app.run();
+}
+
+/// Adapter features never requested from the device. `VOXEL_WGPU_DISABLE` adds more by
+/// (partial) flag name, comma separated, for diagnosing driver problems.
+///
+/// Bevy requests every feature the adapter reports. With the experimental ray query features
+/// in that set, vkCreateDevice fails with VK_ERROR_INITIALIZATION_FAILED on NVIDIA 550 (RTX 2070),
+/// and nothing here uses them.
+#[cfg(not(target_arch = "wasm32"))]
+fn disabled_wgpu_features() -> wgpu::Features {
+	let mut disabled = wgpu::Features::EXPERIMENTAL_RAY_QUERY | wgpu::Features::EXPERIMENTAL_RAY_HIT_VERTEX_RETURN;
+	let requested = std::env::var("VOXEL_WGPU_DISABLE").unwrap_or_default();
+	for name in requested.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+		for flag in wgpu::Features::all().iter() {
+			if format!("{flag:?}").contains(name) { disabled |= flag; }
+		}
+	}
+	if !requested.is_empty() { eprintln!("disabled wgpu features: {disabled:?}"); }
+	disabled
 }
 
 #[cfg(not(target_arch = "wasm32"))]
