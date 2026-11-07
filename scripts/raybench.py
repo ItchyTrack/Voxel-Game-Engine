@@ -3,6 +3,7 @@
 
   raybench.py run LABEL [--binary PATH] [--scenarios a,b] [--settings default,full] [--repeats N]
   raybench.py ab LABEL_A BIN_A LABEL_B BIN_B [--scenarios ...] [--settings ...] [--repeats N]
+  raybench.py multi LABEL BIN [LABEL BIN ...] [--scenarios ...] [--settings ...] [--repeats N]
   raybench.py compare LABEL_A LABEL_B
   raybench.py show LABEL
   raybench.py images LABEL_A LABEL_B
@@ -193,7 +194,7 @@ def wait_status(status, timeout, kill_pattern):
 	start = time.monotonic()
 	while not status.exists():
 		if time.monotonic() - start > timeout:
-			subprocess.run(["pkill", "-f", kill_pattern])
+			subprocess.run(["pkill", "-f", "--", kill_pattern])
 			time.sleep(2)
 			return None
 		time.sleep(0.5)
@@ -375,6 +376,9 @@ def main():
 	for name in ("label_a", "bin_a", "label_b", "bin_b"):
 		ab.add_argument(name)
 	add_matrix(ab)
+	multi = commands.add_parser("multi")
+	multi.add_argument("pairs", nargs="+")
+	add_matrix(multi)
 	cmp_parser = commands.add_parser("compare")
 	cmp_parser.add_argument("label_a")
 	cmp_parser.add_argument("label_b")
@@ -398,6 +402,11 @@ def main():
 		jobs = [(args.label_a, Path(args.bin_a).resolve()), (args.label_b, Path(args.bin_b).resolve())]
 		run_matrix(jobs, args.scenarios.split(","), args.settings.split(","), args.repeats)
 		compare(args.label_a, args.label_b)
+	elif args.command == "multi":
+		jobs = [(args.pairs[i], Path(args.pairs[i + 1]).resolve()) for i in range(0, len(args.pairs), 2)]
+		run_matrix(jobs, args.scenarios.split(","), args.settings.split(","), args.repeats)
+		for label, _ in jobs[1:]:
+			compare(jobs[0][0], label)
 	elif args.command == "compare":
 		compare(args.label_a, args.label_b)
 	elif args.command == "show":

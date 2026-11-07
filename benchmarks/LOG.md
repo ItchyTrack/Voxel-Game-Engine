@@ -12,7 +12,7 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
 |---|---|---|
 | ~~`3fe5a96`~~ | reuse the ray BVH and its GPU buffers while the tile set is unchanged (removed in `04a6ad5`: only helps static scenes) | extract -20%, default fps +8..15% |
 | `858a2fe` | cache tile placements, drop redundant sort, Fx hashing | extract -22..30%, default fps +4..12% |
-| next | incremental render-side tile table; work follows changes, not tile count | extract -21..-46% (swarm 7.7 -> 4.7 ms), fps +11..21% |
+| `f2b4ebe` | incremental render-side tile table; work follows changes, not tile count | extract -21..-46% (swarm 7.7 -> 4.7 ms), fps +11..21% |
 
 ## Tried, not committed
 
@@ -23,6 +23,23 @@ Noise: identical-binary GPU pass times vary about ±5% between runs. Treat small
   no injected bounds checks or loop counters): GPU time -2..-13% on every shot (ray pass -5..-13%,
   roughly -7% on average), fps +1..+10%. Consistent, but below the bar, and it trades away bounds
   safety: a bad tree offset would read arbitrary memory instead of zeros. Needs your approval.
+
+- **Cheaper BVH builders** (BVH is rebuilt every frame since the cache was removed). Same-run
+  comparison on church, dynamic, sponza (fps / extract ms / ray-pass ms):
+  - Morton split (leaves of 4): extract -30..-50%, but ray pass up to +26% (sponza full). Fps flat or worse.
+  - HLBVH hybrid (12-bit Morton clusters joined by binned SAH): extract 3.6 -> 2.6 ms in church,
+    4.7 -> 3.7 in swarm, 3.1 -> 1.8 in sponza; ray pass equal on church/swarm but +30% in sponza, so
+    sponza full loses 15% fps. 15-bit clusters: no better quality, slower build.
+  - SAH without parallel subtree builds: extract roughly doubles (3.6 -> 6.9 ms).
+  The leaf grouping, not the top levels, is what sponza is sensitive to. Not committed.
+
+- **Async BVH build** (`benchmarks/experiments/async-bvh-build.patch`): extraction hands the item
+  list to a builder thread and the render world joins it in PrepareResources. The SAH builder's
+  parallel halves move from the compute pool to scoped threads, because joining from a render
+  system while the build needs the pool deadlocks. Extract -33..-62% everywhere, but here the render
+  thread is the bottleneck (Xvfb present) and now waits 2-3 ms for the build, so fps -0..-7%
+  (tour +3%, its 1% low +12%). Likely a win on a real display, where present is cheap and
+  extract + main is the critical path. Needs your approval.
 
 ## Parked for approval (would change the image)
 
