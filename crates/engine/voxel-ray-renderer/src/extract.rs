@@ -60,6 +60,26 @@ pub fn extract_voxel_scene(
 	cameras: Extract<Query<(RenderEntity, &VoxelCamera, &Camera, &GlobalTransform)>>,
 	tiles: Extract<Query<(&RayTileData, &GlobalTransform)>>,
 	world_gpu: Extract<Res<RayWorldGpuData>>,
+	render_stats: Res<crate::direction_feedback::RenderStats>,
+) {
+	let start = std::time::Instant::now();
+	extract_scene(&mut extracted_scenes, &mut residency, &direction_feedback, &cameras, &tiles, &world_gpu);
+	if render_stats.timing.enabled() {
+		render_stats.timing.push_cpu(crate::gpu_timing::RenderCpuSample {
+			tag: render_stats.timing.tag(),
+			readback_ms: f32::NAN,
+			extract_ms: start.elapsed().as_secs_f32() * 1e3,
+		});
+	}
+}
+
+fn extract_scene(
+	extracted_scenes: &mut ExtractedVoxelScenes,
+	residency: &mut ResidencyBuffers,
+	direction_feedback: &Query<&DirectionFeedback>,
+	cameras: &Query<(RenderEntity, &VoxelCamera, &Camera, &GlobalTransform)>,
+	tiles: &Query<(&RayTileData, &GlobalTransform)>,
+	world_gpu: &RayWorldGpuData,
 ) {
 	extracted_scenes.0.clear();
 

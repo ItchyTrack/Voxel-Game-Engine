@@ -1,6 +1,7 @@
 pub mod graphics_settings;
 pub mod gpu_bvh;
 pub mod gpu_data;
+pub mod gpu_timing;
 pub mod gpu_grid_tree;
 pub mod residency;
 pub mod direction_feedback;

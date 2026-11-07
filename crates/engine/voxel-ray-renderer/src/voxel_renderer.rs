@@ -337,6 +337,7 @@ impl VoxelRenderer {
 		main_voxel_buffer: &GpuBuffer,
 		depth_view: &wgpu::TextureView,
 		color_attachment: wgpu::RenderPassColorAttachment<'_>,
+		timer: Option<&crate::gpu_timing::GpuPassTimer>,
 	) -> GpuBvh {
 		let gpu_bvh = GpuBvh::from_bvh(device, bvh, bvh_item_data);
 		let beam_storage_view = texture_view(&self.bvh_beam_textured, wgpu::TextureUsages::STORAGE_BINDING)(&self.bvh_beam_textured);
@@ -369,7 +370,7 @@ impl VoxelRenderer {
 		}));
 
 		{
-			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Beam Pass"), timestamp_writes: None });
+			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Beam Pass"), timestamp_writes: timer.map(|timer| timer.compute_writes(0)) });
 			compute_pass.set_bind_group(0, &**view_bind_group, &[view_uniform_offset]);
 			compute_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
@@ -378,7 +379,7 @@ impl VoxelRenderer {
 			compute_pass.dispatch_workgroups(self.bvh_beam_textured.width().div_ceil(4), self.bvh_beam_textured.height().div_ceil(4), 1);
 		}
 		{
-			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Ray Pass"), timestamp_writes: None });
+			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Ray Pass"), timestamp_writes: timer.map(|timer| timer.compute_writes(1)) });
 			compute_pass.set_bind_group(0, &**view_bind_group, &[view_uniform_offset]);
 			compute_pass.set_bind_group(1, &*gpu_bvh.bind_group, &[]);
 			compute_pass.set_bind_group(2, &*tree_bind_group, &[]);
@@ -400,7 +401,7 @@ impl VoxelRenderer {
 				color_attachments: &[Some(color_attachment)],
 				depth_stencil_attachment: None,
 				occlusion_query_set: None,
-				timestamp_writes: None,
+				timestamp_writes: timer.map(|timer| timer.render_writes(2)),
 				multiview_mask: None,
 			});
 			render_pass.set_bind_group(0, &**view_bind_group, &[view_uniform_offset]);

@@ -7,12 +7,16 @@ use bevy::prelude::Entity;
 use bevy::render::renderer::RenderDevice;
 
 use crate::gpu_bvh::GpuBvh;
+use crate::gpu_timing::{FrameTimings, GpuPassTimer, RenderCpuSample};
 use crate::incoming_ray_directions::IncomingRayDirections;
 
 #[derive(Component, Default)]
 pub struct DirectionFeedback {
 	directions: HashMap<Entity, IncomingRayDirections>,
 	rendered: Option<GpuBvh>,
+	pub(crate) timer: Option<GpuPassTimer>,
+	/// Benchmark tag of the frame currently being extracted and rendered.
+	pub(crate) frame_tag: u32,
 }
 
 impl DirectionFeedback {
@@ -29,6 +33,7 @@ impl DirectionFeedback {
 #[derive(bevy::ecs::resource::Resource, Clone, Default)]
 pub struct RenderStats {
 	pub inner: Arc<Mutex<RenderStatsData>>,
+	pub timing: FrameTimings,
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -39,10 +44,30 @@ pub struct RenderStatsData {
 
 pub fn read_back_direction_masks(
 	render_device: Res<RenderDevice>,
+	render_stats: Res<RenderStats>,
 	mut view_feedback: Query<&mut DirectionFeedback>,
 ) {
+	let timing_enabled = render_stats.timing.enabled();
 	for mut feedback in &mut view_feedback {
-		let Some(gpu_bvh) = feedback.rendered.take() else { continue };
+		let start = std::time::Instant::now();
+		feedback.frame_tag = render_stats.timing.tag();
+		if let Some(timer) = feedback.timer.as_mut() {
+			timer.collect(render_device.wgpu_device(), &render_stats.timing);
+		}
+		read_back_view(&render_device, &mut feedback);
+		if timing_enabled {
+			render_stats.timing.push_cpu(RenderCpuSample {
+				tag: feedback.frame_tag,
+				readback_ms: start.elapsed().as_secs_f32() * 1e3,
+				extract_ms: f32::NAN,
+			});
+		}
+	}
+}
+
+fn read_back_view(render_device: &RenderDevice, feedback: &mut DirectionFeedback) {
+	{
+		let Some(gpu_bvh) = feedback.rendered.take() else { return };
 		gpu_bvh.item_direction_mask_staging_buffer.slice(..).map_async(
 			wgpu::MapMode::Read,
 			|result| result.expect("failed to map voxel direction feedback"),

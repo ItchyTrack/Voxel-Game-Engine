@@ -22,7 +22,7 @@ use voxel_streaming::RequestChunkPresence;
 
 use crate::voxel::spawn_grid::spawn_grid;
 
-type SceneVoxFileSource = VoxFileSource<BasicVoxel>;
+pub(crate) type SceneVoxFileSource = VoxFileSource<BasicVoxel>;
 type MarchingVoxFileSource = VoxFileSource<MarchingVoxel>;
 
 pub struct ScenePlugin;
@@ -118,6 +118,32 @@ fn spawn_sponza(commands: &mut Commands, vox_source: &mut MarchingVoxFileSource)
 	)).id();
 	commands.entity(parent).add_child(grid);
 	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
+}
+
+/// A static, ray-rendered grid streamed from a `.vox` file.
+pub(crate) fn spawn_static_vox(commands: &mut Commands, vox_source: &mut SceneVoxFileSource, path: PathBuf, position: Vec3) {
+	let parent = commands.spawn((RigidBody, IsStatic, Transform::from_translation(position))).id();
+	let grid = commands.spawn((
+		Transform::IDENTITY,
+		Grid::new::<BasicVoxel>(),
+		GridEditIdManager::default(),
+		RequestChunkPresence,
+		ReplicateVoxels,
+		VoxelCollider,
+	)).id();
+	commands.entity(parent).add_child(grid);
+	vox_source.set_grid_vox_file(grid, Vec3::ZERO, path);
+}
+
+/// `res/<name>` relative to the working directory or the workspace.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn res_path(name: &str) -> Option<PathBuf> {
+	[
+		PathBuf::from("res").join(name),
+		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../res").join(name),
+	]
+	.into_iter()
+	.find(|p| p.exists())
 }
 
 fn spawn_church(commands: &mut Commands, vox_source: &mut SceneVoxFileSource) {

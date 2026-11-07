@@ -1,5 +1,7 @@
 mod audio;
 #[cfg(not(target_arch = "wasm32"))]
+mod benchmark;
+#[cfg(not(target_arch = "wasm32"))]
 mod networking;
 mod scene;
 mod ui;
@@ -42,6 +44,11 @@ use scene::world_interaction::WorldInteractionPlugin;
 use crate::voxel::planet_source::ProceduralPlanetPlugin;
 use crate::voxel::rendering::VoxelAppRenderingPlugin;
 use crate::voxel::tree_source::TreeSourcePlugin;
+
+/// The benchmark hides the debug window so screenshots of identical frames compare equal.
+pub(crate) fn benchmark_active() -> bool {
+	std::env::args().any(|arg| arg == "--benchmark")
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,6 +164,13 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 }
 
 fn run_app() {
+	#[cfg(not(target_arch = "wasm32"))]
+	if let Some(config) = benchmark::parse_config() {
+		let mut app = build_app(benchmark::bench_window());
+		app.add_plugins(benchmark::BenchmarkPlugin(config));
+		app.run();
+		return;
+	}
 	let mut app = build_app(Window {
 		resolution: WindowResolution::new(800, 600),
 		canvas: Some("#canvas".into()),

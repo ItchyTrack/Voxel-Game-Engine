@@ -87,6 +87,7 @@ pub fn prepare_voxel_view_bind_groups(
 
 pub fn voxel_render_pass(
 	voxel_resource: Res<VoxelRendererResource>,
+	render_queue: Res<RenderQueue>,
 	render_stats: Res<RenderStats>,
 	extracted_scenes: Res<ExtractedVoxelScenes>,
 	view: ViewQuery<(
@@ -120,6 +121,12 @@ pub fn voxel_render_pass(
 		array_layer_count: None,
 	});
 
+	let timing_enabled = render_stats.timing.enabled();
+	if timing_enabled && feedback.timer.is_none() {
+		feedback.timer = crate::gpu_timing::GpuPassTimer::new(&device, render_queue.get_timestamp_period());
+	}
+	let timer_slot = if timing_enabled { feedback.timer.as_ref().and_then(|timer| timer.free_slot()) } else { None };
+	let timer = timer_slot.and(feedback.timer.as_ref());
 	let gpu_bvh = voxel_renderer.render(
 		&device,
 		encoder,
@@ -133,7 +140,12 @@ pub fn voxel_render_pass(
 		&extracted.main_voxel_buffer,
 		&depth_sample_view,
 		color_attachment,
+		timer,
 	);
+	if let Some(slot) = timer_slot {
+		let tag = feedback.frame_tag;
+		feedback.timer.as_mut().unwrap().resolve(encoder, slot, tag);
+	}
 
 	if let Ok(mut stats) = render_stats.inner.lock() {
 		stats.bvh_bytes = gpu_bvh.bvh_buffer.size();
