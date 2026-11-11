@@ -1,0 +1,28 @@
+diff --git a/crates/engine/voxel-ray-renderer/src/shaders/raycasting.slang b/crates/engine/voxel-ray-renderer/src/shaders/raycasting.slang
+index 0053ade..7d178b2 100644
+--- a/crates/engine/voxel-ray-renderer/src/shaders/raycasting.slang
++++ b/crates/engine/voxel-ray-renderer/src/shaders/raycasting.slang
+@@ -107,9 +107,20 @@ void main(uint3 global_invocation_id : SV_DispatchThreadID) {
+ 	bool light_visible = true;
+ 	if (render_settings.values.x != 0u) {
+ 		let item = bvh_items[hit.bvh_item_idx];
+-		let hit_pos = ray_start + (hit.total_dist + beam_min_dist) * ray_dir;
+-		let shadow_bias = max(0.01, item.scale * 0.01);
+-		light_visible = !occlusion_raycast(hit_pos + sun_dir * shadow_bias, sun_dir, 1e38);
++		let normal_axis = (hit.normal >> 3u) & 0x3u;
++		float3 local_normal = float3(0.0);
++		local_normal[normal_axis] = (hit.normal & (1u << normal_axis)) != 0u ? -1.0 : 1.0;
++		let world_normal = Quat::rotate(float4(item.quat_x, item.quat_y, item.quat_z, item.quat_w), local_normal);
++		if (dot(world_normal, sun_dir) <= 0.0) {
++			// Facing away from the sun: shading multiplies the light term by max(n.l, 0) = 0, so
++			// visibility can't change the color. A shadow ray from here starts inside its own
++			// voxel and reports occluded anyway.
++			light_visible = false;
++		} else {
++			let hit_pos = ray_start + (hit.total_dist + beam_min_dist) * ray_dir;
++			let shadow_bias = max(0.01, item.scale * 0.01);
++			light_visible = !occlusion_raycast(hit_pos + sun_dir * shadow_bias, sun_dir, 1e38);
++		}
+ 	}
+ 	intermediate_textured.Store(pixel, uint4(
+ 		hit.normal + 256u * (light_visible ? 1u : 0u),

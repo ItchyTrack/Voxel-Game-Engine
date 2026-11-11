@@ -1,5 +1,7 @@
 mod audio;
 #[cfg(not(target_arch = "wasm32"))]
+mod benchmark;
+#[cfg(not(target_arch = "wasm32"))]
 mod networking;
 mod scene;
 mod ui;
@@ -12,10 +14,10 @@ use bevy::app::TaskPoolThreadAssignmentPolicy;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 #[cfg(target_arch = "wasm32")]
-use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
+use bevy::render::settings::Backends;
+use bevy::render::settings::{RenderCreation, WgpuSettings};
 use bevy::camera::{Hdr, PerspectiveProjection, Projection};
 use bevy::render::view::Msaa;
-#[cfg(target_arch = "wasm32")]
 use bevy::render::RenderPlugin;
 use bevy::window::WindowResolution;
 #[cfg(target_arch = "wasm32")]
@@ -42,6 +44,11 @@ use scene::world_interaction::WorldInteractionPlugin;
 use crate::voxel::planet_source::ProceduralPlanetPlugin;
 use crate::voxel::rendering::VoxelAppRenderingPlugin;
 use crate::voxel::tree_source::TreeSourcePlugin;
+
+/// The benchmark hides the debug window so screenshots of identical frames compare equal.
+pub(crate) fn benchmark_active() -> bool {
+	std::env::args().any(|arg| arg == "--benchmark")
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,15 +78,26 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 					on_thread_spawn: None,
 					on_thread_destroy: None,
 				},
+				// Streaming workers. At 60% of the cores (7 of 12 here) their tile results arrived
+				// faster than the main thread could absorb them: live-streaming frames took ~32 ms
+				// of main-world time and 1% lows were under 2 fps. At 25% the tour runs at 1.7x the
+				// fps, 4x the 1% low, and still streams in more tiles over the flight. Initial
+				// loading of a static view is ~25% slower.
 				async_compute: TaskPoolThreadAssignmentPolicy {
 					min_threads: 1,
 					max_threads: usize::MAX,
-					percent: 0.6,
+					percent: 0.25,
 					on_thread_spawn: None,
 					on_thread_destroy: None,
 				},
 				..default()
 			},
+		}).set(RenderPlugin {
+			render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
+				disabled_features: Some(disabled_wgpu_features()),
+				..Default::default()
+			})),
+			..Default::default()
 		});
 	#[cfg(target_arch = "wasm32")]
 	let default_plugins = DefaultPlugins.build()
@@ -151,12 +169,38 @@ pub fn build_app_with_mode(window: Window, mode: VoxelEngineMode) -> App {
 }
 
 fn run_app() {
+	#[cfg(not(target_arch = "wasm32"))]
+	if let Some(config) = benchmark::parse_config() {
+		let mut app = build_app(benchmark::bench_window());
+		app.add_plugins(benchmark::BenchmarkPlugin(config));
+		app.run();
+		return;
+	}
 	let mut app = build_app(Window {
 		resolution: WindowResolution::new(800, 600),
 		canvas: Some("#canvas".into()),
 		..Default::default()
 	});
 	app.run();
+}
+
+/// Adapter features never requested from the device. `VOXEL_WGPU_DISABLE` adds more by
+/// (partial) flag name, comma separated, for diagnosing driver problems.
+///
+/// Bevy requests every feature the adapter reports. With the experimental ray query features
+/// in that set, vkCreateDevice fails with VK_ERROR_INITIALIZATION_FAILED on NVIDIA 550 (RTX 2070),
+/// and nothing here uses them.
+#[cfg(not(target_arch = "wasm32"))]
+fn disabled_wgpu_features() -> wgpu::Features {
+	let mut disabled = wgpu::Features::EXPERIMENTAL_RAY_QUERY | wgpu::Features::EXPERIMENTAL_RAY_HIT_VERTEX_RETURN;
+	let requested = std::env::var("VOXEL_WGPU_DISABLE").unwrap_or_default();
+	for name in requested.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+		for flag in wgpu::Features::all().iter() {
+			if format!("{flag:?}").contains(name) { disabled |= flag; }
+		}
+	}
+	if !requested.is_empty() { eprintln!("disabled wgpu features: {disabled:?}"); }
+	disabled
 }
 
 #[cfg(not(target_arch = "wasm32"))]

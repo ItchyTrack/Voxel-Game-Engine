@@ -47,7 +47,7 @@ impl Plugin for DebugUiPlugin {
 			.add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
 				store.config_mut::<ChunkGizmos>().0.line.width = 4.0;
 			})
-			.add_systems(EguiPrimaryContextPass, debug_window)
+			.add_systems(EguiPrimaryContextPass, debug_window.run_if(|| !crate::benchmark_active()))
 			.add_systems(Update, draw_inertia_boxes.run_if(|b: Res<InertiaBoxes>| b.0))
 			.add_systems(Update, draw_ball_joint_constraints.run_if(|b: Res<ConstraintDebugRender>| b.0))
 			.add_systems(Update, draw_chunk_presence.run_if(|b: Res<ChunkPresenceBoxes>| b.0))

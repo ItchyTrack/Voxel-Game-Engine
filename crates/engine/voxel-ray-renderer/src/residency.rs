@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
@@ -39,8 +39,8 @@ pub struct ResidentVoxels {
 pub struct ResidencyBuffers {
 	trees: PackedResidencyBuffer<SLOTS>,
 	voxels: PackedResidencyBuffer<SLOTS>,
-	offsets: HashMap<Entity, (u32, u32)>,
-	loaded_directions: HashMap<Entity, ResidencyDirections>,
+	offsets: FxHashMap<Entity, (u32, u32)>,
+	loaded_directions: FxHashMap<Entity, ResidencyDirections>,
 }
 
 impl FromWorld for ResidencyBuffers {
@@ -60,8 +60,8 @@ impl FromWorld for ResidencyBuffers {
 				VOXEL_BUFFER_ALIGNMENT,
 				"residency_buffer",
 			),
-			offsets: HashMap::new(),
-			loaded_directions: HashMap::new(),
+			offsets: FxHashMap::default(),
+			loaded_directions: FxHashMap::default(),
 		}
 	}
 }
@@ -124,8 +124,8 @@ impl ResidencyBuffers {
 		}
 	}
 
-	pub fn offsets(&self) -> &HashMap<Entity, (u32, u32)> { &self.offsets }
-	pub fn loaded_directions(&self) -> &HashMap<Entity, ResidencyDirections> { &self.loaded_directions }
+	pub fn offsets(&self) -> &FxHashMap<Entity, (u32, u32)> { &self.offsets }
+	pub fn loaded_directions(&self) -> &FxHashMap<Entity, ResidencyDirections> { &self.loaded_directions }
 	pub fn tree_buffer(&self) -> &GpuBuffer { self.trees.buffer() }
 	pub fn voxel_buffer(&self) -> &GpuBuffer { self.voxels.buffer() }
 }

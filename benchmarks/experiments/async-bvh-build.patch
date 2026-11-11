@@ -1,0 +1,203 @@
+diff --git a/crates/core/voxel-data/src/bvh/building.rs b/crates/core/voxel-data/src/bvh/building.rs
+index 82730a9..38342d4 100644
+--- a/crates/core/voxel-data/src/bvh/building.rs
++++ b/crates/core/voxel-data/src/bvh/building.rs
+@@ -1,7 +1,6 @@
+ use std::sync::Arc;
+ 
+ use bevy::math::Vec3;
+-use bevy::tasks::{ComputeTaskPool, TaskPoolBuilder};
+ use tracy_client::span;
+ 
+ use super::{BVH, BVHInternal, BVHNode};
+@@ -18,6 +17,8 @@ use super::{BVH, BVHInternal, BVHNode};
+ /// in size or distribution.
+ const BIN_COUNT: usize = 16;
+ const PARALLEL_BUILD_THRESHOLD: usize = 512;
++/// Splits above this depth build their halves on separate threads (up to 2^depth threads).
++const PARALLEL_BUILD_DEPTH: u32 = 2;
+ 
+ /// Cost of traversing one BVH node relative to testing one primitive.
+ const TRAVERSAL_COST: f32 = 1.0;
+@@ -90,6 +91,7 @@ impl BVHNode {
+ 		primitives: Arc<[BuildPrimitive<Index>]>,
+ 		indices: &mut [u16],
+ 		output: &mut BuildBuffer<Index>,
++		depth: u32,
+ 	) -> u16 {
+ 		assert!(!indices.is_empty());
+ 
+@@ -265,42 +267,32 @@ impl BVHNode {
+ 			sub_nodes: BVHInternal::SubNodes { sub1: 0, sub2: 0 },
+ 		});
+ 
+-		let should_parallelize = indices.len() >= PARALLEL_BUILD_THRESHOLD;
++		let should_parallelize = indices.len() >= PARALLEL_BUILD_THRESHOLD && depth < PARALLEL_BUILD_DEPTH;
+ 		let (left_indices, right_indices) = indices.split_at_mut(split_index);
+ 		let (left_root, right_root) = if should_parallelize {
+-			let (spawned_indices, local_indices, spawned_is_left) = if left_indices.len() < right_indices.len() {
+-				(left_indices.to_vec(), right_indices, true)
+-			} else {
+-				(right_indices.to_vec(), left_indices, false)
+-			};
+-			let pool = ComputeTaskPool::get_or_init(|| TaskPoolBuilder::new().build());
+-			let mut local_root = 0u16;
+-			let mut results: Vec<(u16, BuildBuffer<Index>)> = pool.scope(|scope| {
++			// Scoped OS threads rather than the compute task pool: callers may hold pool threads while
++			// waiting for this BVH (the renderer joins its async build from a render system), and
++			// pool tasks would then deadlock.
++			let (spawned_tree, local_root) = std::thread::scope(|scope| {
+ 				let spawned_primitives = primitives.clone();
+-				scope.spawn(async move {
+-					let mut indices = spawned_indices;
+-					let mut output = BuildBuffer::with_capacity(indices.len());
+-					let root = Self::build_subtree(spawned_primitives, &mut indices, &mut output);
++				let handle = scope.spawn(move || {
++					let mut output = BuildBuffer::with_capacity(right_indices.len());
++					let root = Self::build_subtree(spawned_primitives, right_indices, &mut output, depth + 1);
+ 					(root, output)
+ 				});
+-				local_root = Self::build_subtree(primitives.clone(), local_indices, output);
++				let local_root = Self::build_subtree(primitives.clone(), left_indices, output, depth + 1);
++				(handle.join().expect("BVH subtree build panicked"), local_root)
+ 			});
+-			let (spawned_local_root, mut spawned_tree) = results.remove(0);
++			let (spawned_local_root, mut spawned_tree) = spawned_tree;
+ 			let spawned_node_base = output.nodes.len() as u16;
+ 			let spawned_item_base = output.items.len() as u16;
+ 			rebase_subtree(&mut spawned_tree, spawned_node_base, spawned_item_base);
+-			let spawned_root = spawned_local_root + spawned_node_base;
+ 			output.nodes.extend(spawned_tree.nodes);
+ 			output.items.extend(spawned_tree.items);
+-
+-			if spawned_is_left {
+-				(spawned_root, local_root)
+-			} else {
+-				(local_root, spawned_root)
+-			}
++			(local_root, spawned_local_root + spawned_node_base)
+ 		} else {
+-			let left_root = Self::build_subtree(primitives.clone(), left_indices, output);
+-			let right_root = Self::build_subtree(primitives.clone(), right_indices, output);
++			let left_root = Self::build_subtree(primitives.clone(), left_indices, output, depth + 1);
++			let right_root = Self::build_subtree(primitives.clone(), right_indices, output, depth + 1);
+ 			(left_root, right_root)
+ 		};
+ 
+@@ -335,7 +327,7 @@ impl<Index: Copy + std::fmt::Debug + PartialEq> BVH<Index> {
+ 
+ 		let mut indices: Vec<u16> = (0..item_count).collect();
+ 		let mut output = BuildBuffer::with_capacity(item_count as usize);
+-		BVHNode::build_subtree(primitives, &mut indices, &mut output);
++		BVHNode::build_subtree(primitives, &mut indices, &mut output, 0);
+ 		BVH { nodes: output.nodes, items: output.items }
+ 	}
+ }
+diff --git a/crates/engine/voxel-ray-renderer/src/extract.rs b/crates/engine/voxel-ray-renderer/src/extract.rs
+index 48fc9ff..4941621 100644
+--- a/crates/engine/voxel-ray-renderer/src/extract.rs
++++ b/crates/engine/voxel-ray-renderer/src/extract.rs
+@@ -24,7 +24,7 @@ type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
+ 
+ /// What one view renders this frame. BVH items are slot indices into the view's [`TileTable`].
+ pub struct ExtractedVoxelScene {
+-	pub bvh: Option<BVH<u32>>,
++	pub bvh: SceneBvh,
+ 	pub tree_buffer: GpuBuffer,
+ 	pub voxel_buffer: GpuBuffer,
+ 	pub main_tree_buffer: GpuBuffer,
+@@ -36,6 +36,56 @@ pub struct ExtractedVoxelScene {
+ #[derive(Resource, Default)]
+ pub struct ExtractedVoxelScenes(pub FxHashMap<Entity, ExtractedVoxelScene>);
+ 
++/// The BVH is built on a dedicated thread, started in extraction and joined in the render world's
++/// prepare stage. That keeps a full SAH rebuild every frame (needed once things move) out of
++/// extraction, which blocks the main world. Not a task-pool task: the build fans out on the compute
++/// pool itself, and the async pool is full of long-running streaming work that would starve it.
++pub enum SceneBvh {
++	Empty,
++	Building(crossbeam_channel::Receiver<BVH<u32>>),
++	Ready(BVH<u32>),
++}
++
++type BvhJob = (Vec<(u32, (Vec3, Vec3))>, crossbeam_channel::Sender<BVH<u32>>);
++
++fn spawn_bvh_build(items: Vec<(u32, (Vec3, Vec3))>) -> crossbeam_channel::Receiver<BVH<u32>> {
++	static WORKER: std::sync::OnceLock<crossbeam_channel::Sender<BvhJob>> = std::sync::OnceLock::new();
++	let worker = WORKER.get_or_init(|| {
++		let (sender, receiver) = crossbeam_channel::unbounded::<BvhJob>();
++		std::thread::Builder::new()
++			.name("voxel BVH builder".into())
++			.spawn(move || {
++				for (items, result) in receiver {
++					let _ = result.send(BVH::new(items));
++				}
++			})
++			.expect("failed to start the BVH builder thread");
++		sender
++	});
++	let (sender, receiver) = crossbeam_channel::bounded(1);
++	worker.send((items, sender)).expect("BVH builder thread exited");
++	receiver
++}
++
++impl SceneBvh {
++	pub fn ready(&self) -> Option<&BVH<u32>> {
++		match self {
++			Self::Ready(bvh) => Some(bvh),
++			_ => None,
++		}
++	}
++}
++
++/// Waits for this frame's BVH builds. Runs on the render thread just before bind groups are made.
++pub fn finish_bvh_builds(mut scenes: ResMut<ExtractedVoxelScenes>) {
++	for scene in scenes.0.values_mut() {
++		if matches!(scene.bvh, SceneBvh::Building(_)) {
++			let SceneBvh::Building(result) = std::mem::replace(&mut scene.bvh, SceneBvh::Empty) else { unreachable!() };
++			scene.bvh = SceneBvh::Ready(result.recv().expect("BVH builder thread exited"));
++		}
++	}
++}
++
+ /// Render-world mirror of the tiles each view draws, kept across frames. Per frame, only tiles that
+ /// moved or were rebuilt are touched, so extraction cost follows what changed, not how many tiles
+ /// are in view.
+@@ -233,7 +283,11 @@ fn extract_scene(
+ 		}
+ 
+ 		extracted_scenes.0.insert(*view, ExtractedVoxelScene {
+-			bvh: (!bvh_items.is_empty()).then(|| BVH::new(bvh_items)),
++			bvh: if bvh_items.is_empty() {
++				SceneBvh::Empty
++			} else {
++				SceneBvh::Building(spawn_bvh_build(bvh_items))
++			},
+ 			tree_buffer: tree_buffer.clone(),
+ 			voxel_buffer: voxel_buffer.clone(),
+ 			main_tree_buffer: main_tree_buffer.clone(),
+diff --git a/crates/engine/voxel-ray-renderer/src/lib.rs b/crates/engine/voxel-ray-renderer/src/lib.rs
+index f44cc2b..258a9f9 100644
+--- a/crates/engine/voxel-ray-renderer/src/lib.rs
++++ b/crates/engine/voxel-ray-renderer/src/lib.rs
+@@ -122,6 +122,7 @@ impl Plugin for VoxelRayRendererPlugin {
+ 			.add_systems(
+ 				Render,
+ 				(
++					extract::finish_bvh_builds.in_set(RenderSystems::PrepareResources),
+ 					render_node::prepare_voxel_view_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+ 					gpu_timing::render_schedule_start.in_set(RenderSystems::ExtractCommands),
+ 					gpu_timing::render_schedule_end.in_set(RenderSystems::PostCleanup),
+diff --git a/crates/engine/voxel-ray-renderer/src/render_node.rs b/crates/engine/voxel-ray-renderer/src/render_node.rs
+index 29bf5c4..d92717b 100644
+--- a/crates/engine/voxel-ray-renderer/src/render_node.rs
++++ b/crates/engine/voxel-ray-renderer/src/render_node.rs
+@@ -105,7 +105,7 @@ pub fn voxel_render_pass(
+ 	let Some(voxel_renderer) = prepared.voxel_renderer.as_ref() else { return };
+ 	let Some(view_bind_group) = voxel_resource.view_bind_group.as_ref() else { return };
+ 	let Some(extracted) = extracted_scenes.0.get(&entity) else { return };
+-	let Some(bvh) = extracted.bvh.as_ref() else { return };
++	let Some(bvh) = extracted.bvh.ready() else { return };
+ 	let Some(table) = tile_tables.0.get(&entity) else { return };
+ 
+ 	let device = render_context.render_device().wgpu_device().clone();

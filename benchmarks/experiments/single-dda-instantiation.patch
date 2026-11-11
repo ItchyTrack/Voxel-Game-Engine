@@ -1,0 +1,78 @@
+diff --git a/crates/engine/voxel-ray-renderer/src/shaders/shared/beam_combined_raycast.slang b/crates/engine/voxel-ray-renderer/src/shaders/shared/beam_combined_raycast.slang
+index a5e0723..522e817 100644
+--- a/crates/engine/voxel-ray-renderer/src/shaders/shared/beam_combined_raycast.slang
++++ b/crates/engine/voxel-ray-renderer/src/shaders/shared/beam_combined_raycast.slang
+@@ -29,17 +29,11 @@ float beam_raycast(float3 ray_pos, float3 ray_dir, float expand_k, float max_dis
+ 		let remaining = min(best_total_dist - candidate.dist, candidate.aabb_internal_dist);
+ 
+ 		float dda_distance;
+-		if ((data_source == 2u)) {
+-			dda_distance = beam_dda_raycast<MainDDADataSource>(
++		dda_selected_source = data_source;
++		dda_distance = beam_dda_raycast<SelectedDDADataSource>(
+ 				local_pos, local_dir, remaining / item.scale, item.item_index,
+ 				candidate.dist, expand_k, item.scale,
+ 			);
+-		} else {
+-			dda_distance = beam_dda_raycast<ResidencyDDADataSource>(
+-				local_pos, local_dir, remaining / item.scale, item.item_index,
+-				candidate.dist, expand_k, item.scale,
+-			);
+-		}
+ 
+ 		if ((dda_distance < 1e37)) {
+ 			let total = candidate.dist + dda_distance * item.scale;
+diff --git a/crates/engine/voxel-ray-renderer/src/shaders/shared/combined_raycast.slang b/crates/engine/voxel-ray-renderer/src/shaders/shared/combined_raycast.slang
+index 29555da..66027ce 100644
+--- a/crates/engine/voxel-ray-renderer/src/shaders/shared/combined_raycast.slang
++++ b/crates/engine/voxel-ray-renderer/src/shaders/shared/combined_raycast.slang
+@@ -39,11 +39,8 @@ RaycastHit full_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
+ 		if (data_source == 0u) { continue; }
+ 		let remaining = min(best.total_dist - candidate.dist, candidate.aabb_internal_dist);
+ 		DDAHit dda_hit;
+-		if ((data_source == 2u)) {
+-			dda_hit = dda_raycast<MainDDADataSource>(local_pos, local_dir, remaining / item.scale, item.item_index);
+-		} else {
+-			dda_hit = dda_raycast<ResidencyDDADataSource>(local_pos, local_dir, remaining / item.scale, item.item_index);
+-		}
++		dda_selected_source = data_source;
++		dda_hit = dda_raycast<SelectedDDADataSource>(local_pos, local_dir, remaining / item.scale, item.item_index);
+ 
+ 		if ((dda_hit.normal != 0)) {
+ 			let total = candidate.dist + dda_hit.dist * item.scale;
+diff --git a/crates/engine/voxel-ray-renderer/src/shaders/shared/dda/data.slang b/crates/engine/voxel-ray-renderer/src/shaders/shared/dda/data.slang
+index 384a199..2d71a05 100644
+--- a/crates/engine/voxel-ray-renderer/src/shaders/shared/dda/data.slang
++++ b/crates/engine/voxel-ray-renderer/src/shaders/shared/dda/data.slang
+@@ -107,3 +107,13 @@ struct ResidencyDDADataSource : IDDADataSource {
+ struct MainDDADataSource : IDDADataSource {
+ 	uint dda_u32(uint byte_offset) { return main_grid_tree_buf[byte_offset / 4u]; }
+ };
++
++/// Selects the buffer per BVH item at runtime, so the DDA is compiled once instead of once per
++/// data source. Set before each traversal (1 = residency, 2 = main).
++static uint dda_selected_source = 1u;
++
++struct SelectedDDADataSource : IDDADataSource {
++	uint dda_u32(uint byte_offset) {
++		return dda_selected_source == 2u ? main_grid_tree_buf[byte_offset / 4u] : residency_grid_tree_buf[byte_offset / 4u];
++	}
++};
+diff --git a/crates/engine/voxel-ray-renderer/src/shaders/shared/occlusion_raycast.slang b/crates/engine/voxel-ray-renderer/src/shaders/shared/occlusion_raycast.slang
+index 3064268..b6cfcec 100644
+--- a/crates/engine/voxel-ray-renderer/src/shaders/shared/occlusion_raycast.slang
++++ b/crates/engine/voxel-ray-renderer/src/shaders/shared/occlusion_raycast.slang
+@@ -25,11 +25,8 @@ bool occlusion_raycast(float3 ray_pos, float3 ray_dir, float max_dist) {
+ 		if (data_source == 0u) { continue; }
+ 		let remaining = min(max_dist - candidate.dist, candidate.aabb_internal_dist);
+ 		DDAHit dda_hit;
+-		if ((data_source == 2u)) {
+-			dda_hit = dda_raycast<MainDDADataSource>(local_pos, local_dir, remaining / item.scale, item.item_index);
+-		} else {
+-			dda_hit = dda_raycast<ResidencyDDADataSource>(local_pos, local_dir, remaining / item.scale, item.item_index);
+-		}
++		dda_selected_source = data_source;
++		dda_hit = dda_raycast<SelectedDDADataSource>(local_pos, local_dir, remaining / item.scale, item.item_index);
+ 		if ((dda_hit.normal != 0)) {
+ 			let total = candidate.dist + dda_hit.dist * item.scale;
+ 			if ((total < max_dist)) {

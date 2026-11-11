@@ -87,8 +87,10 @@ pub fn prepare_voxel_view_bind_groups(
 
 pub fn voxel_render_pass(
 	voxel_resource: Res<VoxelRendererResource>,
+	render_queue: Res<RenderQueue>,
 	render_stats: Res<RenderStats>,
 	extracted_scenes: Res<ExtractedVoxelScenes>,
+	tile_tables: Res<crate::extract::TileTables>,
 	view: ViewQuery<(
 		bevy::ecs::entity::Entity,
 		&ViewTarget,
@@ -104,6 +106,7 @@ pub fn voxel_render_pass(
 	let Some(view_bind_group) = voxel_resource.view_bind_group.as_ref() else { return };
 	let Some(extracted) = extracted_scenes.0.get(&entity) else { return };
 	let Some(bvh) = extracted.bvh.as_ref() else { return };
+	let Some(table) = tile_tables.0.get(&entity) else { return };
 
 	let device = render_context.render_device().wgpu_device().clone();
 	let encoder = render_context.command_encoder();
@@ -120,20 +123,32 @@ pub fn voxel_render_pass(
 		array_layer_count: None,
 	});
 
+	let feedback = &mut *feedback;
+	let timing_enabled = render_stats.timing.enabled();
+	if timing_enabled && feedback.timer.is_none() {
+		feedback.timer = crate::gpu_timing::GpuPassTimer::new(&device, render_queue.get_timestamp_period());
+	}
+	let timer_slot = if timing_enabled { feedback.timer.as_ref().and_then(|timer| timer.free_slot()) } else { None };
+	let timer = timer_slot.and(feedback.timer.as_ref());
 	let gpu_bvh = voxel_renderer.render(
 		&device,
 		encoder,
 		view_bind_group,
 		prepared.view_uniform_offset,
 		bvh,
-		&extracted.bvh_item_data,
+		table,
 		&extracted.tree_buffer,
 		&extracted.voxel_buffer,
 		&extracted.main_tree_buffer,
 		&extracted.main_voxel_buffer,
 		&depth_sample_view,
 		color_attachment,
+		timer,
 	);
+	if let Some(slot) = timer_slot {
+		let tag = feedback.frame_tag;
+		feedback.timer.as_mut().unwrap().resolve(encoder, slot, tag);
+	}
 
 	if let Ok(mut stats) = render_stats.inner.lock() {
 		stats.bvh_bytes = gpu_bvh.bvh_buffer.size();
