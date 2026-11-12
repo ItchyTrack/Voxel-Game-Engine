@@ -6,7 +6,8 @@ use bevy::render::render_resource::{
 	BindGroupLayoutDescriptor, CachedRenderPipelineId, FragmentState, PipelineCache,
 	RenderPipelineDescriptor, ShaderType, UniformBuffer, VertexState,
 };
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery, WgpuWrapper};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
+use voxel_gpu::wgpu_wrapper::WgpuWrapper;
 use bevy::render::view::ViewTarget;
 use bevy::render::{Render, RenderApp, RenderSystems};
 

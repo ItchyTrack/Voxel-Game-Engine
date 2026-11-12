@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::FromWorld;
-use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use voxel_gpu::wgpu_wrapper::WgpuWrapper;
 
 use voxel_gpu::packed_residency_buffer::{PackedResidencyBuffer, upload_packed_residency_pair};
 use voxel_gpu::residency_packing::PendingUpload;

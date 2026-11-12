@@ -5,7 +5,7 @@ use lightyear::prelude::{Client, EventSender, RemoteEvent};
 use voxel_content::grid_store::GridStoreEditApi;
 use voxel_data::grid::GridId;
 use voxel_sources::edit::{GridEdit, GridEditId};
-use voxel_streaming::ChunkEditInterestChanged;
+use voxel_sources::ChunkEditInterestChanged;
 
 use super::{EditInterest, RemoteGridEdit};
 use crate::chunks::ClientToServerChannel;

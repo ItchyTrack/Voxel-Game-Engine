@@ -1,5 +1,8 @@
 use bevy::prelude::*;
+use bevy_trait_query::RegisterExt;
+use bile_data::DataConsumingNode;
 use lightyear::prelude::{AppTriggerExt, NetworkDirection};
+use voxel_sources::{VoxelData, VoxelSourceNodeSet};
 
 mod client;
 mod messages;
@@ -17,7 +20,7 @@ use messages::{
 	VoxelPayloadMetadata,
 	VoxelRequestKey,
 };
-use server::PendingVoxelLoads;
+use server::{PendingVoxelLoads, ServerVoxelLoadNode};
 
 pub(super) struct VoxelLoadPlugin {
 	pub enable_client: bool,
@@ -41,7 +44,9 @@ impl Plugin for VoxelLoadPlugin {
 			.add_direction(NetworkDirection::ServerToClient);
 
 		if self.enable_server {
+			app.world_mut().spawn((Name::new("Server Voxel Load Node"), ServerVoxelLoadNode::default()));
 			app.init_resource::<PendingVoxelLoads>()
+				.register_component_as::<dyn DataConsumingNode<VoxelData>, ServerVoxelLoadNode>()
 				.add_observer(server::receive_voxel_load_request)
 				.add_observer(server::receive_voxel_load_cancel)
 				.add_observer(server::receive_voxel_load_retry)
@@ -49,10 +54,10 @@ impl Plugin for VoxelLoadPlugin {
 				.add_systems(
 					Update,
 					(
-						server::flush_source_results,
+						server::flush_voxel_data,
 						server::send_pending_voxel_load_responses,
 						server::cleanup_disconnected_requests,
-					).chain(),
+					).chain().before(VoxelSourceNodeSet),
 				);
 		}
 		if self.enable_client {

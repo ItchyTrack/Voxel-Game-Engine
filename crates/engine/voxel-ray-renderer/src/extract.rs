@@ -19,7 +19,7 @@ use crate::direction_feedback::DirectionFeedback;
 use crate::incoming_ray_directions::IncomingRayDirections;
 use crate::gpu_bvh::{BvhDataSource, BvhItemData};
 use crate::{tile_data::RayTileData, voxel_camera::VoxelCamera};
-use bevy::render::renderer::WgpuWrapper;
+use voxel_gpu::wgpu_wrapper::WgpuWrapper;
 
 type GpuBuffer = WgpuWrapper<wgpu::Buffer>;
 

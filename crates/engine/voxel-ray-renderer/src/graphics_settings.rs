@@ -1,9 +1,11 @@
 use bevy::ecs::resource::Resource;
 use bevy::math::UVec4;
 use bevy::render::extract_resource::ExtractResource;
+use bevy::render::RenderApp;
 use bevy::render::render_resource::ShaderType;
 
 #[derive(Resource, ExtractResource, Clone, Copy, Debug)]
+#[extract_app(RenderApp)]
 pub struct GraphicsSettings {
 	pub shadows: bool,
 	pub anti_aliasing: bool,
