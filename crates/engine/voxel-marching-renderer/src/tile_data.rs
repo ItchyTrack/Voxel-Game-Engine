@@ -1,7 +1,11 @@
 use basic_voxel::MarchingVoxel;
 use bevy::{math::{IVec3, UVec3, Vec3}, prelude::Component};
 use bile_math::NonZeroRegion;
-use tile_data::{TileBuildingSession, TileBuilder, TileVoxelReducerRegistry};
+use bile_tiles::TileKey;
+use tile_data::{TileVoxelReducerRegistry, VoxelRegionResult};
+use voxel_data::grid::GridId;
+use voxel_sources::VoxelRequest;
+use voxel_streaming::VoxelTileBuilder;
 use voxel_data::voxels::VoxelType;
 use tile_data::CHUNK_SIZE;
 
@@ -12,7 +16,7 @@ use crate::{gpu_data::MarchingWorldGpuData, marching_cubes::make_marching_cubes_
 #[derive(Component, Default)]
 pub struct MarchingTileClass;
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone)]
 pub struct MarchingTileData {
 	pub vertices: PackedBufferGroupAllocation,
 	pub vertex_count: u32,
@@ -26,20 +30,22 @@ pub struct MarchingTileBuilder {
 	pub reducers: TileVoxelReducerRegistry,
 }
 
-#[tile_data::async_trait]
-impl TileBuilder for MarchingTileBuilder {
+fn padded_area(area: NonZeroRegion) -> NonZeroRegion {
+	NonZeroRegion::new(area.min() - IVec3::splat(CHUNK_SIZE as i32), area.size() + UVec3::splat(2 * CHUNK_SIZE)).unwrap()
+}
+
+impl VoxelTileBuilder for MarchingTileBuilder {
 	type Output = MarchingTileData;
 
-	async fn build(&self, mut session: TileBuildingSession) -> Option<MarchingTileData> {
-		let area = session.key.region;
-		let padded_area = NonZeroRegion::new(area.min() - IVec3::splat(CHUNK_SIZE as i32), area.size() + UVec3::splat(2 * CHUNK_SIZE)).unwrap();
-		let voxel_lod = session.key.lod;
-		session.request_voxels(padded_area, voxel_lod, Some(MarchingVoxel::TYPE_INFO.id));
-		let mut inputs = Vec::new();
-		while let Some(input) = session.receive_voxels().await {
-			inputs.push(input);
-		}
-		let voxels = self.reducers.reduce(padded_area, voxel_lod, MarchingVoxel::TYPE_INFO.id, &inputs)?;
+	fn voxels(&self, grid: GridId, key: TileKey) -> VoxelRequest {
+		VoxelRequest { grid, area: padded_area(key.region), lod: key.lod, voxel_type: Some(MarchingVoxel::TYPE_INFO.id) }
+	}
+
+	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegionResult]) -> Option<MarchingTileData> {
+		let area = key.region;
+		let padded_area = padded_area(area);
+		let voxel_lod = key.lod;
+		let voxels = self.reducers.reduce(padded_area, voxel_lod, MarchingVoxel::TYPE_INFO.id, inputs)?;
 		let step = 1i32.checked_shl(voxel_lod as u32)?;
 		let cell_min = IVec3::splat((CHUNK_SIZE as i32).div_euclid(step));
 		let unscaled_size = area.size().as_ivec3();

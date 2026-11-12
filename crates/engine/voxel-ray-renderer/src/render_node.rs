@@ -1,6 +1,7 @@
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery, WgpuWrapper};
-use bevy::render::view::{ExtractedView, ViewDepthTexture, ViewTarget, ViewUniformOffset, ViewUniforms};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
+use voxel_gpu::wgpu_wrapper::WgpuWrapper;
+use bevy::render::view::{ExtractedView, ViewDepthStencilTexture, ViewTarget, ViewUniformOffset, ViewUniforms};
 
 use crate::direction_feedback::{DirectionFeedback, RenderStats};
 use crate::extract::ExtractedVoxelScenes;
@@ -92,7 +93,7 @@ pub fn voxel_render_pass(
 	view: ViewQuery<(
 		bevy::ecs::entity::Entity,
 		&ViewTarget,
-		&ViewDepthTexture,
+		&ViewDepthStencilTexture,
 		&VoxelViewResources,
 		&mut DirectionFeedback,
 	)>,
@@ -108,7 +109,7 @@ pub fn voxel_render_pass(
 	let device = render_context.render_device().wgpu_device().clone();
 	let encoder = render_context.command_encoder();
 	let color_attachment = view_target.get_color_attachment();
-	let depth_sample_view = view_depth.texture.create_view(&wgpu::TextureViewDescriptor {
+	let depth_sample_view = view_depth.texture().create_view(&wgpu::TextureViewDescriptor {
 		label: Some("voxel_raycast_depth_sample_view"),
 		format: None,
 		dimension: None,

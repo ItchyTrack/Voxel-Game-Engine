@@ -1,63 +1,30 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use bevy::prelude::*;
-use lightyear::prelude::{EventSender, PeerId, PeerMetadata, RemoteEvent};
+use lightyear::prelude::{EventSender, PeerId, NetworkingMetadata, RemoteEvent};
 use tile_data::chunk_aligned;
 use voxel_data::grid::GridId;
-use voxel_sources::edit::{GridEditIdManager, GridEditMessage, GridGeneration};
-use voxel_streaming::ChunkEditInterest;
+use voxel_sources::edit::{GridEditIdManager, GridEditMessage};
+use voxel_sources::ChunkEditInterest;
 
 use super::{EditInterest, RemoteGridEdit};
 use crate::chunks::ServerToClientChannel;
 
+#[derive(Default)]
 struct GridSubscription {
 	interest: ChunkEditInterest,
 	remote_edits: GridEditIdManager,
-	server_generations: BTreeMap<GridGeneration, GridGeneration>,
-}
-
-impl Default for GridSubscription {
-	fn default() -> Self {
-		Self {
-			interest: ChunkEditInterest::default(),
-			remote_edits: GridEditIdManager::default(),
-			server_generations: BTreeMap::from([(GridGeneration::default(), GridGeneration::default())]),
-		}
-	}
 }
 
 impl GridSubscription {
-	fn remap_edit(&mut self, server_generation: GridGeneration) -> voxel_sources::edit::GridEditId {
-		let (edit_id, remote_generation) = self.remote_edits.apply_edit();
-		self.server_generations.insert(remote_generation, server_generation);
-		edit_id
-	}
-
-	fn server_generation(&self, remote_generation: GridGeneration) -> GridGeneration {
-		self.server_generations.range(..=remote_generation)
-			.next_back()
-			.map(|(_, generation)| *generation)
-			.unwrap_or_default()
+	fn remap_edit(&mut self) -> voxel_sources::edit::GridEditId {
+		self.remote_edits.apply_edit().0
 	}
 }
 
 #[derive(Resource, Default)]
 pub(crate) struct EditSubscriptions {
 	clients: HashMap<PeerId, HashMap<GridId, GridSubscription>>,
-}
-
-impl EditSubscriptions {
-	pub(crate) fn server_generation(
-		&self,
-		peer: PeerId,
-		grid: GridId,
-		remote_generation: GridGeneration,
-	) -> GridGeneration {
-		self.clients.get(&peer)
-			.and_then(|grids| grids.get(&grid))
-			.map(|subscription| subscription.server_generation(remote_generation))
-			.unwrap_or_default()
-	}
 }
 
 pub(super) fn receive_interest(
@@ -77,7 +44,7 @@ pub(super) fn receive_interest(
 
 pub(super) fn flush_edits(
 	mut edits: MessageReader<GridEditMessage>,
-	peer_metadata: Option<Res<PeerMetadata>>,
+	peer_metadata: Option<Res<NetworkingMetadata>>,
 	mut senders: Query<&mut EventSender<RemoteGridEdit>>,
 	mut subscriptions: ResMut<EditSubscriptions>,
 ) {
@@ -94,9 +61,9 @@ pub(super) fn flush_edits(
 		for (&peer, grids) in &mut subscriptions.clients {
 			let Some(subscription) = grids.get_mut(&message.grid_id()) else { continue };
 			if !subscription.interest.overlaps(affected_region) { continue; }
-			let Some(&entity) = peer_metadata.mapping.get(&peer) else { continue };
+			let Some(&entity) = peer_metadata.peer_map.get(&peer) else { continue };
 			let Ok(mut sender) = senders.get_mut(entity) else { continue };
-			let edit_id = subscription.remap_edit(message.grid_generation());
+			let edit_id = subscription.remap_edit();
 			sender.trigger::<ServerToClientChannel>(RemoteGridEdit {
 				grid: message.grid_id(),
 				edit_id,
@@ -107,9 +74,9 @@ pub(super) fn flush_edits(
 }
 
 pub(super) fn cleanup_disconnected(
-	peer_metadata: Option<Res<PeerMetadata>>,
+	peer_metadata: Option<Res<NetworkingMetadata>>,
 	mut subscriptions: ResMut<EditSubscriptions>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
-	subscriptions.clients.retain(|peer, _| peer_metadata.mapping.contains_key(peer));
+	subscriptions.clients.retain(|peer, _| peer_metadata.peer_map.contains_key(peer));
 }

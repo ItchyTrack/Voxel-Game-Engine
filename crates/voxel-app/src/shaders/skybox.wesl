@@ -1,4 +1,4 @@
-#import bevy_render::view::View
+import bevy_render::view::View;
 
 struct VertexOutput {
 	@builtin(position) clip_position: vec4<f32>,

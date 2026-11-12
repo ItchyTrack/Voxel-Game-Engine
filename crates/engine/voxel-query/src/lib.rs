@@ -6,11 +6,12 @@ use bevy::ecs::system::SystemParam;
 use bevy::math::{IVec3, Quat, UVec3, Vec3};
 use bevy::prelude::*;
 use bile_tiles::{BileTilesSchedule, DesiredComponents, TileInstances, TileKey};
-use tile_data::{TileBuilder, TileBuildingSession, chunk_aligned};
+use tile_data::{VoxelRegionResult, chunk_aligned};
 use voxel_data::bvh::BVH;
 use voxel_data::grid::{Grid, GridId};
 use voxel_sources::edit::GridEditMessage;
-use voxel_streaming::{TileBuilderAppExt, VoxelTileSourceSet};
+use voxel_sources::VoxelRequest;
+use voxel_streaming::{TileBuilderAppExt, VoxelTileBuilder, VoxelTileSourceSet};
 use voxel_trees::grid_tree::{GridTree64, U16Cell};
 use voxel_trees::views::GridTreeView;
 
@@ -19,7 +20,7 @@ pub type OccupancyTree = GridTree64<U16Cell>;
 #[derive(Component, Default)]
 pub struct OccupancyTileClass;
 
-#[derive(Component, Debug, Default)]
+#[derive(Component, Debug, Default, Clone)]
 pub struct OccupancyTileData {
 	pub tree: OccupancyTree,
 }
@@ -27,18 +28,19 @@ pub struct OccupancyTileData {
 #[derive(Default)]
 pub struct OccupancyTileBuilder;
 
-#[tile_data::async_trait]
-impl TileBuilder for OccupancyTileBuilder {
+impl VoxelTileBuilder for OccupancyTileBuilder {
 	type Output = OccupancyTileData;
 	const REBUILD_ON_EDIT: bool = false;
 
-	async fn build(&self, mut session: TileBuildingSession) -> Option<OccupancyTileData> {
-		let tile_region = session.key.region;
-		assert_eq!(session.key.lod, 0, "occupancy tiles must use LOD 0");
-		session.request_voxels(tile_region, 0, None);
+	fn voxels(&self, grid: GridId, key: TileKey) -> VoxelRequest {
+		assert_eq!(key.lod, 0, "occupancy tiles must use LOD 0");
+		VoxelRequest { grid, area: key.region, lod: 0, voxel_type: None }
+	}
 
+	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegionResult]) -> Option<OccupancyTileData> {
+		let tile_region = key.region;
 		let mut areas = Vec::new();
-		while let Some(input) = session.receive_voxels().await {
+		for input in inputs {
 			assert_eq!(input.lod, 0, "occupancy tile source returned a nonzero LOD");
 			let offset = input.area.min() - tile_region.min();
 			for (origin, size, _) in input.voxels.grid_tree() {

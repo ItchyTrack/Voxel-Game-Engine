@@ -1,9 +1,8 @@
-use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
-use lightyear::prelude::{EventSender, PeerMetadata, RemoteEvent};
-use voxel_sources::{SourceManager, SourceResult};
+use lightyear::prelude::{EventSender, NetworkingMetadata, RemoteEvent};
+use voxel_sources::VoxelRequester;
 
-use super::registry::{OutgoingVoxelMessage, PendingVoxelLoads};
+use super::registry::{OutgoingVoxelMessage, PendingVoxelLoads, ServerVoxelLoadNode};
 use super::super::{
 	VoxelLoadCancel,
 	VoxelLoadManifest,
@@ -12,30 +11,25 @@ use super::super::{
 	VoxelLoadRequest,
 	VoxelLoadRetry,
 };
-use crate::chunks::edit_stream::EditSubscriptions;
 
 pub(crate) fn receive_voxel_load_request(
 	trigger: On<RemoteEvent<VoxelLoadRequest>>,
-	mut sources: ResMut<SourceManager>,
+	node: Single<Entity, With<ServerVoxelLoadNode>>,
+	mut requester: VoxelRequester,
 	mut pending: ResMut<PendingVoxelLoads>,
-	edits: Res<EditSubscriptions>,
 ) {
 	let event = trigger.event();
-	let server_generation = edits.server_generation(
-		event.from,
-		event.trigger.key.grid,
-		event.trigger.key.generation,
-	);
-	pending.request(event.from, event.trigger, server_generation, &mut sources);
+	pending.request(event.from, event.trigger, *node, &mut requester);
 }
 
 pub(crate) fn receive_voxel_load_cancel(
 	trigger: On<RemoteEvent<VoxelLoadCancel>>,
-	mut sources: ResMut<SourceManager>,
+	node: Single<Entity, With<ServerVoxelLoadNode>>,
+	mut requester: VoxelRequester,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let event = trigger.event();
-	pending.cancel(event.from, event.trigger.id, &mut sources);
+	pending.cancel(event.from, event.trigger.id, *node, &mut requester);
 }
 
 pub(crate) fn receive_voxel_load_retry(
@@ -48,31 +42,37 @@ pub(crate) fn receive_voxel_load_retry(
 
 pub(crate) fn receive_voxel_load_received(
 	trigger: On<RemoteEvent<VoxelLoadReceived>>,
-	mut sources: ResMut<SourceManager>,
+	node: Single<Entity, With<ServerVoxelLoadNode>>,
+	mut requester: VoxelRequester,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let event = trigger.event();
-	pending.received(event.from, event.trigger.id, &mut sources);
+	pending.received(event.from, event.trigger.id, *node, &mut requester);
 }
 
-pub(crate) fn flush_source_results(
-	mut results: MessageReader<SourceResult>,
+pub(crate) fn flush_voxel_data(
+	node: Single<(Entity, &mut ServerVoxelLoadNode)>,
+	mut requester: VoxelRequester,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
-	for result in results.read() {
-		pending.receive_source_result(result);
+	let (entity, mut node) = node.into_inner();
+	for key in node.take_dirtied() {
+		pending.dirty_voxels(key, entity, &mut requester);
+	}
+	for (key, data) in node.take_received() {
+		pending.receive_voxels(key, &data, entity, &mut requester);
 	}
 }
 
 pub(crate) fn send_pending_voxel_load_responses(
-	peer_metadata: Option<Res<PeerMetadata>>,
+	peer_metadata: Option<Res<NetworkingMetadata>>,
 	mut senders: Query<(&mut EventSender<VoxelLoadManifest>, &mut EventSender<VoxelLoadPayload>)>,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
 	for _ in 0..pending.outgoing_len() {
 		let Some(message) = pending.pop_outgoing() else { break };
-		let Some(&entity) = peer_metadata.mapping.get(&message.peer()) else {
+		let Some(&entity) = peer_metadata.peer_map.get(&message.peer()) else {
 			pending.push_outgoing(message);
 			continue;
 		};
@@ -92,10 +92,11 @@ pub(crate) fn send_pending_voxel_load_responses(
 }
 
 pub(crate) fn cleanup_disconnected_requests(
-	peer_metadata: Option<Res<PeerMetadata>>,
-	mut sources: ResMut<SourceManager>,
+	peer_metadata: Option<Res<NetworkingMetadata>>,
+	node: Single<Entity, With<ServerVoxelLoadNode>>,
+	mut requester: VoxelRequester,
 	mut pending: ResMut<PendingVoxelLoads>,
 ) {
 	let Some(peer_metadata) = peer_metadata else { return };
-	pending.remove_disconnected(|peer| peer_metadata.mapping.contains_key(&peer), &mut sources);
+	pending.remove_disconnected(|peer| peer_metadata.peer_map.contains_key(&peer), *node, &mut requester);
 }

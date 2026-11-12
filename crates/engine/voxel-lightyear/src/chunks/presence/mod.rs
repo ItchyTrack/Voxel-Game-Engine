@@ -1,5 +1,8 @@
 use bevy::prelude::*;
+use bevy_trait_query::RegisterExt;
+use bile_data::DataConsumingNode;
 use lightyear::prelude::{AppTriggerExt, NetworkDirection};
+use voxel_sources::{VoxelPresence, VoxelSourceNodeSet};
 
 mod client;
 mod messages;
@@ -27,16 +30,18 @@ impl Plugin for PresencePlugin {
 			.add_direction(NetworkDirection::ServerToClient);
 
 		if self.enable_server {
+			app.world_mut().spawn((Name::new("Server Presence Node"), server::ServerPresenceNode::default()));
 			app.init_resource::<server::PendingPresenceLoads>()
+				.register_component_as::<dyn DataConsumingNode<VoxelPresence>, server::ServerPresenceNode>()
 				.add_observer(server::receive_request)
 				.add_observer(server::receive_cancel)
 				.add_systems(
 					Update,
 					(
-						server::flush_source_results,
+						server::flush_presence,
 						server::send_pending_presence,
 						server::cleanup_disconnected,
-					).chain(),
+					).chain().before(VoxelSourceNodeSet),
 				);
 		}
 		if self.enable_client {

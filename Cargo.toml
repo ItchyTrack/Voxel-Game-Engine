@@ -33,10 +33,10 @@ default-members = [
 debug = true
 
 [workspace.dependencies]
-bevy = "0.19"
-bevy_ecs = "0.19"
+bevy = "0.20"
+bevy_ecs = "0.20"
 crossbeam-channel = "0.5.15"
-wgpu = "29.0.3"
+wgpu = "30.0.1"
 log = "0.4"
 num = "0.4.3"
 bytemuck = { version = "1.24", features = ["derive"] }
@@ -66,11 +66,13 @@ voxel-mass = { version = "0.1.0", path = "crates/engine/voxel-mass" }
 voxel-content = { version = "0.1.0", path = "crates/engine/voxel-content" }
 basic-voxel = { version = "0.1.0", path = "crates/engine/basic-voxel" }
 voxel-engine = { version = "0.1.0", path = "crates/engine/voxel-engine" }
-bevy-trait-query = "0.19.0"
-bile-math = { git = "https://github.com/ItchyTrack/Bile", rev = "1ae4a2e" }
-bile-tiles = { git = "https://github.com/ItchyTrack/Bile", rev = "1ae4a2e" }
-bile-scene = { git = "https://github.com/ItchyTrack/Bile", rev = "1ae4a2e" }
-bile-region-loader = { git = "https://github.com/ItchyTrack/Bile", rev = "1ae4a2e" }
+bevy-trait-query = { git = "https://github.com/AwfulToTheEar/bevy-trait-query", rev = "0cd93ce9a8e24c1aa639e758e8f13131ff35916e" }
+bile-math = { git = "https://github.com/ItchyTrack/Bile", rev = "f2298e5" }
+bile-data = { git = "https://github.com/ItchyTrack/Bile", rev = "f2298e5" }
+bile-components = { git = "https://github.com/ItchyTrack/Bile", rev = "f2298e5" }
+bile-tiles = { git = "https://github.com/ItchyTrack/Bile", rev = "f2298e5" }
+bile-scene = { git = "https://github.com/ItchyTrack/Bile", rev = "f2298e5" }
+bile-region-loader = { git = "https://github.com/ItchyTrack/Bile", rev = "f2298e5" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"

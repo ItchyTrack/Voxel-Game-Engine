@@ -1,5 +1,5 @@
 use bevy::ecs::entity::Entity;
-use bevy::render::renderer::WgpuWrapper;
+use voxel_gpu::wgpu_wrapper::WgpuWrapper;
 use rustc_hash::FxHashMap;
 use voxel_data::bvh;
 

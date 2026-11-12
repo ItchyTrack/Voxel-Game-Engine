@@ -2,7 +2,8 @@ use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::FromWorld;
 use bevy::render::render_resource::{ShaderType, UniformBuffer};
-use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use voxel_gpu::wgpu_wrapper::WgpuWrapper;
 use bevy::render::view::ViewUniform;
 
 use crate::direction_feedback::DirectionFeedback;

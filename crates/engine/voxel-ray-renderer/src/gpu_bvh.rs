@@ -1,7 +1,7 @@
 use bevy::ecs::entity::Entity;
 use bevy::math::Vec3;
 use bevy::transform::components::Transform;
-use bevy::render::renderer::WgpuWrapper;
+use voxel_gpu::wgpu_wrapper::WgpuWrapper;
 use rustc_hash::FxHashMap;
 use voxel_data::bvh;
 use voxel_data::voxels::VoxelTypeInfo;

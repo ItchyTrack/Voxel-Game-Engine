@@ -54,7 +54,7 @@ pub fn read_back_direction_masks(
 
 		let staging = gpu_bvh.item_direction_mask_staging_buffer.slice(..);
 		feedback.directions = {
-			let view = staging.get_mapped_range();
+			let view = staging.get_mapped_range().expect("failed to read mapped voxel direction feedback");
 			let words: &[u32] = bytemuck::cast_slice(&view);
 			gpu_bvh.item_ids.iter().enumerate().map(|(item_index, id)| {
 				let word = words[item_index / 4];
