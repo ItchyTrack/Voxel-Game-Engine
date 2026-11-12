@@ -4,17 +4,11 @@ use bevy::render::extract_resource::ExtractResource;
 use bevy::render::RenderApp;
 use bevy::render::render_resource::ShaderType;
 
-#[derive(Resource, ExtractResource, Clone, Copy, Debug)]
+#[derive(Resource, ExtractResource, Clone, Copy, Debug, Default)]
 #[extract_app(RenderApp)]
 pub struct GraphicsSettings {
 	pub shadows: bool,
 	pub anti_aliasing: bool,
-}
-
-impl Default for GraphicsSettings {
-	fn default() -> Self {
-		Self { shadows: false, anti_aliasing: false }
-	}
 }
 
 impl GraphicsSettings {

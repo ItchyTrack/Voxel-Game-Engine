@@ -109,9 +109,8 @@ impl ClientLoadRegistry {
 			let PendingPayloads::Receiving { received, next_retry_at, .. } = &mut pending.payloads else { continue };
 			if now < *next_retry_at { continue; }
 			let missing = received.iter().enumerate()
-				.filter_map(|(index, received)| {
-					(!received).then(|| VoxelPayloadIndex(u32::try_from(index).expect("manifest payload index exceeded protocol range")))
-				})
+				.filter(|(_index, received)| !*received)
+				.map(|(index, _received)| VoxelPayloadIndex(u32::try_from(index).expect("manifest payload index exceeded protocol range")))
 				.collect::<Vec<_>>();
 			if !missing.is_empty() {
 				self.retries.push_back(VoxelLoadRetry { id, missing: missing.into_boxed_slice() });

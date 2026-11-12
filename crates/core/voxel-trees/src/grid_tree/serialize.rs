@@ -39,7 +39,7 @@ fn deserialize_node_bytes<G: GridType>(input: &mut &[u8], raw: &mut RawGridTree,
 	let data_mask = read_u64(input)?;
 	let node_mask = read_u64(input)?;
 	if data_mask & node_mask != 0 { return Err("grid tree node has overlapping data and node masks".into()); }
-	let node_index = if raw.node_count() == 0 { raw.push_empty_node(0) } else { raw.push_empty_node(0) };
+	let node_index = raw.push_empty_node(0); //if raw.node_count() == 0 { raw.push_empty_node(0) } else { raw.push_empty_node(0) };
 	raw.set_parent_offset(node_index, parent_index.map_or(0, |parent| node_index - parent));
 	raw.set_used_cell_count(node_index, (data_mask | node_mask).count_ones() as u8);
 	let data_size = grid_type.data_size_bytes();

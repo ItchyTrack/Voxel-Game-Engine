@@ -22,7 +22,7 @@ impl Plugin for NetworkServerPlugin {
 fn start_server(mut commands: Commands) {
 	let server = commands.spawn((
 		Name::new("Lightyear Server"),
-		ServerUdpIo::default(),
+		ServerUdpIo,
 		LocalAddr(SERVER_ADDR.parse().expect("valid server addr")),
 		NetcodeServer::new(
 			lightyear::prelude::server::NetcodeConfig::default()

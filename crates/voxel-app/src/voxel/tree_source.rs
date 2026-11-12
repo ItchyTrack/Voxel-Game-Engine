@@ -156,7 +156,7 @@ impl ChunkSource for TreeSource {
 					if cancellation.is_cancelled() { break; }
 					if let Some(part) = chunks.get(&chunk) {
 						let offset = chunk_origin(chunk) - region.min();
-						merged.get_or_insert_with(|| Voxels::new::<BasicVoxel>()).merge_from(part, offset);
+						merged.get_or_insert_with(Voxels::new::<BasicVoxel>).merge_from(part, offset);
 					}
 				}
 				merged

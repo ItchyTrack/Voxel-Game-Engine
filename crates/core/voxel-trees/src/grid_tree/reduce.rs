@@ -125,7 +125,7 @@ where
 	R: GridReducer<G>,
 	for<'d> &'d R::Output: Into<G::Data<'d>>,
 {
-	let node_region = NonZeroRegion::new(node_origin.as_ivec3(), UVec3::splat(size(node_depth) as u32)).unwrap();
+	let node_region = NonZeroRegion::new(node_origin.as_ivec3(), UVec3::splat(size(node_depth))).unwrap();
 	let Some(region) = node_region.intersection(region) else { return true };
 	let cell_size = child_size(node_depth);
 	let child_min = (region.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
@@ -137,7 +137,7 @@ where
 		for y in child_min.y..=child_max.y {
 			for x in child_min.x..=child_max.x {
 				let child_index = (x + y * SIZE as u32 + z * SIZE as u32 * SIZE as u32) as u8;
-				let child_origin = node_origin + UVec3::new(x as u32, y as u32, z as u32) * cell_size;
+				let child_origin = node_origin + UVec3::new(x, y, z) * cell_size;
 				let child_region = NonZeroRegion::new(child_origin.as_ivec3(), UVec3::splat(cell_size)).unwrap();
 				let Some(work_region) = child_region.intersection(region) else { continue };
 				let child_active_sources = &child_active_sources[child_index as usize];

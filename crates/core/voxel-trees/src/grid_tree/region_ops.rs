@@ -81,7 +81,7 @@ impl<G: GridType> GridTree64<G> {
 						for z in 0..SIZE {
 							for y in 0..SIZE {
 								for x in 0..SIZE {
-									let child_index = (x + y * SIZE + z * SIZE * SIZE) as u8;
+									let child_index = x + y * SIZE + z * SIZE * SIZE;
 									self.set_child_area_to_data(node_index, node_depth, child_index, data);
 								}
 							}
@@ -214,7 +214,7 @@ impl<G: GridType> GridTree64<G> {
 
 	pub fn split_region(&mut self, region: NonZeroRegion) -> Self {
 		assert!(region.min().is_negative_bitmask() == 0);
-		let mut out = Self::new_with_type(self.grid_type.clone());
+		let mut out = Self::new_with_type(self.grid_type);
 		if self.is_empty() {
 			return out;
 		}
@@ -255,7 +255,7 @@ impl<G: GridType> GridTree64<G> {
 			return;
 		};
 		if self.occupied_bounds().is_none_or(|bounds| destination_region.contains_region(bounds)) {
-			let grid_type = self.grid_type.clone();
+			let grid_type = self.grid_type;
 			*self = Self::new_with_type(grid_type);
 			self.merge_region_from(other, source_bounds, offset);
 			return;
@@ -734,7 +734,7 @@ impl<G: GridType> GridTree64<G> {
 
 	pub(super) fn clear_region_recurse(&mut self, node_index: u32, node_depth: u8, node_origin: UVec3, region: NonZeroRegion) -> bool {
 		let Some(overlap) = region.intersection(NonZeroRegion::new(node_origin.as_ivec3(), UVec3::splat(size(node_depth))).unwrap()) else { return true };
-		let cell_size = child_size(node_depth) as u32;
+		let cell_size = child_size(node_depth);
 		let child_min = (overlap.min().as_uvec3() - node_origin) / UVec3::splat(cell_size);
 		let child_max = (overlap.end().as_uvec3() - node_origin - UVec3::ONE) / UVec3::splat(cell_size);
 		for z in child_min.z..=child_max.z {

@@ -60,7 +60,7 @@ impl Voxel {
 
 	pub fn type_id(&self) -> VoxelTypeId { self.type_id }
 	pub fn size(&self) -> u16 { self.bytes.len() as u16 }
-	pub fn type_info(&self) -> VoxelTypeInfo { VoxelTypeInfo { id: self.type_id, size_bytes: self.size() as u16 } }
+	pub fn type_info(&self) -> VoxelTypeInfo { VoxelTypeInfo { id: self.type_id, size_bytes: self.size() } }
 	pub fn bytes(&self) -> &[u8] { &self.bytes }
 
 	pub fn assert_type<T: VoxelType>(&self) {
@@ -85,7 +85,7 @@ impl<'bytes> VoxelRef<'bytes> {
 
 	pub fn type_id(&self) -> VoxelTypeId { self.type_id }
 	pub fn size(&self) -> u16 { self.bytes.len() as u16 }
-	pub fn type_info(&self) -> VoxelTypeInfo { VoxelTypeInfo { id: self.type_id, size_bytes: self.size() as u16 } }
+	pub fn type_info(&self) -> VoxelTypeInfo { VoxelTypeInfo { id: self.type_id, size_bytes: self.size() } }
 	pub fn bytes(&self) -> &'bytes [u8] { self.bytes }
 
 	pub fn assert_type<T: VoxelType>(&self) {
@@ -294,7 +294,7 @@ impl Voxels {
 		if size == UVec3::ZERO { return; }
 		self.assert_type(voxel.type_id());
 		let max = pos + size - UVec3::ONE;
-		self.add_tree_areas(&vec![(pos, size, voxel)], Some((pos, max)));
+		self.add_tree_areas(&[(pos, size, voxel)], Some((pos, max)));
 	}
 
 	pub fn add_voxels<'a>(&mut self, voxels: &[(UVec3, VoxelRef<'a>)]) {
@@ -326,7 +326,7 @@ impl Voxels {
 
 	fn add_tree_areas<'a>(&mut self, tree_areas: &[(UVec3, UVec3, VoxelRef<'a>)], bounds: Option<(UVec3, UVec3)>) {
 		if tree_areas.is_empty() { return; }
-		self.voxels.add_areas(&tree_areas);
+		self.voxels.add_areas(tree_areas);
 		let Some((min, max)) = bounds else { return };
 		let bb = self.bounding_box.get_mut().unwrap();
 		*bb = Some(match *bb { Some((mn, mx)) => (mn.min(min), mx.max(max)), None => (min, max) });

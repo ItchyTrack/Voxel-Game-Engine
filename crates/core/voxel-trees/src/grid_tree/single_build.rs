@@ -115,8 +115,7 @@ impl<G: GridType> GridTree64<G> {
 					self.set_voxel_child_to_data(leaf_index, cell_index, *data);
 				}
 
-				for root_slot in 0..SIZE_USIZE_CUBED {
-					let mid_index = mid_nodes[root_slot];
+				for (root_slot, &mid_index) in mid_nodes.iter().enumerate() {
 					if mid_index == UNALLOCATED {
 						continue;
 					}
@@ -248,7 +247,7 @@ impl<G: GridType> GridTree64<G> {
 			if bucket.is_empty() {
 				continue;
 			}
-			let child_origin = node_origin + get_child_contents_pos(i).as_uvec3() * cell_size as u32;
+			let child_origin = node_origin + get_child_contents_pos(i).as_uvec3() * cell_size;
 			let child_volume = child_size(node_depth) as usize;
 			let child_volume = child_volume * child_volume * child_volume;
 			let same_data = bucket.iter().all(|op| op.data == bucket[0].data);

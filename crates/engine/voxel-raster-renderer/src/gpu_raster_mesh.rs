@@ -141,8 +141,7 @@ pub fn make_gpu_raster_mesh(grid_tree: &VoxelGridTree, voxel_type: VoxelTypeInfo
 		encoder.write_node(&[VoxelGpuNodeEntry::Data(voxel_ref)], &mut voxel_data);
 		align_voxel_data(&mut voxel_data);
 
-		let position = [pos.x as u32, pos.y as u32, pos.z as u32];
-		let size = size as u32;
+		let position = [pos.x, pos.y, pos.z];
 		occupancy.fill(position, size);
 		leaves.push(RasterLeaf { position, size, voxel_data_index });
 	}

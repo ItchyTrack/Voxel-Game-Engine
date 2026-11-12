@@ -11,6 +11,6 @@ pub struct VoxelTasksPlugin;
 
 impl Plugin for VoxelTasksPlugin {
 	fn build(&self, _app: &mut App) {
-		AsyncPriorityTaskPool::get_or_init(|| AsyncPriorityTaskPool::default());
+		AsyncPriorityTaskPool::get_or_init(AsyncPriorityTaskPool::default);
 	}
 }

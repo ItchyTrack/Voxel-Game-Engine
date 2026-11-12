@@ -77,7 +77,7 @@ impl<G: GridType + Default> SignedGridTree<G> {
 	pub fn for_each_occupied_tile_cover(&self, region: NonZeroRegion, tile_size: u32, mut f: impl FnMut(IVec3)) {
 		for (oct, local) in split_region(region) {
 			self.trees[oct].for_each_occupied_tile_cover(local.min().as_uvec3(), local.max().as_uvec3(), tile_size, |tile| {
-				f(join_region_origin(oct, tile, tile_size as u32));
+				f(join_region_origin(oct, tile, tile_size));
 			});
 		}
 	}

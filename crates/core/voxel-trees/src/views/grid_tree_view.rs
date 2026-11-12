@@ -152,7 +152,7 @@ pub trait GridTreeView: Sized + Debug {
 	) where
 		F: FnMut(UVec3),
 	{
-		if self.is_empty() || tile_size <= 0 {
+		if self.is_empty() || tile_size == 0 {
 			return;
 		}
 		let first = min / UVec3::splat(tile_size);
@@ -325,7 +325,7 @@ impl<'tree, View: GridTreeView> Iterator for ChildCells<'tree, View> {
 		if self.next >= count { return None; }
 		let idx = self.next;
 		self.next += 1;
-		return Some(self.view.child(self.node, idx));
+		Some(self.view.child(self.node, idx))
 	}
 }
 
@@ -383,12 +383,10 @@ impl<'tree, View: GridTreeView> Iterator for ChildCellsInRegion<'tree, View> {
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
-		loop {
-			let idx = self.remaining_mask.trailing_zeros() as u8;
-			if idx >= View::children_per_node() { return None; }
-			self.remaining_mask &= self.remaining_mask - 1;
-			return self.resolve(idx);
-		}
+		let idx = self.remaining_mask.trailing_zeros() as u8;
+		if idx >= View::children_per_node() { return None; }
+		self.remaining_mask &= self.remaining_mask - 1;
+		self.resolve(idx)
 	}
 }
 

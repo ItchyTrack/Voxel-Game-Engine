@@ -7,18 +7,10 @@ mod replication;
 
 pub use replicate_voxels::{ReplicateVoxels, ReplicateVoxelsRestriction};
 
+#[derive(Default)]
 pub struct VoxelLightyearPlugins {
 	pub enable_client_chunk_source: bool,
 	pub enable_server_chunk_source: bool,
-}
-
-impl Default for VoxelLightyearPlugins {
-	fn default() -> Self {
-		Self {
-			enable_client_chunk_source: false,
-			enable_server_chunk_source: false,
-		}
-	}
 }
 
 impl PluginGroup for VoxelLightyearPlugins {
