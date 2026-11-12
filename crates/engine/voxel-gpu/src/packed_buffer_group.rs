@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::{Arc, mpsc::{self, Receiver, Sender}}};
 
-use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use crate::wgpu_wrapper::WgpuWrapper;
 use orderly_allocator::{Allocation, Allocator};
 
 pub type PackedBufferGroupBuffer = WgpuWrapper<wgpu::Buffer>;
@@ -128,7 +129,7 @@ impl PackedBufferGroup {
 		let (cleanup_tx, cleanup_rx) = mpsc::channel();
 		Ok(Self {
 			device: WgpuWrapper::new(raw_device.clone()),
-			queue: WgpuWrapper::new(WgpuWrapper::clone(&**render_queue).into_inner()),
+			queue: WgpuWrapper::new(wgpu::Queue::clone(render_queue)),
 			usage,
 			label,
 			alignment,

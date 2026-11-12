@@ -23,13 +23,13 @@ tracy = [
 dot_vox = "5.2.0"
 nalgebra = "0.34.1"
 rtrb = "0.3.2"
-bevy_egui = "0.40"
+bevy_egui = "0.43"
 log = { workspace = true }
 bevy = { workspace = true }
 wgpu = { workspace = true }
 tracing-tracy = { version = "0.11", default-features = false, features = ["enable", "broadcast"], optional = true }
 tracy-client = { workspace = true }
-lightyear = { version = "0.28.0", features = ["udp", "netcode"] }
+lightyear = { version = "0.31.0", features = ["udp", "netcode"] }
 serde = { version = "1.0", features = ["derive"] }
 bile-math = { workspace = true }
 voxel-tasks = { workspace = true }

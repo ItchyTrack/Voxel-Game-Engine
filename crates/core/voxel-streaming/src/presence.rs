@@ -1,17 +1,31 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
+use bile_data::DataConsumingNode;
 use bile_math::NonZeroRegion;
 use bile_region_loader::RegionUpdated;
 use bile_scene::NodeBounds;
 use tile_data::{chunk_aligned, chunk_origin};
 use voxel_data::grid::GridId;
-use voxel_sources::{SourceManager, SourceResult, SourceResultData, edit::GridEditMessage};
-
-use crate::VoxelTileSource;
+use voxel_sources::{PresenceRegions, PresenceRequester, VoxelPresence, edit::GridEditMessage};
 
 #[derive(Component, Debug, Default)]
 pub struct RequestChunkPresence;
+
+/// Requests [`VoxelPresence`] for grids with [`RequestChunkPresence`] and grows their [`NodeBounds`].
+#[derive(Component, Default)]
+pub struct ChunkPresenceNode {
+	requested: HashSet<GridId>,
+	received: Vec<(GridId, PresenceRegions)>,
+}
+
+impl DataConsumingNode<VoxelPresence> for ChunkPresenceNode {
+	fn pass_data(&mut self, grid: &GridId, _tick: u64, regions: PresenceRegions) {
+		self.received.push((*grid, regions));
+	}
+
+	fn dirty_data(&mut self, _grid: &GridId, _last_clean_tick: u64) {}
+}
 
 pub fn bounds_of_chunks(chunks: impl IntoIterator<Item = IVec3>) -> Option<NodeBounds> {
 	let mut chunks = chunks.into_iter();
@@ -38,41 +52,34 @@ fn grow_bounds(commands: &mut Commands, bounds: &mut Query<&mut NodeBounds>, add
 	}
 }
 
-pub(crate) fn request_presence(
-	mut source: ResMut<VoxelTileSource>,
-	mut sources: ResMut<SourceManager>,
-	grids: Query<GridId, With<RequestChunkPresence>>,
-) {
-	for grid in &grids {
-		let tiles = source.grids.entry(grid).or_default();
-		if tiles.presence_request.is_none() {
-			tiles.presence_request = Some(sources.request_presence(grid));
-		}
-	}
-}
-
-pub(crate) fn receive_presence(
+pub(crate) fn update_presence(
 	mut commands: Commands,
-	mut source: ResMut<VoxelTileSource>,
-	mut results: MessageReader<SourceResult>,
+	node: Single<(Entity, &mut ChunkPresenceNode)>,
+	grids: Query<GridId, With<RequestChunkPresence>>,
+	mut requester: PresenceRequester,
 	mut edits: MessageReader<GridEditMessage>,
 	mut bounds: Query<&mut NodeBounds>,
 ) {
+	let (entity, node) = node.into_inner();
+	let node = node.into_inner();
+	for grid in &grids {
+		if !node.requested.insert(grid) { continue; }
+		if let Some(regions) = requester.request(grid, entity) {
+			node.received.push((grid, regions));
+		}
+	}
+
 	let mut added: HashMap<GridId, NonZeroRegion> = HashMap::new();
 	let mut add = |grid: GridId, region: NonZeroRegion| {
 		added.entry(grid).and_modify(|bounds| *bounds = union(*bounds, region)).or_insert(region);
 	};
-	for result in results.read() {
-		match &result.data {
-			SourceResultData::Presence { grid, region } => add(*grid, *region),
-			SourceResultData::PresenceLoaded => {
-				for (&grid, tiles) in &mut source.grids {
-					if tiles.presence_request != Some(result.request_id) { continue; }
-					tiles.presence_request = None;
-					commands.entity(grid).try_remove::<RequestChunkPresence>();
-				}
-			}
-			_ => {}
+	for (grid, regions) in std::mem::take(&mut node.received) {
+		for &region in regions.iter() {
+			add(grid, region);
+		}
+		if node.requested.remove(&grid) {
+			requester.cancel(grid, entity);
+			commands.entity(grid).try_remove::<RequestChunkPresence>();
 		}
 	}
 	for edit in edits.read() {

@@ -8,7 +8,7 @@ use bevy::render::render_resource::{
 	binding_types::uniform_buffer,
 };
 use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
-use bevy::render::view::{ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms};
+use bevy::render::view::{ViewDepthStencilTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
 use voxel_ray_renderer::render_node::voxel_render_pass;
@@ -18,8 +18,8 @@ pub struct SkyboxPlugin;
 
 impl Plugin for SkyboxPlugin {
 	fn build(&self, app: &mut App) {
-		embedded_asset!(app, "../shaders/skybox.wgsl");
-		let shader = load_embedded_asset!(app, "../shaders/skybox.wgsl");
+		embedded_asset!(app, "../shaders/skybox.wesl");
+		let shader = load_embedded_asset!(app, "../shaders/skybox.wesl");
 		let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
 		render_app
 			.insert_resource(SkyboxShader(shader))
@@ -128,7 +128,7 @@ fn prepare_skybox(
 fn skybox_pass(
 	skybox: Res<SkyboxResource>,
 	pipeline_cache: Res<PipelineCache>,
-	view: ViewQuery<(&ViewTarget, &ViewDepthTexture, &ViewUniformOffset)>,
+	view: ViewQuery<(&ViewTarget, &ViewDepthStencilTexture, &ViewUniformOffset)>,
 	mut render_context: RenderContext,
 ) {
 	let Some(renderer) = skybox.renderer.as_ref() else { return };

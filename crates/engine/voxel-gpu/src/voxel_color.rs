@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResource;
+use bevy::render::RenderApp;
 use rustc_hash::FxHashMap;
 use voxel_data::voxels::{VoxelRef, VoxelType, VoxelTypeId};
 
@@ -15,6 +16,7 @@ struct VoxelGpuDataReader {
 pub type VoxelShaderRegistration = (VoxelTypeId, &'static str, &'static str);
 
 #[derive(Resource, ExtractResource, Default, Clone)]
+#[extract_app(RenderApp)]
 pub struct VoxelGpuDataReaders {
 	readers: FxHashMap<VoxelTypeId, VoxelGpuDataReader>,
 }

@@ -5,6 +5,7 @@ pub mod residency_packing;
 pub mod shader_compiler;
 pub mod slang_shader_asset;
 pub mod voxel_color;
+pub mod wgpu_wrapper;
 
 use bevy::{
 	ecs::message::message_update_system,

@@ -2,9 +2,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::log::warn;
 use bevy::prelude::*;
+use bile_data::DataConsumingNode;
 use lightyear::prelude::PeerId;
 use voxel_data::compressed_voxels::CompressedVoxels;
-use voxel_sources::{RequestId, SourceManager, SourceResult, SourceResultData, edit::GridGeneration};
+use voxel_sources::{VoxelData, VoxelRegions, VoxelRequest, VoxelRequester};
 
 use super::super::{
 	VoxelLoadManifest,
@@ -13,7 +14,6 @@ use super::super::{
 	VoxelLoadRetry,
 	VoxelPayloadIndex,
 	VoxelPayloadMetadata,
-	VoxelRequestKey,
 };
 use crate::chunks::request_id::NetworkRequestId;
 
@@ -24,10 +24,7 @@ pub(super) struct VoxelLoadOwner {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct SourceVoxelRequestKey {
-	remote: VoxelRequestKey,
-	server_generation: GridGeneration,
-}
+struct LoadId(u64);
 
 #[derive(Clone)]
 struct VoxelPayload {
@@ -36,7 +33,8 @@ struct VoxelPayload {
 }
 
 struct PendingVoxelLoad {
-	source_request: Option<RequestId>,
+	key: VoxelRequest,
+	waiting: bool,
 	owners: HashSet<VoxelLoadOwner>,
 	payloads: Vec<VoxelPayload>,
 }
@@ -60,11 +58,41 @@ impl OutgoingVoxelMessage {
 	}
 }
 
+/// Consumes [`VoxelData`] on behalf of remote clients.
+#[derive(Component, Default)]
+pub(crate) struct ServerVoxelLoadNode {
+	received: Vec<(VoxelRequest, VoxelRegions)>,
+	dirtied: Vec<VoxelRequest>,
+}
+
+impl DataConsumingNode<VoxelData> for ServerVoxelLoadNode {
+	fn pass_data(&mut self, params: &VoxelRequest, _tick: u64, data: VoxelRegions) {
+		self.received.push((*params, data));
+	}
+
+	fn dirty_data(&mut self, params: &VoxelRequest, _last_clean_tick: u64) {
+		self.dirtied.push(*params);
+	}
+}
+
+impl ServerVoxelLoadNode {
+	pub(super) fn take_received(&mut self) -> Vec<(VoxelRequest, VoxelRegions)> {
+		std::mem::take(&mut self.received)
+	}
+
+	pub(super) fn take_dirtied(&mut self) -> Vec<VoxelRequest> {
+		std::mem::take(&mut self.dirtied)
+	}
+}
+
+/// Loads are shared by every client requesting the same voxels. Once a finished load is dirtied it
+/// keeps serving retries for its owners, while new requests start a fresh load.
 #[derive(Resource, Default)]
 pub(crate) struct PendingVoxelLoads {
-	loads: HashMap<SourceVoxelRequestKey, PendingVoxelLoad>,
-	keys_by_source_request: HashMap<RequestId, SourceVoxelRequestKey>,
-	keys_by_owner: HashMap<VoxelLoadOwner, SourceVoxelRequestKey>,
+	next_id: u64,
+	loads: HashMap<LoadId, PendingVoxelLoad>,
+	current: HashMap<VoxelRequest, LoadId>,
+	by_owner: HashMap<VoxelLoadOwner, LoadId>,
 	cancelled: HashSet<VoxelLoadOwner>,
 	outgoing: VecDeque<OutgoingVoxelMessage>,
 }
@@ -74,55 +102,62 @@ impl PendingVoxelLoads {
 		&mut self,
 		peer: PeerId,
 		request: VoxelLoadRequest,
-		server_generation: GridGeneration,
-		sources: &mut SourceManager,
+		node: Entity,
+		requester: &mut VoxelRequester,
 	) {
 		let owner = VoxelLoadOwner { peer, id: request.id };
 		if self.cancelled.remove(&owner) { return; }
-		self.remove_owner(owner, sources);
+		self.remove_owner(owner, node, requester);
 
-		let key = SourceVoxelRequestKey { remote: request.key, server_generation };
-		self.keys_by_owner.insert(owner, key);
-		if let Some(load) = self.loads.get_mut(&key) {
+		let key = VoxelRequest {
+			grid: request.key.grid,
+			area: request.key.region,
+			lod: request.key.lod,
+			voxel_type: request.key.voxel_type,
+		};
+		if let Some(&id) = self.current.get(&key) {
+			self.by_owner.insert(owner, id);
+			let load = self.loads.get_mut(&id).expect("current voxel load disappeared");
 			load.owners.insert(owner);
-			if load.source_request.is_none() {
-				self.queue_transfer(key, owner);
+			if !load.waiting {
+				self.queue_transfer(id, owner);
 			}
 			return;
 		}
 
-		let request_id = sources.request_voxels(
-			key.remote.grid,
-			key.remote.region,
-			key.remote.lod,
-			key.remote.voxel_type,
-			key.server_generation,
-		);
-		self.keys_by_source_request.insert(request_id, key);
-		self.loads.insert(key, PendingVoxelLoad {
-			source_request: Some(request_id),
+		let id = LoadId(self.next_id);
+		self.next_id += 1;
+		self.current.insert(key, id);
+		self.by_owner.insert(owner, id);
+		self.loads.insert(id, PendingVoxelLoad {
+			key,
+			waiting: true,
 			owners: HashSet::from([owner]),
 			payloads: Vec::new(),
 		});
+		if let Some(data) = requester.request(key, node) {
+			self.complete(id, &data, node, requester);
+		}
 	}
 
 	pub(super) fn cancel(
 		&mut self,
 		peer: PeerId,
 		id: NetworkRequestId,
-		sources: &mut SourceManager,
+		node: Entity,
+		requester: &mut VoxelRequester,
 	) {
 		let owner = VoxelLoadOwner { peer, id };
-		if !self.remove_owner(owner, sources) {
+		if !self.remove_owner(owner, node, requester) {
 			self.cancelled.insert(owner);
 		}
 	}
 
 	pub(super) fn retry(&mut self, peer: PeerId, retry: VoxelLoadRetry) {
 		let owner = VoxelLoadOwner { peer, id: retry.id };
-		let Some(&key) = self.keys_by_owner.get(&owner) else { return };
-		let Some(load) = self.loads.get(&key) else { return };
-		if load.source_request.is_some() || !load.owners.contains(&owner) { return; }
+		let Some(&id) = self.by_owner.get(&owner) else { return };
+		let Some(load) = self.loads.get(&id) else { return };
+		if load.waiting || !load.owners.contains(&owner) { return; }
 		let payloads = retry.missing.iter()
 			.filter_map(|index| {
 				let payload = load.payloads.get(usize::try_from(index.0).ok()?)?;
@@ -136,55 +171,37 @@ impl PendingVoxelLoads {
 		&mut self,
 		peer: PeerId,
 		id: NetworkRequestId,
-		sources: &mut SourceManager,
+		node: Entity,
+		requester: &mut VoxelRequester,
 	) {
-		self.remove_owner(VoxelLoadOwner { peer, id }, sources);
+		self.remove_owner(VoxelLoadOwner { peer, id }, node, requester);
 	}
 
-	pub(super) fn receive_source_result(&mut self, result: &SourceResult) {
-		let Some(&key) = self.keys_by_source_request.get(&result.request_id) else { return };
-		match &result.data {
-			SourceResultData::Voxels { grid, region, lod, voxels, .. } => {
-				if *grid != key.remote.grid
-					|| !key.remote.region.contains_region(*region)
-					|| *lod > key.remote.lod
-				{
-					warn!(request_id=?result.request_id, expected_grid=?key.remote.grid, expected_region=?key.remote.region, expected_lod=key.remote.lod, ?grid, ?region, ?lod, "ignoring mismatched source voxel payload");
-					return;
-				}
-				let compressed = match CompressedVoxels::with_max_compression(voxels) {
-					Ok(compressed) => compressed,
-					Err(err) => {
-						warn!(request_id=?result.request_id, ?grid, ?region, ?lod, error=%err, "failed to compress source voxel payload");
-						return;
-					}
-				};
-				let Some(load) = self.loads.get_mut(&key) else { return };
-				load.payloads.push(VoxelPayload {
-					metadata: VoxelPayloadMetadata {
-						region: *region,
-						lod: *lod,
-						compressed_bytes: u64::try_from(compressed.len()).expect("compressed payload length exceeded protocol range"),
-					},
-					voxels: compressed,
-				});
-			}
-			SourceResultData::VoxelsLoaded { .. } => self.complete(key),
-			SourceResultData::Presence { .. } | SourceResultData::PresenceLoaded => {}
-		}
+	pub(super) fn receive_voxels(&mut self, key: VoxelRequest, data: &VoxelRegions, node: Entity, requester: &mut VoxelRequester) {
+		let Some(&id) = self.current.get(&key) else { return };
+		if !self.loads[&id].waiting { return; }
+		self.complete(id, data, node, requester);
+	}
+
+	pub(super) fn dirty_voxels(&mut self, key: VoxelRequest, node: Entity, requester: &mut VoxelRequester) {
+		let Some(&id) = self.current.get(&key) else { return };
+		if self.loads[&id].waiting { return; }
+		self.current.remove(&key);
+		requester.cancel(&key, node);
 	}
 
 	pub(super) fn remove_disconnected(
 		&mut self,
 		mut connected: impl FnMut(PeerId) -> bool,
-		sources: &mut SourceManager,
+		node: Entity,
+		requester: &mut VoxelRequester,
 	) {
-		let disconnected: Vec<_> = self.keys_by_owner.keys()
+		let disconnected: Vec<_> = self.by_owner.keys()
 			.filter(|owner| !connected(owner.peer))
 			.copied()
 			.collect();
 		for owner in disconnected {
-			self.remove_owner(owner, sources);
+			self.remove_owner(owner, node, requester);
 		}
 		self.cancelled.retain(|owner| connected(owner.peer));
 		self.outgoing.retain(|message| connected(message.peer()));
@@ -200,26 +217,50 @@ impl PendingVoxelLoads {
 		self.outgoing.push_back(message);
 	}
 
-	fn complete(&mut self, key: SourceVoxelRequestKey) {
-		let Some(load) = self.loads.get_mut(&key) else { return };
-		let Some(request_id) = load.source_request.take() else { return };
-		self.keys_by_source_request.remove(&request_id);
-		if load.payloads.len() > u32::MAX as usize {
-			warn!(?request_id, "source produced too many voxel payloads for the network protocol");
-			let load = self.loads.remove(&key).expect("oversized voxel load disappeared");
-			for owner in load.owners {
-				self.keys_by_owner.remove(&owner);
+	fn complete(&mut self, id: LoadId, data: &VoxelRegions, node: Entity, requester: &mut VoxelRequester) {
+		let Some(key) = self.loads.get(&id).map(|load| load.key) else { return };
+		let payloads: Vec<_> = data.iter().filter_map(|result| {
+			if !key.area.contains_region(result.area) || result.lod > key.lod {
+				warn!(expected_grid=?key.grid, expected_region=?key.area, expected_lod=key.lod, region=?result.area, lod=result.lod, "ignoring mismatched source voxel payload");
+				return None;
 			}
+			let compressed = match CompressedVoxels::with_max_compression(&result.voxels) {
+				Ok(compressed) => compressed,
+				Err(err) => {
+					warn!(grid=?key.grid, region=?result.area, lod=result.lod, error=%err, "failed to compress source voxel payload");
+					return None;
+				}
+			};
+			Some(VoxelPayload {
+				metadata: VoxelPayloadMetadata {
+					region: result.area,
+					lod: result.lod,
+					compressed_bytes: u64::try_from(compressed.len()).expect("compressed payload length exceeded protocol range"),
+				},
+				voxels: compressed,
+			})
+		}).collect();
+		if payloads.len() > u32::MAX as usize {
+			warn!(grid=?key.grid, region=?key.area, "source produced too many voxel payloads for the network protocol");
+			let load = self.loads.remove(&id).expect("oversized voxel load disappeared");
+			for owner in load.owners {
+				self.by_owner.remove(&owner);
+			}
+			self.current.remove(&key);
+			requester.cancel(&key, node);
 			return;
 		}
+		let load = self.loads.get_mut(&id).expect("completed voxel load disappeared");
+		load.waiting = false;
+		load.payloads = payloads;
 		let owners = load.owners.iter().copied().collect::<Vec<_>>();
 		for owner in owners {
-			self.queue_transfer(key, owner);
+			self.queue_transfer(id, owner);
 		}
 	}
 
-	fn queue_transfer(&mut self, key: SourceVoxelRequestKey, owner: VoxelLoadOwner) {
-		let Some(load) = self.loads.get(&key) else { return };
+	fn queue_transfer(&mut self, id: LoadId, owner: VoxelLoadOwner) {
+		let Some(load) = self.loads.get(&id) else { return };
 		let metadata = load.payloads.iter().map(|payload| payload.metadata).collect::<Vec<_>>();
 		let payloads = load.payloads.iter().enumerate()
 			.map(|(index, payload)| {
@@ -241,21 +282,18 @@ impl PendingVoxelLoads {
 		}
 	}
 
-	fn remove_owner(&mut self, owner: VoxelLoadOwner, sources: &mut SourceManager) -> bool {
-		let Some(key) = self.keys_by_owner.remove(&owner) else {
-			self.outgoing.retain(|message| message.owner() != owner);
-			return false;
-		};
+	fn remove_owner(&mut self, owner: VoxelLoadOwner, node: Entity, requester: &mut VoxelRequester) -> bool {
 		self.outgoing.retain(|message| message.owner() != owner);
-		let should_remove = self.loads.get_mut(&key).is_some_and(|load| {
+		let Some(id) = self.by_owner.remove(&owner) else { return false };
+		let should_remove = self.loads.get_mut(&id).is_some_and(|load| {
 			load.owners.remove(&owner);
 			load.owners.is_empty()
 		});
 		if should_remove {
-			let load = self.loads.remove(&key).expect("empty voxel load disappeared");
-			if let Some(request_id) = load.source_request {
-				self.keys_by_source_request.remove(&request_id);
-				sources.cancel_voxels(request_id);
+			let load = self.loads.remove(&id).expect("empty voxel load disappeared");
+			if self.current.get(&load.key) == Some(&id) {
+				self.current.remove(&load.key);
+				requester.cancel(&load.key, node);
 			}
 		}
 		true

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use bevy::ecs::entity::Entity;
-use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use crate::wgpu_wrapper::WgpuWrapper;
 
 use crate::packed_dynamic_buffer::PackedDynamicBuffer;
 use crate::residency_packing::{CopyRegion, PendingUpload, SlotEntry, plan_residency};
@@ -62,7 +63,7 @@ impl<const SLOTS: usize> PackedResidencyBuffer<SLOTS> {
 		assert!(SLOTS > 0, "packed residency buffer requires at least one slot");
 		let raw_device = render_device.wgpu_device();
 		let device = WgpuWrapper::new(raw_device.clone());
-		let queue = WgpuWrapper::new(WgpuWrapper::clone(&**render_queue).into_inner());
+		let queue = WgpuWrapper::new(wgpu::Queue::clone(render_queue));
 		let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
 		let alignment = source_alignment.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT as u32);
 		Self {

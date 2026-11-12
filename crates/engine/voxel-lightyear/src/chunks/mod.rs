@@ -65,6 +65,7 @@ fn ordered_reliable_channel() -> ChannelSettings {
 		mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
 		send_frequency: Duration::from_millis(100),
 		priority: 1.0,
+		..default()
 	}
 }
 
@@ -73,5 +74,6 @@ fn unordered_unreliable_channel() -> ChannelSettings {
 		mode: ChannelMode::UnorderedUnreliable,
 		send_frequency: Duration::default(),
 		priority: 1.0,
+		..default()
 	}
 }

@@ -1,10 +1,10 @@
 mod registry;
 mod systems;
 
-pub(super) use registry::PendingVoxelLoads;
+pub(super) use registry::{PendingVoxelLoads, ServerVoxelLoadNode};
 pub(super) use systems::{
 	cleanup_disconnected_requests,
-	flush_source_results,
+	flush_voxel_data,
 	receive_voxel_load_cancel,
 	receive_voxel_load_received,
 	receive_voxel_load_request,

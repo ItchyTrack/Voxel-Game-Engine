@@ -1,12 +1,9 @@
 pub mod chunk;
-mod building;
+mod voxel_region;
 mod voxel_reducer;
 
 pub use chunk::{CHUNK_SIZE, chunk_aligned, chunk_of, chunk_origin, chunk_region, chunks_in};
-pub use building::{
-	async_trait, TileBuildingVoxelReader, ReceiveVoxelsFuture, VoxelRegionRequest,
-	VoxelRegionResult, TileBuildingSession, TileBuilder,
-};
+pub use voxel_region::VoxelRegionResult;
 pub use voxel_reducer::{TileVoxelReducer, TileVoxelReducerRegistry};
 
 use bevy::prelude::*;

@@ -9,7 +9,8 @@ use std::{
 	},
 };
 
-use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use crate::wgpu_wrapper::WgpuWrapper;
 use num::Integer;
 use orderly_allocator::{Allocation, Allocator};
 use tracy_client::span;
@@ -128,7 +129,7 @@ impl PackedDynamicBuffer {
 			held_buffers: HashMap::new(),
 			allocator: Allocator::new(buffer_size as u32),
 			device: WgpuWrapper::new(raw_device.clone()),
-			queue: WgpuWrapper::new(bevy::render::renderer::WgpuWrapper::clone(&**queue).into_inner()),
+			queue: WgpuWrapper::new(wgpu::Queue::clone(queue)),
 			usage,
 			buffer_size,
 			max_binding_size: raw_device.limits().max_storage_buffer_binding_size.min(u32::MAX as u64) as u32,

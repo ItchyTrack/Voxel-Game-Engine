@@ -11,9 +11,11 @@ tracy = ["tracy-client/enable"]
 bevy = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 tracy-client = { workspace = true }
-lightyear = "0.28.0"
+lightyear = "0.31.0"
 postcard = { version = "1.1", features = ["use-std"] }
 bile-math = { workspace = true }
+bile-data = { workspace = true }
+bevy-trait-query = { workspace = true }
 voxel-tasks = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }

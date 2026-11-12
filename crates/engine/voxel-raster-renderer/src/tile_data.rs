@@ -1,5 +1,9 @@
 use bevy::{math::UVec3, prelude::Component};
-use tile_data::{TileBuildingSession, TileBuilder, TileVoxelReducerRegistry};
+use bile_tiles::TileKey;
+use tile_data::{TileVoxelReducerRegistry, VoxelRegionResult};
+use voxel_data::grid::GridId;
+use voxel_sources::VoxelRequest;
+use voxel_streaming::VoxelTileBuilder;
 use voxel_data::voxels::VoxelTypeId;
 use voxel_gpu::{VoxelGpuDataReaders, packed_buffer_group::PackedBufferGroupAllocation};
 
@@ -8,7 +12,7 @@ use crate::{gpu_data::RasterWorldGpuData, gpu_raster_mesh::make_gpu_raster_mesh}
 #[derive(Component, Default)]
 pub struct RasterTileClass;
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone)]
 pub struct RasterTileData {
 	pub faces: PackedBufferGroupAllocation,
 	pub voxel_data: PackedBufferGroupAllocation,
@@ -27,19 +31,17 @@ pub struct VoxelRasterTileBuilder {
 	pub reducers: TileVoxelReducerRegistry,
 }
 
-#[tile_data::async_trait]
-impl TileBuilder for VoxelRasterTileBuilder {
+impl VoxelTileBuilder for VoxelRasterTileBuilder {
 	type Output = RasterTileData;
 
-	async fn build(&self, mut session: TileBuildingSession) -> Option<RasterTileData> {
-		let area = session.key.region;
-		let voxel_lod = session.key.lod.saturating_sub(self.lod_levels);
-		session.request_voxels(area, voxel_lod, Some(self.voxel_type));
-		let mut inputs = Vec::new();
-		while let Some(input) = session.receive_voxels().await {
-			inputs.push(input);
-		}
-		let voxels = self.reducers.reduce(area, voxel_lod, self.voxel_type, &inputs)?;
+	fn voxels(&self, grid: GridId, key: TileKey) -> VoxelRequest {
+		VoxelRequest { grid, area: key.region, lod: key.lod.saturating_sub(self.lod_levels), voxel_type: Some(self.voxel_type) }
+	}
+
+	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegionResult]) -> Option<RasterTileData> {
+		let area = key.region;
+		let voxel_lod = key.lod.saturating_sub(self.lod_levels);
+		let voxels = self.reducers.reduce(area, voxel_lod, self.voxel_type, inputs)?;
 		let source_voxel_type = voxels.voxel_type_id();
 		assert!(
 			self.readers.contains(source_voxel_type),

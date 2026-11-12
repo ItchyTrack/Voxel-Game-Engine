@@ -5,7 +5,6 @@ use voxel_trees::{
 	signed_grid_tree::SignedGridTree,
 	grid_tree::U32Cell,
 };
-use crate::VoxelTileSource;
 
 #[derive(Default)]
 pub struct ChunkEditInterest {
@@ -56,18 +55,6 @@ pub struct ChunkEditInterestChanged {
 	pub region: NonZeroRegion,
 	pub interested: bool,
 }
-
-pub(crate) fn publish_edit_interest_changes(
-	mut events: MessageWriter<ChunkEditInterestChanged>,
-	mut source: ResMut<VoxelTileSource>,
-) {
-	for (&grid, tiles) in &mut source.grids {
-		for (region, interested) in std::mem::take(&mut tiles.queued_edit_interest) {
-			events.write(ChunkEditInterestChanged { grid, region, interested });
-		}
-	}
-}
-
 
 #[cfg(test)]
 mod tests {

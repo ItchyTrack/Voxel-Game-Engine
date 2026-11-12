@@ -1,5 +1,9 @@
 use bevy::{math::UVec3, prelude::Component};
-use tile_data::{TileBuildingSession, TileBuilder, TileVoxelReducerRegistry};
+use bile_tiles::TileKey;
+use tile_data::{TileVoxelReducerRegistry, VoxelRegionResult};
+use voxel_data::grid::GridId;
+use voxel_sources::VoxelRequest;
+use voxel_streaming::VoxelTileBuilder;
 use voxel_data::voxels::{VoxelTypeId, VoxelTypeInfo};
 use voxel_gpu::{PackedBufferAllocation, VoxelGpuDataReaders};
 use voxel_trees::views::GridTreeView;
@@ -16,7 +20,7 @@ pub struct RayTilePlacement {
 #[derive(Component, Default)]
 pub struct RayTileClass;
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone)]
 pub struct RayTileData {
 	pub tree: PackedBufferAllocation,
 	pub voxels: PackedBufferAllocation,
@@ -34,19 +38,17 @@ pub struct VoxelRayTileBuilder {
 	pub reducers: TileVoxelReducerRegistry,
 }
 
-#[tile_data::async_trait]
-impl TileBuilder for VoxelRayTileBuilder {
+impl VoxelTileBuilder for VoxelRayTileBuilder {
 	type Output = RayTileData;
 
-	async fn build(&self, mut session: TileBuildingSession) -> Option<RayTileData> {
-		let region = session.key.region;
-		let voxel_lod = session.key.lod.saturating_sub(self.lod_levels);
-		session.request_voxels(region, voxel_lod, Some(self.voxel_type));
-		let mut inputs = Vec::new();
-		while let Some(input) = session.receive_voxels().await {
-			inputs.push(input);
-		}
-		let voxels = self.reducers.reduce(region, voxel_lod, self.voxel_type, &inputs)?;
+	fn voxels(&self, grid: GridId, key: TileKey) -> VoxelRequest {
+		VoxelRequest { grid, area: key.region, lod: key.lod.saturating_sub(self.lod_levels), voxel_type: Some(self.voxel_type) }
+	}
+
+	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegionResult]) -> Option<RayTileData> {
+		let region = key.region;
+		let voxel_lod = key.lod.saturating_sub(self.lod_levels);
+		let voxels = self.reducers.reduce(region, voxel_lod, self.voxel_type, inputs)?;
 		let source_voxel_type = voxels.voxel_type_id();
 		assert!(
 			self.readers.contains(source_voxel_type),
