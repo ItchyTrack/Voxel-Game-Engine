@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::log::warn;
 use bevy::prelude::*;
-use bile_data::DataConsumingNode;
+use bile_data::simple::DataConsumingNode;
 use lightyear::prelude::PeerId;
 use voxel_data::compressed_voxels::CompressedVoxels;
-use voxel_sources::{VoxelData, VoxelRegions, VoxelRequest, VoxelRequester};
+use voxel_sources::{VoxelData, VoxelRegions, VoxelRequest, VoxelRequester, edit::VoxelEdit};
 
 use super::super::{
 	VoxelLoadManifest,
@@ -70,7 +70,7 @@ impl DataConsumingNode<VoxelData> for ServerVoxelLoadNode {
 		self.received.push((*params, data));
 	}
 
-	fn dirty_data(&mut self, params: &VoxelRequest, _last_clean_tick: u64) {
+	fn dirty_data(&mut self, params: &VoxelRequest, _last_clean_tick: u64, _diff: Option<&VoxelEdit>) {
 		self.dirtied.push(*params);
 	}
 }

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bevy::prelude::*;
-use bile_data::{DataDirtier, DataPasser, DataProducingNode, DirtyState, Request};
+use bile_data::{DirtyState, Request, simple::{DataDirtier, DataPasser, DataProducingNode}};
 use bile_math::NonZeroRegion;
 use bile_tiles::TileIndex;
 use tile_data::{VoxelRegionResult, chunk_aligned};
@@ -149,7 +149,7 @@ pub(crate) fn process_voxel_requests(
 	}
 }
 
-/// Edited voxels are fetched again when they are still loading, and dirtied for their consumers otherwise.
+/// Edited voxels are fetched again when they are still loading, and dirtied with the edit as the diff otherwise.
 pub(crate) fn dirty_edited_voxels(
 	node: Single<&mut VoxelSourceNode>,
 	mut edits: MessageReader<GridEditMessage>,
@@ -166,7 +166,7 @@ pub(crate) fn dirty_edited_voxels(
 			if node.loads[&request].in_flight.is_some() {
 				node.fetch(request, &mut sources, &grids);
 			} else {
-				dirtier.mark_dirty(&request);
+				dirtier.mark_dirty(&request, Some(edit.shared_edit()));
 			}
 		}
 	}

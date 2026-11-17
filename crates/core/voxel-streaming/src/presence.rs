@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
-use bile_data::DataConsumingNode;
+use bile_data::simple::DataConsumingNode;
 use bile_math::NonZeroRegion;
 use bile_region_loader::RegionUpdated;
 use bile_scene::NodeBounds;
@@ -24,7 +24,7 @@ impl DataConsumingNode<VoxelPresence> for ChunkPresenceNode {
 		self.received.push((*grid, regions));
 	}
 
-	fn dirty_data(&mut self, _grid: &GridId, _last_clean_tick: u64) {}
+	fn dirty_data(&mut self, _grid: &GridId, _last_clean_tick: u64, _diff: Option<&()>) {}
 }
 
 pub fn bounds_of_chunks(chunks: impl IntoIterator<Item = IVec3>) -> Option<NodeBounds> {

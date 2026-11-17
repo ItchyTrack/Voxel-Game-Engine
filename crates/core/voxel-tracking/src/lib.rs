@@ -3,12 +3,6 @@ mod types;
 use bevy::prelude::*;
 pub use types::{TrackedVoxelId, GlobalTrackedVoxels, GridTrackedVoxels};
 
-fn update_tracking(
-
-) {
-
-}
-
 #[derive(Default)]
 pub struct VoxelTrackingPlugin;
 
