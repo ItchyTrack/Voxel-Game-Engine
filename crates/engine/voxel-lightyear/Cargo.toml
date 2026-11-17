@@ -15,7 +15,6 @@ lightyear = "0.31.0"
 postcard = { version = "1.1", features = ["use-std"] }
 bile-math = { workspace = true }
 bile-data = { workspace = true }
-bevy-trait-query = { workspace = true }
 voxel-tasks = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }

@@ -10,23 +10,27 @@ use bevy::{
 	prelude::*,
 	tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
-use bevy_trait_query::RegisterExt;
 use bile_components::{AddComponentData, ComponentData};
-use bile_data::{DataConsumingNode, DataDirtier, DataPasser, DataProducingNode, DataType, DirtyState, Request};
+use bile_data::{
+	DataType, DirtyState, Request,
+	diff::{BileRegisterDiff, DiffApplyingNode},
+	simple::{BileRegisterSimple, DataConsumingNode, DataDirtier, DataPasser, DataProducingNode},
+};
 use bile_tiles::{BileTilesSchedule, BileTilesSystemSet, DesireForClass, RegisterTileClass, TileKey};
 use tile_data::VoxelRegionResult;
 use voxel_data::grid::GridId;
-use voxel_sources::{VoxelData, VoxelRegions, VoxelRequest, VoxelRequester, VoxelSourceNodeSet};
+use voxel_sources::{VoxelData, VoxelRegions, VoxelRequest, VoxelRequester, VoxelSourceNodeSet, edit::VoxelEdit};
 
 /// The grid and the tile within it.
 pub type TileParams = (GridId, TileKey);
 
-/// Bile data for a tile component built from voxels. Requested through the tile's class.
+/// Bile data for a tile component built from voxels. Requested through the tile's class. The diffs are voxel edits.
 pub struct TileComponentData<C>(PhantomData<C>);
 
 impl<C: Component + Clone> DataType for TileComponentData<C> {
 	type Params = TileParams;
 	type Data = Option<C>;
+	type Diff = VoxelEdit;
 }
 
 impl<C: Component + Clone> ComponentData for TileComponentData<C> {
@@ -36,18 +40,22 @@ impl<C: Component + Clone> ComponentData for TileComponentData<C> {
 /// Builds a tile component from the voxels of a single [`VoxelRequest`].
 pub trait VoxelTileBuilder: Send + Sync + 'static {
 	type Output: Component + Clone;
-	/// When false, finished tiles keep their component when their voxels are edited.
-	const REBUILD_ON_EDIT: bool = true;
 
 	fn voxels(&self, grid: GridId, key: TileKey) -> VoxelRequest;
 	fn build(&self, grid: GridId, key: TileKey, voxels: &[VoxelRegionResult]) -> Option<Self::Output>;
+}
+
+/// A [`VoxelTileBuilder`] that can apply voxel edits to a finished tile instead of building it again.
+/// Registered with [`TileBuilderAppExt::register_tile_editor`], its tiles are edited through Bile diffs.
+pub trait VoxelTileEditor: VoxelTileBuilder {
+	fn apply_edits(&self, grid: GridId, key: TileKey, output: &mut Option<Self::Output>, edits: &[VoxelEdit]);
 }
 
 enum TileNodeEvent {
 	Request(TileParams),
 	Drop(TileParams),
 	Voxels(VoxelRequest, VoxelRegions),
-	DirtyVoxels(VoxelRequest),
+	DirtyVoxels(VoxelRequest, Option<VoxelEdit>),
 }
 
 struct TileState<C> {
@@ -64,17 +72,18 @@ pub struct VoxelTileNode<B: VoxelTileBuilder> {
 	events: Vec<TileNodeEvent>,
 	tiles: HashMap<TileParams, TileState<B::Output>>,
 	tiles_by_voxels: HashMap<VoxelRequest, HashSet<TileParams>>,
-	dirtied: Vec<TileParams>,
+	/// Finished tiles are edited through their diffs instead of being built again.
+	applies_edits: bool,
 }
 
 impl<B: VoxelTileBuilder> VoxelTileNode<B> {
-	fn new(builder: B) -> Self {
+	fn new(builder: B, applies_edits: bool) -> Self {
 		Self {
 			builder: Arc::new(builder),
 			events: Vec::new(),
 			tiles: HashMap::new(),
 			tiles_by_voxels: HashMap::new(),
-			dirtied: Vec::new(),
+			applies_edits,
 		}
 	}
 
@@ -107,20 +116,29 @@ impl<B: VoxelTileBuilder> DataProducingNode<TileComponentData<B::Output>> for Vo
 	}
 }
 
+impl<B: VoxelTileEditor> DiffApplyingNode<TileComponentData<B::Output>> for VoxelTileNode<B> {
+	fn diff_cost(&self, _request: &Request<TileComponentData<B::Output>>, _diffs: &[VoxelEdit]) -> Option<f32> { Some(0.5) }
+
+	fn apply(&mut self, tile: &TileParams, output: &mut Option<B::Output>, edits: Vec<VoxelEdit>) -> bool {
+		self.builder.apply_edits(tile.0, tile.1, output, &edits);
+		true
+	}
+}
+
 impl<B: VoxelTileBuilder> DataConsumingNode<VoxelData> for VoxelTileNode<B> {
 	fn pass_data(&mut self, params: &VoxelRequest, _tick: u64, data: VoxelRegions) {
 		self.events.push(TileNodeEvent::Voxels(*params, data));
 	}
 
-	fn dirty_data(&mut self, params: &VoxelRequest, _last_clean_tick: u64) {
-		self.events.push(TileNodeEvent::DirtyVoxels(*params));
+	fn dirty_data(&mut self, params: &VoxelRequest, _last_clean_tick: u64, edit: Option<&VoxelEdit>) {
+		self.events.push(TileNodeEvent::DirtyVoxels(*params, edit.cloned()));
 	}
 }
 
 fn update_voxel_tiles<B: VoxelTileBuilder>(
 	node: Single<(Entity, &mut VoxelTileNode<B>)>,
 	mut requester: VoxelRequester,
-	mut passer: DataPasser<TileComponentData<B::Output>>,
+	mut tile_components: ParamSet<(DataDirtier<TileComponentData<B::Output>>, DataPasser<TileComponentData<B::Output>>)>,
 ) {
 	let (entity, node) = node.into_inner();
 	let node = node.into_inner();
@@ -151,14 +169,18 @@ fn update_voxel_tiles<B: VoxelTileBuilder>(
 					node.start_build(tile, data.clone());
 				}
 			}
-			TileNodeEvent::DirtyVoxels(voxels) => {
+			TileNodeEvent::DirtyVoxels(voxels, edit) => {
 				let Some(tiles) = node.tiles_by_voxels.get(&voxels) else { continue };
-				let stale: Vec<_> = tiles.iter().copied().filter(|tile| B::REBUILD_ON_EDIT || !node.tiles[tile].passed).collect();
-				for tile in stale {
-					if node.tiles[&tile].passed {
-						node.dirtied.push(tile);
+				let tiles: Vec<_> = tiles.iter().copied().collect();
+				for tile in tiles {
+					let passed = node.tiles[&tile].passed;
+					if passed {
+						tile_components.p0().mark_dirty(&tile, edit.as_ref());
 					}
-					node.request_voxels(tile, entity, &mut requester);
+					// A finished tile with an edit is edited by Bile through the diff.
+					if !(passed && node.applies_edits && edit.is_some()) {
+						node.request_voxels(tile, entity, &mut requester);
+					}
 				}
 			}
 		}
@@ -169,18 +191,7 @@ fn update_voxel_tiles<B: VoxelTileBuilder>(
 		let Some(output) = check_ready(build) else { continue };
 		state.build = None;
 		state.passed = true;
-		passer.pass_data(entity, &tile, DirtyState::UpToDate, output);
-	}
-}
-
-fn dirty_voxel_tiles<B: VoxelTileBuilder>(
-	node: Single<&mut VoxelTileNode<B>>,
-	mut dirtier: DataDirtier<TileComponentData<B::Output>>,
-) {
-	let mut node = node.into_inner();
-	if node.dirtied.is_empty() { return; }
-	for tile in std::mem::take(&mut node.dirtied) {
-		dirtier.mark_dirty(&tile);
+		tile_components.p1().pass_data(entity, &tile, DirtyState::UpToDate, output);
 	}
 }
 
@@ -189,21 +200,17 @@ struct RegisteredTileBuilders(HashSet<TypeId>);
 
 pub trait TileBuilderAppExt {
 	fn register_tile_builder<B: VoxelTileBuilder>(&mut self, builder: B) -> &mut Self;
+	fn register_tile_editor<B: VoxelTileEditor>(&mut self, builder: B) -> &mut Self;
 	fn register_tile_class_component<Class: Component, C: Component + Clone>(&mut self) -> &mut Self;
 }
 
 impl TileBuilderAppExt for App {
 	fn register_tile_builder<B: VoxelTileBuilder>(&mut self, builder: B) -> &mut Self {
-		let newly_registered = self.world_mut()
-			.get_resource_or_init::<RegisteredTileBuilders>()
-			.0
-			.insert(TypeId::of::<B::Output>());
-		assert!(newly_registered, "tile builder already registered for {}", std::any::type_name::<B::Output>());
-		self.world_mut().spawn((Name::new(std::any::type_name::<B>()), VoxelTileNode::new(builder)));
-		self.add_component_data::<TileComponentData<B::Output>>()
-			.register_component_as::<dyn DataProducingNode<TileComponentData<B::Output>>, VoxelTileNode<B>>()
-			.register_component_as::<dyn DataConsumingNode<VoxelData>, VoxelTileNode<B>>()
-			.add_systems(Update, (dirty_voxel_tiles::<B>, update_voxel_tiles::<B>).chain().before(VoxelSourceNodeSet))
+		add_tile_builder(self, builder, false)
+	}
+
+	fn register_tile_editor<B: VoxelTileEditor>(&mut self, builder: B) -> &mut Self {
+		add_tile_builder(self, builder, true).register_diff_applier::<TileComponentData<B::Output>, VoxelTileNode<B>>()
 	}
 
 	fn register_tile_class_component<Class: Component, C: Component + Clone>(&mut self) -> &mut Self {
@@ -212,6 +219,19 @@ impl TileBuilderAppExt for App {
 		self.register_tile_class::<Class>()
 			.add_systems(BileTilesSchedule, desire_class_component::<Class, C>.in_set(BileTilesSystemSet::UpdateWantedComponents))
 	}
+}
+
+fn add_tile_builder<B: VoxelTileBuilder>(app: &mut App, builder: B, applies_edits: bool) -> &mut App {
+	let newly_registered = app.world_mut()
+		.get_resource_or_init::<RegisteredTileBuilders>()
+		.0
+		.insert(TypeId::of::<B::Output>());
+	assert!(newly_registered, "tile builder already registered for {}", std::any::type_name::<B::Output>());
+	app.world_mut().spawn((Name::new(std::any::type_name::<B>()), VoxelTileNode::new(builder, applies_edits)));
+	app.add_component_data::<TileComponentData<B::Output>>()
+		.register_producer_simple::<TileComponentData<B::Output>, VoxelTileNode<B>>()
+		.register_consumer_simple::<VoxelData, VoxelTileNode<B>>()
+		.add_systems(Update, update_voxel_tiles::<B>.before(VoxelSourceNodeSet))
 }
 
 fn desire_class_component<Class: Component, C: Component + Clone>(

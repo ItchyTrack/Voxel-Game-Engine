@@ -1,17 +1,16 @@
 use std::collections::HashSet;
 
-use bevy::ecs::component::ComponentIdFor;
 use bevy::ecs::query::QueryFilter;
 use bevy::ecs::system::SystemParam;
 use bevy::math::{IVec3, Quat, UVec3, Vec3};
 use bevy::prelude::*;
-use bile_tiles::{BileTilesSchedule, DesiredComponents, TileInstances, TileKey};
-use tile_data::{VoxelRegionResult, chunk_aligned};
+use bile_tiles::TileKey;
+use tile_data::VoxelRegionResult;
 use voxel_data::bvh::BVH;
 use voxel_data::grid::{Grid, GridId};
-use voxel_sources::edit::GridEditMessage;
+use voxel_sources::edit::VoxelEdit;
 use voxel_sources::VoxelRequest;
-use voxel_streaming::{TileBuilderAppExt, VoxelTileBuilder, VoxelTileSourceSet};
+use voxel_streaming::{TileBuilderAppExt, VoxelTileBuilder, VoxelTileEditor};
 use voxel_trees::grid_tree::{GridTree64, U16Cell};
 use voxel_trees::views::GridTreeView;
 
@@ -30,7 +29,6 @@ pub struct OccupancyTileBuilder;
 
 impl VoxelTileBuilder for OccupancyTileBuilder {
 	type Output = OccupancyTileData;
-	const REBUILD_ON_EDIT: bool = false;
 
 	fn voxels(&self, grid: GridId, key: TileKey) -> VoxelRequest {
 		assert_eq!(key.lod, 0, "occupancy tiles must use LOD 0");
@@ -57,31 +55,11 @@ impl VoxelTileBuilder for OccupancyTileBuilder {
 	}
 }
 
-fn apply_edits_to_occupancy(
-	mut commands: Commands,
-	mut edits: MessageReader<GridEditMessage>,
-	class: ComponentIdFor<OccupancyTileClass>,
-	component: ComponentIdFor<OccupancyTileData>,
-	grids: Query<&TileInstances>,
-	mut tiles: Query<(&TileKey, &DesiredComponents, Option<&mut OccupancyTileData>)>,
-) {
-	for edit in edits.read() {
-		let Ok(instances) = grids.get(edit.grid_id()) else { continue };
-		let mut keys = Vec::new();
-		instances.for_each_overlapping(chunk_aligned(edit.edit().affected_region()), |key| keys.push(key));
-		for key in keys {
-			let Some(entity) = instances.get(key) else { continue };
-			let Ok((key, desired, occupancy)) = tiles.get_mut(entity) else { continue };
-			if !desired.is_component_desired(component.get()) { continue; }
-			match occupancy {
-				Some(mut occupancy) => edit.edit().apply_to_occupancy(key.region, &mut occupancy.tree),
-				None if desired.is_class_ready(class.get()) => {
-					let mut occupancy = OccupancyTileData::default();
-					edit.edit().apply_to_occupancy(key.region, &mut occupancy.tree);
-					commands.entity(entity).insert(occupancy);
-				}
-				None => {}
-			}
+impl VoxelTileEditor for OccupancyTileBuilder {
+	fn apply_edits(&self, _grid: GridId, key: TileKey, occupancy: &mut Option<OccupancyTileData>, edits: &[VoxelEdit]) {
+		let occupancy = occupancy.get_or_insert_default();
+		for edit in edits {
+			edit.apply_to_occupancy(key.region, &mut occupancy.tree);
 		}
 	}
 }
@@ -92,8 +70,7 @@ pub struct VoxelQueryPlugin;
 impl Plugin for VoxelQueryPlugin {
 	fn build(&self, app: &mut App) {
 		app.register_tile_class_component::<OccupancyTileClass, OccupancyTileData>()
-			.register_tile_builder(OccupancyTileBuilder)
-			.add_systems(BileTilesSchedule, apply_edits_to_occupancy.in_set(VoxelTileSourceSet::Receive));
+			.register_tile_editor(OccupancyTileBuilder);
 	}
 }
 

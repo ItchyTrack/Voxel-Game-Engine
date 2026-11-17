@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::log::warn;
 use bevy::prelude::*;
-use bile_data::DataConsumingNode;
+use bile_data::simple::DataConsumingNode;
 use lightyear::prelude::{EventSender, PeerId, NetworkingMetadata, RemoteEvent};
 use voxel_data::grid::GridId;
 use voxel_sources::{PresenceRegions, PresenceRequester, VoxelPresence};
@@ -41,7 +41,7 @@ impl DataConsumingNode<VoxelPresence> for ServerPresenceNode {
 		self.received.push((*grid, regions));
 	}
 
-	fn dirty_data(&mut self, _grid: &GridId, _last_clean_tick: u64) {}
+	fn dirty_data(&mut self, _grid: &GridId, _last_clean_tick: u64, _diff: Option<&()>) {}
 }
 
 #[derive(Resource, Default)]

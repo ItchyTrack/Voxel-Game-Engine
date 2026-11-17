@@ -18,7 +18,6 @@ typetag = "0.2"
 bile-math = { workspace = true }
 bile-data = { workspace = true }
 bile-tiles = { workspace = true }
-bevy-trait-query = { workspace = true }
 voxel-trees = { workspace = true }
 voxel-data = { workspace = true }
 voxel-tasks = { workspace = true }

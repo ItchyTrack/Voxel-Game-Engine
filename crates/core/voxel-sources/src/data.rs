@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use bevy::{ecs::system::SystemParam, prelude::*};
-use bile_data::{DataRequester, DataType, DirtyState, Request};
+use bile_data::{DataType, DirtyState, Request, simple::DataRequester};
 use bile_math::NonZeroRegion;
 use bile_tiles::TileIndexKey;
 use tile_data::VoxelRegionResult;
 use voxel_data::{grid::GridId, voxels::VoxelTypeId};
+
+use crate::edit::VoxelEdit;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VoxelRequest {
@@ -27,6 +29,7 @@ pub struct VoxelData;
 impl DataType for VoxelData {
 	type Params = VoxelRequest;
 	type Data = VoxelRegions;
+	type Diff = VoxelEdit;
 }
 
 /// Every region the sources reported as present for a grid.
@@ -37,6 +40,7 @@ pub struct VoxelPresence;
 impl DataType for VoxelPresence {
 	type Params = GridId;
 	type Data = PresenceRegions;
+	type Diff = ();
 }
 
 #[derive(SystemParam)]

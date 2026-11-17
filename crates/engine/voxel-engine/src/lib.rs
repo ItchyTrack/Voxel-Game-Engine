@@ -4,6 +4,7 @@ mod client_rendering;
 pub use camera_tiles::{CameraTileLoader, CameraTileSettings, CameraTiles, FreezeCameraVoxelLoader, GridRenderClass};
 
 use bevy::app::{PluginGroup, PluginGroupBuilder};
+use bile::DefaultBilePlugins;
 use voxel_data::VoxelDataPlugin;
 use voxel_gpu::GpuVoxelDataPlugin;
 use voxel_lightyear::VoxelLightyearPlugins;
@@ -28,6 +29,7 @@ pub struct VoxelEnginePlugins {
 impl PluginGroup for VoxelEnginePlugins {
 	fn build(self) -> PluginGroupBuilder {
 		let group = PluginGroupBuilder::start::<Self>()
+			.add_group(DefaultBilePlugins)
 			.add(GpuVoxelDataPlugin)
 			.add(VoxelDataPlugin)
 			.add(VoxelStreamingPlugin)

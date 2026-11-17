@@ -81,6 +81,9 @@ impl GridEdit for RemoveArea {
 	}
 }
 
+/// The Bile diff of voxel data: one edit to the voxels.
+pub type VoxelEdit = Arc<dyn GridEdit>;
+
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GridEditId(u64);
 
@@ -116,7 +119,7 @@ pub struct GridEditMessage {
 	grid_id: GridId,
 	grid_generation: GridGeneration,
 	edit_id: GridEditId,
-	edit: Arc<dyn GridEdit>,
+	edit: VoxelEdit,
 }
 
 impl GridEditMessage {
@@ -140,4 +143,6 @@ impl GridEditMessage {
 	pub fn edit_id(&self) -> GridEditId { self.edit_id }
 
 	pub fn edit(&self) -> &dyn GridEdit { self.edit.as_ref() }
+
+	pub fn shared_edit(&self) -> &VoxelEdit { &self.edit }
 }

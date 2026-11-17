@@ -1,6 +1,5 @@
 use bevy::prelude::*;
-use bevy_trait_query::RegisterExt;
-use bile_data::{BileDataSchedule, DataConsumingNode};
+use bile_data::{BileDataSchedule, simple::BileRegisterSimple};
 use bile_tiles::{BileTilesSchedule, BileTilesSystemSet, TileInstances, TileKey};
 use voxel_data::grid::Grid;
 use voxel_sources::VoxelPresence;
@@ -9,7 +8,7 @@ mod presence;
 mod tile_node;
 
 pub use presence::{ChunkPresenceNode, RequestChunkPresence, bounds_of_chunks};
-pub use tile_node::{TileBuilderAppExt, TileComponentData, TileParams, VoxelTileBuilder, VoxelTileNode};
+pub use tile_node::{TileBuilderAppExt, TileComponentData, TileParams, VoxelTileBuilder, VoxelTileEditor, VoxelTileNode};
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VoxelTileSourceSet {
@@ -40,7 +39,7 @@ impl Plugin for VoxelStreamingPlugin {
 			app.add_plugins(bile_tiles::TileDataPlugin);
 		}
 		app.world_mut().spawn((Name::new("Chunk Presence Node"), ChunkPresenceNode::default()));
-		app.register_component_as::<dyn DataConsumingNode<VoxelPresence>, ChunkPresenceNode>();
+		app.register_consumer_simple::<VoxelPresence, ChunkPresenceNode>();
 		app.register_required_components::<Grid, TileInstances>();
 		app.add_message::<bile_components::ComponentResolved>()
 			.add_message::<bile_region_loader::RegionUpdated>()
