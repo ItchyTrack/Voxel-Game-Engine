@@ -64,13 +64,13 @@ voxel-mass = { version = "0.1.0", path = "crates/engine/voxel-mass" }
 voxel-content = { version = "0.1.0", path = "crates/engine/voxel-content" }
 basic-voxel = { version = "0.1.0", path = "crates/engine/basic-voxel" }
 voxel-engine = { version = "0.1.0", path = "crates/engine/voxel-engine" }
-bile-math = { git = "https://github.com/ItchyTrack/Bile", rev = "e9319f9" }
-bile-data = { git = "https://github.com/ItchyTrack/Bile", rev = "e9319f9" }
-bile-components = { git = "https://github.com/ItchyTrack/Bile", rev = "e9319f9" }
-bile-tiles = { git = "https://github.com/ItchyTrack/Bile", rev = "e9319f9" }
-bile-scene = { git = "https://github.com/ItchyTrack/Bile", rev = "e9319f9" }
-bile-region-loader = { git = "https://github.com/ItchyTrack/Bile", rev = "e9319f9" }
-bile = { git = "https://github.com/ItchyTrack/Bile", rev = "e9319f9" }
+bile-math = { git = "https://github.com/ItchyTrack/Bile", rev = "d1e3a34" }
+bile-data = { git = "https://github.com/ItchyTrack/Bile", rev = "d1e3a34" }
+bile-components = { git = "https://github.com/ItchyTrack/Bile", rev = "d1e3a34" }
+bile-tiles = { git = "https://github.com/ItchyTrack/Bile", rev = "d1e3a34" }
+bile-scene = { git = "https://github.com/ItchyTrack/Bile", rev = "d1e3a34" }
+bile-region-loader = { git = "https://github.com/ItchyTrack/Bile", rev = "d1e3a34" }
+bile = { git = "https://github.com/ItchyTrack/Bile", rev = "d1e3a34" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"
