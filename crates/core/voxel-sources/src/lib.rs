@@ -1,41 +1,38 @@
-mod request;
-mod source_manager;
-pub mod edit;
-mod source;
-mod forgotten_chunks;
 mod data;
+pub mod edit;
 mod edit_interest;
+mod forgotten_chunks;
 mod node;
+mod request;
+mod source;
+mod tracker;
+
 pub use forgotten_chunks::ForgottenChunks;
 
 use bevy::prelude::*;
-use bile_data::{BileDataPlugin, simple::BileRegisterSimple};
+use bile_data::{BileDataPlugin, gather::BileRegisterGather};
 
-use crate::{edit::GridEditMessage, source_manager::publish_source_results_messages};
+use crate::edit::GridEditMessage;
 pub use crate::{
-	data::{PresenceRegions, PresenceRequester, VoxelData, VoxelPresence, VoxelRegions, VoxelRequest, VoxelRequester},
+	data::{PresenceRequester, StreamCollector, VoxelData, VoxelPresence, VoxelRequest, VoxelRequester},
 	edit_interest::{ChunkEditInterest, ChunkEditInterestChanged},
-	node::VoxelSourceNode,
+	node::{VoxelSourceNode, VoxelSources},
 	request::{RequestId, SourceResult, SourceResultData},
-	source::{ChunkSource, SourceCoverage, SourceHandle, SourceId},
-	source_manager::SourceManager,
+	source::{ChunkSource, SourceHandle, SourceId},
+	tracker::VoxelRequestTracker,
 };
 
 pub trait VoxelSourcesAppExt {
-	fn register_voxel_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self;
+	/// Spawns the source as a [`VoxelSourceNode`]. Use [`VoxelSources`] to reach it.
+	fn register_voxel_source<S: ChunkSource>(&mut self, source: S) -> &mut Self;
 }
 
 impl VoxelSourcesAppExt for App {
-	fn register_voxel_source<S: ChunkSource + 'static>(&mut self, source: S) -> &mut Self {
-		self.world_mut()
-			.get_resource_or_init::<SourceManager>()
-			.add_source(source);
+	fn register_voxel_source<S: ChunkSource>(&mut self, source: S) -> &mut Self {
+		node::register_source(self, source);
 		self
 	}
 }
-
-#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct VoxelSourcesSet;
 
 /// Runs in `Update`. Nodes that request [`VoxelData`] or [`VoxelPresence`] should run before it.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -49,19 +46,20 @@ impl Plugin for VoxelSourcesPlugin {
 		if !app.is_plugin_added::<BileDataPlugin>() {
 			app.add_plugins(BileDataPlugin);
 		}
-		app.world_mut().spawn((Name::new("Voxel Source Node"), VoxelSourceNode::default()));
-		app.init_resource::<SourceManager>()
-			.add_message::<SourceResult>()
+		app.world_mut().get_resource_or_init::<node::SourceChannel>();
+		app.world_mut().spawn((Name::new("Voxel Request Tracker"), VoxelRequestTracker::default()));
+		app.add_message::<SourceResult>()
 			.add_message::<GridEditMessage>()
 			.add_message::<ChunkEditInterestChanged>()
-			.register_producer_simple::<VoxelData, VoxelSourceNode>()
-			.register_producer_simple::<VoxelPresence, VoxelSourceNode>()
-			.add_systems(PreUpdate, publish_source_results_messages.in_set(VoxelSourcesSet))
+			.register_producer_gather::<VoxelData, VoxelRequestTracker>()
+			.register_producer_gather::<VoxelPresence, VoxelRequestTracker>()
+			.register_producer_gather::<VoxelData, VoxelSourceNode>()
+			.register_producer_gather::<VoxelPresence, VoxelSourceNode>()
 			.add_systems(Update, (
-				node::process_voxel_requests,
-				node::dirty_edited_voxels,
-				node::receive_voxel_results,
-				node::publish_edit_interest_changes,
+				tracker::finish_tracker_streams,
+				node::receive_source_results,
+				tracker::dirty_edited_voxels,
+				tracker::publish_edit_interest_changes,
 			).chain().in_set(VoxelSourceNodeSet));
 	}
 }

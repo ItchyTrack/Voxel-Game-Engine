@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bile_data::{BileDataSchedule, simple::BileRegisterSimple};
+use bile_data::{BileDataSchedule, streaming::BileRegisterStreaming};
 use bile_tiles::{BileTilesSchedule, BileTilesSystemSet, TileInstances, TileKey};
 use voxel_data::grid::Grid;
 use voxel_sources::VoxelPresence;
@@ -39,11 +39,10 @@ impl Plugin for VoxelStreamingPlugin {
 			app.add_plugins(bile_tiles::TileDataPlugin);
 		}
 		app.world_mut().spawn((Name::new("Chunk Presence Node"), ChunkPresenceNode::default()));
-		app.register_consumer_simple::<VoxelPresence, ChunkPresenceNode>();
+		app.register_consumer_streaming::<VoxelPresence, ChunkPresenceNode>();
 		app.register_required_components::<Grid, TileInstances>();
 		app.add_message::<bile_components::ComponentResolved>()
 			.add_message::<bile_region_loader::RegionUpdated>()
-			.configure_sets(PreUpdate, VoxelTileSourceSet::Ingest.after(voxel_sources::VoxelSourcesSet))
 			.configure_sets(BileTilesSchedule, VoxelTileSourceSet::Receive.before(BileTilesSystemSet::UpdateReadyClasses))
 			.add_systems(PreUpdate, presence::update_presence.in_set(VoxelTileSourceSet::Ingest))
 			.add_systems(BileTilesSchedule, presence::publish_bounds_updates.in_set(VoxelTileSourceSet::Receive))

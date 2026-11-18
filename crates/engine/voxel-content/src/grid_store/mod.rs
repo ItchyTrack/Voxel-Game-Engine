@@ -10,7 +10,7 @@ pub use voxel_store_source::{
 
 use bevy::prelude::*;
 use voxel_mass::{SourceMassAppExt, VoxelMassReaders};
-use voxel_sources::VoxelSourcesAppExt;
+use voxel_sources::{VoxelSourceNodeSet, VoxelSourcesAppExt};
 
 #[derive(Default)]
 pub struct VoxelStoreSourcePlugin;
@@ -19,7 +19,7 @@ impl Plugin for VoxelStoreSourcePlugin {
 	fn build(&self, app: &mut App) {
 		let mass_readers = app.world().resource::<VoxelMassReaders>().clone();
 		app.register_voxel_source(VoxelStoreSource::new(mass_readers))
-			.add_systems(PreUpdate, complete_voxel_store_acquisitions)
+			.add_systems(Update, complete_voxel_store_acquisitions.after(VoxelSourceNodeSet))
 			.register_source_mass::<VoxelStoreSource>();
 	}
 }

@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::log::warn;
 use bevy::prelude::*;
-use bile_data::simple::DataConsumingNode;
+use bile_data::streaming::DataConsumingNode;
+use bile_math::NonZeroRegion;
 use lightyear::prelude::{EventSender, PeerId, NetworkingMetadata, RemoteEvent};
 use voxel_data::grid::GridId;
-use voxel_sources::{PresenceRegions, PresenceRequester, VoxelPresence};
+use voxel_sources::{PresenceRequester, StreamCollector, VoxelPresence};
 
 use super::{PresenceCancel, PresenceLoad, PresenceLoaded, PresenceRequest};
 use crate::ReplicateVoxelsRestriction;
@@ -33,12 +34,19 @@ impl OutgoingPresenceMessage {
 /// Consumes [`VoxelPresence`] on behalf of remote clients.
 #[derive(Component, Default)]
 pub(super) struct ServerPresenceNode {
-	received: Vec<(GridId, PresenceRegions)>,
+	collector: StreamCollector<GridId, NonZeroRegion>,
+	received: Vec<(GridId, Vec<NonZeroRegion>)>,
 }
 
 impl DataConsumingNode<VoxelPresence> for ServerPresenceNode {
-	fn pass_data(&mut self, grid: &GridId, _tick: u64, regions: PresenceRegions) {
-		self.received.push((*grid, regions));
+	fn start_data(&mut self, grid: &GridId, tick: u64) { self.collector.start(grid, tick); }
+
+	fn push_data(&mut self, grid: &GridId, region: NonZeroRegion) { self.collector.push(grid, region); }
+
+	fn finish_data(&mut self, grid: &GridId) {
+		if let Some(regions) = self.collector.finish(grid) {
+			self.received.push((*grid, regions));
+		}
 	}
 
 	fn dirty_data(&mut self, _grid: &GridId, _last_clean_tick: u64, _diff: Option<&()>) {}
@@ -48,7 +56,6 @@ impl DataConsumingNode<VoxelPresence> for ServerPresenceNode {
 pub(super) struct PendingPresenceLoads {
 	owners_by_grid: HashMap<GridId, HashSet<PresenceOwner>>,
 	by_owner: HashMap<PresenceOwner, GridId>,
-	ready: Vec<(GridId, PresenceRegions)>,
 	cancelled: HashSet<PresenceOwner>,
 	outgoing: VecDeque<OutgoingPresenceMessage>,
 }
@@ -62,8 +69,8 @@ impl PendingPresenceLoads {
 		let owners = self.owners_by_grid.entry(request.grid).or_default();
 		let first = owners.is_empty();
 		owners.insert(owner);
-		if first && let Some(regions) = requester.request(request.grid, node) {
-			self.ready.push((request.grid, regions));
+		if first {
+			requester.request(request.grid, node);
 		}
 	}
 
@@ -102,7 +109,7 @@ impl PendingPresenceLoads {
 	fn deliver(
 		&mut self,
 		grid: GridId,
-		regions: &PresenceRegions,
+		regions: &[NonZeroRegion],
 		restriction: Option<&ReplicateVoxelsRestriction>,
 		node: Entity,
 		requester: &mut PresenceRequester,
@@ -161,9 +168,7 @@ pub(super) fn flush_presence(
 	mut pending: ResMut<PendingPresenceLoads>,
 ) {
 	let (entity, mut node) = node.into_inner();
-	let mut ready = std::mem::take(&mut node.received);
-	ready.append(&mut pending.ready);
-	for (grid, regions) in ready {
+	for (grid, regions) in std::mem::take(&mut node.received) {
 		let Ok(restriction) = grids.get(grid) else {
 			warn!(?grid, "ignoring source presence for a missing grid");
 			continue;

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bile_data::simple::BileRegisterSimple;
+use bile_data::streaming::BileRegisterStreaming;
 use lightyear::prelude::{AppTriggerExt, NetworkDirection};
 use voxel_sources::{VoxelData, VoxelSourceNodeSet};
 
@@ -45,7 +45,7 @@ impl Plugin for VoxelLoadPlugin {
 		if self.enable_server {
 			app.world_mut().spawn((Name::new("Server Voxel Load Node"), ServerVoxelLoadNode::default()));
 			app.init_resource::<PendingVoxelLoads>()
-				.register_consumer_simple::<VoxelData, ServerVoxelLoadNode>()
+				.register_consumer_streaming::<VoxelData, ServerVoxelLoadNode>()
 				.add_observer(server::receive_voxel_load_request)
 				.add_observer(server::receive_voxel_load_cancel)
 				.add_observer(server::receive_voxel_load_retry)

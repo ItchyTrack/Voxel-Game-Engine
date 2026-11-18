@@ -6,8 +6,8 @@ use tile_data::{chunk_origin, chunk_region, chunks_in};
 use voxel_data::{grid::GridId, voxels::{VoxelTypeId, VoxelTypeInfo, Voxels}};
 use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, VoxelMassReaders, mass_properties_of_voxels};
 use voxel_sources::{
-	ChunkSource, RequestId, SourceCoverage, SourceHandle, SourceId,
-	SourceResult, SourceResultData, edit::{GridEdit, GridGeneration},
+	ChunkSource, RequestId, SourceHandle, SourceId, SourceResult, SourceResultData, VoxelSources,
+	edit::{GridEdit, GridGeneration},
 };
 use voxel_tasks::AsyncPriorityTaskPool;
 
@@ -139,7 +139,7 @@ impl VoxelStoreSource {
 					.merge_from(voxels, offset);
 				return;
 			}
-			SourceResultData::VoxelsLoaded { .. } => {
+			SourceResultData::VoxelsLoaded => {
 				let Some(acquisition) = self.acquisitions.remove(&result.request_id) else { return };
 				let mass_updates = self.grids.entry(acquisition.grid).or_default().complete_acquisition(
 					acquisition.chunk,
@@ -175,16 +175,9 @@ impl VoxelStoreSource {
 			for (chunk, version) in request.chunks {
 				if request.cancellation.is_cancelled() { break; }
 				let Some(voxels) = version.and_then(|version| version.voxels()) else { continue };
-				handle.voxels(
-					request.request_id,
-					grid,
-					chunk_region(chunk),
-					0,
-					request.generation,
-					voxels,
-				);
+				handle.voxels(request.request_id, grid, chunk_region(chunk), 0, voxels);
 			}
-			handle.voxels_loaded(request.request_id, request.generation);
+			handle.voxels_loaded(request.request_id);
 		});
 	}
 }
@@ -192,6 +185,11 @@ impl VoxelStoreSource {
 impl ChunkSource for VoxelStoreSource {
 	fn init(&mut self, handle: SourceHandle) {
 		self.handle = Some(handle);
+	}
+
+	fn covers(&self, grid: GridId, region: NonZeroRegion) -> bool {
+		let Some(store) = self.grids.get(&grid) else { return false };
+		chunks_in(region).any(|chunk| store.ownership(chunk) != ChunkOwnership::Unowned)
 	}
 
 	fn request_voxels(
@@ -202,19 +200,14 @@ impl ChunkSource for VoxelStoreSource {
 		region: NonZeroRegion,
 		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
-		generation: GridGeneration,
-	) -> SourceCoverage {
-		if cancellation.is_cancelled() { return SourceCoverage::None }
-
+	) {
 		let mut request = ServingRequest {
 			request_id,
 			cancellation: cancellation.clone(),
-			generation,
 			chunks: Vec::new(),
 		};
 		let mut waits_for_acquisition = false;
-		{
-			let Some(store) = self.grids.get(&grid) else { return SourceCoverage::None };
+		if let Some(store) = self.grids.get(&grid) {
 			for chunk in chunks_in(region) {
 				match store.ownership(chunk) {
 					ChunkOwnership::Unowned => {}
@@ -226,14 +219,11 @@ impl ChunkSource for VoxelStoreSource {
 				}
 			}
 		}
-		if request.chunks.is_empty() { return SourceCoverage::None }
-		let coverage = if request.chunks.len() == chunks_in(region).count() { SourceCoverage::All } else { SourceCoverage::Some };
 		if waits_for_acquisition {
 			self.grids.entry(grid).or_default().push_waiting_request(request);
 		} else {
 			self.dispatch(grid, request);
 		}
-		coverage
 	}
 
 	fn request_presence(&mut self, request_id: RequestId, _cancellation: voxel_tasks::CancellationToken, grid: GridId) {
@@ -269,11 +259,11 @@ impl ChunkSource for VoxelStoreSource {
 }
 
 pub fn complete_voxel_store_acquisitions(
-	mut sources: ResMut<voxel_sources::SourceManager>,
+	mut sources: VoxelSources,
 	mut results: MessageReader<SourceResult>,
 ) {
 	for result in results.read() {
-		if let Some(store) = sources.get_source_mut::<VoxelStoreSource>() {
+		if let Some(store) = sources.get_mut::<VoxelStoreSource>() {
 			store.receive_acquisition_result(result);
 		}
 	}

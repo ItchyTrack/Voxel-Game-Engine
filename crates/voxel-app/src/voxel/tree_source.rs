@@ -13,7 +13,7 @@ use bile_math::NonZeroRegion;
 use bile_scene::NodeBounds;
 use voxel_physics::{IsStatic, RigidBody, components::VoxelCollider};
 use voxel_lightyear::ReplicateVoxels;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceHandle, VoxelSourcesAppExt, edit::GridEditIdManager};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 use tile_data::{chunk_aligned, chunk_of, chunk_origin, chunks_in};
 use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, SourceMassAppExt, VoxelMass, VoxelMassReaders, mass_properties_of_voxels};
@@ -118,6 +118,10 @@ impl ChunkSource for TreeSource {
 		let _ = self.handle.set(handle);
 	}
 
+	fn covers(&self, grid: GridId, region: NonZeroRegion) -> bool {
+		self.is_mine(grid) && chunks_in(region).any(|chunk| self.bounds.contains(chunk_origin(chunk)) && !self.forgotten.contains(grid, chunk))
+	}
+
 	fn request_voxels(
 		&mut self,
 		request_id: RequestId,
@@ -126,18 +130,12 @@ impl ChunkSource for TreeSource {
 		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-		generation: GridGeneration,
-	) -> SourceCoverage {
-		if cancellation.is_cancelled() || !self.is_mine(grid) { return SourceCoverage::None; }
-
-		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| self.bounds.contains(chunk_origin(chunk)) && !self.forgotten.contains(grid, chunk)).collect();
-		let coverage = if owned_chunks.is_empty() {
-			return SourceCoverage::None;
-		} else if owned_chunks.len() == chunks_in(region).count() {
-			SourceCoverage::All
-		} else {
-			SourceCoverage::Some
-		};
+	) {
+		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| self.is_mine(grid) && self.bounds.contains(chunk_origin(chunk)) && !self.forgotten.contains(grid, chunk)).collect();
+		if owned_chunks.is_empty() {
+			self.handle.get().expect("tree source was not initialized").voxels_loaded(request_id);
+			return;
+		}
 
 		let use_raw = match voxel_type {
 			Some(id) if id == BasicVoxel::TYPE_INFO.id && lod == 0 => true,
@@ -171,11 +169,10 @@ impl ChunkSource for TreeSource {
 			};
 			if !cancellation.is_cancelled()
 				&& let Some(voxels) = voxels.filter(|voxels| !voxels.is_empty()) {
-				handle.voxels(request_id, grid, region, lod, generation, voxels);
+				handle.voxels(request_id, grid, region, lod, voxels);
 			}
-			handle.voxels_loaded(request_id, generation);
+			handle.voxels_loaded(request_id);
 		});
-		coverage
 	}
 
 	fn request_presence(&mut self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {

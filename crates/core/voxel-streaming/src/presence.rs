@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
-use bile_data::simple::DataConsumingNode;
+use bile_data::streaming::DataConsumingNode;
 use bile_math::NonZeroRegion;
 use bile_region_loader::RegionUpdated;
 use bile_scene::NodeBounds;
 use tile_data::{chunk_aligned, chunk_origin};
 use voxel_data::grid::GridId;
-use voxel_sources::{PresenceRegions, PresenceRequester, VoxelPresence, edit::GridEditMessage};
+use voxel_sources::{PresenceRequester, StreamCollector, VoxelPresence, edit::GridEditMessage};
 
 #[derive(Component, Debug, Default)]
 pub struct RequestChunkPresence;
@@ -16,12 +16,19 @@ pub struct RequestChunkPresence;
 #[derive(Component, Default)]
 pub struct ChunkPresenceNode {
 	requested: HashSet<GridId>,
-	received: Vec<(GridId, PresenceRegions)>,
+	collector: StreamCollector<GridId, NonZeroRegion>,
+	received: Vec<(GridId, Vec<NonZeroRegion>)>,
 }
 
 impl DataConsumingNode<VoxelPresence> for ChunkPresenceNode {
-	fn pass_data(&mut self, grid: &GridId, _tick: u64, regions: PresenceRegions) {
-		self.received.push((*grid, regions));
+	fn start_data(&mut self, grid: &GridId, tick: u64) { self.collector.start(grid, tick); }
+
+	fn push_data(&mut self, grid: &GridId, region: NonZeroRegion) { self.collector.push(grid, region); }
+
+	fn finish_data(&mut self, grid: &GridId) {
+		if let Some(regions) = self.collector.finish(grid) {
+			self.received.push((*grid, regions));
+		}
 	}
 
 	fn dirty_data(&mut self, _grid: &GridId, _last_clean_tick: u64, _diff: Option<&()>) {}
@@ -64,9 +71,7 @@ pub(crate) fn update_presence(
 	let node = node.into_inner();
 	for grid in &grids {
 		if !node.requested.insert(grid) { continue; }
-		if let Some(regions) = requester.request(grid, entity) {
-			node.received.push((grid, regions));
-		}
+		requester.request(grid, entity);
 	}
 
 	let mut added: HashMap<GridId, NonZeroRegion> = HashMap::new();
@@ -74,7 +79,7 @@ pub(crate) fn update_presence(
 		added.entry(grid).and_modify(|bounds| *bounds = union(*bounds, region)).or_insert(region);
 	};
 	for (grid, regions) in std::mem::take(&mut node.received) {
-		for &region in regions.iter() {
+		for region in regions {
 			add(grid, region);
 		}
 		if node.requested.remove(&grid) {

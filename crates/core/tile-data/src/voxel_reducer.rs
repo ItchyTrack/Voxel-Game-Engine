@@ -5,7 +5,7 @@ use voxel_data::voxels::{VoxelTypeId, Voxels};
 
 use bile_math::NonZeroRegion;
 
-use crate::VoxelRegionResult;
+use crate::{VoxelRegion, VoxelRegionResult};
 
 pub trait TileVoxelReducer: Send + Sync + 'static {
 	fn input_type_id(&self) -> VoxelTypeId;
@@ -30,11 +30,11 @@ impl TileVoxelReducerRegistry {
 		area: NonZeroRegion,
 		output_lod: u8,
 		output_type: VoxelTypeId,
-		inputs: &[VoxelRegionResult],
+		inputs: &[VoxelRegion],
 	) -> Option<Voxels> {
 		let mut exact = Vec::new();
 		let mut groups: Vec<(VoxelTypeId, Vec<&VoxelRegionResult>)> = Vec::new();
-		for input in inputs {
+		for input in inputs.iter().map(|input| input.as_ref()) {
 			let input_type = input.voxels.voxel_type_id();
 			if input.lod == output_lod && input_type == output_type {
 				exact.push(input);

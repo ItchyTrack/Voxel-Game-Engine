@@ -5,7 +5,7 @@ use bevy::{log::warn, math::IVec3};
 use bile_math::NonZeroRegion;
 use voxel_data::{compressed_voxels::CompressedVoxels, grid::GridId, voxels::{VoxelTypeId, Voxels}};
 use tile_data::{CHUNK_SIZE, chunk_origin};
-use voxel_sources::{RequestId, SourceHandle, edit::GridGeneration};
+use voxel_sources::{RequestId, SourceHandle};
 use voxel_tasks::CancellationToken;
 
 use super::super::{
@@ -80,11 +80,10 @@ impl ClientLoadRegistry {
 		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-		generation: GridGeneration,
 		accepted_chunks: HashSet<IVec3>,
 	) {
 		let id = self.ids.allocate();
-		let key = VoxelRequestKey { grid, region, lod, voxel_type, generation };
+		let key = VoxelRequestKey { grid, region, lod, voxel_type };
 		self.pending.insert(id, PendingVoxels {
 			request_id,
 			key,
@@ -218,14 +217,7 @@ impl ClientLoadRegistry {
 		};
 		*received_flag = true;
 		if let Some(voxels) = filter_accepted_chunks(&pending.accepted_chunks, metadata.region, metadata.lod, voxels) {
-			handle.voxels(
-				pending.request_id,
-				pending.key.grid,
-				metadata.region,
-				metadata.lod,
-				pending.key.generation,
-				voxels,
-			);
+			handle.voxels(pending.request_id, pending.key.grid, metadata.region, metadata.lod, voxels);
 		}
 		received.iter().all(|received| *received)
 	}
@@ -233,7 +225,7 @@ impl ClientLoadRegistry {
 	fn finish(&mut self, handle: &SourceHandle, id: NetworkRequestId) {
 		let Some(pending) = self.pending.remove(&id) else { return };
 		self.retries.retain(|retry| retry.id != id);
-		handle.voxels_loaded(pending.request_id, pending.key.generation);
+		handle.voxels_loaded(pending.request_id);
 		self.received.push_back(VoxelLoadReceived { id });
 	}
 

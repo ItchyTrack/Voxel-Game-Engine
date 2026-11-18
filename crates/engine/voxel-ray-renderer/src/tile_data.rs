@@ -1,6 +1,6 @@
 use bevy::{math::UVec3, prelude::Component};
 use bile_tiles::TileKey;
-use tile_data::{TileVoxelReducerRegistry, VoxelRegionResult};
+use tile_data::{TileVoxelReducerRegistry, VoxelRegion};
 use voxel_data::grid::GridId;
 use voxel_sources::VoxelRequest;
 use voxel_streaming::VoxelTileBuilder;
@@ -45,7 +45,7 @@ impl VoxelTileBuilder for VoxelRayTileBuilder {
 		VoxelRequest { grid, area: key.region, lod: key.lod.saturating_sub(self.lod_levels), voxel_type: Some(self.voxel_type) }
 	}
 
-	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegionResult]) -> Option<RayTileData> {
+	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegion]) -> Option<RayTileData> {
 		let region = key.region;
 		let voxel_lod = key.lod.saturating_sub(self.lod_levels);
 		let voxels = self.reducers.reduce(region, voxel_lod, self.voxel_type, inputs)?;

@@ -5,7 +5,6 @@ use bile_math::NonZeroRegion;
 use voxel_data::compressed_voxels::CompressedVoxels;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::edit::GridGeneration;
 
 use crate::chunks::request_id::NetworkRequestId;
 
@@ -15,7 +14,6 @@ pub(crate) struct VoxelRequestKey {
 	pub region: NonZeroRegion,
 	pub lod: u8,
 	pub voxel_type: Option<VoxelTypeId>,
-	pub generation: GridGeneration,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

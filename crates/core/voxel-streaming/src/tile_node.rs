@@ -14,12 +14,16 @@ use bile_components::{AddComponentData, ComponentData};
 use bile_data::{
 	DataType, DirtyState, Request,
 	diff::{BileRegisterDiff, DiffApplyingNode},
-	simple::{BileRegisterSimple, DataConsumingNode, DataDirtier, DataPasser, DataProducingNode},
+	simple::{BileRegisterSimple, DataDirtier, DataPasser, DataProducingNode},
+	streaming::{self, BileRegisterStreaming},
 };
 use bile_tiles::{BileTilesSchedule, BileTilesSystemSet, DesireForClass, RegisterTileClass, TileKey};
-use tile_data::VoxelRegionResult;
+use tile_data::VoxelRegion;
 use voxel_data::grid::GridId;
-use voxel_sources::{VoxelData, VoxelRegions, VoxelRequest, VoxelRequester, VoxelSourceNodeSet, edit::VoxelEdit};
+use voxel_sources::{StreamCollector, VoxelData, VoxelRequest, VoxelRequester, VoxelSourceNodeSet, edit::VoxelEdit};
+
+/// Every region streamed for a [`VoxelRequest`].
+type VoxelRegions = Arc<Vec<VoxelRegion>>;
 
 /// The grid and the tile within it.
 pub type TileParams = (GridId, TileKey);
@@ -42,7 +46,7 @@ pub trait VoxelTileBuilder: Send + Sync + 'static {
 	type Output: Component + Clone;
 
 	fn voxels(&self, grid: GridId, key: TileKey) -> VoxelRequest;
-	fn build(&self, grid: GridId, key: TileKey, voxels: &[VoxelRegionResult]) -> Option<Self::Output>;
+	fn build(&self, grid: GridId, key: TileKey, voxels: &[VoxelRegion]) -> Option<Self::Output>;
 }
 
 /// A [`VoxelTileBuilder`] that can apply voxel edits to a finished tile instead of building it again.
@@ -72,6 +76,7 @@ pub struct VoxelTileNode<B: VoxelTileBuilder> {
 	events: Vec<TileNodeEvent>,
 	tiles: HashMap<TileParams, TileState<B::Output>>,
 	tiles_by_voxels: HashMap<VoxelRequest, HashSet<TileParams>>,
+	voxels: StreamCollector<VoxelRequest, VoxelRegion>,
 	/// Finished tiles are edited through their diffs instead of being built again.
 	applies_edits: bool,
 }
@@ -83,6 +88,7 @@ impl<B: VoxelTileBuilder> VoxelTileNode<B> {
 			events: Vec::new(),
 			tiles: HashMap::new(),
 			tiles_by_voxels: HashMap::new(),
+			voxels: StreamCollector::default(),
 			applies_edits,
 		}
 	}
@@ -94,13 +100,12 @@ impl<B: VoxelTileBuilder> VoxelTileNode<B> {
 		state.build = Some(AsyncComputeTaskPool::get().spawn(async move { builder.build(tile.0, tile.1, &voxels) }));
 	}
 
+	/// The voxels are streamed back, also when Bile already has them.
 	fn request_voxels(&mut self, tile: TileParams, entity: Entity, requester: &mut VoxelRequester) {
 		let Some(state) = self.tiles.get_mut(&tile) else { return };
 		state.build = None;
 		state.waiting = true;
-		if let Some(voxels) = requester.request(state.voxels, entity) {
-			self.start_build(tile, voxels);
-		}
+		requester.request(state.voxels, entity);
 	}
 }
 
@@ -125,12 +130,19 @@ impl<B: VoxelTileEditor> DiffApplyingNode<TileComponentData<B::Output>> for Voxe
 	}
 }
 
-impl<B: VoxelTileBuilder> DataConsumingNode<VoxelData> for VoxelTileNode<B> {
-	fn pass_data(&mut self, params: &VoxelRequest, _tick: u64, data: VoxelRegions) {
-		self.events.push(TileNodeEvent::Voxels(*params, data));
+impl<B: VoxelTileBuilder> streaming::DataConsumingNode<VoxelData> for VoxelTileNode<B> {
+	fn start_data(&mut self, params: &VoxelRequest, tick: u64) { self.voxels.start(params, tick); }
+
+	fn push_data(&mut self, params: &VoxelRequest, region: VoxelRegion) { self.voxels.push(params, region); }
+
+	fn finish_data(&mut self, params: &VoxelRequest) {
+		if let Some(regions) = self.voxels.finish(params) {
+			self.events.push(TileNodeEvent::Voxels(*params, Arc::new(regions)));
+		}
 	}
 
-	fn dirty_data(&mut self, params: &VoxelRequest, _last_clean_tick: u64, edit: Option<&VoxelEdit>) {
+	fn dirty_data(&mut self, params: &VoxelRequest, last_clean_tick: u64, edit: Option<&VoxelEdit>) {
+		self.voxels.dirty(params, last_clean_tick);
 		self.events.push(TileNodeEvent::DirtyVoxels(*params, edit.cloned()));
 	}
 }
@@ -159,6 +171,7 @@ fn update_voxel_tiles<B: VoxelTileBuilder>(
 				tiles.remove(&tile);
 				if tiles.is_empty() {
 					node.tiles_by_voxels.remove(&state.voxels);
+					node.voxels.forget(&state.voxels);
 					requester.cancel(&state.voxels, entity);
 				}
 			}
@@ -230,7 +243,7 @@ fn add_tile_builder<B: VoxelTileBuilder>(app: &mut App, builder: B, applies_edit
 	app.world_mut().spawn((Name::new(std::any::type_name::<B>()), VoxelTileNode::new(builder, applies_edits)));
 	app.add_component_data::<TileComponentData<B::Output>>()
 		.register_producer_simple::<TileComponentData<B::Output>, VoxelTileNode<B>>()
-		.register_consumer_simple::<VoxelData, VoxelTileNode<B>>()
+		.register_consumer_streaming::<VoxelData, VoxelTileNode<B>>()
 		.add_systems(Update, update_voxel_tiles::<B>.before(VoxelSourceNodeSet))
 }
 

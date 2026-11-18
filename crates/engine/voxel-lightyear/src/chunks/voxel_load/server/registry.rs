@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::log::warn;
 use bevy::prelude::*;
-use bile_data::simple::DataConsumingNode;
+use bile_data::streaming::DataConsumingNode;
 use lightyear::prelude::PeerId;
 use voxel_data::compressed_voxels::CompressedVoxels;
-use voxel_sources::{VoxelData, VoxelRegions, VoxelRequest, VoxelRequester, edit::VoxelEdit};
+use tile_data::VoxelRegion;
+use voxel_sources::{StreamCollector, VoxelData, VoxelRequest, VoxelRequester, edit::VoxelEdit};
 
 use super::super::{
 	VoxelLoadManifest,
@@ -61,27 +62,53 @@ impl OutgoingVoxelMessage {
 /// Consumes [`VoxelData`] on behalf of remote clients.
 #[derive(Component, Default)]
 pub(crate) struct ServerVoxelLoadNode {
-	received: Vec<(VoxelRequest, VoxelRegions)>,
+	collector: StreamCollector<VoxelRequest, VoxelRegion>,
+	received: Vec<(VoxelRequest, Vec<VoxelRegion>)>,
 	dirtied: Vec<VoxelRequest>,
 }
 
 impl DataConsumingNode<VoxelData> for ServerVoxelLoadNode {
-	fn pass_data(&mut self, params: &VoxelRequest, _tick: u64, data: VoxelRegions) {
-		self.received.push((*params, data));
+	fn start_data(&mut self, params: &VoxelRequest, tick: u64) { self.collector.start(params, tick); }
+
+	fn push_data(&mut self, params: &VoxelRequest, region: VoxelRegion) { self.collector.push(params, region); }
+
+	fn finish_data(&mut self, params: &VoxelRequest) {
+		if let Some(regions) = self.collector.finish(params) {
+			self.received.push((*params, regions));
+		}
 	}
 
-	fn dirty_data(&mut self, params: &VoxelRequest, _last_clean_tick: u64, _diff: Option<&VoxelEdit>) {
+	fn dirty_data(&mut self, params: &VoxelRequest, last_clean_tick: u64, _diff: Option<&VoxelEdit>) {
+		self.collector.dirty(params, last_clean_tick);
 		self.dirtied.push(*params);
 	}
 }
 
 impl ServerVoxelLoadNode {
-	pub(super) fn take_received(&mut self) -> Vec<(VoxelRequest, VoxelRegions)> {
+	pub(super) fn take_received(&mut self) -> Vec<(VoxelRequest, Vec<VoxelRegion>)> {
 		std::mem::take(&mut self.received)
 	}
 
 	pub(super) fn take_dirtied(&mut self) -> Vec<VoxelRequest> {
 		std::mem::take(&mut self.dirtied)
+	}
+}
+
+/// How the loads request and cancel [`VoxelData`] for the [`ServerVoxelLoadNode`].
+pub(super) struct NodeVoxels<'a, 'w, 's> {
+	pub(super) entity: Entity,
+	pub(super) node: &'a mut ServerVoxelLoadNode,
+	pub(super) requester: &'a mut VoxelRequester<'w, 's>,
+}
+
+impl NodeVoxels<'_, '_, '_> {
+	fn request(&mut self, key: VoxelRequest) {
+		self.requester.request(key, self.entity);
+	}
+
+	fn cancel(&mut self, key: &VoxelRequest) {
+		self.node.collector.forget(key);
+		self.requester.cancel(key, self.entity);
 	}
 }
 
@@ -102,12 +129,11 @@ impl PendingVoxelLoads {
 		&mut self,
 		peer: PeerId,
 		request: VoxelLoadRequest,
-		node: Entity,
-		requester: &mut VoxelRequester,
+		voxels: &mut NodeVoxels,
 	) {
 		let owner = VoxelLoadOwner { peer, id: request.id };
 		if self.cancelled.remove(&owner) { return; }
-		self.remove_owner(owner, node, requester);
+		self.remove_owner(owner, voxels);
 
 		let key = VoxelRequest {
 			grid: request.key.grid,
@@ -135,20 +161,17 @@ impl PendingVoxelLoads {
 			owners: HashSet::from([owner]),
 			payloads: Vec::new(),
 		});
-		if let Some(data) = requester.request(key, node) {
-			self.complete(id, &data, node, requester);
-		}
+		voxels.request(key);
 	}
 
 	pub(super) fn cancel(
 		&mut self,
 		peer: PeerId,
 		id: NetworkRequestId,
-		node: Entity,
-		requester: &mut VoxelRequester,
+		voxels: &mut NodeVoxels,
 	) {
 		let owner = VoxelLoadOwner { peer, id };
-		if !self.remove_owner(owner, node, requester) {
+		if !self.remove_owner(owner, voxels) {
 			self.cancelled.insert(owner);
 		}
 	}
@@ -171,37 +194,39 @@ impl PendingVoxelLoads {
 		&mut self,
 		peer: PeerId,
 		id: NetworkRequestId,
-		node: Entity,
-		requester: &mut VoxelRequester,
+		voxels: &mut NodeVoxels,
 	) {
-		self.remove_owner(VoxelLoadOwner { peer, id }, node, requester);
+		self.remove_owner(VoxelLoadOwner { peer, id }, voxels);
 	}
 
-	pub(super) fn receive_voxels(&mut self, key: VoxelRequest, data: &VoxelRegions, node: Entity, requester: &mut VoxelRequester) {
+	pub(super) fn receive_voxels(&mut self, key: VoxelRequest, data: &[VoxelRegion], voxels: &mut NodeVoxels) {
 		let Some(&id) = self.current.get(&key) else { return };
 		if !self.loads[&id].waiting { return; }
-		self.complete(id, data, node, requester);
+		self.complete(id, data, voxels);
 	}
 
-	pub(super) fn dirty_voxels(&mut self, key: VoxelRequest, node: Entity, requester: &mut VoxelRequester) {
+	pub(super) fn dirty_voxels(&mut self, key: VoxelRequest, voxels: &mut NodeVoxels) {
 		let Some(&id) = self.current.get(&key) else { return };
-		if self.loads[&id].waiting { return; }
+		if self.loads[&id].waiting {
+			// What was streamed so far is stale, the voxels are streamed again.
+			voxels.request(key);
+			return;
+		}
 		self.current.remove(&key);
-		requester.cancel(&key, node);
+		voxels.cancel(&key);
 	}
 
 	pub(super) fn remove_disconnected(
 		&mut self,
 		mut connected: impl FnMut(PeerId) -> bool,
-		node: Entity,
-		requester: &mut VoxelRequester,
+		voxels: &mut NodeVoxels,
 	) {
 		let disconnected: Vec<_> = self.by_owner.keys()
 			.filter(|owner| !connected(owner.peer))
 			.copied()
 			.collect();
 		for owner in disconnected {
-			self.remove_owner(owner, node, requester);
+			self.remove_owner(owner, voxels);
 		}
 		self.cancelled.retain(|owner| connected(owner.peer));
 		self.outgoing.retain(|message| connected(message.peer()));
@@ -217,7 +242,7 @@ impl PendingVoxelLoads {
 		self.outgoing.push_back(message);
 	}
 
-	fn complete(&mut self, id: LoadId, data: &VoxelRegions, node: Entity, requester: &mut VoxelRequester) {
+	fn complete(&mut self, id: LoadId, data: &[VoxelRegion], voxels: &mut NodeVoxels) {
 		let Some(key) = self.loads.get(&id).map(|load| load.key) else { return };
 		let payloads: Vec<_> = data.iter().filter_map(|result| {
 			if !key.area.contains_region(result.area) || result.lod > key.lod {
@@ -247,7 +272,7 @@ impl PendingVoxelLoads {
 				self.by_owner.remove(&owner);
 			}
 			self.current.remove(&key);
-			requester.cancel(&key, node);
+			voxels.cancel(&key);
 			return;
 		}
 		let load = self.loads.get_mut(&id).expect("completed voxel load disappeared");
@@ -282,7 +307,7 @@ impl PendingVoxelLoads {
 		}
 	}
 
-	fn remove_owner(&mut self, owner: VoxelLoadOwner, node: Entity, requester: &mut VoxelRequester) -> bool {
+	fn remove_owner(&mut self, owner: VoxelLoadOwner, voxels: &mut NodeVoxels) -> bool {
 		self.outgoing.retain(|message| message.owner() != owner);
 		let Some(id) = self.by_owner.remove(&owner) else { return false };
 		let should_remove = self.loads.get_mut(&id).is_some_and(|load| {
@@ -293,7 +318,7 @@ impl PendingVoxelLoads {
 			let load = self.loads.remove(&id).expect("empty voxel load disappeared");
 			if self.current.get(&load.key) == Some(&id) {
 				self.current.remove(&load.key);
-				requester.cancel(&load.key, node);
+				voxels.cancel(&load.key);
 			}
 		}
 		true

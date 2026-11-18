@@ -1,14 +1,18 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use bevy::ecs::message::Message;
 use bile_math::NonZeroRegion;
 use voxel_data::{grid::GridId, voxels::Voxels};
 
-use crate::edit::GridGeneration;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RequestId(pub(crate) u64);
 
-// #[cfg(test)] // TODO: figure out why this was not working
 impl RequestId {
+	pub(crate) fn next() -> Self {
+		static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+		Self(NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed))
+	}
+
 	pub fn from_raw(request_id: u64) -> RequestId {
 		RequestId(request_id)
 	}
@@ -25,14 +29,13 @@ pub enum SourceResultData {
 		grid: GridId,
 		region: NonZeroRegion,
 		lod: u8,
-		generation: GridGeneration,
 		voxels: Voxels,
 	},
-	VoxelsLoaded {
-		generation: GridGeneration,
-	},
+	VoxelsLoaded,
 }
 
+/// What a source sent for a request. Only requests made outside of Bile, through
+/// [`crate::VoxelSources::request_voxels`], are published as messages.
 #[derive(Debug, Message)]
 pub struct SourceResult {
 	pub request_id: RequestId,

@@ -324,7 +324,7 @@ mod tests {
 		};
 		let registry = TileVoxelReducerRegistry::default();
 		registry.insert(BasicToLodVoxelReducer);
-		let output = registry.reduce(area, 1, LodVoxel::TYPE_ID, &[raw, exact]).unwrap();
+		let output = registry.reduce(area, 1, LodVoxel::TYPE_ID, &[raw.into(), exact.into()]).unwrap();
 
 		let raw = LodVoxel::from_voxel_ref(&output.voxel(&UVec3::ZERO).unwrap());
 		let exact = LodVoxel::from_voxel_ref(&output.voxel(&UVec3::new(32, 0, 0)).unwrap());

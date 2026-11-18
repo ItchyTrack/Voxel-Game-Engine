@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use rustc_hash::FxHashMap;
-use voxel_sources::{ChunkSource, SourceManager};
+use voxel_sources::{ChunkSource, VoxelSources};
 
 use crate::{GridMassProperties, SourceMassUpdate, VoxelMassReaders, VoxelMassSet};
 
@@ -19,11 +19,11 @@ impl SourceMassAppExt for App {
 }
 
 pub fn apply_source_mass_updates<S: SourceMass + 'static>(
-	mut sources: ResMut<SourceManager>,
+	mut sources: VoxelSources,
 	readers: Res<VoxelMassReaders>,
 	mut grids: Query<&mut GridMassProperties>,
 ) {
-	let Some(source) = sources.get_source_mut::<S>() else { return };
+	let Some(source) = sources.get_mut::<S>() else { return };
 	let mut by_grid = FxHashMap::<Entity, Vec<SourceMassUpdate>>::default();
 	for mass_updates in source.take_mass_updates(&readers) {
 		by_grid.entry(mass_updates.grid()).or_default().push(mass_updates);

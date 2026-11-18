@@ -1,83 +1,52 @@
 use std::any::Any;
 
-use crossbeam_channel::Sender;
+use bevy::prelude::*;
 use bile_math::NonZeroRegion;
+use crossbeam_channel::Sender;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::{VoxelTypeId, Voxels};
 use voxel_tasks::CancellationToken;
 
-use crate::SourceResult;
-use crate::edit::GridGeneration;
-use crate::request::{RequestId, SourceResultData};
+use crate::request::{RequestId, SourceResult, SourceResultData};
 
+/// The entity of a registered source.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct SourceId(pub usize);
+pub struct SourceId(pub Entity);
 
 #[derive(Clone)]
 pub struct SourceHandle {
-	pub(super) id: SourceId,
-	pub(super) messages: Sender<SourceResult>,
+	pub(crate) id: SourceId,
+	pub(crate) messages: Sender<SourceResult>,
 }
 
 impl SourceHandle {
 	pub fn id(&self) -> SourceId { self.id }
 
-	pub fn voxels(
-		&self,
-		request_id: RequestId,
-		grid: GridId,
-		region: NonZeroRegion,
-		lod: u8,
-		generation: GridGeneration,
-		voxels: Voxels,
-	) {
-		let _ = self.messages.send(SourceResult {
-			request_id,
-			data: SourceResultData::Voxels {
-				grid,
-				region,
-				lod,
-				generation,
-				voxels,
-			},
-		});
+	pub fn voxels(&self, request_id: RequestId, grid: GridId, region: NonZeroRegion, lod: u8, voxels: Voxels) {
+		let _ = self.messages.send(SourceResult { request_id, data: SourceResultData::Voxels { grid, region, lod, voxels } });
 	}
 
-	pub fn voxels_loaded(&self, request_id: RequestId, generation: GridGeneration) {
-		let _ = self.messages.send(SourceResult {
-			request_id,
-			data: SourceResultData::VoxelsLoaded { generation },
-		});
+	pub fn voxels_loaded(&self, request_id: RequestId) {
+		let _ = self.messages.send(SourceResult { request_id, data: SourceResultData::VoxelsLoaded });
 	}
 
 	pub fn presence(&self, request_id: RequestId, grid: GridId, region: NonZeroRegion) {
-		let _ = self.messages.send(SourceResult {
-			request_id,
-			data: SourceResultData::Presence{ grid, region },
-		});
+		let _ = self.messages.send(SourceResult { request_id, data: SourceResultData::Presence { grid, region } });
 	}
 
 	pub fn presence_loaded(&self, request_id: RequestId) {
-		let _ = self.messages.send(SourceResult {
-			request_id,
-			data: SourceResultData::PresenceLoaded,
-		});
+		let _ = self.messages.send(SourceResult { request_id, data: SourceResultData::PresenceLoaded });
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceCoverage {
-	/// The source owns none of the region.
-	None,
-	/// The source may own part of the region.
-	Some,
-	/// The source owns the entire region.
-	All,
-}
-
-pub trait ChunkSource: Send + Sync + SourceToAny {
+/// A source of voxels. Each registered source is a Bile gather node, see [`crate::VoxelSourceNode`].
+pub trait ChunkSource: Any + Send + Sync {
 	fn init(&mut self, handle: SourceHandle);
 
+	/// Whether the source owns any of the region. Only the sources that do are asked for its voxels.
+	fn covers(&self, grid: GridId, region: NonZeroRegion) -> bool;
+
+	/// Sends the voxels the source owns in the region through its handle, then `voxels_loaded`.
 	fn request_voxels(
 		&mut self,
 		request_id: RequestId,
@@ -86,27 +55,12 @@ pub trait ChunkSource: Send + Sync + SourceToAny {
 		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-		generation: GridGeneration,
-	) -> SourceCoverage;
-
-	fn request_presence(
-		&mut self,
-		request_id: RequestId,
-		cancellation: CancellationToken,
-		grid: GridId,
 	);
+
+	/// Sends the regions the source has for the grid through its handle, then `presence_loaded`.
+	fn request_presence(&mut self, request_id: RequestId, cancellation: CancellationToken, grid: GridId);
 
 	fn acquire_ownership(&mut self, grid: GridId, region: NonZeroRegion);
 
 	fn relinquish_ownership(&mut self, grid: GridId, region: NonZeroRegion);
-}
-
-pub trait SourceToAny: 'static {
-	fn as_any(&self) -> &dyn Any;
-	fn as_any_mut(&mut self) -> &mut dyn Any;
-}
-
-impl<T: 'static> SourceToAny for T {
-	fn as_any(&self) -> &dyn Any { self }
-	fn as_any_mut (&mut self) -> &mut dyn Any { self }
 }

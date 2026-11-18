@@ -5,7 +5,7 @@ use bevy::math::{IVec2, IVec3, Vec3};
 
 use voxel_data::{grid::GridId, voxels::{VoxelRef, VoxelTypeId, Voxels}};
 use voxel_trees::sdf::Sdf;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceHandle};
 use bile_math::NonZeroRegion;
 use tile_data::{CHUNK_SIZE, chunk_aligned, chunk_origin, chunk_region, chunks_in};
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
@@ -99,6 +99,11 @@ impl ChunkSource for SdfSource {
 		self.handle = Some(handle);
 	}
 
+	fn covers(&self, grid: GridId, region: NonZeroRegion) -> bool {
+		let Some(binding) = self.binding(grid) else { return false };
+		chunks_in(region).any(|chunk| self.chunk_owned(grid, &binding, chunk))
+	}
+
 	fn request_voxels(
 		&mut self,
 		request_id: RequestId,
@@ -107,20 +112,12 @@ impl ChunkSource for SdfSource {
 		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-		generation: GridGeneration,
-	) -> SourceCoverage {
-		if cancellation.is_cancelled() {
-			return SourceCoverage::None;
-		}
-		let Some(binding) = self.binding(grid) else { return SourceCoverage::None };
-		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| self.chunk_owned(grid, &binding, chunk)).collect();
-		let coverage = if owned_chunks.is_empty() {
-			return SourceCoverage::None;
-		} else if owned_chunks.len() == chunks_in(region).count() {
-			SourceCoverage::All
-		} else {
-			SourceCoverage::Some
+	) {
+		let Some(binding) = self.binding(grid) else {
+			self.handle.as_ref().expect("SDF source was not initialized").voxels_loaded(request_id);
+			return;
 		};
+		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| self.chunk_owned(grid, &binding, chunk)).collect();
 
 		let handle = self.handle.as_ref().expect("SDF source was not initialized").clone();
 		let cancellation = cancellation.clone();
@@ -165,12 +162,10 @@ impl ChunkSource for SdfSource {
 				}
 			}
 			if !cancellation.is_cancelled() && let Some(voxels) = merged {
-				handle.voxels(request_id, grid, region, lod, generation, voxels);
+				handle.voxels(request_id, grid, region, lod, voxels);
 			}
-			handle.voxels_loaded(request_id, generation);
+			handle.voxels_loaded(request_id);
 		});
-
-		coverage
 	}
 
 	fn request_presence(&mut self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {
