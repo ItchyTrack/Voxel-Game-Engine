@@ -72,7 +72,6 @@ impl StoredChunk {
 pub(crate) struct ServingRequest {
 	pub(crate) request_id: RequestId,
 	pub(crate) cancellation: CancellationToken,
-	pub(crate) generation: GridGeneration,
 	pub(crate) chunks: Vec<(IVec3, Option<Arc<ChunkVersion>>)>,
 }
 

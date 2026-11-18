@@ -5,7 +5,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::math::{IVec3, Quat, UVec3, Vec3};
 use bevy::prelude::*;
 use bile_tiles::TileKey;
-use tile_data::VoxelRegionResult;
+use tile_data::VoxelRegion;
 use voxel_data::bvh::BVH;
 use voxel_data::grid::{Grid, GridId};
 use voxel_sources::edit::VoxelEdit;
@@ -35,7 +35,7 @@ impl VoxelTileBuilder for OccupancyTileBuilder {
 		VoxelRequest { grid, area: key.region, lod: 0, voxel_type: None }
 	}
 
-	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegionResult]) -> Option<OccupancyTileData> {
+	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegion]) -> Option<OccupancyTileData> {
 		let tile_region = key.region;
 		let mut areas = Vec::new();
 		for input in inputs {

@@ -8,7 +8,7 @@ use voxel_mass::{
 	edit_reservation_error,
 };
 use voxel_sources::{
-	SourceManager,
+	VoxelRequest, VoxelSources,
 	edit::{GridEdit, GridEditId, GridEditIdManager, GridEditMessage, GridGeneration},
 };
 
@@ -16,7 +16,7 @@ use super::{VoxelStoreSource, grid_store::ChunkOwnership};
 
 #[derive(SystemParam)]
 pub struct GridStoreEditApi<'w, 's> {
-	sources: ResMut<'w, SourceManager>,
+	sources: VoxelSources<'w, 's>,
 	messages: MessageWriter<'w, GridEditMessage>,
 	edit_mass_readers: Res<'w, GridEditMassReaders>,
 	voxel_mass_readers: Res<'w, VoxelMassReaders>,
@@ -40,11 +40,12 @@ impl<'w, 's> GridStoreEditApi<'w, 's> {
 		let affected_region = edit.affected_region();
 		let mass_bearing = self.voxel_mass_readers.contains(voxel_type.id);
 
-		let source = self.sources.get_source::<VoxelStoreSource>()
+		let source = self.sources.get::<VoxelStoreSource>()
 			.expect("voxel store source was not registered");
 		let chunk_ownership: Vec<_> = chunks_in(affected_region)
 			.map(|chunk| (chunk, source.chunk_ownership(grid, chunk)))
 			.collect();
+		let source_id = source.source_id();
 
 		if mass_bearing {
 			let first_chunk = chunk_ownership.first().expect("an edit must affect at least one chunk").0;
@@ -78,18 +79,17 @@ impl<'w, 's> GridStoreEditApi<'w, 's> {
 			(previous_generation, edit_id, generation)
 		};
 		let edit = Arc::<dyn GridEdit>::from(edit);
-		let source_id = source.source_id();
 
 		let mut acquiring = Vec::new();
 		for (chunk, ownership) in &chunk_ownership {
 			if *ownership != ChunkOwnership::Unowned { continue; }
 			let region = chunk_region(*chunk);
-			let request_id = self.sources.request_voxels(grid, region, 0, Some(voxel_type.id), previous_generation);
+			let request_id = self.sources.request_voxels(VoxelRequest { grid, area: region, lod: 0, voxel_type: Some(voxel_type.id) });
 			self.sources.transfer_ownership(source_id, grid, region);
 			acquiring.push((*chunk, request_id));
 		}
 
-		let store = self.sources.get_source_mut::<VoxelStoreSource>()
+		let store = self.sources.get_mut::<VoxelStoreSource>()
 			.expect("voxel store source was not registered");
 		store.set_mass_readers(self.voxel_mass_readers.clone());
 		for (chunk, request_id) in acquiring {

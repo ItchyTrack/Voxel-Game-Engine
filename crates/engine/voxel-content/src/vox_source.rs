@@ -14,7 +14,7 @@ use voxel_mass::{
 	mass_properties_of_voxels,
 };
 use voxel_trees::grid_tree::NonZeroRegion;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceHandle};
 use tile_data::{chunk_aligned, chunk_of, chunk_origin, chunk_region, chunks_in};
 use tile_data::CHUNK_SIZE;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
@@ -249,6 +249,10 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		let _ = self.inner.handle.set(handle);
 	}
 
+	fn covers(&self, grid: GridId, region: NonZeroRegion) -> bool {
+		self.inner.binding(grid).is_some() && chunks_in(region).any(|chunk| !self.inner.forgotten.contains(grid, chunk))
+	}
+
 	fn request_voxels(
 		&mut self,
 		request_id: RequestId,
@@ -257,18 +261,12 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 		region: NonZeroRegion,
 		_lod: u8,
 		_voxel_type: Option<VoxelTypeId>,
-		generation: GridGeneration,
-	) -> SourceCoverage {
-		let Some(binding) = self.inner.binding(grid) else { return SourceCoverage::None; };
-
-		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| !self.inner.forgotten.contains(grid, chunk)).collect();
-		let coverage = if owned_chunks.is_empty() {
-			return SourceCoverage::None;
-		} else if owned_chunks.len() == chunks_in(region).count() {
-			SourceCoverage::All
-		} else {
-			SourceCoverage::Some
+	) {
+		let Some(binding) = self.inner.binding(grid) else {
+			self.inner.handle.get().expect("VOX source was not initialized").voxels_loaded(request_id);
+			return;
 		};
+		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| !self.inner.forgotten.contains(grid, chunk)).collect();
 
 		let source = self.inner.clone();
 		let handle = self.inner.handle.get().expect("VOX source was not initialized").clone();
@@ -278,12 +276,11 @@ impl<T: VoxMaterialVoxel> ChunkSource for VoxFileSource<T> {
 			for chunk in owned_chunks {
 				if cancellation.is_cancelled() { break; }
 				if let Some(voxels) = source.translated_chunk(&binding, chunk) {
-					handle.voxels(request_id, grid, chunk_region(chunk), 0, generation, voxels);
+					handle.voxels(request_id, grid, chunk_region(chunk), 0, voxels);
 				}
 			}
-			handle.voxels_loaded(request_id, generation);
+			handle.voxels_loaded(request_id);
 		});
-		coverage
 	}
 
 	fn request_presence(

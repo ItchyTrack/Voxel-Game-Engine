@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bile_data::simple::BileRegisterSimple;
+use bile_data::streaming::BileRegisterStreaming;
 use lightyear::prelude::{AppTriggerExt, NetworkDirection};
 use voxel_sources::{VoxelPresence, VoxelSourceNodeSet};
 
@@ -31,7 +31,7 @@ impl Plugin for PresencePlugin {
 		if self.enable_server {
 			app.world_mut().spawn((Name::new("Server Presence Node"), server::ServerPresenceNode::default()));
 			app.init_resource::<server::PendingPresenceLoads>()
-				.register_consumer_simple::<VoxelPresence, server::ServerPresenceNode>()
+				.register_consumer_streaming::<VoxelPresence, server::ServerPresenceNode>()
 				.add_observer(server::receive_request)
 				.add_observer(server::receive_cancel)
 				.add_systems(

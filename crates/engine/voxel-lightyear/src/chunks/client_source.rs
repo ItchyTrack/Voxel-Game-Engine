@@ -6,7 +6,7 @@ use bile_math::NonZeroRegion;
 use tile_data::chunks_in;
 use voxel_data::grid::GridId;
 use voxel_data::voxels::VoxelTypeId;
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, edit::GridGeneration};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceHandle};
 use voxel_tasks::CancellationToken;
 
 use super::presence::ClientPresenceRegistry;
@@ -32,6 +32,11 @@ impl ChunkSource for ClientChunkSource {
 		let _ = self.state.handle.set(handle);
 	}
 
+	fn covers(&self, grid: GridId, region: NonZeroRegion) -> bool {
+		self.state.remote_grids.lock().unwrap().contains(&grid)
+			&& chunks_in(region).any(|chunk| !self.state.forgotten.contains(grid, chunk))
+	}
+
 	fn request_voxels(
 		&mut self,
 		request_id: RequestId,
@@ -40,14 +45,16 @@ impl ChunkSource for ClientChunkSource {
 		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-		generation: GridGeneration,
-	) -> SourceCoverage {
-		if cancellation.is_cancelled() || !self.state.remote_grids.lock().unwrap().contains(&grid) {
-			return SourceCoverage::None;
+	) {
+		let accepted_chunks: HashSet<_> = if self.state.remote_grids.lock().unwrap().contains(&grid) {
+			chunks_in(region).filter(|&chunk| !self.state.forgotten.contains(grid, chunk)).collect()
+		} else {
+			HashSet::new()
+		};
+		if accepted_chunks.is_empty() {
+			self.state.handle.get().expect("client chunk source was not initialized").voxels_loaded(request_id);
+			return;
 		}
-		let accepted_chunks: HashSet<_> = chunks_in(region).filter(|&chunk| !self.state.forgotten.contains(grid, chunk)).collect();
-		if accepted_chunks.is_empty() { return SourceCoverage::None; }
-		let coverage = if accepted_chunks.len() == chunks_in(region).count() { SourceCoverage::All } else { SourceCoverage::Some };
 		self.state.loads.lock().unwrap().request_voxels(
 			request_id,
 			cancellation,
@@ -55,10 +62,8 @@ impl ChunkSource for ClientChunkSource {
 			region,
 			lod,
 			voxel_type,
-			generation,
 			accepted_chunks,
 		);
-		coverage
 	}
 
 	fn request_presence(

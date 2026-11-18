@@ -10,7 +10,7 @@ use voxel_data::{grid::{Grid, GridId}, voxels::VoxelTypeId};
 use voxel_physics::{components::VoxelCollider, IsStatic, RigidBody};
 use voxel_lightyear::ReplicateVoxels;
 use voxel_mass::{MassError, MassProperties, SourceMass, SourceMassUpdate, SourceMassAppExt, VoxelMass, VoxelMassReaders};
-use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceCoverage, SourceHandle, VoxelSourcesAppExt, edit::{GridEditIdManager, GridGeneration}};
+use voxel_sources::{ForgottenChunks, ChunkSource, RequestId, SourceHandle, VoxelSourcesAppExt, edit::GridEditIdManager};
 use voxel_streaming::bounds_of_chunks;
 use voxel_tasks::{AsyncPriorityTaskPool, CancellationToken};
 
@@ -58,6 +58,11 @@ impl ChunkSource for ProceduralPlanetSource {
 		let _ = self.handle.set(handle);
 	}
 
+	fn covers(&self, grid: GridId, region: NonZeroRegion) -> bool {
+		let Some(tile) = self.tile_index(grid).and_then(|tile_index| planet_tiles().get(tile_index)) else { return false };
+		chunks_in(region).any(|chunk| tile_has_chunk(tile, chunk) && !self.forgotten.contains(grid, chunk))
+	}
+
 	fn request_voxels(
 		&mut self,
 		request_id: RequestId,
@@ -66,19 +71,15 @@ impl ChunkSource for ProceduralPlanetSource {
 		region: NonZeroRegion,
 		lod: u8,
 		voxel_type: Option<VoxelTypeId>,
-		generation: GridGeneration,
-	) -> SourceCoverage {
-		if cancellation.is_cancelled() { return SourceCoverage::None; }
-		let Some(tile_index) = self.tile_index(grid) else { return SourceCoverage::None };
-		let Some(tile) = planet_tiles().get(tile_index) else { return SourceCoverage::None };
-
-		let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| tile_has_chunk(tile, chunk) && !self.forgotten.contains(grid, chunk)).collect();
-		let coverage = if owned_chunks.is_empty() {
-			return SourceCoverage::None;
-		} else if owned_chunks.len() == chunks_in(region).count() {
-			SourceCoverage::All
-		} else {
-			SourceCoverage::Some
+	) {
+		let owned = self.tile_index(grid).and_then(|tile_index| {
+			let tile = planet_tiles().get(tile_index)?;
+			let owned_chunks: Vec<_> = chunks_in(region).filter(|&chunk| tile_has_chunk(tile, chunk) && !self.forgotten.contains(grid, chunk)).collect();
+			(!owned_chunks.is_empty()).then_some((tile_index, owned_chunks))
+		});
+		let Some((tile_index, owned_chunks)) = owned else {
+			self.handle.get().expect("planet source was not initialized").voxels_loaded(request_id);
+			return;
 		};
 
 		let use_basic_voxel = match voxel_type {
@@ -97,11 +98,10 @@ impl ChunkSource for ProceduralPlanetSource {
 				build_planet_region(tile_index, region, &owned_chunks, lod, &cancellation, planet_lod_voxel)
 			};
 			if !cancellation.is_cancelled() && let Some(voxels) = voxels {
-				handle.voxels(request_id, grid, region, lod, generation, voxels);
+				handle.voxels(request_id, grid, region, lod, voxels);
 			}
-			handle.voxels_loaded(request_id, generation);
+			handle.voxels_loaded(request_id);
 		});
-		coverage
 	}
 
 	fn request_presence(&mut self, request_id: RequestId, _cancellation: CancellationToken, grid: GridId) {

@@ -17,7 +17,7 @@ use voxel_mass::{RotationalInertia, SourceMassAppExt, VoxelMass};
 use voxel_physics::{
 	AngularVelocity, BallJoint, Impulses, IsStatic, RigidBody, VoxelPhysicsAppExt
 };
-use voxel_sources::{SourceManager, VoxelSourcesAppExt};
+use voxel_sources::{VoxelSources, VoxelSourcesAppExt};
 use voxel_streaming::RequestChunkPresence;
 
 use crate::voxel::spawn_grid::spawn_grid;
@@ -72,20 +72,20 @@ fn drive_orientation(
 
 fn setup_scene(
 	mut commands: Commands,
-	mut source_manager: ResMut<SourceManager>,
+	mut sources: VoxelSources,
 ) {
 	{
-		let vox_source = source_manager.get_source_mut::<SceneVoxFileSource>().unwrap();
+		let vox_source = sources.get_mut::<SceneVoxFileSource>().unwrap();
 		spawn_church(&mut commands, vox_source);
 	}
 	{
-		let marching_vox_source = source_manager.get_source_mut::<MarchingVoxFileSource>().unwrap();
+		let marching_vox_source = sources.get_mut::<MarchingVoxFileSource>().unwrap();
 		spawn_sponza(&mut commands, marching_vox_source);
 	}
 	{
 		// spawn_ball_cluster(&mut commands, &store);
 		// spawn_bb8(&mut commands, &mut store, Vec3::new(0.0, 120.0, 0.0));
-		let store = source_manager.get_source_mut::<VoxelStoreSource>().unwrap();
+		let store = sources.get_mut::<VoxelStoreSource>().unwrap();
 		spawn_bb8(&mut commands, store, Vec3::new(30.0, 120.0, 0.0));
 		spawn_bb8(&mut commands, store, Vec3::new(-30.0, 120.0, 0.0));
 		// for x in 0..3 {

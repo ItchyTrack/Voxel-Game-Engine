@@ -2,7 +2,7 @@ use basic_voxel::MarchingVoxel;
 use bevy::{math::{IVec3, UVec3, Vec3}, prelude::Component};
 use bile_math::NonZeroRegion;
 use bile_tiles::TileKey;
-use tile_data::{TileVoxelReducerRegistry, VoxelRegionResult};
+use tile_data::{TileVoxelReducerRegistry, VoxelRegion};
 use voxel_data::grid::GridId;
 use voxel_sources::VoxelRequest;
 use voxel_streaming::VoxelTileBuilder;
@@ -41,7 +41,7 @@ impl VoxelTileBuilder for MarchingTileBuilder {
 		VoxelRequest { grid, area: padded_area(key.region), lod: key.lod, voxel_type: Some(MarchingVoxel::TYPE_INFO.id) }
 	}
 
-	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegionResult]) -> Option<MarchingTileData> {
+	fn build(&self, _grid: GridId, key: TileKey, inputs: &[VoxelRegion]) -> Option<MarchingTileData> {
 		let area = key.region;
 		let padded_area = padded_area(area);
 		let voxel_lod = key.lod;
